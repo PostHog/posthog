@@ -97,6 +97,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "conclusion_comment",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
+            "exposure_preaggregation_enabled",
             "user_access_level",
         ]
         read_only_fields = [
@@ -1022,6 +1023,7 @@ class EnterpriseExperimentsViewSet(
             "feature_flag_key": feature_flag_key,  # Use provided key or fall back to existing
             "primary_metrics_ordered_uuids": source_experiment.primary_metrics_ordered_uuids,
             "secondary_metrics_ordered_uuids": source_experiment.secondary_metrics_ordered_uuids,
+            "exposure_preaggregation_enabled": source_experiment.exposure_preaggregation_enabled,
             # Reset fields for new experiment
             "start_date": None,
             "end_date": None,

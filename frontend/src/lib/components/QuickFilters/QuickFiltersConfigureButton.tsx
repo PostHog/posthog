@@ -3,8 +3,8 @@ import { useActions } from 'kea'
 import { IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { QuickFiltersModal } from './QuickFiltersModal'
 import { QuickFiltersLogicProps } from './quickFiltersLogic'
+import { QuickFiltersModal } from './QuickFiltersModal'
 import { quickFiltersModalLogic } from './quickFiltersModalLogic'
 
 export function QuickFiltersConfigureButton({ context }: QuickFiltersLogicProps): JSX.Element {

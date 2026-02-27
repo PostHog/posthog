@@ -14,10 +14,12 @@ def register_all_admin():
         DashboardTemplateAdmin,
         DataColorThemeAdmin,
         DataWarehouseTableAdmin,
+        DuckgresServerAdmin,
         DuckLakeCatalogAdmin,
         EventIngestionRestrictionConfigAdmin,
         ExperimentAdmin,
         ExperimentSavedMetricAdmin,
+        ExternalDataSchemaAdmin,
         FeatureFlagAdmin,
         GroupTypeMappingAdmin,
         HogFunctionAdmin,
@@ -51,6 +53,7 @@ def register_all_admin():
         DashboardTemplate,
         DataColorTheme,
         DataWarehouseTable,
+        DuckgresServer,
         DuckLakeCatalog,
         EventIngestionRestrictionConfig,
         Experiment,
@@ -81,6 +84,8 @@ def register_all_admin():
 
     from products.desktop_recordings.backend.admin import DesktopRecordingAdmin
     from products.desktop_recordings.backend.models import DesktopRecording
+    from products.endpoints.backend.admin import EndpointAdmin, EndpointVersionAdmin
+    from products.endpoints.backend.models import Endpoint, EndpointVersion
     from products.signals.backend.admin import SignalReportAdmin
     from products.signals.backend.models import SignalReport
     from products.tasks.backend.admin import SandboxSnapshotAdmin, TaskAdmin, TaskRunAdmin
@@ -121,7 +126,11 @@ def register_all_admin():
 
     admin.site.register(ProductTour, ProductTourAdmin)
 
+    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+
+    admin.site.register(ExternalDataSchema, ExternalDataSchemaAdmin)
     admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
+    admin.site.register(DuckgresServer, DuckgresServerAdmin)
     admin.site.register(DuckLakeCatalog, DuckLakeCatalogAdmin)
     admin.site.register(HogFunction, HogFunctionAdmin)
     admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)
@@ -136,6 +145,9 @@ def register_all_admin():
     admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)
 
     admin.site.register(DesktopRecording, DesktopRecordingAdmin)
+
+    admin.site.register(Endpoint, EndpointAdmin)
+    admin.site.register(EndpointVersion, EndpointVersionAdmin)
 
     admin.site.register(SignalReport, SignalReportAdmin)
 

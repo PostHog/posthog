@@ -29,11 +29,8 @@ function ElementEmptyState({ onClick }: { onClick: () => void }): JSX.Element {
 }
 
 function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null {
-    const { productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
-    const { updateSelectedStep, submitAndOpenToolbar } = useActions(productTourLogic({ id: tourId }))
-
-    const steps = productTourForm.content?.steps ?? []
-    const step = steps[selectedStepIndex]
+    const { selectedStep: step } = useValues(productTourLogic({ id: tourId }))
+    const { updateSelectedStep, openToolbarModal } = useActions(productTourLogic({ id: tourId }))
 
     if (!step) {
         return null
@@ -89,59 +86,6 @@ function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null
                                 ]}
                             />
                         </div>
-
-                        {step.elementTargeting === 'manual' && (
-                            <div className="flex flex-col gap-1 flex-1 min-w-0">
-                                <label className="text-[0.6875rem] font-medium text-muted uppercase tracking-wide">
-                                    CSS Selector
-                                </label>
-                                <LemonInput
-                                    value={step.selector || ''}
-                                    onChange={(value) => updateSelectedStep({ selector: value })}
-                                    placeholder="#my-element"
-                                    size="small"
-                                    className="font-mono max-w-md"
-                                    autoFocus={!hasTarget}
-                                />
-                            </div>
-                        )}
-
-                        {step.elementTargeting === 'auto' && (
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[0.6875rem] font-medium text-muted uppercase tracking-wide">
-                                    Element
-                                </label>
-                                <div className="flex gap-2">
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        icon={<IconCursorClick />}
-                                        onClick={() => submitAndOpenToolbar('edit')}
-                                    >
-                                        {step.inferenceData ? 'Change' : 'Select element in Toolbar'}
-                                    </LemonButton>
-                                    {step.inferenceData && (
-                                        <LemonButton
-                                            size="small"
-                                            type="secondary"
-                                            status="danger"
-                                            icon={<IconTrash />}
-                                            onClick={() =>
-                                                updateSelectedStep({
-                                                    selector: undefined,
-                                                    inferenceData: undefined,
-                                                    screenshotMediaId: undefined,
-                                                    useManualSelector: undefined,
-                                                    elementTargeting: undefined,
-                                                })
-                                            }
-                                        >
-                                            Remove
-                                        </LemonButton>
-                                    )}
-                                </div>
-                            </div>
-                        )}
                     </div>
 
                     {step.elementTargeting === 'auto' && step.inferenceData && (
@@ -216,6 +160,57 @@ function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null
                 )}
             </div>
 
+            {step.elementTargeting === 'manual' && (
+                <div className="flex flex-col gap-1 flex-1 min-w-0">
+                    <label className="text-[0.6875rem] font-medium text-muted uppercase tracking-wide">
+                        CSS Selector
+                    </label>
+                    <LemonInput
+                        value={step.selector || ''}
+                        onChange={(value) => updateSelectedStep({ selector: value })}
+                        placeholder="#my-element"
+                        size="small"
+                        className="font-mono max-w-md"
+                        autoFocus={!hasTarget}
+                    />
+                </div>
+            )}
+
+            {step.elementTargeting === 'auto' && (
+                <div className="flex flex-col gap-1">
+                    <label className="text-[0.6875rem] font-medium text-muted uppercase tracking-wide">Element</label>
+                    <div className="flex gap-2">
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconCursorClick />}
+                            onClick={() => openToolbarModal('edit')}
+                        >
+                            {step.inferenceData ? 'Change' : 'Select element in Toolbar'}
+                        </LemonButton>
+                        {step.inferenceData && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                status="danger"
+                                icon={<IconTrash />}
+                                onClick={() =>
+                                    updateSelectedStep({
+                                        selector: undefined,
+                                        inferenceData: undefined,
+                                        screenshotMediaId: undefined,
+                                        useManualSelector: undefined,
+                                        elementTargeting: undefined,
+                                    })
+                                }
+                            >
+                                Remove
+                            </LemonButton>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {step.elementTargeting && hasIncompleteTargeting(step) && (
                 <div className="flex flex-col items-start gap-2">
                     <span className="text-muted">
@@ -248,54 +243,64 @@ function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null
 }
 
 export function StepSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null {
-    const { productTour, productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
+    const {
+        productTour,
+        productTourForm,
+        selectedStep: step,
+        selectedStepIndex,
+    } = useValues(productTourLogic({ id: tourId }))
     const { updateSelectedStep } = useActions(productTourLogic({ id: tourId }))
 
     const isAnnouncementMode = productTour ? isAnnouncement(productTour) : false
-
     const steps = productTourForm.content?.steps ?? []
-    const step = steps[selectedStepIndex]
 
     if (!step) {
         return null
     }
 
     return (
-        <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Target element</label>
-                <ElementSettings tourId={tourId} />
+        <div className="border rounded overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 bg-surface-primary border-b font-semibold">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted">Step settings</span>
             </div>
-
-            <div className="flex gap-5">
-                <div className="shrink-0 flex flex-col gap-3">
-                    <div>
-                        <label className="text-sm font-medium block mb-2">Position</label>
-                        <PositionSelector
-                            disabled={step.elementTargeting !== undefined}
-                            tooltip={
-                                step.elementTargeting !== undefined
-                                    ? 'This step will be positioned next to the element you choose.'
-                                    : undefined
-                            }
-                            value={step.modalPosition ?? SurveyPosition.MiddleCenter}
-                            onChange={(position: ScreenPosition) =>
-                                updateSelectedStep({
-                                    modalPosition: position,
-                                })
-                            }
-                        />
+            <div className="py-3 px-4">
+                <div className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-2">
+                        <label className="text-sm font-medium">Target element</label>
+                        <ElementSettings tourId={tourId} />
                     </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                    <StepButtonsEditor
-                        buttons={step.buttons}
-                        onChange={(buttons) => updateSelectedStep({ buttons })}
-                        isTourContext={!isAnnouncementMode}
-                        stepIndex={selectedStepIndex}
-                        totalSteps={steps.length}
-                        layout="stacked"
-                    />
+
+                    <div className="flex gap-5">
+                        <div className="shrink-0 flex flex-col gap-3">
+                            <div>
+                                <label className="text-sm font-medium block mb-2">Position</label>
+                                <PositionSelector
+                                    disabled={step.elementTargeting !== undefined}
+                                    tooltip={
+                                        step.elementTargeting !== undefined
+                                            ? 'This step will be positioned next to the element you choose.'
+                                            : undefined
+                                    }
+                                    value={step.modalPosition ?? SurveyPosition.MiddleCenter}
+                                    onChange={(position: ScreenPosition) =>
+                                        updateSelectedStep({
+                                            modalPosition: position,
+                                        })
+                                    }
+                                />
+                            </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <StepButtonsEditor
+                                buttons={step.buttons}
+                                onChange={(buttons) => updateSelectedStep({ buttons })}
+                                isTourContext={!isAnnouncementMode}
+                                stepIndex={selectedStepIndex}
+                                totalSteps={steps.length}
+                                layout="stacked"
+                            />
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

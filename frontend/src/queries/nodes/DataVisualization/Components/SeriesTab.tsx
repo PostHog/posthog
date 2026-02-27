@@ -27,7 +27,7 @@ import { AxisBreakdownSeries, seriesBreakdownLogic } from './seriesBreakdownLogi
 import { YSeriesLogicProps, YSeriesSettingsTab, ySeriesLogic } from './ySeriesLogic'
 
 export const SeriesTab = (): JSX.Element => {
-    const { visualizationType } = useValues(dataVisualizationLogic)
+    const { effectiveVisualizationType } = useValues(dataVisualizationLogic)
     const {
         columns,
         numericalColumns,
@@ -47,7 +47,7 @@ export const SeriesTab = (): JSX.Element => {
     const hideAddYSeries = yData.length >= numericalColumns.length
     const hideAddSeriesBreakdown = !(!showSeriesBreakdown && selectedXAxis && columns.length > yData.length)
 
-    if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
+    if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         return <HeatmapSeriesTab />
     }
 

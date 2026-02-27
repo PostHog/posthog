@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCode, IconCursorClick, IconDocument, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -10,18 +10,18 @@ import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { SurveyMatchTypeLabels } from 'scenes/surveys/constants'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { DateRange, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -116,12 +116,14 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
         dateRange,
         targetingFlagFilters,
         launchValidationIssues,
+        hasDraft,
     } = useValues(productTourLogic({ id }))
     const {
         editingProductTour,
         launchProductTour,
         stopProductTour,
         resumeProductTour,
+        discardDraft,
         setDateRange,
         openToolbarModal,
     } = useActions(productTourLogic({ id }))
@@ -299,6 +301,22 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                     </>
                 }
             />
+
+            {hasDraft && (
+                <LemonBanner type="info" className="mb-4">
+                    <div className="flex items-center justify-between w-full">
+                        <span>You have unsaved changes</span>
+                        <div className="flex items-center gap-2">
+                            <LemonButton type="secondary" size="xsmall" onClick={discardDraft}>
+                                Discard
+                            </LemonButton>
+                            <LemonButton type="primary" size="xsmall" onClick={() => editingProductTour(true)}>
+                                Continue editing
+                            </LemonButton>
+                        </div>
+                    </div>
+                </LemonBanner>
+            )}
 
             <LemonTabs
                 activeKey={tabKey}

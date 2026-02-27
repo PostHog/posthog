@@ -87,6 +87,9 @@ def group_node_to_expr(group: GroupNode, team: Team) -> ast.Expr | None:
                 group_filters.append(node_expr)
             except Action.DoesNotExist:
                 pass
+        elif isinstance(node, DataWarehouseNode):
+            # TODO: Support DWH nodes in groups
+            pass
 
     if len(group_filters) == 0:
         return None
@@ -96,8 +99,5 @@ def group_node_to_expr(group: GroupNode, team: Team) -> ast.Expr | None:
 
     if group.operator == "OR":
         return ast.Or(exprs=group_filters)
-
-    if group.operator == "AND":
-        return ast.And(exprs=group_filters)
 
     return None

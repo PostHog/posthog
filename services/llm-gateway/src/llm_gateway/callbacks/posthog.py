@@ -86,7 +86,10 @@ class PostHogCallback(InstrumentedCallback):
         trace_id = (
             metadata.get("user_id") or str(uuid4())
         )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
-        distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+        if auth_user and auth_user.auth_method == "oauth_access_token":
+            distinct_id = auth_user.distinct_id
+        else:
+            distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(
@@ -159,7 +162,10 @@ class PostHogCallback(InstrumentedCallback):
         trace_id = (
             metadata.get("user_id") or str(uuid4())
         )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
-        distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+        if auth_user and auth_user.auth_method == "oauth_access_token":
+            distinct_id = auth_user.distinct_id
+        else:
+            distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(

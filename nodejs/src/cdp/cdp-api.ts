@@ -1,24 +1,28 @@
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
 import { ModifiedRequest } from '~/api/router'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
+import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS, KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/kafka/producer'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
 import './async-functions'
+import { createCdpCoreServices } from './cdp-services'
 import {
     CdpSourceWebhooksConsumer,
     CdpSourceWebhooksConsumerHub,
     HogFunctionWebhookResult,
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
-import { HogTransformerHub, HogTransformerService } from './hog-transformations/hog-transformer.service'
+import {
+    HogTransformerService,
+    HogTransformerServiceDeps,
+    createHogTransformerService,
+} from './hog-transformations/hog-transformer.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
@@ -43,7 +47,7 @@ import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering
  * Combines all hub types needed by CdpApi and its dependencies.
  */
 export type CdpApiHub = CdpSourceWebhooksConsumerHub &
-    HogTransformerHub &
+    HogTransformerServiceDeps &
     Pick<
         Hub,
         | 'teamManager'
@@ -75,43 +79,27 @@ export class CdpApi {
     private emailTrackingService: EmailTrackingService
     private recipientPreferencesService: RecipientPreferencesService
     private recipientTokensService: RecipientTokensService
+    private cdpWarehouseKafkaProducer?: KafkaProducerWrapper
 
     constructor(private hub: CdpApiHub) {
-        this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
-        this.hogFlowManager = new HogFlowManagerService(hub.postgres, hub.pubSub)
-        this.recipientsManager = new RecipientsManagerService(hub.postgres)
-        this.hogExecutor = new HogExecutorService(hub)
-        this.hogFlowFunctionsService = new HogFlowFunctionsService(
-            hub.SITE_URL,
-            this.hogFunctionTemplateManager,
-            this.hogExecutor
-        )
-        this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
-        this.recipientTokensService = new RecipientTokensService(hub)
-        this.hogFlowExecutor = new HogFlowExecutorService(
-            this.hogFlowFunctionsService,
-            this.recipientPreferencesService
-        )
-        this.nativeDestinationExecutorService = new NativeDestinationExecutorService(hub)
-        this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(hub)
-        // CDP uses its own Redis instance with fallback to default
-        this.hogWatcher = new HogWatcherService(
-            hub,
-            createRedisV2PoolFromConfig({
-                connection: hub.CDP_REDIS_HOST
-                    ? {
-                          url: hub.CDP_REDIS_HOST,
-                          options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                          name: 'cdp-api-redis',
-                      }
-                    : { url: hub.REDIS_URL, name: 'cdp-api-redis-fallback' },
-                poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-            })
-        )
-        this.hogTransformer = new HogTransformerService(hub)
-        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
+        const services = createCdpCoreServices(hub, 'cdp-api-redis')
+
+        this.hogFunctionManager = services.hogFunctionManager
+        this.hogFunctionTemplateManager = services.hogFunctionTemplateManager
+        this.hogFlowManager = services.hogFlowManager
+        this.recipientsManager = services.recipientsManager
+        this.recipientTokensService = services.recipientTokensService
+        this.hogExecutor = services.hogExecutor
+        this.hogFlowFunctionsService = services.hogFlowFunctionsService
+        this.recipientPreferencesService = services.recipientPreferencesService
+        this.hogFlowExecutor = services.hogFlowExecutor
+        this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
+        this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
+        this.hogWatcher = services.hogWatcher
+        this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
+
+        // API-only services
+        this.hogTransformer = createHogTransformerService(hub)
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
@@ -129,11 +117,15 @@ export class CdpApi {
     }
 
     async start(): Promise<void> {
+        this.cdpWarehouseKafkaProducer = await KafkaProducerWrapper.create(
+            this.hub.KAFKA_CLIENT_RACK,
+            'WAREHOUSE_PRODUCER'
+        )
         await this.cdpSourceWebhooksConsumer.start()
     }
 
     async stop(): Promise<void> {
-        await Promise.all([this.cdpSourceWebhooksConsumer.stop()])
+        await Promise.all([this.cdpWarehouseKafkaProducer?.disconnect(), this.cdpSourceWebhooksConsumer.stop()])
     }
 
     isHealthy(): HealthCheckResult {
@@ -172,6 +164,11 @@ export class CdpApi {
         }
 
         // Public routes (excluded from authentication by middleware)
+        router.post(
+            '/public/webhooks/dwh/:webhook_id',
+            publicBodySizeLimit,
+            asyncHandler(this.handleWarehouseSourceWebhook())
+        )
         router.post('/public/webhooks/:webhook_id', publicBodySizeLimit, asyncHandler(this.handleWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
@@ -510,6 +507,7 @@ export class CdpApi {
                 errors: result.error ? [result.error] : [],
                 logs: [...result.logs, ...logs],
                 variables: result.invocation.state.variables ?? {},
+                execResult: result.execResult ?? null,
             })
         } catch (e) {
             console.error(e)
@@ -568,48 +566,86 @@ export class CdpApi {
         }
     }
 
+    private async processAndRespondToWebhook(
+        webhookId: string,
+        req: ModifiedRequest,
+        res: express.Response,
+        onSuccess: (
+            result: Awaited<ReturnType<typeof this.cdpSourceWebhooksConsumer.processWebhook>>
+        ) => Promise<any> | any
+    ): Promise<any> {
+        try {
+            const result = await this.cdpSourceWebhooksConsumer.processWebhook(webhookId, req)
+
+            if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
+                const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
+                if (typeof httpResponse.body === 'string') {
+                    return res
+                        .status(httpResponse.status)
+                        .set('Content-Type', httpResponse.contentType ?? 'text/plain')
+                        .send(httpResponse.body)
+                } else if (typeof httpResponse.body === 'object') {
+                    return res.status(httpResponse.status).json(httpResponse.body)
+                }
+                return res.status(httpResponse.status).send('')
+            }
+
+            return await onSuccess(result)
+        } catch (error) {
+            if (error instanceof SourceWebhookError) {
+                return res.status(error.status).json({ error: error.message })
+            }
+            logger.error('[CdpApi] Error handling webhook', { error })
+            return res.status(500).json({ error: 'Internal error' })
+        }
+    }
+
     private handleWebhook =
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const { webhook_id } = req.params
-
-            try {
-                const result = await this.cdpSourceWebhooksConsumer.processWebhook(webhook_id, req)
-
-                if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
-                    // TODO: Better validation here before we directly use the result
-                    const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
-                    if (typeof httpResponse.body === 'string') {
-                        return res
-                            .status(httpResponse.status)
-                            .set('Content-Type', httpResponse.contentType ?? 'text/plain')
-                            .send(httpResponse.body)
-                    } else if (typeof httpResponse.body === 'object') {
-                        return res.status(httpResponse.status).json(httpResponse.body)
-                    } else {
-                        return res.status(httpResponse.status).send('')
-                    }
-                }
-
+            return this.processAndRespondToWebhook(webhook_id, req, res, (result) => {
                 if (result.error) {
-                    return res.status(500).json({
-                        status: 'Unhandled error',
-                    })
+                    return res.status(500).json({ status: 'Unhandled error' })
                 }
                 if (!result.finished) {
-                    return res.status(201).json({
-                        status: 'queued',
-                    })
+                    return res.status(201).json({ status: 'queued' })
                 }
-                return res.status(200).json({
-                    status: 'ok',
+                return res.status(200).json({ status: 'ok' })
+            })
+        }
+
+    private handleWarehouseSourceWebhook =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            const { webhook_id } = req.params
+            return this.processAndRespondToWebhook(webhook_id, req, res, async (result) => {
+                if (result.error) {
+                    return res.status(500).json({ error: 'Internal error' })
+                }
+                if (!result.execResult || typeof result.execResult !== 'object') {
+                    return res.status(500).json({ error: 'Template did not return a payload' })
+                }
+
+                const hogFunction = result.invocation.hogFunction
+                const schemaId = hogFunction.inputs?.schema_id?.value
+                if (!schemaId) {
+                    return res.status(500).json({ error: 'Missing schema_id on hog function' })
+                }
+
+                const kafkaProducer = this.cdpWarehouseKafkaProducer
+                if (!kafkaProducer) {
+                    return res.status(500).json({ error: 'Kafka producer not available' })
+                }
+
+                await kafkaProducer.produce({
+                    topic: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
+                    key: `${hogFunction.team_id}:${schemaId}`,
+                    value: Buffer.from(JSON.stringify(result.execResult)),
                 })
-            } catch (error) {
-                if (error instanceof SourceWebhookError) {
-                    return res.status(error.status).json({ error: error.message })
-                }
-                return res.status(500).json({ error: 'Internal error' })
-            }
+
+                return res.status(200).json({ status: 'ok' })
+            })
         }
 
     private postSesWebhook =

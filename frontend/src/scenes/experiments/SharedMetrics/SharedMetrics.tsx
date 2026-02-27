@@ -13,8 +13,8 @@ import {
 } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'

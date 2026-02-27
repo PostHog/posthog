@@ -15,13 +15,14 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
+from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
-from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
@@ -33,6 +34,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 tracer = trace.get_tracer(__name__)
@@ -57,13 +59,14 @@ class HogQLQueryExecutor:
     hogql_context: Optional[HogQLContext] = None
     clickhouse_prepared_ast: Optional[ast.AST] = None
     clickhouse_sql: Optional[str] = None
+    user: Optional[User] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
     @tracer.start_as_current_span("HogQLQueryExecutor.__post_init__")
     def __post_init__(self):
         if self.context is self.__uninitialized_context:
-            self.context = HogQLContext(team_id=self.team.pk)
+            self.context = HogQLContext(team_id=self.team.pk, user=self.user)
 
         self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
         self.debug = self.modifiers is not None and self.modifiers.debug
@@ -132,7 +135,7 @@ class HogQLQueryExecutor:
         if self.query_modifiers.usePreaggregatedIntermediateResults:
             with self.timings.measure("daily_unique_persons_pageviews_transform"):
                 assert self.hogql_context is not None
-                from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_transformer import (
+                from products.analytics_platform.backend.lazy_computation.lazy_computation_transformer import (
                     Transformer as DailyUniquePersonsPageviewsTransformer,
                 )
 
@@ -147,6 +150,7 @@ class HogQLQueryExecutor:
             self.context,
             team_id=self.team.pk,
             team=self.team,
+            user=self.user,
             enable_select_queries=True,
             timings=self.timings,
             modifiers=self.query_modifiers,
@@ -199,6 +203,7 @@ class HogQLQueryExecutor:
             LimitContext.QUERY_ASYNC,
             LimitContext.SAVED_QUERY,
             LimitContext.RETENTION,
+            LimitContext.POSTHOG_AI,
         ):
             settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
 
@@ -212,6 +217,7 @@ class HogQLQueryExecutor:
                 self.context,
                 team_id=self.team.pk,
                 team=self.team,
+                user=self.user,
                 enable_select_queries=True,
                 timings=self.timings,
                 modifiers=self.query_modifiers,
@@ -220,14 +226,33 @@ class HogQLQueryExecutor:
                 # and if we don't we end up creating the virtual DB twice per query
                 database=self.hogql_context.database if self.hogql_context else None,
             )
-            with self.timings.measure("prepare_and_print_ast"):
-                self.clickhouse_sql, self.clickhouse_prepared_ast = prepare_and_print_ast(
-                    self.select_query,
+            with self.timings.measure("prepare_ast_for_printing"):
+                self.clickhouse_prepared_ast = prepare_ast_for_printing(
+                    node=self.select_query,
                     context=self.clickhouse_context,
                     dialect="clickhouse",
                     settings=settings,
-                    pretty=self.pretty if self.pretty is not None else True,
                 )
+
+            # Apply log-specific byte limits for user HogQL queries to prevent expensive full scans.
+            # Internal runners (LogsQueryRunner, etc.) use different query_types and set their own limits.
+            if self.clickhouse_context.workload == Workload.LOGS and self.query_type == "HogQLQuery":
+                if settings.max_bytes_to_read is None:
+                    settings.max_bytes_to_read = HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
+                if settings.read_overflow_mode is None:
+                    settings.read_overflow_mode = "throw"
+
+            with self.timings.measure("print_prepared_ast"):
+                if self.clickhouse_prepared_ast is None:
+                    self.clickhouse_sql = ""
+                else:
+                    self.clickhouse_sql = print_prepared_ast(
+                        node=self.clickhouse_prepared_ast,
+                        context=self.clickhouse_context,
+                        dialect="clickhouse",
+                        settings=settings,
+                        pretty=self.pretty if self.pretty is not None else True,
+                    )
         except Exception as e:
             if self.debug:
                 self.clickhouse_sql = ""
@@ -254,12 +279,17 @@ class HogQLQueryExecutor:
                 ),
             )
 
+            # Use workload detected during AST resolution, falling back to explicitly set workload
+            workload = self.workload
+            if workload == Workload.DEFAULT and self.clickhouse_context.workload is not None:
+                workload = self.clickhouse_context.workload
+
             try:
                 self.results, self.types = sync_execute(
                     self.clickhouse_sql,
                     self.clickhouse_context.values,
                     with_column_types=True,
-                    workload=self.workload,
+                    workload=workload,
                     team_id=self.team.pk,
                     readonly=True,
                 )
@@ -280,7 +310,7 @@ class HogQLQueryExecutor:
                     f"EXPLAIN {self.clickhouse_sql}",
                     self.clickhouse_context.values,
                     with_column_types=True,
-                    workload=self.workload,
+                    workload=workload,
                     team_id=self.team.pk,
                     readonly=True,
                 )
@@ -291,9 +321,10 @@ class HogQLQueryExecutor:
                 self.metadata = get_hogql_metadata(
                     HogQLMetadata(language=HogLanguage.HOG_QL, query=self.hogql, debug=True),
                     self.team,
-                    self.select_query,
-                    self.clickhouse_prepared_ast,
-                    self.clickhouse_sql,
+                    user=self.user,
+                    hogql_ast=self.select_query,
+                    clickhouse_prepared_ast=self.clickhouse_prepared_ast,
+                    clickhouse_sql=self.clickhouse_sql,
                 )
 
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")

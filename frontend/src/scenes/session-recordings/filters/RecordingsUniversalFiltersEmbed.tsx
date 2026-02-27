@@ -37,9 +37,10 @@ import { isCommentTextFilter, isUniversalGroupFilterLike } from 'lib/components/
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
@@ -70,8 +71,8 @@ import {
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
-import { SavedFilters } from './SavedFilters'
 import { recordingsUniversalFiltersEmbedLogic } from './recordingsUniversalFiltersEmbedLogic'
+import { SavedFilters } from './SavedFilters'
 
 function QuickFilterButton({
     filterKey,
@@ -511,6 +512,7 @@ const ReplayFiltersTab = ({
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
+    const { hasPageview, hasScreen } = getProjectEventExistence()
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.Replay,
@@ -521,6 +523,10 @@ const ReplayFiltersTab = ({
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.SessionProperties,
         ...groupsTaxonomicTypes,
+        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
+        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
+        TaxonomicFilterGroupType.EmailAddresses,
+        TaxonomicFilterGroupType.AutocaptureEvents,
     ]
 
     if (allowReplayHogQLFilters) {
@@ -528,7 +534,7 @@ const ReplayFiltersTab = ({
     }
 
     if (showQuickFilters) {
-        taxonomicGroupTypes.unshift(TaxonomicFilterGroupType.QuickFilters)
+        taxonomicGroupTypes.unshift(TaxonomicFilterGroupType.SuggestedFilters)
     }
 
     const { appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)

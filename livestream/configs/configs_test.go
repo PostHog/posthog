@@ -46,6 +46,10 @@ func TestLoadConfig(t *testing.T) {
 				SessionRecording: SessionRecordingConfig{
 					MaxLRUEntries: 2_000_000_000,
 				},
+				Redis: RedisConfig{
+					Address: "localhost",
+					Port:    "6379",
+				},
 			},
 			wantErr: false,
 		},
