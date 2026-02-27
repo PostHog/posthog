@@ -17,13 +17,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { promisifyCallback } from '../../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import {
-    EXTEND_OBJECT_KEY,
-    CONNECTION_RETRY_LIMIT,
-    cdpTrackedFetch,
-    isConnectionLevelError,
-    shadowFetchContext,
-} from './hog-executor.service'
+import { EXTEND_OBJECT_KEY, cdpTrackedFetch, isConnectionLevelError, shadowFetchContext } from './hog-executor.service'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -1139,7 +1133,7 @@ describe('Hog Executor', () => {
 
             const result = await executor.executeFetch(invocation)
 
-            // Should be scheduled for retry
+            // Should not be scheduled for retry
             expect(result.invocation.queue).toBe('hog')
             expect(result.invocation.queueScheduledAt).toBeUndefined()
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
@@ -1437,7 +1431,7 @@ describe('Hog Executor', () => {
                 templateId: 'test-template',
             })
 
-            expect(fetch).toHaveBeenCalledTimes(CONNECTION_RETRY_LIMIT + 1)
+            expect(fetch).toHaveBeenCalledTimes(2)
             expect(result.fetchError?.message).toBe('other side closed')
             expect(result.fetchResponse).toBeNull()
         })
