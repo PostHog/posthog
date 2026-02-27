@@ -31,7 +31,12 @@ import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ByokModelPicker } from './ByokModelPicker'
 import { JSONEditor } from './components/JSONEditor'
@@ -61,16 +66,65 @@ function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element 
 export const scene: SceneExport = {
     component: LLMAnalyticsPlaygroundScene,
     logic: llmAnalyticsPlaygroundLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
 }
 
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     useMountedLogic(llmAnalyticsPlaygroundLogic)
 
-    // 300px accounts for the top nav bar, scene title section, tab bar, and surrounding padding
     return (
-        <div className="flex flex-col h-[calc(100vh-300px)] min-h-[520px]">
-            <PlaygroundLayout />
-        </div>
+        <SceneContent className="h-full">
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.LLMAnalyticsPlayground].name}
+                description="Test and experiment with LLM prompts in a sandbox environment."
+                resourceType={{ type: sceneConfigurations[Scene.LLMAnalyticsPlayground].iconType || 'llm_analytics' }}
+                actions={<PlaygroundHeaderActions />}
+            />
+            <div className="flex h-full flex-1 flex-col min-h-0">
+                <PlaygroundLayout />
+            </div>
+        </SceneContent>
+    )
+}
+
+function PlaygroundHeaderActions(): JSX.Element {
+    const {
+        submitting: playgroundSubmitting,
+        hasRunnablePrompts,
+        activePromptId,
+    } = useValues(llmAnalyticsPlaygroundLogic)
+    const { submitPrompt, addPromptConfig } = useActions(llmAnalyticsPlaygroundLogic)
+
+    return (
+        <>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                onClick={() => addPromptConfig(activePromptId ?? undefined)}
+                disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                data-attr="playground-add-prompt"
+            >
+                Add prompt
+            </LemonButton>
+            <LemonButton
+                type="primary"
+                size="small"
+                icon={<IconPlay />}
+                onClick={() => submitPrompt()}
+                loading={playgroundSubmitting}
+                disabledReason={
+                    playgroundSubmitting
+                        ? 'Generating...'
+                        : !hasRunnablePrompts
+                          ? 'Add messages to at least one prompt'
+                          : undefined
+                }
+                data-attr="playground-run"
+            >
+                Run
+            </LemonButton>
+        </>
     )
 }
 
@@ -234,7 +288,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     const isStreaming = !!item && item.latencyMs == null && !item.error
 
     return (
-        <div className="border rounded p-4 bg-transparent h-[300px] min-w-0 flex flex-col">
+        <div className="mb-4 border rounded p-4 bg-transparent h-[300px] min-w-0 flex flex-col">
             <div className="flex items-center justify-between gap-2 mb-3">
                 <LemonTag type="default" size="small">
                     Result
