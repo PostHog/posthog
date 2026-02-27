@@ -184,6 +184,11 @@ type SceneMainTitleProps = {
     forceBackTo?: Breadcrumb
 
     /**
+     * If true, disables the sticky behavior of the title section
+     */
+    noSticky?: boolean
+
+    /**
      * Additional class name for the title section
      */
     className?: string
@@ -217,6 +222,7 @@ export function SceneTitleSection({
     saveOnBlur = false,
     noBorder = false,
     noPadding = false,
+    noSticky = false,
     actions,
     forceBackTo,
     className,
@@ -278,7 +284,8 @@ export function SceneTitleSection({
 
             <div
                 className={cn(
-                    'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 duration-300',
+                    'bg-primary duration-300',
+                    !noSticky && '@2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30',
                     noPadding ? '' : '-mx-4 px-4 -mt-4',
                     noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
@@ -676,7 +683,7 @@ function SceneDescription({
 
     return (
         <div className="scene-description -mt-4 relative focus-within:z-50">
-            <div className="-mx-[var(--button-padding-x-sm)] pb-2 flex items-center gap-0">{Element}</div>
+            <div className="-mx-[var(--button-padding-x-sm)] pb-2 flex items-center gap-0 max-w-prose">{Element}</div>
         </div>
     )
 }
