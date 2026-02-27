@@ -262,6 +262,31 @@ class TestInlineCohortLeftjoin(BaseTest):
         self.assertEqual(len(always_response.results or []), 2)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_inline_cohort_leftjoin_conjoined_off_vs_always(self):
+        cohort, random_uuid = self._setup_cohort_with_new_person_after_calculation()
+        query = f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event = '{random_uuid}'"
+
+        off_response = execute_hogql_query(
+            query,
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                inCohortVia=InCohortVia.LEFTJOIN_CONJOINED, inlineCohortCalculation=InlineCohortCalculation.OFF
+            ),
+            pretty=False,
+        )
+        self.assertEqual(len(off_response.results or []), 1)
+
+        always_response = execute_hogql_query(
+            query,
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                inCohortVia=InCohortVia.LEFTJOIN_CONJOINED, inlineCohortCalculation=InlineCohortCalculation.ALWAYS
+            ),
+            pretty=False,
+        )
+        self.assertEqual(len(always_response.results or []), 2)
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_inline_cohort_leftjoin_static_always_uses_cohortpeople(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         _create_person(
