@@ -280,18 +280,18 @@ export function SceneTitleSection({
 
     return (
         <>
-            {/* Description is not sticky, therefor, if there is description, we render a line after scroll  */}
-            {effectiveDescription != null && (
-                // When this element touches top of the scene, we set the sticky bar to be sticky
+            {!noBorder && (
+                // When this element scrolls out of view, the IntersectionObserver sets isScrolled=true to show the border
                 <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute -top-4" aria-hidden />
             )}
 
             <div
                 className={cn(
-                    'group/scene-title-section bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 duration-300 -mb-4',
-                    noPadding ? '' : '-mx-4 px-4 -mt-4',
+                    'group/scene-title-section bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-10 duration-300',
+                    noPadding ? '' : '-mx-4 px-4 -mt-4 -mb-4',
                     noBorder ? '' : 'border-b border-transparent transition-border',
-                    isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
+                    isScrolled &&
+                        'z-30 @2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
                     'pl-4 pr-2',
                     className
                 )}
@@ -352,7 +352,7 @@ export function SceneTitleSection({
                                                         : 'toggle-description-button-expand'
                                                 }
                                             >
-                                                {showDescription ? <IconCollapse /> : <IconExpand />}
+                                                {showDescription || forceEdit ? <IconCollapse /> : <IconExpand />}
                                             </ButtonPrimitive>
                                         ) : undefined
                                     }
