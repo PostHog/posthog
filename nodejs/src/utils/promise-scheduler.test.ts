@@ -12,12 +12,11 @@ describe('PromiseScheduler', () => {
             let resolve: () => void
             const promise = new Promise<void>((r) => (resolve = r))
 
-            scheduler.schedule(promise)
+            void scheduler.schedule(promise)
             expect(scheduler.promises.size).toBe(1)
 
             resolve!()
             await promise
-            // .finally is async, need a tick for cleanup
             await Promise.resolve()
             expect(scheduler.promises.size).toBe(0)
         })
@@ -26,7 +25,7 @@ describe('PromiseScheduler', () => {
             let reject: (err: Error) => void
             const promise = new Promise<void>((_, r) => (reject = r))
 
-            scheduler.schedule(promise)
+            void scheduler.schedule(promise)
             expect(scheduler.promises.size).toBe(1)
 
             reject!(new Error('fail'))
@@ -49,7 +48,7 @@ describe('PromiseScheduler', () => {
             const p1 = new Promise<void>((r) => (resolve1 = r))
             const p2 = new Promise<void>((r) => (resolve2 = r))
 
-            scheduler.schedule(p1, p2)
+            void scheduler.schedule(p1, p2)
             expect(scheduler.promises.size).toBe(2)
 
             resolve1!()
@@ -99,8 +98,8 @@ describe('PromiseScheduler', () => {
             const p1 = new Promise<string>((r) => (resolve1 = r))
             const p2 = new Promise<string>((r) => (resolve2 = r))
 
-            scheduler.schedule(p1)
-            scheduler.schedule(p2)
+            void scheduler.schedule(p1)
+            void scheduler.schedule(p2)
 
             let allDone = false
             const waiting = scheduler.waitForAll().then(() => (allDone = true))
@@ -117,8 +116,8 @@ describe('PromiseScheduler', () => {
 
     describe('waitForAllSettled', () => {
         it('should resolve even when some promises reject', async () => {
-            scheduler.schedule(Promise.resolve('ok'))
-            scheduler.schedule(Promise.reject(new Error('fail')).catch(() => {}))
+            void scheduler.schedule(Promise.resolve('ok'))
+            void scheduler.schedule(Promise.reject(new Error('fail')).catch(() => {}))
 
             const results = await scheduler.waitForAllSettled()
             expect(results).toHaveLength(2)
