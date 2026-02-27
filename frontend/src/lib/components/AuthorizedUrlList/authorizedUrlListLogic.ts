@@ -296,7 +296,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         launchAtUrl: (url: string) => ({ url }),
         setEditUrlIndex: (originalIndex: number | null) => ({ originalIndex }),
         cancelProposingUrl: true,
-        copyLaunchCode: (url: string) => ({ url }),
+        copyLaunchCode: true,
     })),
     loaders(({ values }) => ({
         suggestions: {

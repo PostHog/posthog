@@ -184,7 +184,7 @@ export function AuthorizedUrlList({
                                                                 type="primary"
                                                                 data-attr="copy-manual-toolbar-launch-code"
                                                                 onClick={() => {
-                                                                    copyLaunchCode(keyedURL.url)
+                                                                    copyLaunchCode()
                                                                 }}
                                                             >
                                                                 Copy launch code
