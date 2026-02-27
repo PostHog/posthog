@@ -1770,7 +1770,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The setting from an SDK to control whether an event has person processing enabled",
             "system": True,
         },
-        "$update_last_seen_at": {
+        "$update_person_last_seen_at": {
             "label": "Update last seen at",
             "description": "When set to false, the event will not update the person's last_seen_at timestamp",
             "system": True,

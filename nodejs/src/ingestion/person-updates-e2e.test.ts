@@ -584,7 +584,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             })
         })
 
-        it('should not update last_seen_at when $update_last_seen_at is false', async () => {
+        it('should not update last_seen_at when $update_person_last_seen_at is false', async () => {
             const distinctId = new UUIDT().toString()
             const baseTime = DateTime.now().startOf('hour')
             const firstTimestamp = baseTime.toMillis()
@@ -609,12 +609,12 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
             })
 
-            // Second event 2 hours later with $update_last_seen_at=false should NOT update last_seen_at
+            // Second event 2 hours later with $update_person_last_seen_at=false should NOT update last_seen_at
             await ingester.handleKafkaBatch(
                 createKafkaMessages([
                     new EventBuilder(team, distinctId)
                         .withEvent('pageview')
-                        .withProperties({ $update_last_seen_at: false })
+                        .withProperties({ $update_person_last_seen_at: false })
                         .withTimestamp(secondTimestamp)
                         .build(),
                 ])
