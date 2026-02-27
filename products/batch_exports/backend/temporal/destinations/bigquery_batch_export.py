@@ -12,7 +12,15 @@ from django.conf import settings
 
 import pyarrow as pa
 import requests
-from google.api_core.exceptions import Forbidden, GoogleAPICallError, NotFound, ServiceUnavailable, TooManyRequests
+from google.api_core.exceptions import (
+    Forbidden,
+    GatewayTimeout,
+    GoogleAPICallError,
+    InternalServerError,
+    NotFound,
+    ServiceUnavailable,
+    TooManyRequests,
+)
 from google.cloud import bigquery
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
 from google.oauth2 import service_account
@@ -730,7 +738,7 @@ class BigQueryClient:
                     raise BigQueryQuotaExceededError(err.message) from err
 
                 raise
-            except (TooManyRequests, ServiceUnavailable):
+            except (TooManyRequests, ServiceUnavailable, GatewayTimeout, InternalServerError):
                 self.logger.exception(
                     "LoadJob rate limit exceeded",
                     attempt=attempt,
