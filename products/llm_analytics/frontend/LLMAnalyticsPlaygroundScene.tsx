@@ -28,6 +28,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -309,7 +310,9 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                         style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
                     >
                         {item.response ? (
-                            <div className="whitespace-pre-wrap break-words">{item.response}</div>
+                            <LemonMarkdown className="whitespace-pre-wrap break-words [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded [&_img]:my-2">
+                                {item.response}
+                            </LemonMarkdown>
                         ) : isStreaming ? (
                             <div className="h-full flex items-center justify-center text-xs text-muted">
                                 <div className="inline-flex items-center gap-2">
