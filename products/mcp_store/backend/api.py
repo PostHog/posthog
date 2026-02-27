@@ -445,6 +445,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         if needs_registration:
             try:
+                # Reuse the existing trusted metadata, if available, to avoid re-discovering the server, which potentially introduces a security risk
                 if server.oauth_metadata:
                     metadata = dict(server.oauth_metadata)
                 else:
