@@ -322,7 +322,7 @@ export function InsightMeta({
                     {canEditDashboard && (
                         <>
                             <LemonDivider />
-                            {toggleShowDescription && !!insight.description && (
+                            {showCompactTile && toggleShowDescription && !!insight.description && (
                                 <LemonButton onClick={toggleShowDescription} fullWidth>
                                     {tile?.show_description === false ? 'Show description' : 'Hide description'}
                                 </LemonButton>
@@ -528,7 +528,7 @@ export function InsightMetaContent({
     return (
         <>
             {titleEl}
-            {showDescription && !!description && (
+            {(!compact || showDescription) && !!description && (
                 <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
                     {description}
                 </LemonMarkdown>
