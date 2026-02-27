@@ -7,7 +7,7 @@ import { logger } from '../logger'
 import { REDIS_KEY_PREFIX, RedisRestrictionArraySchema, RedisRestrictionType, toRestrictionRule } from './redis-schema'
 import { EventContext, RestrictionFilters, RestrictionMap, RestrictionRule, RestrictionType } from './rules'
 
-export type IngestionPipeline = 'analytics' | 'session_recordings'
+export type IngestionPipeline = 'analytics' | 'session_recordings' | 'error_tracking'
 
 const EMPTY_RESTRICTIONS: ReadonlySet<RestrictionType> = new Set()
 

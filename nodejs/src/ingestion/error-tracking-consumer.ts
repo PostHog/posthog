@@ -1,28 +1,76 @@
+import { Pool as GenericPool } from 'generic-pool'
+import { Redis } from 'ioredis'
 import { Message } from 'node-rdkafka'
 import { Counter, Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
+import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
-import { ErrorTrackingConsumerConfig, HealthCheckResult, Hub, PluginServerService, PluginsServerConfig } from '../types'
+import { KafkaProducerWrapper } from '../kafka/producer'
+import { HealthCheckResult, PluginServerService } from '../types'
+import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
+import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
+import { PromiseScheduler } from '../utils/promise-scheduler'
+import { TeamManager } from '../utils/team-manager'
+import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
+import { PersonRepository } from '../worker/ingestion/persons/repositories/person-repository'
+import { CymbalClient } from './error-tracking/cymbal'
+import {
+    ErrorTrackingPipelineOutput,
+    createErrorTrackingPipeline,
+    runErrorTrackingPipeline,
+} from './error-tracking/error-tracking-pipeline'
+import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
+import { TopHog } from './tophog'
+import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
+import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
+import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redis-repository'
 
 /**
- * Narrowed Hub type for ErrorTrackingConsumer.
- * For now this is minimal - we'll expand as we add pipeline steps.
+ * Configuration values for ErrorTrackingConsumer.
+ * These are plain values that configure behavior.
  */
-export type ErrorTrackingConsumerHub = ErrorTrackingConsumerConfig &
-    Pick<
-        Hub,
-        // KafkaProducerWrapper.create
-        'KAFKA_CLIENT_RACK'
-    >
+export interface ErrorTrackingConsumerOptions {
+    groupId: string
+    topic: string
+    dlqTopic: string
+    overflowTopic: string
+    outputTopic: string
+    cymbalBaseUrl: string
+    cymbalTimeoutMs: number
+    lane: 'main' | 'overflow'
+    overflowBucketCapacity: number
+    overflowBucketReplenishRate: number
+    statefulOverflowEnabled: boolean
+    statefulOverflowRedisTTLSeconds: number
+    statefulOverflowLocalCacheTTLSeconds: number
+    topHogPipeline: string
+}
 
-const messagesReceivedCounter = new Counter({
-    name: 'error_tracking_messages_received_total',
-    help: 'Total messages received by the error tracking consumer',
+/**
+ * Dependencies for ErrorTrackingConsumer.
+ * These are services and clients that are injected.
+ */
+export interface ErrorTrackingConsumerDeps {
+    kafkaProducer: KafkaProducerWrapper
+    teamManager: TeamManager
+    geoipService: GeoIPService
+    groupTypeManager: GroupTypeManager
+    redisPool: GenericPool<Redis>
+    personRepository: PersonRepository
+}
+
+// Batch processing status - useful for tracking failures (batch sizes already tracked by KafkaConsumer)
+const batchProcessedCounter = new Counter({
+    name: 'error_tracking_batches_processed_total',
+    help: 'Total batches processed by the error tracking consumer',
+    labelNames: ['status'],
 })
 
+// Useful for consumer lag calculation
 const latestOffsetTimestampGauge = new Gauge({
     name: 'error_tracking_latest_processed_timestamp_ms',
     help: 'Timestamp of the latest offset that has been committed.',
@@ -32,35 +80,59 @@ const latestOffsetTimestampGauge = new Gauge({
 
 export class ErrorTrackingConsumer {
     protected name = 'error-tracking-consumer'
-    protected groupId: string
-    protected topic: string
-    protected dlqTopic: string
-    protected overflowTopic: string
     protected kafkaConsumer: KafkaConsumer
+    protected pipeline?: BatchPipelineUnwrapper<{ message: Message }, ErrorTrackingPipelineOutput, { message: Message }>
+    protected cymbalClient: CymbalClient
+    protected promiseScheduler: PromiseScheduler
+    protected eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    protected overflowRedirectService?: OverflowRedirectService
+    protected overflowLaneTTLRefreshService?: OverflowRedirectService
+    protected topHog?: TopHog
     isStopping = false
 
     constructor(
-        private hub: ErrorTrackingConsumerHub,
-        overrides: Partial<
-            Pick<
-                PluginsServerConfig,
-                | 'ERROR_TRACKING_CONSUMER_GROUP_ID'
-                | 'ERROR_TRACKING_CONSUMER_CONSUME_TOPIC'
-                | 'ERROR_TRACKING_CONSUMER_DLQ_TOPIC'
-                | 'ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC'
-            >
-        > = {}
+        private config: ErrorTrackingConsumerOptions,
+        private deps: ErrorTrackingConsumerDeps
     ) {
-        this.groupId = overrides.ERROR_TRACKING_CONSUMER_GROUP_ID ?? hub.ERROR_TRACKING_CONSUMER_GROUP_ID
-        this.topic = overrides.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC ?? hub.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC
-        this.dlqTopic = overrides.ERROR_TRACKING_CONSUMER_DLQ_TOPIC ?? hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC
-        this.overflowTopic =
-            overrides.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC ?? hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC
-
         this.kafkaConsumer = new KafkaConsumer({
-            groupId: this.groupId,
-            topic: this.topic,
+            groupId: config.groupId,
+            topic: config.topic,
         })
+
+        this.cymbalClient = new CymbalClient({
+            baseUrl: config.cymbalBaseUrl,
+            timeoutMs: config.cymbalTimeoutMs,
+        })
+
+        this.promiseScheduler = new PromiseScheduler()
+
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(deps.redisPool, {
+            pipeline: 'error_tracking',
+        })
+
+        // Create shared Redis repository for overflow redirect services
+        const overflowRedisRepository = new RedisOverflowRepository({
+            redisPool: deps.redisPool,
+            redisTTLSeconds: config.statefulOverflowRedisTTLSeconds,
+        })
+
+        // Create overflow redirect service for main lane (rate limiting)
+        if (this.overflowEnabled() && config.lane === 'main') {
+            this.overflowRedirectService = new MainLaneOverflowRedirect({
+                redisRepository: overflowRedisRepository,
+                localCacheTTLSeconds: config.statefulOverflowLocalCacheTTLSeconds,
+                bucketCapacity: config.overflowBucketCapacity,
+                replenishRate: config.overflowBucketReplenishRate,
+                statefulEnabled: config.statefulOverflowEnabled,
+            })
+        }
+
+        // Create TTL refresh service for overflow lane
+        if (config.lane === 'overflow' && config.statefulOverflowEnabled) {
+            this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
+                redisRepository: overflowRedisRepository,
+            })
+        }
     }
 
     public get service(): PluginServerService {
@@ -73,23 +145,86 @@ export class ErrorTrackingConsumer {
 
     public async start(): Promise<void> {
         logger.info('🚀', `${this.name} - starting`, {
-            groupId: this.groupId,
-            topic: this.topic,
+            groupId: this.config.groupId,
+            topic: this.config.topic,
+            outputTopic: this.config.outputTopic,
+            dlqTopic: this.config.dlqTopic,
+            overflowTopic: this.config.overflowTopic,
+            overflowEnabled: this.overflowEnabled(),
+            lane: this.config.lane,
+            statefulOverflowEnabled: this.config.statefulOverflowEnabled,
+            cymbalUrl: this.config.cymbalBaseUrl,
         })
 
+        // Initialize pipeline with dependencies
+        await this.initializePipeline()
+
         await this.kafkaConsumer.connect(async (messages) => {
-            return await instrumentFn('errorTrackingConsumer.handleEachBatch', () => {
-                this.handleKafkaBatch(messages)
-                return Promise.resolve()
+            return await instrumentFn('errorTrackingConsumer.handleEachBatch', async () => {
+                await this.handleKafkaBatch(messages)
             })
         })
 
         logger.info('✅', `${this.name} - started`)
     }
 
+    private async initializePipeline(): Promise<void> {
+        // Get GeoIP service
+        const geoip = await this.deps.geoipService.get()
+
+        // Initialize TopHog for metrics
+        this.topHog = new TopHog({
+            kafkaProducer: this.deps.kafkaProducer,
+            topic: KAFKA_CLICKHOUSE_TOPHOG,
+            pipeline: this.config.topHogPipeline,
+            lane: this.config.lane,
+        })
+        this.topHog.start()
+
+        this.pipeline = createErrorTrackingPipeline({
+            kafkaProducer: this.deps.kafkaProducer,
+            dlqTopic: this.config.dlqTopic,
+            outputTopic: this.config.outputTopic,
+            groupId: this.config.groupId,
+            promiseScheduler: this.promiseScheduler,
+            teamManager: this.deps.teamManager,
+            personRepository: this.deps.personRepository,
+            geoip,
+            cymbalClient: this.cymbalClient,
+            groupTypeManager: this.deps.groupTypeManager,
+            eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            overflowEnabled: this.overflowEnabled(),
+            overflowTopic: this.config.overflowTopic,
+            ingestionWarningProducer: this.deps.kafkaProducer,
+            overflowRedirectService: this.overflowRedirectService,
+            overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
+            topHog: this.topHog,
+        })
+
+        logger.info('✅', `${this.name} - pipeline initialized`)
+    }
+
+    /**
+     * Overflow is enabled when the overflow topic is configured and different from the consume topic.
+     * When consuming from the overflow topic itself, overflow is disabled to prevent redirect loops.
+     */
+    private overflowEnabled(): boolean {
+        return !!this.config.overflowTopic && this.config.overflowTopic !== this.config.topic
+    }
+
     public async stop(): Promise<void> {
         logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
+
+        // Wait for any pending side effects
+        await this.promiseScheduler.waitForAll()
+
+        // Shutdown overflow services
+        await this.overflowRedirectService?.shutdown()
+        await this.overflowLaneTTLRefreshService?.shutdown()
+
+        // Stop TopHog metrics
+        await this.topHog?.stop()
 
         await this.kafkaConsumer.disconnect()
 
@@ -100,32 +235,32 @@ export class ErrorTrackingConsumer {
         return this.kafkaConsumer.isHealthy()
     }
 
-    public handleKafkaBatch(messages: Message[]): void {
-        messagesReceivedCounter.inc(messages.length)
-
-        logger.info('📥', `${this.name} - received batch`, {
-            size: messages.length,
-        })
-
-        // For now, just log each message. Pipeline processing will be added later.
+    public async handleKafkaBatch(messages: Message[]): Promise<void> {
+        // Update offset timestamps for lag metrics
         for (const message of messages) {
             if (message.timestamp) {
                 latestOffsetTimestampGauge
-                    .labels({ partition: message.partition, topic: message.topic, groupId: this.groupId })
+                    .labels({ partition: message.partition, topic: message.topic, groupId: this.config.groupId })
                     .set(message.timestamp)
             }
-
-            // Log message details for debugging during development
-            logger.debug('📦', `${this.name} - processing message`, {
-                partition: message.partition,
-                offset: message.offset,
-                timestamp: message.timestamp,
-                size: message.value?.length ?? 0,
-            })
         }
 
-        logger.info('✅', `${this.name} - processed batch`, {
-            size: messages.length,
-        })
+        if (!this.pipeline) {
+            logger.error('❌', `${this.name} - pipeline not initialized`)
+            batchProcessedCounter.inc({ status: 'error' })
+            return
+        }
+
+        try {
+            await runErrorTrackingPipeline(this.pipeline, messages)
+            batchProcessedCounter.inc({ status: 'success' })
+        } catch (error) {
+            batchProcessedCounter.inc({ status: 'error' })
+            logger.error('❌', `${this.name} - batch processing failed`, {
+                error: error instanceof Error ? error.message : String(error),
+                size: messages.length,
+            })
+            throw error
+        }
     }
 }

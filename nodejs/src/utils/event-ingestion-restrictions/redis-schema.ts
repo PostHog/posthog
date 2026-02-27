@@ -13,7 +13,7 @@ export enum RedisRestrictionType {
 export const REDIS_KEY_PREFIX = 'event_ingestion_restriction_dynamic_config'
 
 // Base schema for common fields
-const pipelinesSchema = z.array(z.enum(['analytics', 'session_recordings'])).optional()
+const pipelinesSchema = z.array(z.enum(['analytics', 'session_recordings', 'error_tracking'])).optional()
 
 // Redis schema v0 (legacy) - single identifier per entry, no version field
 const RedisRestrictionItemSchemaV0 = z.object({

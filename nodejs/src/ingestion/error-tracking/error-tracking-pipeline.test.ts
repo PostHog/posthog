@@ -1,0 +1,806 @@
+import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
+
+import { KafkaProducerWrapper } from '~/kafka/producer'
+import { createTestTeam } from '~/tests/helpers/team'
+import { InternalPerson } from '~/types'
+import { EventIngestionRestrictionManager, RestrictionType } from '~/utils/event-ingestion-restrictions'
+import { GeoIp } from '~/utils/geoip'
+import { parseJSON } from '~/utils/json-parse'
+import { PromiseScheduler } from '~/utils/promise-scheduler'
+import { TeamManager } from '~/utils/team-manager'
+import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
+import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
+
+import { TopHogRegistry } from '../pipelines/extensions/tophog'
+import { TopHog } from '../tophog'
+import { CymbalClient } from './cymbal/client'
+import { CymbalResponse } from './cymbal/types'
+import {
+    ErrorTrackingPipelineConfig,
+    createErrorTrackingPipeline,
+    runErrorTrackingPipeline,
+} from './error-tracking-pipeline'
+
+// Suppress logger output during tests
+jest.mock('~/utils/logger', () => ({
+    logger: {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+    },
+}))
+
+describe('ErrorTrackingPipeline', () => {
+    let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
+    let mockTeamManager: jest.Mocked<TeamManager>
+    let mockPersonRepository: jest.Mocked<PersonRepository>
+    let mockGeoIp: jest.Mocked<GeoIp>
+    let mockCymbalClient: jest.Mocked<CymbalClient>
+    let mockGroupTypeManager: jest.Mocked<GroupTypeManager>
+    let mockEventIngestionRestrictionManager: jest.Mocked<EventIngestionRestrictionManager>
+    let promiseScheduler: PromiseScheduler
+    let pipelineConfig: ErrorTrackingPipelineConfig
+
+    const team = createTestTeam({ id: 123, api_token: 'test-token-123' })
+
+    const createTestPerson = (overrides: Partial<InternalPerson> = {}): InternalPerson => ({
+        id: '1',
+        uuid: 'person-uuid-123',
+        team_id: 123,
+        properties: { email: 'test@example.com', name: 'Test User' },
+        is_user_id: null,
+        is_identified: true,
+        created_at: DateTime.utc(2024, 1, 1),
+        version: 1,
+        last_seen_at: null,
+        properties_last_updated_at: {},
+        properties_last_operation: null,
+        ...overrides,
+    })
+
+    const createCymbalResponse = (overrides: Partial<CymbalResponse> = {}): CymbalResponse => ({
+        uuid: 'test-uuid',
+        event: '$exception',
+        team_id: 1,
+        timestamp: '2024-01-01T00:00:00Z',
+        properties: {
+            $exception_list: [{ type: 'Error', value: 'Test error' }],
+            $exception_fingerprint: 'test-fingerprint',
+            $exception_issue_id: 'test-issue-id',
+        },
+        ...overrides,
+    })
+
+    /**
+     * Creates a mock Kafka message with proper headers and body structure.
+     */
+    const createKafkaMessage = (options: {
+        token?: string
+        distinctId?: string
+        eventUuid?: string
+        timestamp?: string
+        ip?: string
+        event?: string
+        properties?: Record<string, any>
+    }): Message => {
+        const {
+            token = 'test-token-123',
+            distinctId = 'user-123',
+            eventUuid = 'event-uuid-123',
+            timestamp = '2024-01-01T00:00:00Z',
+            ip = '1.2.3.4',
+            event = '$exception',
+            properties = {},
+        } = options
+
+        const eventData = {
+            event,
+            distinct_id: distinctId,
+            uuid: eventUuid,
+            timestamp,
+            ip,
+            properties: {
+                $exception_list: [{ type: 'Error', value: 'Test error' }],
+                ...properties,
+            },
+        }
+
+        const messageBody = {
+            token,
+            data: JSON.stringify(eventData),
+            ...eventData,
+        }
+
+        return {
+            value: Buffer.from(JSON.stringify(messageBody)),
+            headers: [
+                { token: Buffer.from(token) },
+                { distinct_id: Buffer.from(distinctId) },
+                { uuid: Buffer.from(eventUuid) },
+                { timestamp: Buffer.from(timestamp) },
+            ],
+            topic: 'error_tracking_events',
+            partition: 0,
+            offset: 0,
+            size: 0,
+            key: Buffer.from(distinctId),
+        } as Message
+    }
+
+    /**
+     * Helper to get events produced to a specific topic.
+     */
+    const getProducedMessagesForTopic = (topic: string): any[] => {
+        return mockKafkaProducer.produce.mock.calls
+            .filter((call) => call[0].topic === topic)
+            .map((call) => parseJSON(call[0].value!.toString()))
+    }
+
+    /**
+     * Helper to get events that were produced to the output topic.
+     */
+    const getProducedEvents = (): any[] => {
+        return getProducedMessagesForTopic('clickhouse_events_json_test')
+    }
+
+    /**
+     * Helper to get events that were sent to the DLQ.
+     */
+    const getDLQMessages = (): any[] => {
+        return getProducedMessagesForTopic('error_tracking_dlq')
+    }
+
+    /**
+     * Helper to get events that were redirected to overflow.
+     */
+    const getOverflowMessages = (): any[] => {
+        return getProducedMessagesForTopic('error_tracking_overflow')
+    }
+
+    /**
+     * Creates a Cymbal response that includes enriched properties.
+     * In real usage, Cymbal receives the enriched event and returns it with
+     * fingerprint/issue_id added. This helper simulates that behavior.
+     */
+    const createCymbalResponseWithEnrichedProperties = (
+        enrichedProperties: Record<string, any>,
+        overrides: Partial<CymbalResponse> = {}
+    ): CymbalResponse => ({
+        uuid: 'test-uuid',
+        event: '$exception',
+        team_id: 1,
+        timestamp: '2024-01-01T00:00:00Z',
+        properties: {
+            ...enrichedProperties,
+            $exception_fingerprint: 'test-fingerprint',
+            $exception_issue_id: 'test-issue-id',
+        },
+        ...overrides,
+    })
+
+    beforeEach(() => {
+        mockKafkaProducer = {
+            produce: jest.fn().mockResolvedValue(undefined),
+            queueMessages: jest.fn().mockReturnValue(Promise.resolve()),
+            flush: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<KafkaProducerWrapper>
+
+        mockTeamManager = {
+            getTeamByToken: jest.fn().mockResolvedValue(team),
+            getTeam: jest.fn().mockResolvedValue(team),
+        } as unknown as jest.Mocked<TeamManager>
+
+        mockPersonRepository = {
+            fetchPerson: jest.fn(),
+            fetchPersonsByDistinctIds: jest.fn(),
+            countPersonsByProperties: jest.fn(),
+            fetchPersonsByProperties: jest.fn(),
+            createPerson: jest.fn(),
+            updatePerson: jest.fn(),
+            updatePersonAssertVersion: jest.fn(),
+            updatePersonsBatch: jest.fn(),
+            deletePerson: jest.fn(),
+            addDistinctId: jest.fn(),
+            addPersonlessDistinctId: jest.fn(),
+            addPersonlessDistinctIdForMerge: jest.fn(),
+            addPersonlessDistinctIdsBatch: jest.fn(),
+            personPropertiesSize: jest.fn(),
+            updateCohortsAndFeatureFlagsForMerge: jest.fn(),
+            inTransaction: jest.fn(),
+        } as unknown as jest.Mocked<PersonRepository>
+
+        mockGeoIp = {
+            city: jest.fn(),
+        } as unknown as jest.Mocked<GeoIp>
+
+        mockCymbalClient = {
+            processExceptions: jest.fn(),
+            healthCheck: jest.fn(),
+        } as unknown as jest.Mocked<CymbalClient>
+
+        mockGroupTypeManager = {
+            fetchGroupTypes: jest.fn(),
+            fetchGroupTypeIndex: jest.fn(),
+            insertGroupType: jest.fn(),
+        } as unknown as jest.Mocked<GroupTypeManager>
+
+        mockEventIngestionRestrictionManager = {
+            getAppliedRestrictions: jest.fn().mockReturnValue(new Set()),
+            forceRefresh: jest.fn(),
+        } as unknown as jest.Mocked<EventIngestionRestrictionManager>
+
+        promiseScheduler = new PromiseScheduler()
+
+        // Mock TopHog registry that returns no-op recorders
+        const mockRecorder = { record: jest.fn() }
+        const mockTopHog: TopHogRegistry = {
+            registerSum: () => mockRecorder,
+            registerMax: () => mockRecorder,
+            registerAverage: () => mockRecorder,
+        }
+
+        pipelineConfig = {
+            kafkaProducer: mockKafkaProducer,
+            dlqTopic: 'error_tracking_dlq',
+            outputTopic: 'clickhouse_events_json_test',
+            groupId: 'error-tracking-test',
+            promiseScheduler,
+            teamManager: mockTeamManager,
+            personRepository: mockPersonRepository,
+            geoip: mockGeoIp,
+            cymbalClient: mockCymbalClient,
+            groupTypeManager: mockGroupTypeManager,
+            eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
+            overflowEnabled: false,
+            overflowTopic: 'error_tracking_overflow',
+            ingestionWarningProducer: mockKafkaProducer,
+            topHog: mockTopHog,
+        }
+    })
+
+    describe('createErrorTrackingPipeline', () => {
+        it('creates a pipeline successfully', () => {
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            expect(pipeline).toBeDefined()
+            expect(typeof pipeline.feed).toBe('function')
+            expect(typeof pipeline.next).toBe('function')
+        })
+    })
+
+    describe('runErrorTrackingPipeline', () => {
+        it('processes a single event through the full pipeline and emits to Kafka', async () => {
+            const person = createTestPerson()
+            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+
+            mockGeoIp.city.mockReturnValue({
+                country: { isoCode: 'US' },
+                city: { names: { en: 'San Francisco' } },
+                subdivisions: [{ isoCode: 'CA', names: { en: 'California' } }],
+                location: { latitude: 37.7749, longitude: -122.4194 },
+            } as any)
+
+            // Cymbal receives enriched properties and returns them with fingerprint/issue_id
+            const cymbalResponse = createCymbalResponseWithEnrichedProperties({
+                $exception_list: [{ type: 'Error', value: 'Test error' }],
+                $geoip_country_code: 'US',
+                $geoip_city_name: 'San Francisco',
+                $geoip_subdivision_1_code: 'CA',
+                $geoip_subdivision_1_name: 'California',
+                $geoip_latitude: 37.7749,
+                $geoip_longitude: -122.4194,
+            })
+            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+
+            const message = createKafkaMessage({})
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            // Verify event was emitted to Kafka
+            const producedEvents = getProducedEvents()
+            expect(producedEvents).toHaveLength(1)
+
+            const emittedEvent = producedEvents[0]
+            expect(emittedEvent.event).toBe('$exception')
+            expect(emittedEvent.team_id).toBe(123)
+
+            // Verify person fields are on the top-level event (not in properties)
+            expect(emittedEvent.person_id).toBe('person-uuid-123')
+            expect(parseJSON(emittedEvent.person_properties)).toEqual({
+                email: 'test@example.com',
+                name: 'Test User',
+            })
+
+            // Verify properties contain GeoIP and Cymbal data
+            const props = parseJSON(emittedEvent.properties)
+            expect(props.$geoip_country_code).toBe('US')
+            expect(props.$geoip_city_name).toBe('San Francisco')
+            expect(props.$exception_fingerprint).toBe('test-fingerprint')
+        })
+
+        it('processes multiple events in a batch', async () => {
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined) // No person
+            mockGeoIp.city.mockReturnValue(null) // No GeoIP data
+
+            const cymbalResponses = [
+                createCymbalResponse({
+                    uuid: 'event-1',
+                    properties: { $exception_fingerprint: 'fp-1', $exception_issue_id: 'issue-1' },
+                }),
+                createCymbalResponse({
+                    uuid: 'event-2',
+                    properties: { $exception_fingerprint: 'fp-2', $exception_issue_id: 'issue-2' },
+                }),
+            ]
+            mockCymbalClient.processExceptions.mockResolvedValue(cymbalResponses)
+
+            const messages = [
+                createKafkaMessage({ distinctId: 'user-1', eventUuid: 'event-1' }),
+                createKafkaMessage({ distinctId: 'user-2', eventUuid: 'event-2' }),
+            ]
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, messages)
+
+            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(1)
+
+            // Verify batch was sent to Cymbal
+            const cymbalCall = mockCymbalClient.processExceptions.mock.calls[0][0]
+            expect(cymbalCall).toHaveLength(2)
+
+            // Verify both events were emitted
+            const producedEvents = getProducedEvents()
+            expect(producedEvents).toHaveLength(2)
+        })
+
+        it('handles events with group types', async () => {
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+            mockGeoIp.city.mockReturnValue(null)
+
+            mockGroupTypeManager.fetchGroupTypeIndex
+                .mockResolvedValueOnce(0) // company -> 0
+                .mockResolvedValueOnce(1) // project -> 1
+
+            // Cymbal receives enriched properties (including $group_*) and returns them
+            const cymbalResponse = createCymbalResponseWithEnrichedProperties({
+                $exception_list: [{ type: 'Error', value: 'Test error' }],
+                $groups: { company: 'acme-corp', project: 'project-123' },
+                $group_0: 'acme-corp',
+                $group_1: 'project-123',
+            })
+            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+
+            const message = createKafkaMessage({
+                properties: {
+                    $groups: {
+                        company: 'acme-corp',
+                        project: 'project-123',
+                    },
+                },
+            })
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            const producedEvents = getProducedEvents()
+            expect(producedEvents).toHaveLength(1)
+
+            const props = parseJSON(producedEvents[0].properties)
+            expect(props.$group_0).toBe('acme-corp')
+            expect(props.$group_1).toBe('project-123')
+        })
+
+        it('suppresses events when Cymbal returns null response', async () => {
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+            mockGeoIp.city.mockReturnValue(null)
+
+            // Cymbal returns null for suppressed events
+            mockCymbalClient.processExceptions.mockResolvedValue([null])
+
+            const message = createKafkaMessage({})
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            // Suppressed events are dropped, nothing emitted
+            expect(getProducedEvents()).toHaveLength(0)
+        })
+
+        it('skips processing for empty input', async () => {
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [])
+
+            expect(mockCymbalClient.processExceptions).not.toHaveBeenCalled()
+        })
+
+        it('drops events with unknown team token', async () => {
+            // Note: Invalid tokens are dropped silently (consistent with analytics pipeline).
+            // This differs from billing restrictions which send to DLQ.
+            mockTeamManager.getTeamByToken.mockResolvedValue(null)
+
+            const message = createKafkaMessage({ token: 'unknown-token' })
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            // Event should not be produced anywhere (dropped silently)
+            expect(getProducedEvents()).toHaveLength(0)
+            expect(getDLQMessages()).toHaveLength(0)
+            expect(getOverflowMessages()).toHaveLength(0)
+        })
+
+        it('sends events to DLQ when REDIRECT_TO_DLQ restriction is set', async () => {
+            mockEventIngestionRestrictionManager.getAppliedRestrictions.mockReturnValue(
+                new Set([RestrictionType.REDIRECT_TO_DLQ])
+            )
+
+            const message = createKafkaMessage({})
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            // Event should not be produced to output topic
+            expect(getProducedEvents()).toHaveLength(0)
+
+            // Event should be sent to DLQ
+            const dlqMessages = getDLQMessages()
+            expect(dlqMessages).toHaveLength(1)
+            expect(dlqMessages[0].distinct_id).toBe('user-123')
+        })
+
+        it('drops events silently when DROP_EVENT restriction is set', async () => {
+            mockEventIngestionRestrictionManager.getAppliedRestrictions.mockReturnValue(
+                new Set([RestrictionType.DROP_EVENT])
+            )
+
+            const message = createKafkaMessage({})
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            // Event should not be produced anywhere
+            expect(getProducedEvents()).toHaveLength(0)
+            expect(getDLQMessages()).toHaveLength(0)
+            expect(getOverflowMessages()).toHaveLength(0)
+        })
+
+        it('redirects events to overflow when FORCE_OVERFLOW restriction is set', async () => {
+            mockEventIngestionRestrictionManager.getAppliedRestrictions.mockReturnValue(
+                new Set([RestrictionType.FORCE_OVERFLOW])
+            )
+
+            const message = createKafkaMessage({})
+
+            // Enable overflow for this test
+            const configWithOverflow: ErrorTrackingPipelineConfig = {
+                ...pipelineConfig,
+                overflowEnabled: true,
+            }
+
+            const pipeline = createErrorTrackingPipeline(configWithOverflow)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            // Event should not be produced to output topic
+            expect(getProducedEvents()).toHaveLength(0)
+
+            // Event should be redirected to overflow topic
+            const overflowMessages = getOverflowMessages()
+            expect(overflowMessages).toHaveLength(1)
+            expect(overflowMessages[0].distinct_id).toBe('user-123')
+        })
+
+        it('processes events normally when FORCE_OVERFLOW is set but overflow is disabled', async () => {
+            // When overflow is disabled, FORCE_OVERFLOW restriction is ignored and
+            // events process normally. This allows graceful degradation.
+            mockEventIngestionRestrictionManager.getAppliedRestrictions.mockReturnValue(
+                new Set([RestrictionType.FORCE_OVERFLOW])
+            )
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+            mockGeoIp.city.mockReturnValue(null)
+            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+
+            const message = createKafkaMessage({})
+
+            // Overflow is disabled by default in pipelineConfig
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            // Event should be processed normally
+            expect(getProducedEvents()).toHaveLength(1)
+            expect(getOverflowMessages()).toHaveLength(0)
+        })
+
+        it('propagates database errors from person lookup', async () => {
+            mockPersonRepository.fetchPerson.mockRejectedValue(new Error('Database error'))
+            mockGeoIp.city.mockReturnValue(null)
+            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+
+            const message = createKafkaMessage({})
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+
+            // Database errors should propagate up - they indicate infrastructure issues
+            await expect(runErrorTrackingPipeline(pipeline, [message])).rejects.toThrow('Database error')
+        })
+
+        it('propagates Cymbal errors so Kafka retries the batch', async () => {
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+            mockGeoIp.city.mockReturnValue(null)
+            mockCymbalClient.processExceptions.mockRejectedValue(new Error('Cymbal unavailable'))
+
+            const message = createKafkaMessage({})
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+
+            // Cymbal errors should propagate up so Kafka doesn't commit and retries the batch
+            await expect(runErrorTrackingPipeline(pipeline, [message])).rejects.toThrow('Cymbal unavailable')
+        })
+
+        it('enriches events without IP address (skips GeoIP)', async () => {
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+
+            // Create message without IP in properties
+            const message = createKafkaMessage({ ip: '' })
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            // GeoIP should not be called when IP is empty
+            expect(mockGeoIp.city).not.toHaveBeenCalled()
+
+            const producedEvents = getProducedEvents()
+            expect(producedEvents).toHaveLength(1)
+            const props = parseJSON(producedEvents[0].properties)
+            expect(props.$geoip_country_code).toBeUndefined()
+        })
+
+        it('preserves original event properties through enrichment', async () => {
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+            mockGeoIp.city.mockReturnValue(null)
+
+            // Cymbal receives original properties and returns them with fingerprint/issue_id
+            const cymbalResponse = createCymbalResponseWithEnrichedProperties({
+                $exception_list: [{ type: 'Error', value: 'Test error' }],
+                custom_property: 'should-be-preserved',
+                $browser: 'Chrome',
+            })
+            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+
+            const message = createKafkaMessage({
+                properties: {
+                    custom_property: 'should-be-preserved',
+                    $browser: 'Chrome',
+                },
+            })
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            const producedEvents = getProducedEvents()
+            expect(producedEvents).toHaveLength(1)
+            const props = parseJSON(producedEvents[0].properties)
+            expect(props.custom_property).toBe('should-be-preserved')
+            expect(props.$browser).toBe('Chrome')
+        })
+
+        it('always uses full person_mode to preserve group properties', async () => {
+            // Error tracking always uses processPerson=true to preserve $group_* properties,
+            // unlike the analytics pipeline which may use propertyless mode.
+
+            // Test with person found - should be 'full' mode
+            const person = createTestPerson()
+            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+            mockGeoIp.city.mockReturnValue(null)
+            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+
+            const pipeline1 = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline1, [createKafkaMessage({})])
+
+            let producedEvents = getProducedEvents()
+            expect(producedEvents[0].person_mode).toBe('full')
+
+            // Reset mocks
+            mockKafkaProducer.produce.mockClear()
+
+            // Test without person found - still uses 'full' mode because processPerson=true
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+
+            const pipeline2 = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline2, [createKafkaMessage({ distinctId: 'no-person' })])
+
+            producedEvents = getProducedEvents()
+            // Error tracking sets processPerson=true so it's always 'full' mode
+            expect(producedEvents[0].person_mode).toBe('full')
+        })
+    })
+
+    describe('TopHog metrics', () => {
+        let topHogKafkaProducer: jest.Mocked<KafkaProducerWrapper>
+        let topHog: TopHog
+
+        beforeEach(() => {
+            topHogKafkaProducer = {
+                produce: jest.fn().mockResolvedValue(undefined),
+                queueMessages: jest.fn().mockResolvedValue(undefined),
+            } as unknown as jest.Mocked<KafkaProducerWrapper>
+
+            topHog = new TopHog({
+                kafkaProducer: topHogKafkaProducer,
+                topic: 'clickhouse_tophog_test',
+                pipeline: 'error_tracking',
+                lane: 'main',
+            })
+        })
+
+        const getTopHogMessages = (): any[] => {
+            return topHogKafkaProducer.queueMessages.mock.calls.flatMap((call) => {
+                const arg = call[0]
+                const topicMessages = Array.isArray(arg) ? arg : [arg]
+                return topicMessages
+                    .filter((tm: any) => tm.topic === 'clickhouse_tophog_test')
+                    .flatMap((tm: any) => tm.messages.map((m: { value: string }) => parseJSON(m.value)))
+            })
+        }
+
+        it('records resolved_teams metric when team is resolved', async () => {
+            const person = createTestPerson()
+            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+            mockGeoIp.city.mockReturnValue(null)
+            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+
+            const configWithTopHog: ErrorTrackingPipelineConfig = {
+                ...pipelineConfig,
+                topHog,
+            }
+
+            const pipeline = createErrorTrackingPipeline(configWithTopHog)
+            await runErrorTrackingPipeline(pipeline, [createKafkaMessage({})])
+            await topHog.flush()
+
+            const messages = getTopHogMessages()
+            const resolvedTeamsMetric = messages.find((m) => m.metric === 'resolved_teams')
+            expect(resolvedTeamsMetric).toBeDefined()
+            expect(resolvedTeamsMetric.type).toBe('sum')
+            expect(resolvedTeamsMetric.key.team_id).toBe('123')
+            expect(resolvedTeamsMetric.value).toBe(1)
+        })
+
+        it('records person_lookup_time metric for person lookups', async () => {
+            const person = createTestPerson()
+            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+            mockGeoIp.city.mockReturnValue(null)
+            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+
+            const configWithTopHog: ErrorTrackingPipelineConfig = {
+                ...pipelineConfig,
+                topHog,
+            }
+
+            const pipeline = createErrorTrackingPipeline(configWithTopHog)
+            await runErrorTrackingPipeline(pipeline, [createKafkaMessage({})])
+            await topHog.flush()
+
+            const messages = getTopHogMessages()
+            const personLookupMetric = messages.find((m) => m.metric === 'person_lookup_time')
+            expect(personLookupMetric).toBeDefined()
+            expect(personLookupMetric.type).toBe('sum')
+            expect(personLookupMetric.key.team_id).toBe('123')
+            expect(personLookupMetric.key.distinct_id).toBe('user-123')
+            expect(personLookupMetric.value).toBeGreaterThanOrEqual(0)
+        })
+
+        it('records emitted_events metric when events are emitted', async () => {
+            const person = createTestPerson()
+            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+            mockGeoIp.city.mockReturnValue(null)
+            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+
+            const configWithTopHog: ErrorTrackingPipelineConfig = {
+                ...pipelineConfig,
+                topHog,
+            }
+
+            const pipeline = createErrorTrackingPipeline(configWithTopHog)
+            await runErrorTrackingPipeline(pipeline, [createKafkaMessage({})])
+            await topHog.flush()
+
+            const messages = getTopHogMessages()
+            const emittedEventsMetric = messages.find((m) => m.metric === 'emitted_events')
+            expect(emittedEventsMetric).toBeDefined()
+            expect(emittedEventsMetric.type).toBe('sum')
+            expect(emittedEventsMetric.key.team_id).toBe('123')
+            expect(emittedEventsMetric.value).toBe(1)
+        })
+
+        it('records emitted_events_per_distinct_id metric with distinct_id', async () => {
+            const person = createTestPerson()
+            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+            mockGeoIp.city.mockReturnValue(null)
+            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+
+            const configWithTopHog: ErrorTrackingPipelineConfig = {
+                ...pipelineConfig,
+                topHog,
+            }
+
+            const pipeline = createErrorTrackingPipeline(configWithTopHog)
+            await runErrorTrackingPipeline(pipeline, [createKafkaMessage({ distinctId: 'specific-user' })])
+            await topHog.flush()
+
+            const messages = getTopHogMessages()
+            const perDistinctIdMetric = messages.find((m) => m.metric === 'emitted_events_per_distinct_id')
+            expect(perDistinctIdMetric).toBeDefined()
+            expect(perDistinctIdMetric.type).toBe('sum')
+            expect(perDistinctIdMetric.key.team_id).toBe('123')
+            expect(perDistinctIdMetric.key.distinct_id).toBe('specific-user')
+            expect(perDistinctIdMetric.value).toBe(1)
+        })
+
+        it('includes pipeline and lane labels in TopHog output', async () => {
+            const person = createTestPerson()
+            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+            mockGeoIp.city.mockReturnValue(null)
+            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+
+            const configWithTopHog: ErrorTrackingPipelineConfig = {
+                ...pipelineConfig,
+                topHog,
+            }
+
+            const pipeline = createErrorTrackingPipeline(configWithTopHog)
+            await runErrorTrackingPipeline(pipeline, [createKafkaMessage({})])
+            await topHog.flush()
+
+            const messages = getTopHogMessages()
+            expect(messages.length).toBeGreaterThan(0)
+            for (const msg of messages) {
+                expect(msg.pipeline).toBe('error_tracking')
+                expect(msg.lane).toBe('main')
+            }
+        })
+
+        it('aggregates metrics across multiple events', async () => {
+            const person = createTestPerson()
+            mockPersonRepository.fetchPerson.mockResolvedValue(person)
+            mockGeoIp.city.mockReturnValue(null)
+            mockCymbalClient.processExceptions.mockImplementation((events) =>
+                Promise.resolve(events.map(() => createCymbalResponse()))
+            )
+
+            const configWithTopHog: ErrorTrackingPipelineConfig = {
+                ...pipelineConfig,
+                topHog,
+            }
+
+            const messages = [
+                createKafkaMessage({ distinctId: 'user-1' }),
+                createKafkaMessage({ distinctId: 'user-2' }),
+                createKafkaMessage({ distinctId: 'user-1' }),
+            ]
+
+            const pipeline = createErrorTrackingPipeline(configWithTopHog)
+            await runErrorTrackingPipeline(pipeline, messages)
+            await topHog.flush()
+
+            const topHogMessages = getTopHogMessages()
+
+            // resolved_teams should have count=3 (one per event)
+            const resolvedTeamsMetric = topHogMessages.find((m) => m.metric === 'resolved_teams')
+            expect(resolvedTeamsMetric.value).toBe(3)
+
+            // emitted_events should have value=3
+            const emittedEventsMetric = topHogMessages.find((m) => m.metric === 'emitted_events')
+            expect(emittedEventsMetric.value).toBe(3)
+
+            // emitted_events_per_distinct_id should have two entries (user-1 with 2, user-2 with 1)
+            const perDistinctIdMetrics = topHogMessages.filter((m) => m.metric === 'emitted_events_per_distinct_id')
+            const user1Metric = perDistinctIdMetrics.find((m) => m.key.distinct_id === 'user-1')
+            const user2Metric = perDistinctIdMetrics.find((m) => m.key.distinct_id === 'user-2')
+            expect(user1Metric.value).toBe(2)
+            expect(user2Metric.value).toBe(1)
+        })
+    })
+})

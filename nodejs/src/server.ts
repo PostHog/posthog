@@ -454,7 +454,32 @@ export class PluginServer {
 
             if (capabilities.errorTrackingIngestion) {
                 serviceLoaders.push(async () => {
-                    const consumer = new ErrorTrackingConsumer(hub)
+                    const config = {
+                        groupId: hub.ERROR_TRACKING_CONSUMER_GROUP_ID,
+                        topic: hub.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
+                        dlqTopic: hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC,
+                        overflowTopic: hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC,
+                        outputTopic: hub.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
+                        cymbalBaseUrl: hub.CYMBAL_BASE_URL,
+                        cymbalTimeoutMs: hub.CYMBAL_TIMEOUT_MS,
+                        lane: hub.ERROR_TRACKING_CONSUMER_LANE ?? 'main',
+                        overflowBucketCapacity: hub.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
+                        overflowBucketReplenishRate: hub.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
+                        statefulOverflowEnabled: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
+                        statefulOverflowRedisTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
+                        statefulOverflowLocalCacheTTLSeconds:
+                            hub.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                        topHogPipeline: hub.ERROR_TRACKING_TOPHOG_PIPELINE,
+                    }
+                    const deps = {
+                        kafkaProducer: hub.kafkaProducer,
+                        teamManager: hub.teamManager,
+                        geoipService: hub.geoipService,
+                        groupTypeManager: hub.groupTypeManager,
+                        redisPool: hub.redisPool,
+                        personRepository: hub.personRepository,
+                    }
+                    const consumer = new ErrorTrackingConsumer(config, deps)
                     await consumer.start()
                     return consumer.service
                 })

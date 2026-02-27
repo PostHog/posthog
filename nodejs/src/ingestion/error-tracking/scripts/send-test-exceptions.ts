@@ -6,13 +6,42 @@
  * Usage:
  *   npx ts-node src/ingestion/error-tracking/scripts/send-test-exceptions.ts
  *
- * Or with options:
- *   npx ts-node src/ingestion/error-tracking/scripts/send-test-exceptions.ts --count 10 --delay 500
+ * Options:
+ *   --count <n>      Number of events to send (default: 1)
+ *   --delay <ms>     Delay between events in milliseconds (default: 0)
+ *   --random-users   Use random distinct_ids (no persons in DB)
+ *   --mixed          Alternate between known persons and random users
+ *
+ * Examples:
+ *   # Send 10 events using known persons (default)
+ *   npx ts-node src/ingestion/error-tracking/scripts/send-test-exceptions.ts --count 10
+ *
+ *   # Send 10 events with random distinct_ids (no person lookup expected)
+ *   npx ts-node src/ingestion/error-tracking/scripts/send-test-exceptions.ts --count 10 --random-users
+ *
+ *   # Send 20 events alternating between known and random users
+ *   npx ts-node src/ingestion/error-tracking/scripts/send-test-exceptions.ts --count 20 --mixed
  */
 import { randomUUID } from 'crypto'
 
 const CAPTURE_URL = process.env.CAPTURE_URL || 'http://localhost:3307/e'
-const TOKEN = process.env.POSTHOG_TOKEN || 'phc_local' // phc_local works in dev for team 1
+// Default token for local dev (team_id=1)
+const TOKEN = process.env.POSTHOG_TOKEN || 'phc_placeholder'
+
+// Distinct IDs that have real persons in the database (team_id=1)
+// These are used to test person field handling in both pipelines
+const DISTINCT_IDS_WITH_PERSONS = [
+    'fb5f7ba4-054d-da20-7b8a-8a2142eb3764', // Arnold Hughes
+    'uSfLKYzNuDveSYKE', // Arnold Hughes (same person)
+    '27ff2c8a-0dd0-7c82-1786-f1023c3b2be9',
+    'f636672d-5c84-d4d1-cf1c-84b4d51f5260',
+    '3b366cfc-3506-3210-02d7-1546031c8aa3',
+    'd0514dea-9f79-1776-5207-9b595e3a5f30',
+    'ef9757aa-667f-8556-88b2-f5d109585b0d',
+    '33c07e30-bd2c-781b-9b59-ecf882cbfed1',
+    'e8c9fbc8-2ee0-93e5-e846-ed8d0d45dc1b',
+    'xhZMaphskRWXPREp', // Tanja Hooper (same person as above)
+]
 
 interface ExceptionFrame {
     filename: string
@@ -93,9 +122,8 @@ function generateException(): ExceptionEntry {
     }
 }
 
-async function sendException(): Promise<void> {
+async function sendException(distinctId: string): Promise<void> {
     const eventUuid = randomUUID()
-    const distinctId = `test-user-${Math.floor(Math.random() * 100)}`
 
     const event = {
         token: TOKEN,
@@ -127,15 +155,28 @@ async function sendException(): Promise<void> {
         throw new Error(`Capture returned ${response.status}: ${await response.text()}`)
     }
 
+    const hasPersonInDb = DISTINCT_IDS_WITH_PERSONS.includes(distinctId)
+    const personIndicator = hasPersonInDb ? '👤' : '👻'
     console.log(
-        `✅ Sent exception event: ${eventUuid} (${event.properties.$exception_list[0].type}: ${event.properties.$exception_list[0].value})`
+        `✅ ${personIndicator} Sent: ${eventUuid.substring(0, 8)}… | ${distinctId.substring(0, 20).padEnd(20)} | ${event.properties.$exception_list[0].type}`
     )
+}
+
+function getDistinctId(index: number, useKnownPersons: boolean): string {
+    if (useKnownPersons) {
+        // Cycle through known distinct_ids that have persons in the database
+        return DISTINCT_IDS_WITH_PERSONS[index % DISTINCT_IDS_WITH_PERSONS.length]
+    } else {
+        // Generate random distinct_id (no person in database)
+        return `test-user-${randomUUID().substring(0, 8)}`
+    }
 }
 
 async function main(): Promise<void> {
     const args = process.argv.slice(2)
     let count = 1
     let delay = 0
+    let useKnownPersons = true // Default to using known persons
 
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--count' && args[i + 1]) {
@@ -144,11 +185,25 @@ async function main(): Promise<void> {
         } else if (args[i] === '--delay' && args[i + 1]) {
             delay = parseInt(args[i + 1], 10)
             i++
+        } else if (args[i] === '--random-users') {
+            useKnownPersons = false
+        } else if (args[i] === '--mixed') {
+            // Will be handled per-event below
+            useKnownPersons = true
         }
     }
 
+    const mixedMode = args.includes('--mixed')
+
     console.log(`🚀 Sending ${count} exception event(s) to ${CAPTURE_URL}`)
     console.log(`   Token: ${TOKEN}`)
+    if (mixedMode) {
+        console.log(`   Mode: mixed (alternating known persons and random users)`)
+    } else if (useKnownPersons) {
+        console.log(`   Mode: known persons (distinct_ids with persons in DB)`)
+    } else {
+        console.log(`   Mode: random users (no persons in DB)`)
+    }
     if (delay > 0) {
         console.log(`   Delay: ${delay}ms between events`)
     }
@@ -156,7 +211,10 @@ async function main(): Promise<void> {
 
     for (let i = 0; i < count; i++) {
         try {
-            await sendException()
+            // In mixed mode, alternate between known persons and random users
+            const useKnown = mixedMode ? i % 2 === 0 : useKnownPersons
+            const distinctId = getDistinctId(i, useKnown)
+            await sendException(distinctId)
             if (delay > 0 && i < count - 1) {
                 await new Promise((resolve) => setTimeout(resolve, delay))
             }
