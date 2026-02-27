@@ -109,6 +109,7 @@ export class CdpApi {
             this.hogFunctionMonitoringService
         )
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
+            hub.SITE_URL,
             hub.teamManager,
             this.hogFunctionManager,
             this.hogExecutor,
@@ -168,7 +169,7 @@ export class CdpApi {
         router.post('/api/messaging/generate_preferences_token', asyncHandler(this.generatePreferencesToken()))
         router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
         router.post(
-            '/api/projects/:team_id/batch_exports/:id/hog_functions/:hog_function_id/invocations',
+            '/api/projects/:team_id/hog_functions/:hog_function_id/batch_export_invocations',
             asyncHandler(this.handleBatchExportHogFunction())
         )
 
@@ -735,16 +736,13 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             try {
-                const request = await this.batchExportHogFunctionService.parseRequest(
+                const result = await this.batchExportHogFunctionService.execute(
                     {
-                        batch_export_id: req.params.id,
                         team_id: req.params.team_id,
                         hog_function_id: req.params.hog_function_id,
                     },
-                    req.body,
-                    this.hub.SITE_URL
+                    req.body
                 )
-                const result = await this.batchExportHogFunctionService.handleRequest(request)
 
                 return res.json({
                     status: result.error ? 'error' : 'success',

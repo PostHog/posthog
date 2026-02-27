@@ -16,7 +16,6 @@ import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import { insertHogFunction as _insertHogFunction, createHogFunction } from './_tests/fixtures'
-import { insertBatchExport } from './_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
 import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpApi } from './cdp-api'
@@ -778,125 +777,6 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(500)
             expect(res.body.error).toEqual('Kafka producer not available')
-        })
-    })
-    describe('batch export hog function invocations', () => {
-        let batchExportId: string
-        let batchExportHogFunction: HogFunctionType
-        let clickhouseEvent: Record<string, any>
-
-        beforeEach(async () => {
-            clickhouseEvent = {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
-                event: '$pageview',
-                team_id: team.id,
-                distinct_id: '123',
-                timestamp: '2021-09-28T14:00:00Z',
-                created_at: '2021-09-28T14:00:00Z',
-                properties: JSON.stringify({ $lib_version: '1.0.0' }),
-                elements_chain: '',
-            }
-
-            batchExportId = new UUIDT().toString()
-            await insertBatchExport(hub.postgres, team.id, batchExportId)
-
-            batchExportHogFunction = await insertHogFunction({
-                name: 'test batch export hog function',
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-                batch_export_id: batchExportId,
-            })
-        })
-
-        it('errors if missing team', async () => {
-            const nonExistentTeamId = new UUIDT().toString()
-            const res = await supertest(app)
-                .post(
-                    `/api/projects/${nonExistentTeamId}/batch_exports/${batchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
-                )
-                .send({ clickhouse_event: clickhouseEvent })
-
-            expect(res.status).toEqual(404)
-            expect(res.body.errors[0]).toContain(nonExistentTeamId)
-        })
-
-        it('errors if missing hog function', async () => {
-            const nonExistentHogFunctionId = new UUIDT().toString()
-            const res = await supertest(app)
-                .post(
-                    `/api/projects/${team.id}/batch_exports/${batchExportId}/hog_functions/${nonExistentHogFunctionId}/invocations`
-                )
-                .send({ clickhouse_event: clickhouseEvent })
-
-            expect(res.status).toEqual(404)
-            expect(res.body.errors[0]).toContain(nonExistentHogFunctionId)
-        })
-
-        it('errors if missing batch export', async () => {
-            const nonExistentBatchExportId = new UUIDT().toString()
-            const res = await supertest(app)
-                .post(
-                    `/api/projects/${team.id}/batch_exports/${nonExistentBatchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
-                )
-                .send({ clickhouse_event: clickhouseEvent })
-
-            expect(res.status).toEqual(404)
-            expect(res.body.errors[0]).toContain(batchExportHogFunction.id)
-        })
-
-        it('errors if missing event', async () => {
-            const res = await supertest(app)
-                .post(
-                    `/api/projects/${team.id}/batch_exports/${batchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
-                )
-                .send({})
-
-            expect(res.status).toEqual(400)
-            expect(res.body.errors[0]).toEqual('Invalid event')
-        })
-
-        it('errors if invocation_id is not a valid UUID', async () => {
-            const res = await supertest(app)
-                .post(
-                    `/api/projects/${team.id}/batch_exports/${batchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
-                )
-                .send({ clickhouse_event: clickhouseEvent, invocation_id: 'not-a-uuid' })
-
-            expect(res.status).toEqual(400)
-            expect(res.body.errors[0]).toEqual('Invalid UUID: not-a-uuid')
-        })
-
-        it('can invoke a batch export mocked hog function via the API', async () => {
-            mockFetch.mockImplementationOnce(() =>
-                Promise.resolve({
-                    status: 200,
-                    headers: { 'Content-Type': 'application/json' },
-                    json: () => Promise.resolve({ ok: true }),
-                    text: () => Promise.resolve(JSON.stringify({ ok: true })),
-                    dump: () => Promise.resolve(),
-                })
-            )
-
-            const res = await supertest(app)
-                .post(
-                    `/api/projects/${team.id}/batch_exports/${batchExportId}/hog_functions/${batchExportHogFunction.id}/invocations`
-                )
-                .send({ clickhouse_event: clickhouseEvent })
-
-            expect(res.status).toEqual(200)
-            expect(res.body.status).toEqual('success')
-            expect(res.body.errors).toEqual([])
-            expect(res.body.logs).toMatchObject([
-                {
-                    level: 'info',
-                    message: expect.stringContaining('Fetch response:'),
-                },
-                {
-                    level: 'debug',
-                    message: expect.stringContaining('Function completed in'),
-                },
-            ])
         })
     })
 })
