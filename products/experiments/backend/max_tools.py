@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import MaxExperimentMetricResult
 
@@ -133,12 +134,10 @@ class CreateExperimentTool(MaxTool):
                 )
 
             variants = multivariate["variants"]
-            if len(variants) < 2:
-                raise ValueError(
-                    f"Feature flag '{feature_flag_key}' must have at least 2 variants for an experiment (e.g., control and test)"
-                )
-
-            if variants[0].get("key") != "control":
+            # Intentionally stricter than service validation for multi-variant flags:
+            # require control first for Max-created experiments.
+            # Single-variant flags are validated by the service with a clearer error.
+            if len(variants) >= 2 and variants[0].get("key") != "control":
                 raise ValueError(
                     f"Feature flag '{feature_flag_key}' must have 'control' as the first variant. "
                     f"Found '{variants[0].get('key')}' instead. Please update the feature flag variants."
@@ -186,7 +185,7 @@ class CreateExperimentTool(MaxTool):
                     "url": experiment_url,
                 },
             )
-        except ValueError as e:
+        except (ValueError, ValidationError) as e:
             return f"Failed to create experiment: {str(e)}", {"error": str(e)}
         except Exception as e:
             capture_exception(e)
