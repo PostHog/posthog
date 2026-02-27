@@ -18,7 +18,7 @@ export interface GroupsListLogicProps {
 const INITIAL_SORTING = [] as string[]
 const INITIAL_GROUPS_FILTER = [] as GroupPropertyFilter[]
 
-export const GROUPS_LIST_DEFAULT_COLUMNS = ['group_name', 'key', 'created_at']
+export const GROUPS_LIST_DEFAULT_COLUMNS = ['group_name', 'created_at']
 
 export const GROUPS_LIST_DEFAULT_QUERY = (groupTypeIndex: GroupTypeIndex | number): DataTableNode =>
     ({
