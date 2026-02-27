@@ -14,10 +14,11 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        assert len(results) == 2
+        assert len(results) == 3
         names = [s["name"] for s in results]
         assert "Linear" in names
         assert "Notion" in names
+        assert "GitHub" in names
 
     def test_create_not_allowed(self):
         response = self.client.post(

@@ -54,6 +54,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
 
     actions({
         openAddCustomServerModal: true,
+        openAddCustomServerModalWithDefaults: (defaults: Partial<CustomServerFormValues>) => ({ defaults }),
         closeAddCustomServerModal: true,
     }),
 
@@ -62,6 +63,15 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             false,
             {
                 openAddCustomServerModal: () => true,
+                openAddCustomServerModalWithDefaults: () => true,
+                closeAddCustomServerModal: () => false,
+            },
+        ],
+        customServerFormPrefilled: [
+            false,
+            {
+                openAddCustomServerModalWithDefaults: () => true,
+                openAddCustomServerModal: () => false,
                 closeAddCustomServerModal: () => false,
             },
         ],
@@ -177,6 +187,12 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        openAddCustomServerModalWithDefaults: ({ defaults }) => {
+            actions.resetCustomServerForm()
+            for (const [key, value] of Object.entries(defaults)) {
+                actions.setCustomServerFormValue(key as keyof CustomServerFormValues, value)
+            }
+        },
         closeAddCustomServerModal: () => {
             actions.resetCustomServerForm()
         },

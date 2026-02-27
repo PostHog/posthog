@@ -26,7 +26,7 @@ RECOMMENDED_SERVERS = [
     {
         "name": "Linear",
         "url": "https://mcp.linear.app/mcp",
-        "description": "Manage Linear issues, projects, and teams directly from your AI agent.",
+        "description": "Manage Linear issues, projects, and teams.",
         "icon_url": "",
         "auth_type": "oauth",
         "oauth_provider_kind": "linear",
@@ -37,6 +37,13 @@ RECOMMENDED_SERVERS = [
         "description": "Search and manage Notion pages, databases, and knowledge base content.",
         "icon_url": "",
         "auth_type": "oauth",
+    },
+    {
+        "name": "GitHub",
+        "url": "https://api.githubcopilot.com/mcp/",
+        "description": "Manage GitHub issues, pull requests, and repositories.",
+        "icon_url": "",
+        "auth_type": "api_key",
     },
 ]
 

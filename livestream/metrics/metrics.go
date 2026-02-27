@@ -109,4 +109,20 @@ var (
 		Help:    "Distribution of event lag in seconds",
 		Buckets: []float64{1, 2, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600},
 	})
+
+	RedisErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_redis_errors_total",
+			Help: "Total number of Redis operation errors",
+		},
+		[]string{"operation"},
+	)
+	RedisLatency = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "livestream_redis_latency_seconds",
+			Help:    "Redis operation latency in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"operation"},
+	)
 )
