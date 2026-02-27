@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.schema import (
+    AlertConditionType,
     AlertState,
     ChartDisplayType,
     EventsNode,
@@ -17,6 +18,7 @@ from posthog.schema import (
 )
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.caching.fetch_from_cache import InsightResult
 from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck, AlertSubscription
 from posthog.models.instance_setting import set_instance_setting
@@ -701,19 +703,46 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert mock_send_errors.call_count == 0
         assert AlertCheck.objects.filter(alert_configuration=self.alert["id"]).count() == 0
 
-    def _check_alert_with_mock_result(self, result: Any) -> None:
-        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
-            from posthog.caching.fetch_from_cache import InsightResult
-
-            mock_calculate.return_value = InsightResult(
-                result=result, last_refresh=None, cache_key=None, is_cached=False, timezone=None
-            )
-            check_alert(self.alert["id"])
-
     @parameterized.expand(
         [
-            ("within_bounds", 0, 100, AlertState.NOT_FIRING),
-            ("below_lower", 1, None, AlertState.FIRING),
+            ("absolute_within_bounds", AlertConditionType.ABSOLUTE_VALUE, False, 0, 100, AlertState.NOT_FIRING, 0),
+            ("absolute_below_lower", AlertConditionType.ABSOLUTE_VALUE, False, 1, None, AlertState.FIRING, 1),
+            (
+                "relative_increase_within_bounds",
+                AlertConditionType.RELATIVE_INCREASE,
+                True,
+                None,
+                1,
+                AlertState.NOT_FIRING,
+                0,
+            ),
+            (
+                "relative_increase_below_lower",
+                AlertConditionType.RELATIVE_INCREASE,
+                True,
+                1,
+                None,
+                AlertState.FIRING,
+                1,
+            ),
+            (
+                "relative_decrease_within_bounds",
+                AlertConditionType.RELATIVE_DECREASE,
+                True,
+                None,
+                1,
+                AlertState.NOT_FIRING,
+                0,
+            ),
+            (
+                "relative_decrease_below_lower",
+                AlertConditionType.RELATIVE_DECREASE,
+                True,
+                1,
+                None,
+                AlertState.FIRING,
+                1,
+            ),
         ]
     )
     def test_empty_results_treated_as_zero(
@@ -721,24 +750,52 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         mock_send_notifications_for_breaches: MagicMock,
         mock_send_errors: MagicMock,
         _name: str,
-        lower: Optional[int],
-        upper: Optional[int],
-        expected_state: str,
+        condition_type: AlertConditionType,
+        time_series: bool,
+        lower: Optional[float],
+        upper: Optional[float],
+        expected_state: AlertState,
+        expected_breach_count: int,
     ) -> None:
-        self.set_thresholds(lower=lower, upper=upper)
-        self._check_alert_with_mock_result([])
+        query_dict = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            trendsFilter=TrendsFilter(
+                display=ChartDisplayType.ACTIONS_LINE_GRAPH if time_series else ChartDisplayType.BOLD_NUMBER,
+            ),
+            interval=IntervalType.WEEK,
+        ).model_dump()
+        insight = self.dashboard_api.create_insight(data={"name": "insight", "query": query_dict})[1]
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "test alert",
+                "insight": insight["id"],
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "daily",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": condition_type},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": lower, "upper": upper}}},
+            },
+        ).json()
 
+        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
+            mock_calculate.return_value = InsightResult(
+                result=[], last_refresh=None, cache_key=None, is_cached=False, timezone=None
+            )
+            check_alert(alert["id"])
+
+        assert mock_send_notifications_for_breaches.call_count == expected_breach_count
         assert mock_send_errors.call_count == 0
 
-        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.state == expected_state
         assert alert_check.calculated_value == 0
 
     @parameterized.expand(
         [
-            ("absolute_value", "absolute_value", False),
-            ("relative_increase", "relative_increase", True),
-            ("relative_decrease", "relative_decrease", True),
+            ("absolute value", AlertConditionType.ABSOLUTE_VALUE, False),
+            ("relative increase", AlertConditionType.RELATIVE_INCREASE, True),
+            ("relative decrease", AlertConditionType.RELATIVE_DECREASE, True),
         ]
     )
     def test_none_result_produces_errored_state(
@@ -754,7 +811,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             trendsFilter=TrendsFilter(
                 display=ChartDisplayType.ACTIONS_LINE_GRAPH if time_series else ChartDisplayType.BOLD_NUMBER,
             ),
-            interval=IntervalType.WEEK if time_series else None,
+            interval=IntervalType.WEEK,
         ).model_dump()
         insight = self.dashboard_api.create_insight(data={"name": "insight", "query": query_dict})[1]
         alert = self.client.post(
@@ -771,8 +828,6 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         ).json()
 
         with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
-            from posthog.caching.fetch_from_cache import InsightResult
-
             mock_calculate.return_value = InsightResult(
                 result=None, last_refresh=None, cache_key=None, is_cached=False, timezone=None
             )
