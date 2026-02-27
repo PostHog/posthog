@@ -45,6 +45,23 @@ export interface LLMProviderKey {
     last_used_at: string | null
 }
 
+/** Canonical provider key ordering: provider order, then key name, then id. */
+export function sortProviderKeys(keys: LLMProviderKey[]): LLMProviderKey[] {
+    return [...keys].sort((a, b) => {
+        const providerDiff = providerSortIndex(a.provider) - providerSortIndex(b.provider)
+        if (providerDiff !== 0) {
+            return providerDiff
+        }
+
+        const nameDiff = (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' })
+        if (nameDiff !== 0) {
+            return nameDiff
+        }
+
+        return a.id.localeCompare(b.id)
+    })
+}
+
 export interface EvaluationConfig {
     trial_eval_limit: number
     trial_evals_used: number

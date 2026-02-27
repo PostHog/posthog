@@ -192,6 +192,102 @@ describe('llmAnalyticsPlaygroundLogic', () => {
 
             testLogic.unmount()
         })
+
+        it('should match provider-prefixed model IDs to BYOK model and keep provider key', async () => {
+            const byokModels: ModelOption[] = [
+                {
+                    id: 'openrouter/anthropic/claude-sonnet-4',
+                    name: 'Claude Sonnet 4',
+                    provider: 'openrouter',
+                    description: '',
+                },
+            ]
+
+            logic.unmount()
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                        active_provider_key: null,
+                    },
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                        results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
+                    },
+                    '/api/llm_proxy/models/': (req: any) => {
+                        if (req.url.searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                            return [200, byokModels]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
+                },
+            })
+
+            const testLogic = llmAnalyticsPlaygroundLogic()
+            testLogic.mount()
+            await expectLogic(testLogic).toFinishAllListeners()
+
+            testLogic.actions.setupPlaygroundFromEvent({
+                model: 'anthropic/claude-sonnet-4',
+                input: 'test input',
+            })
+
+            expect(testLogic.values.model).toBe('openrouter/anthropic/claude-sonnet-4')
+            expect(testLogic.values.selectedProviderKeyId).toBe('openrouter-key-1')
+
+            testLogic.unmount()
+        })
+
+        it('should consistently pick the first provider key by sorted order when multiple keys match', async () => {
+            const byokModelId = 'openrouter/anthropic/claude-sonnet-4'
+
+            logic.unmount()
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                        active_provider_key: null,
+                    },
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                        // Deliberately reverse API order to ensure we don't pick "last loaded"
+                        results: [
+                            { id: 'openrouter-key-z', provider: 'openrouter', name: 'Z key', state: 'ok' },
+                            { id: 'openrouter-key-a', provider: 'openrouter', name: 'A key', state: 'ok' },
+                        ],
+                    },
+                    '/api/llm_proxy/models/': (req: any) => {
+                        const providerKeyId = req.url.searchParams.get('provider_key_id')
+                        if (providerKeyId === 'openrouter-key-z' || providerKeyId === 'openrouter-key-a') {
+                            return [
+                                200,
+                                [
+                                    {
+                                        id: byokModelId,
+                                        name: 'Claude Sonnet 4',
+                                        provider: 'openrouter',
+                                        description: '',
+                                    },
+                                ],
+                            ]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
+                },
+            })
+
+            const testLogic = llmAnalyticsPlaygroundLogic()
+            testLogic.mount()
+            await expectLogic(testLogic).toFinishAllListeners()
+
+            testLogic.actions.setupPlaygroundFromEvent({
+                model: 'anthropic/claude-sonnet-4',
+                input: 'test input',
+            })
+
+            expect(testLogic.values.model).toBe(byokModelId)
+            expect(testLogic.values.selectedProviderKeyId).toBe('openrouter-key-a')
+
+            testLogic.unmount()
+        })
     })
 
     describe('loadModelOptions auto-correction', () => {

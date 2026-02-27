@@ -12,7 +12,13 @@ import { urls } from 'scenes/urls'
 
 import { byokModelPickerLogic } from './byokModelPickerLogic'
 import type { llmAnalyticsPlaygroundLogicType } from './llmAnalyticsPlaygroundLogicType'
-import { LLMProvider, LLMProviderKey, llmProviderKeysLogic, providerSortIndex } from './settings/llmProviderKeysLogic'
+import {
+    LLMProvider,
+    LLMProviderKey,
+    llmProviderKeysLogic,
+    providerSortIndex,
+    sortProviderKeys,
+} from './settings/llmProviderKeysLogic'
 import { normalizeRole } from './utils'
 
 export interface ModelOption {
@@ -178,19 +184,97 @@ function pickByPrefix(query: string, idList: string[]): string | null {
     return best
 }
 
+function normalizeModelId(modelId: string): string {
+    return modelId.trim().toLowerCase()
+}
+
+function isSuffixEquivalentModelId(leftModelId: string, rightModelId: string): boolean {
+    return (
+        leftModelId === rightModelId ||
+        leftModelId.endsWith(`/${rightModelId}`) ||
+        rightModelId.endsWith(`/${leftModelId}`)
+    )
+}
+
+function getProviderKeyOrder(providerKeys: LLMProviderKey[]): string[] {
+    return sortProviderKeys(providerKeys)
+        .filter((key) => key.state !== 'invalid')
+        .map((key) => key.id)
+}
+
+function pickPreferredModelOption(candidates: ModelOption[], providerKeys: LLMProviderKey[]): ModelOption | null {
+    if (candidates.length === 0) {
+        return null
+    }
+
+    const providerKeyOrder = getProviderKeyOrder(providerKeys)
+    if (providerKeyOrder.length === 0) {
+        return candidates[0]
+    }
+
+    const providerKeyRank = new Map(providerKeyOrder.map((keyId, index) => [keyId, index]))
+
+    return [...candidates].sort((a, b) => {
+        const aRank = a.providerKeyId
+            ? (providerKeyRank.get(a.providerKeyId) ?? Number.MAX_SAFE_INTEGER)
+            : Number.MAX_SAFE_INTEGER
+        const bRank = b.providerKeyId
+            ? (providerKeyRank.get(b.providerKeyId) ?? Number.MAX_SAFE_INTEGER)
+            : Number.MAX_SAFE_INTEGER
+        if (aRank !== bRank) {
+            return aRank - bRank
+        }
+        return a.id.localeCompare(b.id)
+    })[0]
+}
+
+function matchClosestModelOption(
+    targetModel: string,
+    availableModels: ModelOption[],
+    providerKeys: LLMProviderKey[] = []
+): ModelOption | null {
+    if (availableModels.length === 0) {
+        return null
+    }
+
+    const normalizedTarget = normalizeModelId(targetModel)
+
+    const exactIdMatches = availableModels.filter((model) => model.id === targetModel)
+    if (exactIdMatches.length > 0) {
+        return pickPreferredModelOption(exactIdMatches, providerKeys)
+    }
+
+    const exactNormalizedIdMatches = availableModels.filter((model) => normalizeModelId(model.id) === normalizedTarget)
+    if (exactNormalizedIdMatches.length > 0) {
+        return pickPreferredModelOption(exactNormalizedIdMatches, providerKeys)
+    }
+
+    const suffixEquivalentMatches = availableModels.filter((model) =>
+        isSuffixEquivalentModelId(normalizeModelId(model.id), normalizedTarget)
+    )
+    if (suffixEquivalentMatches.length > 0) {
+        return pickPreferredModelOption(suffixEquivalentMatches, providerKeys)
+    }
+
+    const normalizedIds = availableModels.map((model) => normalizeModelId(model.id))
+    const normalizedPrefixMatch = pickByPrefix(normalizedTarget, normalizedIds)
+    if (normalizedPrefixMatch) {
+        const normalizedPrefixMatches = availableModels.filter(
+            (model) => normalizeModelId(model.id) === normalizedPrefixMatch
+        )
+        return pickPreferredModelOption(normalizedPrefixMatches, providerKeys)
+    }
+
+    const defaultModelMatches = availableModels.filter((model) => model.id === DEFAULT_MODEL)
+    if (defaultModelMatches.length > 0) {
+        return pickPreferredModelOption(defaultModelMatches, providerKeys)
+    }
+
+    return pickPreferredModelOption(availableModels, providerKeys)
+}
+
 function matchClosestModel(targetModel: string, availableModels: ModelOption[]): string {
-    const ids = availableModels.map((m) => m.id)
-    if (ids.includes(targetModel)) {
-        return targetModel
-    }
-    const match = pickByPrefix(targetModel, ids)
-    if (match) {
-        return match
-    }
-    if (ids.includes(DEFAULT_MODEL)) {
-        return DEFAULT_MODEL
-    }
-    return ids[0] ?? DEFAULT_MODEL
+    return matchClosestModelOption(targetModel, availableModels)?.id ?? DEFAULT_MODEL
 }
 
 function resolveTargetPromptId(promptConfigs: PromptConfig[], promptId?: string): string | null {
@@ -557,11 +641,10 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             const targetModelForFirstPrompt = values.pendingTargetModel
             const normalizedPrompts = values.promptConfigs.map((prompt, index) => {
                 const targetModel = index === 0 && targetModelForFirstPrompt ? targetModelForFirstPrompt : prompt.model
-                const closestMatch = matchClosestModel(targetModel, byokModels)
-                const matchedModel = byokModels.find((m) => m.id === closestMatch)
+                const matchedModel = matchClosestModelOption(targetModel, byokModels, values.providerKeys)
                 return {
                     ...prompt,
-                    model: closestMatch,
+                    model: matchedModel?.id ?? matchClosestModel(targetModel, byokModels),
                     selectedProviderKeyId: matchedModel?.providerKeyId ?? prompt.selectedProviderKeyId,
                 }
             })
@@ -760,7 +843,12 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             const promptId = currentPrompt.id
 
             if (model) {
-                actions.setModel(matchClosestModel(model, values.effectiveModelOptions), undefined, promptId)
+                const matchedModel = matchClosestModelOption(model, values.effectiveModelOptions, values.providerKeys)
+                actions.setModel(
+                    matchedModel?.id ?? matchClosestModel(model, values.effectiveModelOptions),
+                    matchedModel?.providerKeyId,
+                    promptId
+                )
             }
 
             if (tools) {
