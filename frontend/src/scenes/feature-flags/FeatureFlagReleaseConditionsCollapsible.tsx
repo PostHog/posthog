@@ -521,12 +521,21 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                 (affectedUserCount * clamp(rolloutPct, 0, 100)) / 100
                                                             )
 
+                                                            const isPersonTarget =
+                                                                releaseFilters.aggregation_group_type_index == null
+                                                            const personProfileTooltip = isPersonTarget ? (
+                                                                <Tooltip title="This count is based on person profiles, which may not represent unique people. A single person can have multiple profiles.">
+                                                                    <IconInfo className="text-muted text-sm inline ml-0.5" />
+                                                                </Tooltip>
+                                                            ) : null
+
                                                             if (rolloutPct === 100) {
                                                                 return (
                                                                     <>
                                                                         <b>{humanFriendlyNumber(affectedUserCount)}</b>{' '}
                                                                         of {humanFriendlyNumber(totalUsers)}{' '}
                                                                         {aggregationTargetName} match these filters
+                                                                        {personProfileTooltip}
                                                                     </>
                                                                 )
                                                             }
@@ -538,6 +547,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                     {aggregationTargetName} ({rolloutPct}% of{' '}
                                                                     {humanFriendlyNumber(affectedUserCount)} matching
                                                                     the filters)
+                                                                    {personProfileTooltip}
                                                                 </>
                                                             )
                                                         })()}

@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment } from 'react'
 
-import { IconCopy, IconFlag, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCopy, IconFlag, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
@@ -474,6 +474,11 @@ export function FeatureFlagReleaseConditions({
                                     return ''
                                 })()}{' '}
                                 <span>of total {aggregationTargetName}.</span>
+                                {filters.aggregation_group_type_index == null && (
+                                    <Tooltip title="This count is based on person profiles, which may not represent unique people. A single person can have multiple profiles.">
+                                        <IconInfo className="text-muted text-sm inline ml-0.5" />
+                                    </Tooltip>
+                                )}
                             </div>
                         </div>
                     )}
