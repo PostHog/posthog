@@ -38,7 +38,7 @@
         "ai": "^6.0.0",
         "fflate": "^0.8.2",
         "posthog-js-lite": "4.2.2",
-        "posthog-node": "^5.10.4",
+        "posthog-node": "^5.25.0",
         "uuid": "^11.1.0",
         "zod": "^3.24.4"
     },

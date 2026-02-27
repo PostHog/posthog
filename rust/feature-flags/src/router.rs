@@ -8,7 +8,7 @@ use std::{
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
-    http::{Method, StatusCode},
+    http::Method,
     routing::{any, get},
     Router,
 };
@@ -17,7 +17,7 @@ use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
-use health::HealthRegistry;
+use health::{readiness_handler, HealthRegistry};
 use metrics::gauge;
 use sqlx::PgPool;
 use tower::limit::ConcurrencyLimitLayer;
@@ -133,9 +133,6 @@ pub fn router(
         )
     });
 
-    // Clone database_pools for readiness check before moving into State
-    let db_pools_for_readiness = database_pools.clone();
-
     spawn_rate_limiter_cleanup_task(
         flags_rate_limiter.clone(),
         ip_rate_limiter.clone(),
@@ -178,10 +175,7 @@ pub fn router(
     // liveness/readiness/startup checks
     let status_router = Router::new()
         .route("/", get(index))
-        .route(
-            "/_readiness",
-            get(move || readiness(db_pools_for_readiness.clone())),
-        )
+        .route("/_readiness", get(readiness_handler))
         .route("/_liveness", get(move || ready(liveness.get_status())))
         .route(
             "/_startup",
@@ -290,25 +284,6 @@ async fn test_pool_connection(pool: &PgPool, name: &str, skip_query: bool) -> Re
     Ok(())
 }
 
-pub async fn readiness(
-    database_pools: Arc<DatabasePools>,
-) -> Result<&'static str, (StatusCode, String)> {
-    let pools = [
-        ("non_persons_reader", &database_pools.non_persons_reader),
-        ("non_persons_writer", &database_pools.non_persons_writer),
-        ("persons_reader", &database_pools.persons_reader),
-        ("persons_writer", &database_pools.persons_writer),
-    ];
-
-    for (name, pool) in pools {
-        test_pool_connection(pool, name, database_pools.test_before_acquire)
-            .await
-            .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e))?;
-    }
-
-    Ok("ready")
-}
-
 pub async fn index() -> &'static str {
     "feature flags"
 }
@@ -396,7 +371,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_pool_connection_success() {
-        // This test requires a running database
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or("postgres://posthog:posthog@localhost:5432/test_database".to_string());
 
@@ -409,13 +383,9 @@ mod tests {
 
         // If database is available, connection test should succeed
         // If not, it will fail - both are acceptable in test environment
-        // This test primarily verifies the function doesn't panic
         match result {
-            Ok(()) => {
-                // Pool connection test succeeded
-            }
+            Ok(()) => {}
             Err(e) => {
-                // Expected when no database is running
                 assert!(e.contains("test_pool"));
             }
         }
@@ -423,7 +393,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_pool_connection_failure_includes_pool_name() {
-        // Create a pool with an invalid connection string
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .acquire_timeout(std::time::Duration::from_millis(100))
@@ -442,7 +411,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_startup_always_returns_started() {
-        // Create pools with invalid connection strings to simulate DB unavailability
         let invalid_pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
                 .max_connections(1)
@@ -459,15 +427,12 @@ mod tests {
             test_before_acquire: false,
         });
 
-        // Startup should always return "started" even if warmup fails
         let result = startup(database_pools).await;
         assert_eq!(result, "started");
     }
 
     #[tokio::test]
     async fn test_startup_with_aliased_pools() {
-        // Simulate the common case where persons pools are aliased to non-persons pools
-        // (when persons_db_routing is disabled)
         let shared_pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
                 .max_connections(1)
@@ -476,16 +441,14 @@ mod tests {
                 .expect("Failed to create pool"),
         );
 
-        // Both persons pools point to the same Arc as non-persons pools
         let database_pools = Arc::new(DatabasePools {
             non_persons_reader: shared_pool.clone(),
             non_persons_writer: shared_pool.clone(),
-            persons_reader: shared_pool.clone(), // Aliased to non_persons_reader
-            persons_writer: shared_pool,         // Aliased to non_persons_writer
+            persons_reader: shared_pool.clone(),
+            persons_writer: shared_pool,
             test_before_acquire: false,
         });
 
-        // Startup should still return "started" and handle aliased pools gracefully
         let result = startup(database_pools).await;
         assert_eq!(result, "started");
     }

@@ -11,6 +11,8 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import SlackIntegrationError
 
+from products.conversations.backend.models import TeamConversationsSlackConfig
+
 
 class TestSupportSlackEventsAPI(BaseTest):
     client: APIClient
@@ -18,16 +20,21 @@ class TestSupportSlackEventsAPI(BaseTest):
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
-        self.team.conversations_settings = {"slack_enabled": True, "slack_team_id": "T123"}
+        self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()
+        TeamConversationsSlackConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"slack_team_id": "T123", "slack_bot_token": "xoxb-test"},
+        )
         self.client = APIClient()
         cache.clear()
 
-    def _post(self, payload: dict[str, Any]):
+    def _post(self, payload: dict[str, Any], **kwargs):
         return self.client.post(
             "/api/conversations/v1/slack/events",
             data=json.dumps(payload),
             content_type="application/json",
+            **kwargs,
         )
 
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
@@ -37,6 +44,21 @@ class TestSupportSlackEventsAPI(BaseTest):
         response = self._post({"type": "event_callback"})
 
         assert response.status_code == 403
+
+    @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
+    @patch("products.conversations.backend.api.slack_events.validate_support_request")
+    def test_slack_retry_returns_200_without_processing(self, mock_validate: MagicMock, mock_process: MagicMock):
+        mock_validate.return_value = None
+
+        response = self.client.post(
+            "/api/conversations/v1/slack/events",
+            data=json.dumps({"type": "event_callback", "team_id": "T123", "event": {"type": "message"}}),
+            content_type="application/json",
+            HTTP_X_SLACK_RETRY_NUM="1",
+        )
+
+        assert response.status_code == 200
+        mock_process.delay.assert_not_called()
 
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_invalid_json_returns_400(self, mock_validate: MagicMock):
@@ -93,6 +115,52 @@ class TestSupportSlackEventsAPI(BaseTest):
 
         assert response.status_code == 202
         mock_process.delay.assert_called_once()
+
+    @patch("products.conversations.backend.api.slack_events._proxy_to_secondary_region")
+    @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
+    @patch("products.conversations.backend.api.slack_events.validate_support_request")
+    def test_proxies_to_secondary_when_team_not_found_on_primary(
+        self, mock_validate: MagicMock, mock_process: MagicMock, mock_proxy: MagicMock
+    ):
+        mock_validate.return_value = None
+
+        with patch("products.conversations.backend.api.slack_events.SUPPORTHOG_PRIMARY_REGION_DOMAIN", "testserver"):
+            response = self._post(
+                {
+                    "type": "event_callback",
+                    "event_id": "Ev_proxy",
+                    "team_id": "T_UNKNOWN",
+                    "event": {"type": "message", "channel": "C1"},
+                },
+            )
+
+        assert response.status_code == 202
+        mock_process.delay.assert_not_called()
+        mock_proxy.assert_called_once()
+
+    @patch("products.conversations.backend.api.slack_events._proxy_to_secondary_region")
+    @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
+    @patch("products.conversations.backend.api.slack_events.validate_support_request")
+    def test_drops_event_when_team_not_found_on_secondary(
+        self, mock_validate: MagicMock, mock_process: MagicMock, mock_proxy: MagicMock
+    ):
+        mock_validate.return_value = None
+
+        with patch(
+            "products.conversations.backend.api.slack_events.SUPPORTHOG_PRIMARY_REGION_DOMAIN", "other.posthog.com"
+        ):
+            response = self._post(
+                {
+                    "type": "event_callback",
+                    "event_id": "Ev_drop",
+                    "team_id": "T_UNKNOWN",
+                    "event": {"type": "message", "channel": "C1"},
+                },
+            )
+
+        assert response.status_code == 202
+        mock_process.delay.assert_not_called()
+        mock_proxy.assert_not_called()
 
 
 class TestSlackChannelsAPI(APIBaseTest):

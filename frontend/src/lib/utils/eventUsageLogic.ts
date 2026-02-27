@@ -790,6 +790,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             selected,
             recommendationSource,
         }),
+        reportOnboardingReverseProxyDomainEntered: (domain: string) => ({ domain }),
+        reportOnboardingReverseProxyDocsClicked: true,
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
@@ -1482,6 +1484,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_id: experimentId,
                 team_id: teamId,
                 query_id: queryId,
+                ...getEventPropertiesForMetric(metric),
                 metric,
             })
         },
@@ -1492,6 +1495,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 query_id: queryId,
                 error_code: errorCode,
                 error_message: errorMessage,
+                ...getEventPropertiesForMetric(metric),
                 metric,
             })
         },
@@ -1500,6 +1504,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_id: experimentId,
                 team_id: teamId,
                 query_id: queryId,
+                ...getEventPropertiesForMetric(metric),
                 metric,
                 ...context,
             })
@@ -1937,6 +1942,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('sdk selected', {
                 sdk: sdk.key,
             })
+        },
+        reportOnboardingReverseProxyDomainEntered: ({ domain }) => {
+            posthog.capture('onboarding reverse proxy domain entered', { domain })
+        },
+        reportOnboardingReverseProxyDocsClicked: () => {
+            posthog.capture('onboarding reverse proxy docs clicked')
         },
         // command bar
         reportCommandBarStatusChanged: ({ status }) => {

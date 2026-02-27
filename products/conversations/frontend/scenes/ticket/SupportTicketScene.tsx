@@ -294,28 +294,35 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         </div>
                     </LemonCard>
 
-                    {/* Session Recording Panel */}
-                    <SessionRecordingPanel sessionContext={ticket?.session_context} distinctId={ticket?.distinct_id} />
+                    {ticket?.channel_source === 'widget' && (
+                        <>
+                            {/* Session Recording Panel */}
+                            <SessionRecordingPanel
+                                sessionContext={ticket?.session_context}
+                                distinctId={ticket?.distinct_id}
+                            />
 
-                    {/* Recent Events Panel */}
-                    <RecentEventsPanel
-                        eventsQuery={eventsQuery}
-                        distinctId={ticket?.distinct_id}
-                        sessionId={ticket?.session_id}
-                    />
+                            {/* Recent Events Panel */}
+                            <RecentEventsPanel
+                                eventsQuery={eventsQuery}
+                                distinctId={ticket?.distinct_id}
+                                sessionId={ticket?.session_id}
+                            />
 
-                    {/* Exceptions Panel */}
-                    <ExceptionsPanel
-                        exceptionsQuery={exceptionsQuery}
-                        sessionId={ticket?.session_id}
-                        distinctId={ticket?.distinct_id}
-                    />
+                            {/* Exceptions Panel */}
+                            <ExceptionsPanel
+                                exceptionsQuery={exceptionsQuery}
+                                sessionId={ticket?.session_id}
+                                distinctId={ticket?.distinct_id}
+                            />
 
-                    {/* Previous Tickets Panel */}
-                    <PreviousTicketsPanel
-                        previousTickets={previousTickets}
-                        previousTicketsLoading={previousTicketsLoading}
-                    />
+                            {/* Previous Tickets Panel */}
+                            <PreviousTicketsPanel
+                                previousTickets={previousTickets}
+                                previousTicketsLoading={previousTicketsLoading}
+                            />
+                        </>
+                    )}
                 </div>
             </div>
         </SceneContent>

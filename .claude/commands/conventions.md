@@ -77,6 +77,10 @@ Hence the explicit separation between the data and view layers.
 
 ## Backend Coding Conventions
 
+### Coding standards
+
+- Always place imports at the top of the file (module level), never inside functions or methods (local imports)
+
 ### Logging
 
 As a general rule, we should have logs for every expected and unexpected actions of the application, using the appropriate _log level_.

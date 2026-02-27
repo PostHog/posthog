@@ -85,7 +85,6 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
-    HogQLASTQuery = 'HogQLASTQuery',
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
@@ -254,7 +253,6 @@ export type QuerySchema =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
-    | HogQLASTQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -473,11 +471,6 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     explain?: boolean
     /** Client provided name of the query */
     name?: string
-}
-
-export interface HogQLASTQuery extends Omit<HogQLQuery, 'query' | 'kind'> {
-    kind: NodeKind.HogQLASTQuery
-    query: Record<string, any>
 }
 
 export interface HogQueryResponse {
@@ -1742,6 +1735,8 @@ export interface EndpointRequest {
     derived_from_insight?: string
     /** Target a specific version for updates (optional, defaults to current version) */
     version?: integer
+    /** Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month). */
+    bucket_overrides?: Record<string, string>
 }
 
 /**
@@ -1795,6 +1790,8 @@ export interface EndpointRunRequest {
     debug?: boolean
     /** Maximum number of results to return. If not provided, returns all results. */
     limit?: integer
+    /** Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints. */
+    offset?: integer
 }
 
 export interface EndpointLastExecutionTimesRequest {
@@ -4022,6 +4019,7 @@ export interface LLMTrace {
     errorCount?: number
     events: LLMTraceEvent[]
     isSupportTrace?: boolean
+    tools?: string[]
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
@@ -4681,6 +4679,7 @@ export enum MarketingAnalyticsBaseColumns {
     ReportedConversion = 'Reported Conversion',
     ReportedConversionValue = 'Reported Conversion Value',
     ReportedROAS = 'Reported ROAS',
+    CostPerReportedConversion = 'Cost per Reported Conversion',
 }
 
 export enum MarketingAnalyticsConstants {
