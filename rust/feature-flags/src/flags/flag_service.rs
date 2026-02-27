@@ -90,12 +90,12 @@ impl FlagService {
                 tracing::warn!("Token validation failed for token '{}': {:?}", token, e);
                 if e.is_token_not_found() {
                     self.team_negative_cache.insert(token.to_string());
+                    inc(
+                        TOKEN_VALIDATION_ERRORS_COUNTER,
+                        &[("reason".to_string(), "token_not_found".to_string())],
+                        1,
+                    );
                 }
-                inc(
-                    TOKEN_VALIDATION_ERRORS_COUNTER,
-                    &[("reason".to_string(), "token_not_found".to_string())],
-                    1,
-                );
                 Err(FlagError::TokenValidationError)
             }
         }
