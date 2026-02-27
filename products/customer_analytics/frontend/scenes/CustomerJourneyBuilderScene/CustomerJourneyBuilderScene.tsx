@@ -28,6 +28,7 @@ export function CustomerJourneyBuilderScene(): JSX.Element {
                 resourceType={{ type: 'funnel' }}
                 onNameChange={setJourneyName}
                 onDescriptionChange={setJourneyDescription}
+                descriptionMaxLength={400}
                 canEdit
                 forceEdit
                 renameDebounceMs={0}
