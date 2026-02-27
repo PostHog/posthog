@@ -293,7 +293,16 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         proposedUrlBlocklist: {
             defaults: { url: '', matching: 'regex' } as UrlTriggerConfig,
             errors: ({ url }) => ({
-                url: !url ? 'Must have a URL' : undefined,
+                url: !url
+                    ? 'Must have a URL'
+                    : (() => {
+                          try {
+                              new RegExp(url)
+                              return undefined
+                          } catch {
+                              return 'Invalid regex pattern'
+                          }
+                      })(),
             }),
             submit: async ({ url, matching }) => {
                 if (values.editUrlBlocklistIndex !== null && values.editUrlBlocklistIndex >= 0) {

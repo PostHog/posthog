@@ -304,10 +304,18 @@ const RecordingTriggersSummary = ({
         )
     }
 
+    const matchType = currentTeam.session_recording_trigger_match_type_config || 'all'
+    const matchWord = matchType === 'any' ? 'any' : 'all'
+
     return (
         <IngestionControlsSummary
             triggers={triggers}
             controlDescription="sessions recorded"
+            heading={(hasAnyTriggers) =>
+                !hasAnyTriggers
+                    ? 'No conditions set — all sessions recorded'
+                    : `Recording when ${matchWord} of these conditions are met:`
+            }
             docsLink={{
                 to: 'https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record',
                 label: 'Read about how to start and stop sessions in our docs.',

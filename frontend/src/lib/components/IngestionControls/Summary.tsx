@@ -19,10 +19,12 @@ const summaryLabel: Record<TriggerType, string> = {
 export function IngestionControlsSummary({
     triggers,
     controlDescription,
+    heading,
     docsLink,
 }: {
     triggers: Trigger[]
     controlDescription: string
+    heading?: (hasAnyTriggers: boolean) => string
     docsLink?: {
         to: string
         label: string
@@ -30,12 +32,16 @@ export function IngestionControlsSummary({
 }): JSX.Element {
     const hasAnyTriggers = triggers.some((t) => t.enabled)
 
+    const summaryHeading = heading
+        ? heading(hasAnyTriggers)
+        : hasAnyTriggers
+          ? 'Trigger summary'
+          : `No triggers — all ${controlDescription}`
+
     return (
         <LemonBanner type="info" hideIcon>
             <div className="flex flex-col gap-1">
-                <h3 className="mb-0">
-                    {hasAnyTriggers ? 'Trigger summary' : `No triggers — all ${controlDescription}`}
-                </h3>
+                <h3 className="mb-0">{summaryHeading}</h3>
                 {docsLink && (
                     <Link to={docsLink.to} target="blank">
                         {docsLink.label}
