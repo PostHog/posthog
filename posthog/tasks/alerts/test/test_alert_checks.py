@@ -244,6 +244,25 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert mock_send_notifications_for_breaches.call_count == 0
 
+    def test_send_error_while_calculating(
+        self, _mock_send_notifications_for_breaches: MagicMock, mock_send_notifications_for_errors: MagicMock
+    ) -> None:
+        with patch(
+            "posthog.tasks.alerts.trends.calculate_for_query_based_insight"
+        ) as mock_calculate_for_query_based_insight:
+            mock_calculate_for_query_based_insight.side_effect = Exception("Some error")
+
+            with freeze_time("2024-06-02T09:00:00.000Z"):
+                check_alert(self.alert["id"])
+                assert mock_send_notifications_for_errors.call_count == 1
+
+                latest_alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest(
+                    "created_at"
+                )
+
+                error_message = latest_alert_check.error["message"]
+                assert "Some error" in error_message
+
     def test_error_while_calculating_on_alert_in_firing_state(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_notifications_for_errors: MagicMock
     ) -> None:
