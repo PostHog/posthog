@@ -203,10 +203,9 @@ class TestInCohort(BaseTest):
 
 
 class TestInlineCohortLeftjoin(BaseTest):
-    """Tests for inlineCohortCalculation modifier via the leftjoin path."""
+    maxDiff = None
 
     def _setup_cohort_with_new_person_after_calculation(self):
-        """Create a cohort, calculate it, then add a new person who matches but isn't in cohortpeople."""
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         distinct_id1 = f"p1_{random_uuid}"
         distinct_id2 = f"p2_{random_uuid}"
@@ -236,58 +235,46 @@ class TestInlineCohortLeftjoin(BaseTest):
 
         return cohort, random_uuid
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_inline_cohort_leftjoin_off_vs_always(self):
+    def _run_inline_cohort_query(self, cohort_via: InCohortVia, inline_mode: InlineCohortCalculation):
         cohort, random_uuid = self._setup_cohort_with_new_person_after_calculation()
-        query = f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event = '{random_uuid}'"
-
-        off_response = execute_hogql_query(
-            query,
+        return execute_hogql_query(
+            f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event = '{random_uuid}'",
             self.team,
-            modifiers=HogQLQueryModifiers(
-                inCohortVia=InCohortVia.LEFTJOIN, inlineCohortCalculation=InlineCohortCalculation.OFF
-            ),
+            modifiers=HogQLQueryModifiers(inCohortVia=cohort_via, inlineCohortCalculation=inline_mode),
             pretty=False,
         )
-        self.assertEqual(len(off_response.results or []), 1)
 
-        always_response = execute_hogql_query(
-            query,
-            self.team,
-            modifiers=HogQLQueryModifiers(
-                inCohortVia=InCohortVia.LEFTJOIN, inlineCohortCalculation=InlineCohortCalculation.ALWAYS
-            ),
-            pretty=False,
-        )
-        self.assertEqual(len(always_response.results or []), 2)
-
+    @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_inline_cohort_leftjoin_conjoined_off_vs_always(self):
-        cohort, random_uuid = self._setup_cohort_with_new_person_after_calculation()
-        query = f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event = '{random_uuid}'"
+    def test_inline_leftjoin_off(self):
+        response = self._run_inline_cohort_query(InCohortVia.LEFTJOIN, InlineCohortCalculation.OFF)
+        assert len(response.results or []) == 1
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
-        off_response = execute_hogql_query(
-            query,
-            self.team,
-            modifiers=HogQLQueryModifiers(
-                inCohortVia=InCohortVia.LEFTJOIN_CONJOINED, inlineCohortCalculation=InlineCohortCalculation.OFF
-            ),
-            pretty=False,
-        )
-        self.assertEqual(len(off_response.results or []), 1)
-
-        always_response = execute_hogql_query(
-            query,
-            self.team,
-            modifiers=HogQLQueryModifiers(
-                inCohortVia=InCohortVia.LEFTJOIN_CONJOINED, inlineCohortCalculation=InlineCohortCalculation.ALWAYS
-            ),
-            pretty=False,
-        )
-        self.assertEqual(len(always_response.results or []), 2)
-
+    @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_inline_cohort_leftjoin_static_always_uses_cohortpeople(self):
+    def test_inline_leftjoin_always(self):
+        response = self._run_inline_cohort_query(InCohortVia.LEFTJOIN, InlineCohortCalculation.ALWAYS)
+        assert len(response.results or []) == 2
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_inline_conjoined_off(self):
+        response = self._run_inline_cohort_query(InCohortVia.LEFTJOIN_CONJOINED, InlineCohortCalculation.OFF)
+        assert len(response.results or []) == 1
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_inline_conjoined_always(self):
+        response = self._run_inline_cohort_query(InCohortVia.LEFTJOIN_CONJOINED, InlineCohortCalculation.ALWAYS)
+        assert len(response.results or []) == 2
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_inline_static_always_uses_cohortpeople(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         _create_person(
             properties={"$os": "Chrome"},
@@ -307,4 +294,5 @@ class TestInlineCohortLeftjoin(BaseTest):
             ),
             pretty=False,
         )
-        self.assertEqual(len(response.results or []), 0)
+        assert len(response.results or []) == 0
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
