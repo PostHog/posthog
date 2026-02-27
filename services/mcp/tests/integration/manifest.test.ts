@@ -1,19 +1,65 @@
-import { strFromU8, unzipSync } from 'fflate'
+import { strFromU8, unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 
-import { CONTEXT_MILL_URL } from '@/resources/index'
 import { loadContextMillManifest } from '@/resources/manifest-loader'
 
+/**
+ * Minimal valid context-mill manifest fixture.
+ * Mirrors the structure served by the real GitHub releases ZIP
+ * without requiring a live network call.
+ */
+const MANIFEST_FIXTURE = {
+    version: '1.0',
+    resources: [
+        {
+            id: 'test-resource',
+            name: 'Test Resource',
+            uri: 'posthog://resources/test-resource',
+            file: 'test-resource.md',
+            resource: {
+                mimeType: 'text/markdown',
+                description: 'A test resource',
+                text: '# Test Resource\n\nThis is a test resource.',
+            },
+        },
+        {
+            id: 'inline-resource',
+            name: 'Inline Resource',
+            uri: 'posthog://resources/inline-resource',
+            resource: {
+                mimeType: 'text/plain',
+                description: 'An inline resource without a file',
+                text: 'Inline content here.',
+            },
+        },
+    ],
+}
+
+/**
+ * Build a ZIP archive in memory containing the manifest and resource files.
+ */
+function buildFixtureArchive(): Uint8Array {
+    const encoder = new TextEncoder()
+    const files: Record<string, Uint8Array> = {
+        'manifest.json': encoder.encode(JSON.stringify(MANIFEST_FIXTURE)),
+    }
+
+    // Add files referenced by resources
+    for (const entry of MANIFEST_FIXTURE.resources) {
+        if (entry.file) {
+            files[entry.file] = encoder.encode(entry.resource.text)
+        }
+    }
+
+    return zipSync(files)
+}
+
 describe('Context-Mill Manifest Integration', () => {
-    it('should fetch, unzip, and validate the manifest from GitHub releases', async () => {
-        // Fetch the resources ZIP
-        const response = await fetch(CONTEXT_MILL_URL)
-        expect(response.ok).toBe(true)
+    it('should unzip and validate the manifest from a ZIP archive', () => {
+        const zipData = buildFixtureArchive()
 
         // Unzip the archive
-        const arrayBuffer = await response.arrayBuffer()
-        const uint8Array = new Uint8Array(arrayBuffer)
-        const archive = unzipSync(uint8Array)
+        const archive = unzipSync(zipData)
 
         // Verify archive is not empty
         expect(Object.keys(archive).length).toBeGreaterThan(0)
@@ -51,5 +97,5 @@ describe('Context-Mill Manifest Integration', () => {
                 expect(archive[entry.file]).toBeTruthy()
             }
         }
-    }, 30000) // 30 second timeout for network request
+    })
 })
