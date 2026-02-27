@@ -205,7 +205,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
             batch_export_run.data_interval_end,
         )
 
-        return response.Response({"backfill_id": backfill_workflow_id})
+        return response.Response({"backfill_workflow_id": backfill_workflow_id})
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:
@@ -1319,7 +1319,7 @@ class BatchExportBackfillViewSet(
             request.data.get("start_at"),
             request.data.get("end_at"),
         )
-        return response.Response({"backfill_id": backfill_workflow_id})
+        return response.Response({"backfill_workflow_id": backfill_workflow_id})
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:
