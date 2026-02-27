@@ -86,6 +86,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "last_refresh": None,
             "is_cached": False,
             "insight": None,
+            "show_description": None,
         }
 
     @staticmethod
