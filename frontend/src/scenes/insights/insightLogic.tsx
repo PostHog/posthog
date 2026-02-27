@@ -65,7 +65,7 @@ export const createEmptyInsight = (
     shortId: InsightShortId | `new-${string}` | 'new'
 ): Partial<QueryBasedInsightModel> => ({
     short_id: shortId !== 'new' && !shortId.startsWith('new-') ? (shortId as InsightShortId) : undefined,
-    name: null,
+    name: undefined,
     description: '',
     tags: [],
     dashboards: [],
