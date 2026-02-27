@@ -11,11 +11,12 @@ import { Query } from '~/queries/Query/Query'
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { AddJourneyModal } from './AddJourneyModal'
 import { customerJourneysLogic } from './customerJourneysLogic'
+import { JourneyBuilder } from './JourneyBuilder'
+import { journeyBuilderLogic } from './journeyBuilderLogic'
 
 export function CustomerJourneys(): JSX.Element {
     const mountedSceneLogic = useMountedLogic(customerAnalyticsSceneLogic)
     const mountedCustomerJourneysLogic = customerJourneysLogic()
-    useAttachedLogic(mountedCustomerJourneysLogic, mountedSceneLogic)
     const {
         journeyOptions,
         journeysLoading,
@@ -25,6 +26,11 @@ export function CustomerJourneys(): JSX.Element {
         activeJourneyFullQuery,
     } = useValues(mountedCustomerJourneysLogic)
     const { showAddJourneyModal, setActiveJourneyId, deleteJourney } = useActions(mountedCustomerJourneysLogic)
+    const mountedJourneyBuilderLogic = journeyBuilderLogic()
+    const { isBuilderOpen } = useValues(mountedJourneyBuilderLogic)
+    const { openBuilder } = useActions(mountedJourneyBuilderLogic)
+    useAttachedLogic(mountedCustomerJourneysLogic, mountedSceneLogic)
+    useAttachedLogic(mountedJourneyBuilderLogic, mountedSceneLogic)
 
     if (journeysLoading) {
         return (
@@ -43,6 +49,16 @@ export function CustomerJourneys(): JSX.Element {
                     buttonText="Add a funnel"
                     buttonOnClick={showAddJourneyModal}
                 />
+                <div className="flex justify-center -mt-2">
+                    <LemonButton
+                        type="primary"
+                        onClick={openBuilder}
+                        disabledReason={isBuilderOpen ? 'Builder is already open' : undefined}
+                    >
+                        Build journey
+                    </LemonButton>
+                </div>
+                {isBuilderOpen && <JourneyBuilder />}
                 <AddJourneyModal />
             </>
         )
@@ -59,6 +75,14 @@ export function CustomerJourneys(): JSX.Element {
                 />
                 <LemonButton type="secondary" icon={<IconPlus />} size="small" onClick={showAddJourneyModal}>
                     Add journey
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={openBuilder}
+                    disabledReason={isBuilderOpen ? 'Builder is already open' : undefined}
+                >
+                    Build journey
                 </LemonButton>
                 {activeJourney && (
                     <LemonButton
@@ -81,6 +105,8 @@ export function CustomerJourneys(): JSX.Element {
             ) : (
                 <div className="text-muted text-center p-8">Insight not found</div>
             )}
+
+            {isBuilderOpen && <JourneyBuilder />}
 
             <AddJourneyModal />
         </div>
