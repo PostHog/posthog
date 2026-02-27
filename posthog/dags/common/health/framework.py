@@ -66,9 +66,14 @@ def _get_teams_per_second(result: BatchResult) -> float:
 def _create_check_batch_op(name: str, kind: str, detector: HealthDetector) -> dagster.OpDefinition:
     @dagster.op(name=f"{name}_check_batch", retry_policy=_default_retry_policy)
     def check_batch_op(context: dagster.OpExecutionContext, team_ids: list[int]) -> BatchResult:
-        dry_run = (
-            context.run_config.get("ops", {}).get("get_all_team_ids_op", {}).get("config", {}).get("dry_run", False)
-        )
+        ops = context.run_config.get("ops", {})
+        dry_run = False
+        if isinstance(ops, dict):
+            team_ids_op = ops.get("get_all_team_ids_op", {})
+            if isinstance(team_ids_op, dict):
+                config = team_ids_op.get("config", {})
+                if isinstance(config, dict):
+                    dry_run = bool(config.get("dry_run", False))
         result = _process_batch_detection(team_ids, kind, detector.detect_fn, context, dry_run=dry_run)
 
         teams_per_second = _get_teams_per_second(result)
