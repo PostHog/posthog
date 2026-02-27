@@ -118,7 +118,7 @@ FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
         "is_date_exact",
         "is_date_after",
         "is_date_before",
-        "in_",
+        "in",
         "not_in",
         "flag_evaluates_to",
     }
