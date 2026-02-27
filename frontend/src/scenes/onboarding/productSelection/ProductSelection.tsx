@@ -7,6 +7,7 @@ import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect, LemonText
 
 import { Logomark } from 'lib/brand/Logomark'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -61,13 +62,16 @@ function ChoosePathStep(): JSX.Element {
         useActions(productSelectionLogic)
 
     const aiRecommendationsEnabled = useFeatureFlag('ONBOARDING_AI_PRODUCT_RECOMMENDATIONS', 'test')
+    const headingFlag = useFeatureFlag('ONBOARDING_PRODUCT_SELECTION_HEADING')
+    const headingPayload = headingFlag ? getFeatureFlagPayload('onboarding-product-selection-heading') : undefined
+    const heading = typeof headingPayload === 'string' ? headingPayload : 'What do you want to do with PostHog?'
 
     return (
         <div className="max-w-6xl w-full">
             <div className="flex justify-center mb-4">
                 <Logomark />
             </div>
-            <h1 className="text-4xl font-bold text-center mb-2">What do you want to do with PostHog?</h1>
+            <h1 className="text-4xl font-bold text-center mb-2">{heading}</h1>
             <p className="text-center text-muted mb-8">
                 {aiRecommendationsEnabled
                     ? "Describe your goals and we'll recommend the right products for you"
