@@ -887,9 +887,10 @@ const EventContent = React.memo(
             }
 
             const model = event.properties.$ai_model
+            const provider = event.properties.$ai_provider
             const tools = event.properties.$ai_tools
 
-            setupPlaygroundFromEvent({ model, input: loadedInput, tools })
+            setupPlaygroundFromEvent({ model, provider, input: loadedInput, tools })
         }
 
         return (
