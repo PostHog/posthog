@@ -1,14 +1,10 @@
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_kafka_producer;
-
-use health::{HealthHandle, HealthRegistry};
-use tokio::sync::oneshot;
-use tokio_util::sync::CancellationToken;
+use lifecycle::{ComponentOptions, Handle, Manager};
 use tracing::{error, info};
 
 use crate::config::PipelineType;
@@ -31,15 +27,11 @@ use crate::{
 pub struct KafkaDeduplicatorService {
     config: Config,
     consumer: Option<PipelineConsumer>,
+    consumer_handle: Option<Handle>,
     store_manager: Arc<StoreManager>,
     checkpoint_manager: Option<CheckpointManager>,
     checkpoint_importer: Option<Arc<CheckpointImporter>>,
     cleanup_task_handle: Option<CleanupTaskHandle>,
-    shutdown_tx: Option<oneshot::Sender<()>>,
-    liveness: HealthRegistry,
-    service_health: Option<HealthHandle>,
-    health_task_cancellation: CancellationToken,
-    health_task_handles: Vec<tokio::task::JoinHandle<()>>,
 }
 
 impl KafkaDeduplicatorService {
@@ -80,8 +72,8 @@ impl KafkaDeduplicatorService {
         Ok(())
     }
 
-    /// Create a new service from configuration
-    pub async fn new(config: Config, liveness: HealthRegistry) -> Result<Self> {
+    /// Create a new service from configuration. Registers lifecycle components on the manager.
+    pub async fn new(config: Config, manager: &mut Manager) -> Result<Self> {
         // Validate configuration
         config.validate().with_context(|| format!("Configuration validation failed for service with consumer topic '{}' and group '{}'", config.kafka_consumer_topic, config.kafka_consumer_group))?;
 
@@ -104,11 +96,17 @@ impl KafkaDeduplicatorService {
 
         // Start periodic cleanup task if max_capacity is configured
         let cleanup_task_handle = if store_config.max_capacity > 0 {
+            let cleanup_handle = manager.register(
+                "cleanup-task",
+                ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+            );
             let cleanup_interval = config.cleanup_interval();
             let orphan_min_staleness = config.orphan_cleanup_min_staleness();
-            let handle = store_manager
-                .clone()
-                .start_periodic_cleanup(cleanup_interval, orphan_min_staleness);
+            let handle = store_manager.clone().start_periodic_cleanup(
+                cleanup_interval,
+                orphan_min_staleness,
+                cleanup_handle,
+            );
             info!(
                 "Started periodic cleanup task with interval: {:?} for max capacity: {} bytes",
                 cleanup_interval, store_config.max_capacity
@@ -197,20 +195,16 @@ impl KafkaDeduplicatorService {
         Ok(Self {
             config,
             consumer: None,
+            consumer_handle: None,
             store_manager,
             checkpoint_manager: Some(checkpoint_manager),
             checkpoint_importer: importer,
             cleanup_task_handle,
-            shutdown_tx: None,
-            liveness,
-            service_health: None,
-            health_task_cancellation: CancellationToken::new(),
-            health_task_handles: Vec::new(),
         })
     }
 
-    /// Initialize the Kafka consumer and prepare for running
-    pub async fn initialize(&mut self) -> Result<()> {
+    /// Initialize the Kafka consumer and prepare for running. Registers lifecycle components.
+    pub async fn initialize(&mut self, manager: &mut Manager) -> Result<()> {
         if self.consumer.is_some() {
             return Err(anyhow::anyhow!("Service already initialized"));
         }
@@ -224,42 +218,18 @@ impl KafkaDeduplicatorService {
             },
         };
 
-        // Create shutdown channel
-        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-        self.shutdown_tx = Some(shutdown_tx);
-
-        // start checkpoint manager and async work loop threads, register health monitor
-        let checkpoint_health_reporter = self.checkpoint_manager.as_mut().unwrap().start();
-
-        // if health reporter is Some, this is the first time initializing
-        // the checkpoint manager, and we should start the health monitor thread
-        if checkpoint_health_reporter.is_some() {
-            let checkpoint_health_handle = self
-                .liveness
-                .register("checkpoint_manager".to_string(), Duration::from_secs(30))
-                .await;
-            let cancellation = self.health_task_cancellation.child_token();
-            let handle = tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(10));
-                loop {
-                    tokio::select! {
-                        _ = cancellation.cancelled() => {
-                            break;
-                        }
-                        _ = interval.tick() => {
-                            if checkpoint_health_reporter.as_ref().unwrap().load(Ordering::SeqCst) {
-                                checkpoint_health_handle.report_healthy().await;
-                            } else {
-                                // Explicitly report unhealthy when a worker dies
-                                checkpoint_health_handle.report_status(health::ComponentStatus::Unhealthy).await;
-                                error!("Checkpoint manager is unhealthy - checkpoint and/or cleanup loops died");
-                            }
-                        }
-                    }
-                }
-            });
-            self.health_task_handles.push(handle);
-        }
+        // Register checkpoint manager and start it
+        let checkpoint_handle = manager.register(
+            "checkpoint-manager",
+            ComponentOptions::new()
+                .with_graceful_shutdown(self.config.checkpoint_worker_shutdown_timeout())
+                .with_liveness_deadline(Duration::from_secs(30))
+                .with_stall_threshold(2),
+        );
+        self.checkpoint_manager
+            .as_mut()
+            .unwrap()
+            .start(checkpoint_handle);
 
         info!(
             "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?})",
@@ -284,8 +254,9 @@ impl KafkaDeduplicatorService {
 
         // Configure pipeline-specific options for ingestion events
         if self.config.pipeline_type == PipelineType::IngestionEvents {
-            let (main_producer, duplicate_producer) =
-                self.create_producers_for_ingestion_pipeline().await?;
+            let (main_producer, duplicate_producer) = self
+                .create_producers_for_ingestion_pipeline(manager)
+                .await?;
 
             // Normalize empty strings to None for optional topic configs
             let output_topic = self
@@ -315,20 +286,22 @@ impl KafkaDeduplicatorService {
                 builder.with_ingestion_config(dedup_config, main_producer, duplicate_producer);
         }
 
-        let pipeline_consumer = builder.build(shutdown_rx)?;
+        let consumer_handle = manager.register(
+            "consumer",
+            ComponentOptions::new()
+                .with_graceful_shutdown(self.config.shutdown_timeout())
+                .with_liveness_deadline(Duration::from_secs(30))
+                .with_stall_threshold(2),
+        );
+
+        let pipeline_consumer = builder.build(consumer_handle.clone())?;
 
         info!(
             "Initialized {:?} pipeline for topic '{}'",
             self.config.pipeline_type, self.config.kafka_consumer_topic
         );
 
-        // Register health check for the service
-        self.service_health = Some(
-            self.liveness
-                .register("kafka_deduplicator".to_string(), Duration::from_secs(30))
-                .await,
-        );
-
+        self.consumer_handle = Some(consumer_handle);
         self.consumer = Some(pipeline_consumer);
         Ok(())
     }
@@ -336,6 +309,7 @@ impl KafkaDeduplicatorService {
     /// Create Kafka producers for the ingestion events pipeline
     async fn create_producers_for_ingestion_pipeline(
         &self,
+        manager: &mut Manager,
     ) -> Result<(
         Option<Arc<rdkafka::producer::FutureProducer<common_kafka::kafka_producer::KafkaContext>>>,
         Option<DuplicateEventProducerWrapper>,
@@ -372,14 +346,13 @@ impl KafkaDeduplicatorService {
             Some(topic) => {
                 info!("Creating Kafka producer for output topic: {}", topic);
 
-                // Create a health handle for the main producer
-                let main_producer_health = self
-                    .liveness
-                    .register(format!("main_producer_{topic}"), Duration::from_secs(30))
-                    .await;
+                let tag = format!("main_producer_{topic}");
+                let main_producer_handle = manager.register(
+                    &tag,
+                    ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+                );
 
-                // Create the producer using common module's function
-                let producer = create_kafka_producer(&kafka_config, main_producer_health)
+                let producer = create_kafka_producer(&kafka_config, main_producer_handle)
                     .await
                     .with_context(|| {
                         format!("Failed to create Kafka producer for output topic '{topic}'")
@@ -401,17 +374,13 @@ impl KafkaDeduplicatorService {
                     topic
                 );
 
-                // Create a health handle for the duplicate producer
-                let duplicate_producer_health = self
-                    .liveness
-                    .register(
-                        format!("duplicate_producer_{topic}"),
-                        Duration::from_secs(30),
-                    )
-                    .await;
+                let tag = format!("duplicate_producer_{topic}");
+                let duplicate_producer_handle = manager.register(
+                    &tag,
+                    ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+                );
 
-                // Create the producer using common module's function
-                let producer = create_kafka_producer(&kafka_config, duplicate_producer_health)
+                let producer = create_kafka_producer(&kafka_config, duplicate_producer_handle)
                     .await
                     .with_context(|| {
                         format!(
@@ -419,7 +388,6 @@ impl KafkaDeduplicatorService {
                         )
                     })?;
 
-                // Wrap in DuplicateEventProducerWrapper
                 Some(DuplicateEventProducerWrapper::new(
                     topic.clone(),
                     Arc::new(producer),
@@ -436,176 +404,45 @@ impl KafkaDeduplicatorService {
         Ok((main_producer, duplicate_producer))
     }
 
-    /// Run the service (blocking until shutdown)
-    pub async fn run(mut self) -> Result<()> {
-        // Initialize if not already done
-        if self.consumer.is_none() {
-            self.initialize().await?;
-        }
-
+    /// Spawn the consumer task with lifecycle coordination. The consumer runs until shutdown,
+    /// then performs teardown (checkpoint stop, cleanup stop, store shutdown).
+    pub fn spawn_consumer_task(mut self) -> Result<()> {
         let consumer = self
             .consumer
             .take()
             .ok_or_else(|| anyhow::anyhow!("Consumer not initialized"))?;
 
-        info!("Starting Kafka Deduplicator service");
-
-        // Start health reporting task for the main service
-        if let Some(health_handle) = self.service_health.clone() {
-            let cancellation = self.health_task_cancellation.child_token();
-            let handle = tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(10));
-                loop {
-                    tokio::select! {
-                        _ = cancellation.cancelled() => {
-                            break;
-                        }
-                        _ = interval.tick() => {
-                            health_handle.report_healthy().await;
-                        }
-                    }
-                }
-            });
-            self.health_task_handles.push(handle);
-        }
-
-        // Start consumption
-        let consumer_handle = tokio::spawn(async move { consumer.start_consumption().await });
-
-        // Wait for SIGTERM signal (Kubernetes graceful shutdown)
-        use tokio::signal::unix::{signal, SignalKind};
-        let mut sigterm = signal(SignalKind::terminate()).expect("Failed to listen for SIGTERM");
-
-        sigterm.recv().await;
-        info!("Received SIGTERM signal, shutting down gracefully...");
-
-        // Send shutdown signal
-        if let Some(shutdown_tx) = self.shutdown_tx.take() {
-            let _ = shutdown_tx.send(());
-        }
-
-        // Cancel health reporting tasks
-        self.health_task_cancellation.cancel();
-        for handle in self.health_task_handles.drain(..) {
-            let _ = handle.await;
-        }
-
-        // Stop the checkpoint manager
-        if let Some(mut checkpoint_manager) = self.checkpoint_manager.take() {
-            checkpoint_manager.stop().await;
-        }
-
-        // Wait for consumer to finish with timeout
-        match tokio::time::timeout(self.config.shutdown_timeout(), consumer_handle).await {
-            Ok(Ok(Ok(_))) => info!("Consumer stopped normally"),
-            Ok(Ok(Err(e))) => error!("Consumer stopped with error: {e:#}"),
-            Ok(Err(e)) => error!("Consumer task panicked: {e:#}"),
-            Err(_) => error!(
-                "Consumer shutdown timed out after {:?}",
-                self.config.shutdown_timeout()
-            ),
-        }
-
-        // Shutdown all stores cleanly
-        self.store_manager.shutdown().await;
-
-        info!("Kafka Deduplicator service stopped");
-        Ok(())
-    }
-
-    /// Run the service with a custom shutdown signal (useful for testing)
-    pub async fn run_with_shutdown(
-        mut self,
-        shutdown_signal: impl std::future::Future<Output = ()>,
-    ) -> Result<()> {
-        // Initialize if not already done
-        if self.consumer.is_none() {
-            self.initialize().await?;
-        }
-
-        let consumer = self
-            .consumer
+        let consumer_handle = self
+            .consumer_handle
             .take()
-            .ok_or_else(|| anyhow::anyhow!("Consumer not initialized"))?;
+            .ok_or_else(|| anyhow::anyhow!("Consumer handle not initialized"))?;
+
+        let store_manager = self.store_manager.clone();
+        let mut checkpoint_manager = self.checkpoint_manager.take();
+        let cleanup_task_handle = self.cleanup_task_handle.take();
 
         info!("Starting Kafka Deduplicator service");
 
-        // Start health reporting task for the main service
-        if let Some(health_handle) = self.service_health.clone() {
-            let cancellation = self.health_task_cancellation.child_token();
-            let handle = tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(10));
-                loop {
-                    tokio::select! {
-                        _ = cancellation.cancelled() => {
-                            break;
-                        }
-                        _ = interval.tick() => {
-                            health_handle.report_healthy().await;
-                        }
-                    }
-                }
-            });
-            self.health_task_handles.push(handle);
-        }
+        tokio::spawn(async move {
+            let _guard = consumer_handle.process_scope();
 
-        // Start consumption
-        let consumer_handle = tokio::spawn(async move { consumer.start_consumption().await });
+            match consumer.start_consumption().await {
+                Ok(()) => info!("Consumer stopped normally"),
+                Err(e) => error!("Consumer stopped with error: {e:#}"),
+            }
 
-        // Wait for shutdown signal
-        shutdown_signal.await;
+            if let Some(mut cm) = checkpoint_manager.take() {
+                cm.stop().await;
+            }
 
-        info!("Received shutdown signal, shutting down gracefully...");
+            if let Some(handle) = cleanup_task_handle {
+                info!("Stopping cleanup task...");
+                handle.stop().await;
+            }
 
-        // Send shutdown signal
-        if let Some(shutdown_tx) = self.shutdown_tx.take() {
-            let _ = shutdown_tx.send(());
-        }
-
-        // Cancel health reporting tasks
-        self.health_task_cancellation.cancel();
-        for handle in self.health_task_handles.drain(..) {
-            let _ = handle.await;
-        }
-
-        // Stop the checkpoint manager
-        if let Some(mut checkpoint_manager) = self.checkpoint_manager.take() {
-            checkpoint_manager.stop().await;
-        }
-
-        // Wait for consumer to finish with timeout
-        match tokio::time::timeout(self.config.shutdown_timeout(), consumer_handle).await {
-            Ok(Ok(Ok(_))) => info!("Consumer stopped normally"),
-            Ok(Ok(Err(e))) => error!("Consumer stopped with error: {e:#}"),
-            Ok(Err(e)) => error!("Consumer task panicked: {e:#}"),
-            Err(_) => error!(
-                "Consumer shutdown timed out after {:?}",
-                self.config.shutdown_timeout()
-            ),
-        }
-
-        // Shutdown all stores cleanly
-        self.store_manager.shutdown().await;
-
-        Ok(())
-    }
-
-    /// Shutdown the service gracefully
-    pub async fn shutdown(&mut self) -> Result<()> {
-        info!("Shutting down service...");
-
-        if let Some(shutdown_tx) = self.shutdown_tx.take() {
-            let _ = shutdown_tx.send(());
-        }
-
-        // Stop cleanup task if running
-        if let Some(handle) = self.cleanup_task_handle.take() {
-            info!("Stopping cleanup task...");
-            handle.stop().await;
-        }
-
-        // Give some time for graceful shutdown
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            store_manager.shutdown().await;
+            info!("Kafka Deduplicator service stopped");
+        });
 
         Ok(())
     }
@@ -629,13 +466,11 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let checkpoint_dir = temp_dir.path().join("checkpoints");
 
-        // Directory doesn't exist yet
         assert!(!checkpoint_dir.exists());
 
         let cfg = make_config(&checkpoint_dir);
         KafkaDeduplicatorService::reset_checkpoint_directory(&cfg).unwrap();
 
-        // Directory now exists and is empty
         assert!(checkpoint_dir.exists());
         assert!(checkpoint_dir.is_dir());
         assert_eq!(std::fs::read_dir(&checkpoint_dir).unwrap().count(), 0);
@@ -647,7 +482,6 @@ mod tests {
         let checkpoint_dir = temp_dir.path().join("checkpoints");
         std::fs::create_dir_all(&checkpoint_dir).unwrap();
 
-        // Create some files
         std::fs::write(checkpoint_dir.join("file1.txt"), "content1").unwrap();
         std::fs::write(checkpoint_dir.join("file2.txt"), "content2").unwrap();
         assert_eq!(std::fs::read_dir(&checkpoint_dir).unwrap().count(), 2);
@@ -655,7 +489,6 @@ mod tests {
         let cfg = make_config(&checkpoint_dir);
         KafkaDeduplicatorService::reset_checkpoint_directory(&cfg).unwrap();
 
-        // Directory still exists but is now empty
         assert!(checkpoint_dir.exists());
         assert_eq!(std::fs::read_dir(&checkpoint_dir).unwrap().count(), 0);
     }
@@ -666,15 +499,12 @@ mod tests {
         let checkpoint_dir = temp_dir.path().join("checkpoints");
         std::fs::create_dir_all(&checkpoint_dir).unwrap();
 
-        // Create nested structure like real checkpoint dirs
         let topic_dir = checkpoint_dir.join("topic-name");
         let partition_dir = topic_dir.join("0");
         let attempt_dir = partition_dir.join("20260115_061456");
         std::fs::create_dir_all(&attempt_dir).unwrap();
         std::fs::write(attempt_dir.join("checkpoint.sst"), "sst data").unwrap();
         std::fs::write(attempt_dir.join("MANIFEST"), "manifest").unwrap();
-
-        // Also a file at top level
         std::fs::write(checkpoint_dir.join("lockfile"), "").unwrap();
 
         assert_eq!(std::fs::read_dir(&checkpoint_dir).unwrap().count(), 2);
@@ -682,7 +512,6 @@ mod tests {
         let cfg = make_config(&checkpoint_dir);
         KafkaDeduplicatorService::reset_checkpoint_directory(&cfg).unwrap();
 
-        // Directory still exists but all contents cleared
         assert!(checkpoint_dir.exists());
         assert_eq!(std::fs::read_dir(&checkpoint_dir).unwrap().count(), 0);
         assert!(!topic_dir.exists());
@@ -691,10 +520,8 @@ mod tests {
     #[test]
     fn test_reset_checkpoint_directory_preserves_base_directory() {
         let temp_dir = TempDir::new().unwrap();
-        // Use the temp_dir itself as the checkpoint dir (simulates mount point)
         let checkpoint_dir = temp_dir.path().to_path_buf();
 
-        // Create some content
         let subdir = checkpoint_dir.join("subdir");
         std::fs::create_dir_all(&subdir).unwrap();
         std::fs::write(subdir.join("file.txt"), "content").unwrap();
@@ -703,7 +530,6 @@ mod tests {
         let cfg = make_config(&checkpoint_dir);
         KafkaDeduplicatorService::reset_checkpoint_directory(&cfg).unwrap();
 
-        // Base directory preserved, contents cleared
         assert!(checkpoint_dir.exists());
         assert_eq!(std::fs::read_dir(&checkpoint_dir).unwrap().count(), 0);
     }
@@ -716,7 +542,6 @@ mod tests {
 
         let cfg = make_config(&checkpoint_dir);
 
-        // Call multiple times on empty directory
         KafkaDeduplicatorService::reset_checkpoint_directory(&cfg).unwrap();
         KafkaDeduplicatorService::reset_checkpoint_directory(&cfg).unwrap();
 

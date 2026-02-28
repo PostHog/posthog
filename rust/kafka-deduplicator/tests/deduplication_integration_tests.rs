@@ -1,7 +1,7 @@
 use anyhow::Result;
 use common_types::{CapturedEvent, RawEvent};
-use health::HealthRegistry;
 use kafka_deduplicator::{config::Config, service::KafkaDeduplicatorService};
+use lifecycle::Manager;
 use rdkafka::{
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
     config::ClientConfig,
@@ -282,9 +282,15 @@ async fn test_basic_deduplication() -> Result<()> {
 
     // Create the service using the same abstraction as production
     println!("Creating Kafka Deduplicator service...");
-    let liveness = HealthRegistry::new("test_liveness");
-    let mut service = KafkaDeduplicatorService::new(config, liveness).await?;
-    service.initialize().await?;
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let mut manager = Manager::builder("test-dedup")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_test_shutdown(shutdown_rx)
+        .with_global_shutdown_timeout(std::time::Duration::from_secs(30))
+        .build();
+    let mut service = KafkaDeduplicatorService::new(config, &mut manager).await?;
+    service.initialize(&mut manager).await?;
     println!("Service initialized");
 
     // Produce test events with explicit different timestamps to ensure distinct deduplication keys
@@ -316,19 +322,19 @@ async fn test_basic_deduplication() -> Result<()> {
     .await?;
     println!("Produced second batch");
 
-    // Run the service with a controlled shutdown
-    let shutdown_signal = async {
-        println!("Waiting 10 seconds for processing...");
-        tokio::time::sleep(Duration::from_secs(10)).await;
-        println!("Initiating shutdown...");
-    };
+    // Run the service with lifecycle and controlled shutdown
+    let monitor_guard = manager.monitor_background();
+    service.spawn_consumer_task()?;
 
-    // Run service with custom shutdown signal
-    let service_handle =
-        tokio::spawn(async move { service.run_with_shutdown(shutdown_signal).await });
+    let monitor_handle = tokio::spawn(async move { monitor_guard.wait().await });
 
-    // Wait for service to complete
-    let _ = tokio::time::timeout(Duration::from_secs(15), service_handle).await;
+    println!("Waiting 10 seconds for processing...");
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    println!("Initiating shutdown...");
+    shutdown_tx.send(()).ok();
+
+    // Wait for monitor to complete
+    let _ = tokio::time::timeout(Duration::from_secs(15), monitor_handle).await;
     println!("Service stopped");
 
     // Consume from output topic to verify deduplication
@@ -521,25 +527,32 @@ async fn test_deduplication_with_different_events() -> Result<()> {
     let config = Config::init_with_defaults()?;
 
     // Create and initialize the service
-    let liveness = HealthRegistry::new("test_liveness");
-    let mut service = KafkaDeduplicatorService::new(config, liveness).await?;
-    service.initialize().await?;
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let mut manager = Manager::builder("test-dedup-different")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_test_shutdown(shutdown_rx)
+        .with_global_shutdown_timeout(std::time::Duration::from_secs(30))
+        .build();
+    let mut service = KafkaDeduplicatorService::new(config, &mut manager).await?;
+    service.initialize(&mut manager).await?;
 
     // Produce events with same distinct_id but different event names
     produce_duplicate_events(&input_topic, "user_123", "event_a", 3).await?;
     produce_duplicate_events(&input_topic, "user_123", "event_b", 2).await?;
     produce_duplicate_events(&input_topic, "user_123", "event_c", 1).await?;
 
-    // Run the service with a controlled shutdown
-    let shutdown_signal = async {
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    };
+    // Run the service with lifecycle and controlled shutdown
+    let monitor_guard = manager.monitor_background();
+    service.spawn_consumer_task()?;
 
-    let service_handle =
-        tokio::spawn(async move { service.run_with_shutdown(shutdown_signal).await });
+    let monitor_handle = tokio::spawn(async move { monitor_guard.wait().await });
 
-    // Wait for service to complete
-    let _ = tokio::time::timeout(Duration::from_secs(10), service_handle).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    shutdown_tx.send(()).ok();
+
+    // Wait for monitor to complete
+    let _ = tokio::time::timeout(Duration::from_secs(10), monitor_handle).await;
 
     // Verify output
     let output_messages = consume_output_messages(

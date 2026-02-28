@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use dashmap::DashMap;
 use futures::stream::{self, StreamExt};
+use lifecycle::Handle;
 use std::collections::HashSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -808,17 +809,20 @@ impl StoreManager {
         total_size > cleanup_threshold
     }
 
-    /// Start a periodic cleanup task that runs in the background
-    /// Returns a handle that can be used to stop the task
+    /// Start a periodic cleanup task that runs in the background.
+    /// Uses the lifecycle handle for shutdown coordination.
+    /// Returns a handle that can be used to stop the task.
     pub fn start_periodic_cleanup(
         self: Arc<Self>,
         cleanup_interval: Duration,
         orphan_min_staleness: Duration,
+        lifecycle_handle: Handle,
     ) -> CleanupTaskHandle {
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
         let manager = self;
 
         let handle = tokio::spawn(async move {
+            let _guard = lifecycle_handle.process_scope();
             let mut interval = tokio::time::interval(cleanup_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -829,6 +833,10 @@ impl StoreManager {
 
             loop {
                 tokio::select! {
+                    _ = lifecycle_handle.shutdown_recv() => {
+                        info!("Cleanup task received lifecycle shutdown signal");
+                        break;
+                    }
                     _ = interval.tick() => {
                         info!("Cleanup task tick - running periodic cleanup check");
 
@@ -1321,8 +1329,20 @@ mod tests {
 
     use super::*;
     use common_types::RawEvent;
+    use lifecycle::{ComponentOptions, Manager};
     use std::sync::Arc;
     use tempfile::TempDir;
+
+    fn create_test_lifecycle_handle() -> Handle {
+        let (_tx, rx) = tokio::sync::oneshot::channel();
+        let mut manager = Manager::builder("test-store-cleanup")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_test_shutdown(rx)
+            .with_global_shutdown_timeout(std::time::Duration::from_secs(30))
+            .build();
+        manager.register("cleanup-task", ComponentOptions::new())
+    }
 
     #[tokio::test]
     async fn test_global_capacity_management() {
@@ -1391,6 +1411,7 @@ mod tests {
         let cleanup_handle = manager.clone().start_periodic_cleanup(
             Duration::from_millis(100), // Very short interval for testing
             Duration::from_secs(0),     // No staleness for testing
+            create_test_lifecycle_handle(),
         );
 
         // Create a store and add data
@@ -1439,6 +1460,7 @@ mod tests {
         let cleanup_handle = manager.clone().start_periodic_cleanup(
             Duration::from_secs(60), // Long interval
             Duration::from_secs(0),  // No staleness for testing
+            create_test_lifecycle_handle(),
         );
 
         // Give it time to start

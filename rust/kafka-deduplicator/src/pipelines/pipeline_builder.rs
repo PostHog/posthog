@@ -8,9 +8,9 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use common_kafka::kafka_producer::KafkaContext;
 use common_types::{CapturedEvent, ClickHouseEvent};
+use lifecycle::Handle;
 use rdkafka::producer::FutureProducer;
 use rdkafka::ClientConfig;
-use tokio::sync::oneshot;
 use tracing::info;
 
 use crate::checkpoint::import::CheckpointImporter;
@@ -114,16 +114,16 @@ impl PipelineBuilder {
     }
 
     /// Build the pipeline consumer
-    pub fn build(self, shutdown_rx: oneshot::Receiver<()>) -> Result<PipelineConsumer> {
+    pub fn build(self, shutdown_handle: Handle) -> Result<PipelineConsumer> {
         let rebalance_tracker = self.store_manager.rebalance_tracker().clone();
         let offset_tracker = Arc::new(OffsetTracker::new(rebalance_tracker.clone()));
 
         match self.pipeline_type {
             PipelineType::IngestionEvents => {
-                self.build_ingestion_events(rebalance_tracker, offset_tracker, shutdown_rx)
+                self.build_ingestion_events(rebalance_tracker, offset_tracker, shutdown_handle)
             }
             PipelineType::ClickhouseEvents => {
-                self.build_clickhouse_events(rebalance_tracker, offset_tracker, shutdown_rx)
+                self.build_clickhouse_events(rebalance_tracker, offset_tracker, shutdown_handle)
             }
         }
     }
@@ -132,7 +132,7 @@ impl PipelineBuilder {
         self,
         rebalance_tracker: Arc<RebalanceTracker>,
         offset_tracker: Arc<OffsetTracker>,
-        shutdown_rx: oneshot::Receiver<()>,
+        shutdown_handle: Handle,
     ) -> Result<PipelineConsumer> {
         info!("Building ingestion_events pipeline");
 
@@ -175,7 +175,7 @@ impl PipelineBuilder {
             rebalance_handler,
             routing_processor,
             offset_tracker,
-            shutdown_rx,
+            shutdown_handle,
             &self.topic,
             self.batch_size,
             self.batch_timeout,
@@ -191,7 +191,7 @@ impl PipelineBuilder {
         self,
         rebalance_tracker: Arc<RebalanceTracker>,
         offset_tracker: Arc<OffsetTracker>,
-        shutdown_rx: oneshot::Receiver<()>,
+        shutdown_handle: Handle,
     ) -> Result<PipelineConsumer> {
         info!("Building clickhouse_events pipeline");
 
@@ -229,7 +229,7 @@ impl PipelineBuilder {
             rebalance_handler,
             routing_processor,
             offset_tracker,
-            shutdown_rx,
+            shutdown_handle,
             &self.topic,
             self.batch_size,
             self.batch_timeout,

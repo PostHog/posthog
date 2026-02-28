@@ -19,6 +19,7 @@ use kafka_deduplicator::test_utils::create_test_tracker;
 use common_types::CapturedEvent;
 
 use anyhow::Result;
+use lifecycle::{ComponentOptions, Manager};
 use rdkafka::{
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
     config::ClientConfig,
@@ -59,6 +60,15 @@ fn create_batch_kafka_consumer(
 
     // Create shutdown channel - return sender so test can control shutdown
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let mut manager = Manager::builder("test-batch-consumer")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_test_shutdown(shutdown_rx)
+        .with_global_shutdown_timeout(std::time::Duration::from_secs(30))
+        .build();
+    let shutdown_handle = manager.register("consumer", ComponentOptions::new());
+    // Start monitor so the test_shutdown task runs; when test sends on shutdown_tx, token is cancelled
+    let _monitor_guard = manager.monitor_background();
 
     let (chan_tx, chan_rx) = unbounded_channel();
 
@@ -90,7 +100,7 @@ fn create_batch_kafka_consumer(
         Arc::new(TestRebalanceHandler::default()),
         processor,
         offset_tracker,
-        shutdown_rx,
+        shutdown_handle,
         topic,
         batch_size,
         batch_timeout,
@@ -502,6 +512,14 @@ async fn test_offset_commits_with_routing_processor() -> Result<()> {
         .set("heartbeat.interval.ms", "2000");
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let mut manager = Manager::builder("test-batch-consumer-offsets")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_test_shutdown(shutdown_rx)
+        .with_global_shutdown_timeout(std::time::Duration::from_secs(30))
+        .build();
+    let shutdown_handle = manager.register("consumer", ComponentOptions::new());
+    let _monitor_guard = manager.monitor_background();
 
     // Create the processor that counts messages
     let processor = Arc::new(CountingProcessor::new());
@@ -535,7 +553,7 @@ async fn test_offset_commits_with_routing_processor() -> Result<()> {
         rebalance_handler,
         routing_processor,
         offset_tracker.clone(),
-        shutdown_rx,
+        shutdown_handle,
         &test_topic,
         50, // batch size
         Duration::from_millis(100),
@@ -658,6 +676,15 @@ async fn test_seek_partitions_rewinds_consumer() -> Result<()> {
         .set("heartbeat.interval.ms", "2000");
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let mut manager = Manager::builder("test-batch-consumer-seek")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_test_shutdown(shutdown_rx)
+        .with_global_shutdown_timeout(std::time::Duration::from_secs(30))
+        .build();
+    let shutdown_handle = manager.register("consumer", ComponentOptions::new());
+    let _monitor_guard = manager.monitor_background();
+
     let (chan_tx, mut batch_rx) = unbounded_channel();
 
     struct TestProcessor {
@@ -685,7 +712,7 @@ async fn test_seek_partitions_rewinds_consumer() -> Result<()> {
         handler.clone(),
         processor,
         offset_tracker,
-        shutdown_rx,
+        shutdown_handle,
         &test_topic,
         10,
         Duration::from_millis(100),
@@ -797,6 +824,14 @@ async fn test_seek_partitions_command_handled() -> Result<()> {
         .set("heartbeat.interval.ms", "2000");
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let mut manager = Manager::builder("test-batch-consumer-seek-cmd")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_test_shutdown(shutdown_rx)
+        .with_global_shutdown_timeout(std::time::Duration::from_secs(30))
+        .build();
+    let shutdown_handle = manager.register("consumer", ComponentOptions::new());
+    let _monitor_guard = manager.monitor_background();
 
     struct NoopProcessor;
     #[async_trait]
@@ -815,7 +850,7 @@ async fn test_seek_partitions_command_handled() -> Result<()> {
         handler.clone(),
         processor,
         offset_tracker,
-        shutdown_rx,
+        shutdown_handle,
         &test_topic,
         10,
         Duration::from_millis(100),

@@ -3,16 +3,14 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};
 use futures::future::ready;
-use health::HealthRegistry;
+use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use opentelemetry::{KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry_sdk::{runtime, Resource};
-use serve_metrics::serve;
-use tokio::task::JoinHandle;
+use tracing::info;
 use tracing::level_filters::LevelFilter;
-use tracing::{error, info};
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::fmt;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -54,13 +52,10 @@ pub async fn index() -> &'static str {
 }
 
 /// Setup metrics recorder with optimized histogram buckets for kafka-deduplicator
-/// Using fewer buckets to reduce cardinality
 fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
     const BUCKETS: &[f64] = &[
         0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0,
     ];
-    // similarity scores are all in the range [0.0, 1.0] so we want
-    // granular bucket ranges for higher fidelity metrics
     const SIMILARITY_BUCKETS: &[f64] = &[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
 
     const CHECKPOINT_FILE_COUNT_BUCKETS: &[f64] = &[
@@ -81,7 +76,6 @@ fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
         100.0 * 1024.0 * 1024.0 * 1024.0,
     ];
 
-    // Buckets for counting unique items (UUIDs, timestamps)
     const COUNT_BUCKETS: &[f64] = &[
         1.0, 2.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0,
     ];
@@ -115,56 +109,13 @@ fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
         .unwrap()
 }
 
-fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
-    let router = Router::new()
-        .route("/", get(index))
-        .route("/_readiness", get(index))
-        .route(
-            "/_liveness",
-            get(move || async move {
-                let status = liveness.get_status();
-                if !status.healthy {
-                    let unhealthy_components: Vec<String> = status
-                        .components
-                        .iter()
-                        .filter(|(_, component_status)| !component_status.is_healthy())
-                        .map(|(name, component_status)| format!("{name}: {component_status:?}"))
-                        .collect();
-                    error!(
-                        "Health check FAILED - unhealthy components: [{}]",
-                        unhealthy_components.join(", ")
-                    );
-                }
-                status
-            }),
-        );
-
-    // Don't install metrics unless asked to
-    // Installing a global recorder when capture is used as a library (during tests etc)
-    // does not work well.
-    let router = if config.export_prometheus {
-        let recorder_handle = setup_kafka_deduplicator_metrics();
-        router.route("/metrics", get(move || ready(recorder_handle.render())))
-    } else {
-        router
-    };
-
-    let bind = config.bind_address();
-
-    tokio::task::spawn(async move {
-        serve(router, &bind)
-            .await
-            .expect("failed to start serving metrics");
-    })
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     // Load configuration first to get OTEL settings
     let config = Config::init_with_defaults()
         .context("Failed to load configuration from environment variables. Please check your environment setup.")?;
 
-    // Initialize tracing with structured output similar to feature-flags
+    // Initialize tracing
     let log_layer = {
         let base = fmt::layer()
             .with_target(true)
@@ -172,7 +123,6 @@ async fn main() -> Result<()> {
             .with_level(true);
 
         if config.otel_log_level == tracing::Level::DEBUG {
-            // local dev: pretty-print output to console
             base.with_span_events(
                 FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
             )
@@ -185,7 +135,6 @@ async fn main() -> Result<()> {
             )
             .boxed()
         } else {
-            // production: use JSON format Loki/Grafana can extract useful filter tags from
             base.json()
                 .flatten_event(true)
                 .with_span_list(true)
@@ -200,7 +149,6 @@ async fn main() -> Result<()> {
         }
     };
 
-    // OpenTelemetry layer if configured
     let otel_layer = if let Some(ref otel_url) = config.otel_url {
         Some(
             OpenTelemetryLayer::new(init_tracer(
@@ -219,16 +167,12 @@ async fn main() -> Result<()> {
         .with(otel_layer)
         .init();
 
-    // Create a root span with pod hostname for all logs
-    // This adds "pod" field to every log line for Loki/Grafana filtering
     let pod = config
         .pod_hostname
         .clone()
         .unwrap_or_else(|| "unknown".to_string());
     let _root_span = tracing::info_span!("service", pod = %pod).entered();
 
-    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
-    // NOTE: Must be after tracing is initialized so logs are visible
     let _profiling_agent = match config.continuous_profiling.start_agent() {
         Ok(agent) => agent,
         Err(e) => {
@@ -238,26 +182,65 @@ async fn main() -> Result<()> {
     };
 
     info!("Starting Kafka Deduplicator service");
-
     info!("Configuration loaded: {:?}", config);
 
-    // Create health registry for liveness checks
-    let liveness = HealthRegistry::new("liveness");
+    let mut manager = Manager::builder("kafka-deduplicator")
+        .with_global_shutdown_timeout(config.shutdown_timeout())
+        .build();
 
-    // Start HTTP server with metrics endpoint
-    let server_handle = start_server(&config, liveness.clone());
-    info!("Started metrics server on {}", config.bind_address());
+    let metrics_handle = manager.register(
+        "metrics-server",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+    );
 
-    // Create and run the service
-    let service = KafkaDeduplicatorService::new(config, liveness)
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+    let shutdown_signal = manager.shutdown_signal();
+
+    let mut service = KafkaDeduplicatorService::new(config.clone(), &mut manager)
         .await
         .with_context(|| "Failed to create Kafka Deduplicator service. Check your Kafka connection and RocksDB configuration.".to_string())?;
 
-    // Run the service (this blocks until shutdown)
-    service.run().await?;
+    service.initialize(&mut manager).await?;
 
-    // Clean up metrics server
-    server_handle.abort();
+    let bind = config.bind_address();
+    let mut router = Router::new()
+        .route("/", get(index))
+        .route(
+            "/_readiness",
+            get({
+                let r = readiness.clone();
+                move || {
+                    let r = r.clone();
+                    async move { r.check().await }
+                }
+            }),
+        )
+        .route("/_liveness", get(move || async move { liveness.check() }));
+
+    if config.export_prometheus {
+        let recorder_handle = setup_kafka_deduplicator_metrics();
+        router = router.route("/metrics", get(move || ready(recorder_handle.render())));
+    }
+
+    let monitor_guard = manager.monitor_background();
+
+    info!("Started metrics server on {}", bind);
+
+    tokio::spawn(async move {
+        let _guard = metrics_handle.process_scope();
+        let listener = tokio::net::TcpListener::bind(&bind)
+            .await
+            .expect("failed to bind metrics port");
+        axum::serve(listener, router)
+            .with_graceful_shutdown(shutdown_signal)
+            .await
+            .expect("failed to start serving metrics");
+    });
+
+    service.spawn_consumer_task()?;
+
+    monitor_guard.wait().await?;
 
     Ok(())
 }

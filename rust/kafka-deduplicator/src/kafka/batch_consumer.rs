@@ -16,6 +16,7 @@ use crate::kafka::types::Partition;
 use anyhow::{Context, Result};
 use axum::async_trait;
 use futures_util::StreamExt;
+use lifecycle::Handle;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{CommitMode, Consumer, MessageStream, StreamConsumer};
 use rdkafka::error::KafkaResult;
@@ -23,7 +24,6 @@ use rdkafka::message::Message;
 use rdkafka::TopicPartitionList;
 use serde::Deserialize;
 use tokio::sync::mpsc;
-use tokio::sync::oneshot::Receiver;
 use tracing::{error, info, warn};
 
 #[async_trait]
@@ -49,10 +49,8 @@ pub struct BatchConsumer<T> {
     // tracks processed offsets per partition for safe commits
     offset_tracker: Arc<OffsetTracker>,
 
-    // shutdown signal from parent process which
-    // we assume will be wrapping start_consumption
-    // in a spawned thread
-    shutdown_rx: Receiver<()>,
+    // shutdown signal from lifecycle manager
+    shutdown_handle: Handle,
 
     // receiver for consumer commands (e.g., seek partitions after checkpoint import, resume partitions)
     consumer_command_rx: ConsumerCommandReceiver,
@@ -71,7 +69,7 @@ where
         rebalance_handler: Arc<dyn RebalanceHandler>,
         processor: Arc<dyn BatchConsumerProcessor<T>>,
         offset_tracker: Arc<OffsetTracker>,
-        shutdown_rx: Receiver<()>,
+        shutdown_handle: Handle,
         topic: &str,
         batch_size: usize,
         batch_timeout: Duration,
@@ -97,7 +95,7 @@ where
             batch_timeout,
             processor,
             offset_tracker,
-            shutdown_rx,
+            shutdown_handle,
             consumer_command_rx,
             seek_timeout,
         })
@@ -117,7 +115,7 @@ where
         loop {
             tokio::select! {
                 // Check for shutdown signal
-                _ = &mut self.shutdown_rx => {
+                _ = self.shutdown_handle.shutdown_recv() => {
                     info!("Shutdown signal received, starting graceful shutdown");
                     break;
                 }

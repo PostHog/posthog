@@ -92,6 +92,13 @@ The service includes a comprehensive checkpoint system for backup, recovery, and
 | `FULL_UPLOAD_INTERVAL` | Incremental uploads before full | `10` |
 | `MAX_LOCAL_CHECKPOINTS` | Local checkpoints to retain | `5` |
 
+## Lifecycle and Health Probes
+
+The service uses the [lifecycle](rust/common/lifecycle/) library for unified shutdown coordination and K8s probes:
+
+- **`/_readiness`** — Returns 200 while running; 503 after shutdown begins. K8s uses this to stop routing traffic.
+- **`/_liveness`** — Always returns 200 (process reachability). Component health is monitored internally; stalled components trigger coordinated graceful shutdown rather than K8s killing the pod.
+
 ## Architecture Components
 
 - **StatefulKafkaConsumer**: Main consumer orchestrating message processing

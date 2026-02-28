@@ -11,11 +11,10 @@
 
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 use std::time::Duration;
+
+use lifecycle::Handle;
 
 use crate::checkpoint::{
     CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointWorker,
@@ -125,14 +124,13 @@ impl CheckpointManager {
         }
     }
 
-    /// Start the periodic flush task, returning the inner worker
-    /// threads' health reporter flag for bubbling up failures
-    pub fn start(&mut self) -> Option<Arc<AtomicBool>> {
+    /// Start the periodic flush task. Uses the lifecycle handle for shutdown
+    /// coordination and health reporting.
+    pub fn start(&mut self, lifecycle_handle: Handle) {
         if self.checkpoint_task.is_some() {
             warn!("Checkpoint manager already started");
-            return None;
+            return;
         }
-        let health_reporter = Arc::new(AtomicBool::new(true));
 
         info!(
             "Starting checkpoint manager with interval: {:?}",
@@ -155,9 +153,10 @@ impl CheckpointManager {
         // Track checkpoint counter and metadata per partition in a single map for atomic updates
         let checkpoint_state: Arc<DashMap<Partition, (u32, CheckpointMetadata)>> =
             Arc::new(DashMap::new());
-        let checkpoint_health_reporter = health_reporter.clone();
+        let cancel_token = self.cancel_token.clone();
 
         let checkpoint_task_handle = tokio::spawn(async move {
+            let _guard = lifecycle_handle.process_scope();
             let mut interval = tokio::time::interval(submit_loop_config.checkpoint_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -166,6 +165,11 @@ impl CheckpointManager {
 
             'outer: loop {
                 tokio::select! {
+                    _ = lifecycle_handle.shutdown_recv() => {
+                        info!("Checkpoint manager: submit loop shutting down");
+                        cancel_token.cancel();
+                        break 'outer;
+                    }
                     _ = cancel_submit_loop_token.cancelled() => {
                         info!("Checkpoint manager: submit loop shutting down");
                         break 'outer;
@@ -183,9 +187,11 @@ impl CheckpointManager {
                         let store_count = candidates.len();
                         if store_count == 0 {
                             debug!("No stores to flush");
+                            lifecycle_handle.report_healthy();
                             continue;
                         }
 
+                        lifecycle_handle.report_healthy();
                         info!("Checkpoint manager: attempting checkpoint submission for {} stores", store_count);
 
                         // Attempt to checkpoint each partitions' backing store in
@@ -397,11 +403,8 @@ impl CheckpointManager {
             } // end 'outer loop
 
             info!("Checkpoint manager: exiting submit loop");
-            checkpoint_health_reporter.store(false, Ordering::SeqCst);
         });
         self.checkpoint_task = Some(checkpoint_task_handle);
-
-        Some(health_reporter.clone())
     }
 
     /// Stop the checkpoint manager
@@ -621,6 +624,17 @@ mod tests {
         }
     }
 
+    fn create_test_lifecycle_handle() -> Handle {
+        let (_tx, rx) = tokio::sync::oneshot::channel();
+        let mut manager = lifecycle::Manager::builder("test-checkpoint")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_test_shutdown(rx)
+            .with_global_shutdown_timeout(std::time::Duration::from_secs(30))
+            .build();
+        manager.register("checkpoint-manager", lifecycle::ComponentOptions::new())
+    }
+
     fn find_local_checkpoint_files(base_dir: &Path) -> Result<Vec<PathBuf>> {
         let mut checkpoint_files = Vec::new();
         let mut stack = vec![base_dir.to_path_buf()];
@@ -674,7 +688,7 @@ mod tests {
         let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
 
         // Start the manager
-        manager.start();
+        manager.start(create_test_lifecycle_handle());
         assert!(manager.checkpoint_task.is_some());
 
         // Stop the manager
@@ -752,7 +766,7 @@ mod tests {
 
         // Should fail for non-existent topic partition.
         // run the manager checkpoint loop for a few cycles
-        manager.start();
+        manager.start(create_test_lifecycle_handle());
         tokio::time::sleep(Duration::from_millis(200)).await;
         manager.stop().await;
 
@@ -801,17 +815,13 @@ mod tests {
             CheckpointManager::new(config.clone(), store_manager.clone(), Some(exporter));
 
         // Start the manager
-        let health_reporter = manager.start();
-        assert!(health_reporter.is_some());
+        manager.start(create_test_lifecycle_handle());
 
         // Wait for a few flush cycles
         tokio::time::sleep(Duration::from_millis(800)).await;
 
         // Stop the manager
         manager.stop().await;
-
-        // service task threads are still healthy and running
-        assert!(health_reporter.unwrap().load(Ordering::SeqCst));
 
         // Verify that files were exported to the export directory
         let export_files = find_local_checkpoint_files(tmp_export_dir.path()).unwrap();
@@ -852,14 +862,12 @@ mod tests {
         };
         let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
 
-        // Start once - should return reporter
-        let health_reporter = manager.start();
-        assert!(health_reporter.is_some());
+        // Start once
+        manager.start(create_test_lifecycle_handle());
         assert!(manager.checkpoint_task.is_some());
 
         // Start again - should warn but not panic
-        let health_reporter = manager.start();
-        assert!(health_reporter.is_none());
+        manager.start(create_test_lifecycle_handle());
         assert!(manager.checkpoint_task.is_some());
 
         manager.stop().await;
@@ -877,7 +885,7 @@ mod tests {
         };
         let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
 
-        manager.start();
+        manager.start(create_test_lifecycle_handle());
         let cancel_token = manager.cancel_token.clone();
 
         assert!(!cancel_token.is_cancelled());
@@ -923,7 +931,7 @@ mod tests {
         // start the manager and produce some exported checkpoint files
         let mut manager =
             CheckpointManager::new(config.clone(), store_manager.clone(), Some(exporter));
-        manager.start();
+        manager.start(create_test_lifecycle_handle());
 
         // Give the manager time to start checkpointing
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -995,7 +1003,7 @@ mod tests {
         store_manager.rebalance_tracker().start_rebalancing();
 
         let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
-        manager.start();
+        manager.start(create_test_lifecycle_handle());
 
         // Let the manager run a few cycles
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -1037,7 +1045,7 @@ mod tests {
         };
 
         let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
-        manager.start();
+        manager.start(create_test_lifecycle_handle());
 
         // Wait briefly for the manager to pick up the partition
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1081,7 +1089,7 @@ mod tests {
         };
 
         let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
-        manager.start();
+        manager.start(create_test_lifecycle_handle());
 
         // Wait for the first checkpoint cycle to potentially start
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1173,7 +1181,7 @@ mod tests {
         };
 
         let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
-        manager.start();
+        manager.start(create_test_lifecycle_handle());
 
         // The manager should be running
         assert!(manager.checkpoint_task.is_some());

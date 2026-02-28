@@ -351,13 +351,21 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
         .set("heartbeat.interval.ms", "2000");
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let mut manager = lifecycle::Manager::builder("test-rebalance-e2e")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_test_shutdown(shutdown_rx)
+        .with_global_shutdown_timeout(std::time::Duration::from_secs(30))
+        .build();
+    let shutdown_handle = manager.register("consumer", lifecycle::ComponentOptions::new());
+    let _monitor_guard = manager.monitor_background();
 
     let consumer = BatchConsumer::<CapturedEvent>::new(
         &config,
         rebalance_handler,
         routing_processor,
         offset_tracker.clone(),
-        shutdown_rx,
+        shutdown_handle,
         &test_topic,
         50,
         Duration::from_millis(100),
