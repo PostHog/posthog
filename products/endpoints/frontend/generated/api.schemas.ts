@@ -7,6 +7,12 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
+ * @nullable
+ */
+export type EndpointRequestApiBucketOverrides = { [key: string]: string } | null | null
+
 export interface DateRangeApi {
     /** @nullable */
     date_from?: string | null
@@ -495,6 +501,14 @@ export const InCohortViaApi = {
     LeftjoinConjoined: 'leftjoin_conjoined',
 } as const
 
+export type InlineCohortCalculationApi = (typeof InlineCohortCalculationApi)[keyof typeof InlineCohortCalculationApi]
+
+export const InlineCohortCalculationApi = {
+    Off: 'off',
+    Auto: 'auto',
+    Always: 'always',
+} as const
+
 export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
 
 export const MaterializationModeApi = {
@@ -580,6 +594,7 @@ export interface HogQLQueryModifiersApi {
     /** @nullable */
     formatCsvAllowDoubleQuotes?: boolean | null
     inCohortVia?: InCohortViaApi | null
+    inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** @nullable */
@@ -3396,6 +3411,11 @@ export const DataWarehouseSyncIntervalApi = {
 } as const
 
 export interface EndpointRequestApi {
+    /**
+     * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
+     * @nullable
+     */
+    bucket_overrides?: EndpointRequestApiBucketOverrides
     /** @nullable */
     cache_age_seconds?: number | null
     /** @nullable */

@@ -54,11 +54,6 @@ declare module '@storybook/types' {
              * @default false
              */
             skipIframeWait?: boolean
-            /**
-             * Re-enable canvas rendering for stories that need a canvas-based snapshot.
-             * @default false
-             */
-            enableCanvasRendering?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -90,8 +85,6 @@ console.log('[test-runner] Storybook snapshots will be saved to', customSnapshot
 
 const JEST_TIMEOUT_MS = 25000 // Increased for stories with iframes (e.g. SidePanelDocs)
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
-const STORYBOOK_CANVAS_RENDER_EVENT = 'storybook-test-runner:canvas-rendering-enabled'
-const STORYBOOK_CANVAS_RENDERED_ATTRIBUTE = 'data-storybook-canvas-rendered'
 
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
 
@@ -105,9 +98,6 @@ module.exports = {
     async preVisit(page, context) {
         const storyContext = await getStoryContext(page, context)
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
-        const { enableCanvasRendering = false } = storyContext.parameters?.testOptions ?? {}
-
-        await setStorybookCanvasRendering(page, enableCanvasRendering, false)
         await page.setViewportSize(viewport)
     },
 
@@ -149,9 +139,6 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    const { enableCanvasRendering = false } = storyContext.parameters?.testOptions ?? {}
-    await setStorybookCanvasRendering(page, enableCanvasRendering, true)
-
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
 
@@ -225,7 +212,6 @@ async function expectStoryToMatchSnapshot(
     await page.waitForTimeout(300)
 
     const { waitForLoadersToDisappear = true, waitForSelector } = storyContext.parameters?.testOptions ?? {}
-    const waitForSelectors = getWaitForSelectors(waitForSelector, enableCanvasRendering)
 
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
@@ -236,172 +222,15 @@ async function expectStoryToMatchSnapshot(
         await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout })
     }
 
-    if (waitForSelectors.length > 0) {
-        await Promise.all(waitForSelectors.map((selector) => page.waitForSelector(selector)))
+    if (typeof waitForSelector === 'string') {
+        await page.waitForSelector(waitForSelector)
+    } else if (Array.isArray(waitForSelector)) {
+        await Promise.all(waitForSelector.map((selector) => page.waitForSelector(selector)))
     }
-
-    await waitForCanvasesToStabilize(page)
 
     // Snapshot both light and dark themes
-    await takeSnapshotWithTheme(page, context, browser, 'light', storyContext, enableCanvasRendering, waitForSelectors)
-    await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext, enableCanvasRendering, waitForSelectors)
-}
-
-async function setStorybookCanvasRendering(
-    page: Page,
-    shouldRenderCanvas: boolean,
-    triggerRenderEvent: boolean
-): Promise<void> {
-    await page.evaluate(
-        ([enabled, shouldTriggerRenderEvent, renderEventName]: [boolean, boolean, string]) => {
-            ;(
-                window as Window & {
-                    __STORYBOOK_TEST_RUNNER_RENDER_CANVAS__?: boolean
-                }
-            ).__STORYBOOK_TEST_RUNNER_RENDER_CANVAS__ = enabled
-
-            if (enabled && shouldTriggerRenderEvent) {
-                window.dispatchEvent(new Event(renderEventName))
-            }
-        },
-        [shouldRenderCanvas, triggerRenderEvent, STORYBOOK_CANVAS_RENDER_EVENT]
-    )
-}
-
-async function waitForCanvasRenderingSignal(
-    page: Page,
-    enableCanvasRendering: boolean,
-    waitForSelectors: string[]
-): Promise<void> {
-    if (!enableCanvasRendering) {
-        return
-    }
-
-    const canvasSelectors = waitForSelectors.filter((selector) => /\bcanvas\b/i.test(selector))
-
-    if (canvasSelectors.length === 0) {
-        return
-    }
-
-    await page.evaluate(
-        ([selectors, renderedAttribute, renderEventName]: [string[], string, string]) => {
-            const canvases = selectors.flatMap((selector) =>
-                Array.from(document.querySelectorAll(selector)).filter(
-                    (element): element is HTMLCanvasElement => element instanceof HTMLCanvasElement
-                )
-            )
-
-            canvases.forEach((canvas) => canvas.removeAttribute(renderedAttribute))
-            window.dispatchEvent(new Event(renderEventName))
-        },
-        [canvasSelectors, STORYBOOK_CANVAS_RENDERED_ATTRIBUTE, STORYBOOK_CANVAS_RENDER_EVENT]
-    )
-
-    await page.waitForFunction(
-        ([selectors, renderedAttribute]: [string[], string]) => {
-            const hasRenderedPixels = (canvas: HTMLCanvasElement): boolean => {
-                if (
-                    canvas.width === 0 ||
-                    canvas.height === 0 ||
-                    canvas.clientWidth === 0 ||
-                    canvas.clientHeight === 0
-                ) {
-                    return false
-                }
-
-                try {
-                    const sampleSize = 16
-                    const sampleCanvas = document.createElement('canvas')
-                    sampleCanvas.width = sampleSize
-                    sampleCanvas.height = sampleSize
-                    const sampleContext = sampleCanvas.getContext('2d', { willReadFrequently: true })
-
-                    if (!sampleContext) {
-                        return false
-                    }
-
-                    sampleContext.drawImage(canvas, 0, 0, sampleSize, sampleSize)
-                    const imageData = sampleContext.getImageData(0, 0, sampleSize, sampleSize).data
-
-                    let nonTransparentPixelCount = 0
-                    for (let i = 3; i < imageData.length; i += 4) {
-                        if (imageData[i] !== 0 && ++nonTransparentPixelCount >= 8) {
-                            return true
-                        }
-                    }
-                } catch {
-                    // If canvas pixels are unreadable, fall back to the rendered signal.
-                    return true
-                }
-
-                return false
-            }
-
-            const canvases = selectors.flatMap((selector) =>
-                Array.from(document.querySelectorAll(selector)).filter(
-                    (element): element is HTMLCanvasElement => element instanceof HTMLCanvasElement
-                )
-            )
-
-            return (
-                canvases.length > 0 &&
-                canvases.every(
-                    (canvas) => canvas.getAttribute(renderedAttribute) === 'true' && hasRenderedPixels(canvas)
-                )
-            )
-        },
-        [canvasSelectors, STORYBOOK_CANVAS_RENDERED_ATTRIBUTE],
-        { timeout: 5000 }
-    )
-}
-
-function getWaitForSelectors(waitForSelector: string | string[] | undefined, enableCanvasRendering: boolean): string[] {
-    const selectors = typeof waitForSelector === 'string' ? [waitForSelector] : waitForSelector || []
-    const includesCanvasSelector = selectors.some((selector) => /\bcanvas\b/i.test(selector))
-    if (enableCanvasRendering && !includesCanvasSelector) {
-        return [...new Set([...selectors, 'canvas'])]
-    }
-    return [...new Set(selectors)]
-}
-
-async function waitForCanvasesToStabilize(page: Page): Promise<void> {
-    await page
-        .waitForFunction(
-            () => {
-                const canvases = Array.from(document.querySelectorAll('canvas'))
-                if (!canvases.length) {
-                    return true
-                }
-
-                const state = window as Window & {
-                    __storybookCanvasSnapshotKey?: string
-                    __storybookCanvasStableCount?: number
-                }
-
-                const canvasSignature = canvases
-                    .map((canvas) => {
-                        try {
-                            return `${canvas.width}:${canvas.height}:${canvas.toDataURL()}`
-                        } catch {
-                            return `${canvas.width}:${canvas.height}:unreadable`
-                        }
-                    })
-                    .join('|')
-
-                if (canvasSignature === state.__storybookCanvasSnapshotKey) {
-                    state.__storybookCanvasStableCount = (state.__storybookCanvasStableCount ?? 0) + 1
-                } else {
-                    state.__storybookCanvasSnapshotKey = canvasSignature
-                    state.__storybookCanvasStableCount = 0
-                }
-
-                return (state.__storybookCanvasStableCount ?? 0) >= 2
-            },
-            { polling: 200, timeout: 4000 }
-        )
-        .catch(() => {
-            // Ignore timeout to avoid blocking snapshots for stories with intentionally animated canvases.
-        })
+    await takeSnapshotWithTheme(page, context, browser, 'light', storyContext)
+    await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
 }
 
 async function takeSnapshotWithTheme(
@@ -409,9 +238,7 @@ async function takeSnapshotWithTheme(
     context: TestContext,
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
-    storyContext: StoryContext,
-    enableCanvasRendering: boolean,
-    waitForSelectors: string[]
+    storyContext: StoryContext
 ): Promise<void> {
     const { allowImagesWithoutWidth = false } = storyContext.parameters?.testOptions ?? {}
 
@@ -519,13 +346,6 @@ async function takeSnapshotWithTheme(
 
     // final wait for any remaining renders
     await page.waitForTimeout(1000)
-
-    // Re-trigger and verify canvas rendering right before the screenshot.
-    // Canvas charts can get cleared/reflowed after earlier readiness checks.
-    if (enableCanvasRendering) {
-        await setStorybookCanvasRendering(page, true, true)
-    }
-    await waitForCanvasRenderingSignal(page, enableCanvasRendering, waitForSelectors)
 
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)

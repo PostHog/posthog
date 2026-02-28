@@ -613,6 +613,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("products.tasks.backend.models.TaskRun.heartbeat_workflow")
+    def test_append_log_calls_heartbeat_workflow(self, mock_heartbeat):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
+            {"entries": [{"type": "info", "message": "hello"}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_heartbeat.assert_called_once()
+
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")
     def test_upload_artifacts(self, mock_tag, mock_write):
