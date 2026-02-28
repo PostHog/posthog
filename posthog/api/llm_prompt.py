@@ -3,8 +3,10 @@ from typing import Any, cast
 
 from django.conf import settings
 
+import posthoganalytics
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -18,7 +20,7 @@ from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.llm_prompt import LLMPrompt
-from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
+from posthog.permissions import AccessControlPermission, get_organization_from_view
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
@@ -28,6 +30,27 @@ from products.llm_analytics.backend.api.metrics import llma_track_latency
 RESERVED_PROMPT_NAMES = {"new"}
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
+LLM_PROMPT_FEATURE_FLAGS = ("prompt-management", "llm-analytics-early-adopters")
+
+
+class LLMPromptFeatureFlagPermission(BasePermission):
+    def has_permission(self, request, view) -> bool:
+        user = cast(User, request.user)
+        organization = get_organization_from_view(view)
+        org_id = str(organization.id)
+        distinct_id = user.distinct_id or str(user.uuid)
+
+        return any(
+            posthoganalytics.feature_enabled(
+                feature_flag,
+                distinct_id,
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+            for feature_flag in LLM_PROMPT_FEATURE_FLAGS
+        )
 
 
 class LLMPromptSerializer(serializers.ModelSerializer):
@@ -115,8 +138,7 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
     scope_object = "llm_prompt"
     queryset = LLMPrompt.objects.all()
     serializer_class = LLMPromptSerializer
-    permission_classes = [PostHogFeatureFlagPermission, AccessControlPermission]
-    posthog_feature_flag = "prompt-management"
+    permission_classes = [LLMPromptFeatureFlagPermission, AccessControlPermission]
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(deleted=False)

@@ -1319,11 +1319,13 @@ class TestAccessControlDefaultsEndpoint(BaseAccessControlTest):
         assert expected_resource_entry_keys <= set(data["resource_access_levels"]["dashboard"].keys())
         assert data["resource_access_levels"]["dashboard"]["access_level"] == "viewer"
 
-    def test_no_overrides_returns_nulls(self):
-        """Without explicit defaults, access_level is null."""
+    def test_no_overrides_returns_default_project_level(self):
+        """Without explicit defaults, project uses system default; resources have no saved level."""
         res = self.client.get("/api/projects/@current/access_control_defaults")
         data = res.json()
-        assert data["project_access_level"] is None
+        from posthog.rbac.user_access_control import default_access_level
+
+        assert data["project_access_level"] == default_access_level("project")
         for entry in data["resource_access_levels"].values():
             assert entry["access_level"] is None
 

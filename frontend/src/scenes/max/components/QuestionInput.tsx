@@ -9,7 +9,6 @@ import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { IconArrowRight, IconCheck, IconPencil, IconStopFilled, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
@@ -164,7 +163,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         useActions(maxThreadLogic)
     // Show info banner for conversations created during impersonation (marked as internal)
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
     const [editingQueueId, setEditingQueueId] = useState<string | null>(null)
@@ -256,11 +254,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             'border border-primary',
                             'bg-[var(--color-bg-fill-input)]',
                             isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg',
-                            // for flag, we change the ring size and color
-                            isRemovingSidePanelFlag && '[--input-ring-size:2px]',
-                            // when streaming, we make the ring default color, and when done streaming pop back to very this purple to let users know it's their turn to type
-                            // When we allow appending messages, this ux will likely not be useful
-                            isRemovingSidePanelFlag && !streamingActive && '[--input-ring-color:var(--color-ai)]'
+                            '[--input-ring-size:2px]',
+                            !streamingActive && '[--input-ring-color:var(--color-ai)]'
                         )}
                     >
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>

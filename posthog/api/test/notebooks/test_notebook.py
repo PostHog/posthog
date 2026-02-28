@@ -264,6 +264,43 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_recording_comments_scoped_to_current_project(self) -> None:
+        recording_id = "rec_123"
+        notebook_content = {
+            "content": [
+                {"type": "ph-recording", "attrs": {"id": recording_id}},
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "attrs": {
+                                "sessionRecordingId": recording_id,
+                                "playbackTime": 42,
+                            }
+                        },
+                        {"text": "a]comment"},
+                    ],
+                },
+            ]
+        }
+
+        another_org = Organization.objects.create(name="other org")
+        another_team = Team.objects.create(organization=another_org)
+        Notebook.objects.create(
+            team=another_team,
+            title="Another notebook",
+            content=notebook_content,
+            text_content=f"recording:{recording_id}",
+            created_by=User.objects.create_and_join(another_org, "other@example.com", password=""),
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks/recording_comments",
+            data={"recording_id": recording_id},
+        )
+        assert response.status_code == 200
+        assert response.json()["results"] == []
+
     def test_responds_not_modified_if_versions_match(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/notebooks",
