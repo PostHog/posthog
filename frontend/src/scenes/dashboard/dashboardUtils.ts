@@ -1,4 +1,4 @@
-import { Layouts } from 'react-grid-layout'
+import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -19,11 +19,15 @@ import {
     TileLayout,
 } from '~/types'
 
+// Layout related constants
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
     xs: 0,
 }
 export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { sm: 12, xs: 1 }
+export const GRID_ROW_HEIGHT = 80
+export const GRID_HORIZONTAL_MARGIN = 16
+export const GRID_VERTICAL_MARGIN = 16
 
 /**
  * The minimum interval between manual dashboard refreshes.
@@ -90,11 +94,11 @@ export async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number
     return results
 }
 
-export const layoutsByTile = (layouts: Layouts): Record<string, Record<DashboardLayoutSize, TileLayout>> => {
+export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record<DashboardLayoutSize, TileLayout>> => {
     const itemLayouts: Record<string, Record<DashboardLayoutSize, TileLayout>> = {}
 
     Object.entries(layouts).forEach(([col, layout]) => {
-        layout.forEach((layoutItem) => {
+        layout?.forEach((layoutItem) => {
             const i = String(layoutItem.i)
             if (!itemLayouts[i]) {
                 itemLayouts[i] = {} as Record<DashboardLayoutSize, TileLayout>

@@ -4,7 +4,7 @@ import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import React, { useState } from 'react'
-import { Layout } from 'react-grid-layout'
+import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
@@ -68,7 +68,7 @@ export interface InsightCardProps extends Resizeable {
     /** Whether the  controls for showing details should be enabled or not. */
     showDetailsControls?: boolean
     /** Layout of the card on a grid. */
-    layout?: Layout
+    layout?: LayoutItem
     ribbonColor?: InsightColor | null
     updateColor?: (newColor: DashboardTile['color']) => void
     toggleShowDescription?: () => void
@@ -115,7 +115,6 @@ function InsightCardInternal(
         timedOut,
         highlighted,
         showResizeHandles,
-        canResizeWidth,
         showEditingControls,
         showDetailsControls,
         updateColor,
@@ -293,9 +292,9 @@ function InsightCardInternal(
                 </BindLogic>
                 {showResizeHandles && (
                     <>
-                        {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
+                        <ResizeHandle1D orientation="vertical" />
                         <ResizeHandle1D orientation="horizontal" />
-                        {canResizeWidth ? <ResizeHandle2D /> : null}
+                        <ResizeHandle2D />
                     </>
                 )}
                 {children /* Extras, specifically resize handles injected by ReactGridLayout */}

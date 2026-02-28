@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
-import { Responsive as ReactGridLayout } from 'react-grid-layout'
+import { Responsive as ReactGridLayout } from 'react-grid-layout/legacy'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
@@ -12,7 +12,13 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
+import {
+    BREAKPOINTS,
+    BREAKPOINT_COLUMN_COUNTS,
+    GRID_HORIZONTAL_MARGIN,
+    GRID_ROW_HEIGHT,
+    GRID_VERTICAL_MARGIN,
+} from 'scenes/dashboard/dashboardUtils'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -86,8 +92,8 @@ export function DashboardItems(): JSX.Element {
     })
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
-    const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
-    const isMobileView = gridWrapperWidth && gridWrapperWidth <= BREAKPOINTS['sm']
+    const isMobileView = gridWrapperWidth != null && gridWrapperWidth <= BREAKPOINTS['sm']
+    const canEditLayout = dashboardMode === DashboardMode.Edit && !isMobileView
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -96,11 +102,11 @@ export function DashboardItems(): JSX.Element {
                     width={gridWrapperWidth}
                     className={className}
                     draggableHandle=".CardMeta,.TextCard__body"
-                    isDraggable={dashboardMode === DashboardMode.Edit && !isMobileView}
-                    isResizable={dashboardMode === DashboardMode.Edit && !isMobileView}
+                    isDraggable={canEditLayout}
+                    isResizable={canEditLayout}
                     layouts={layouts}
-                    rowHeight={80}
-                    margin={[16, 16]}
+                    rowHeight={GRID_ROW_HEIGHT}
+                    margin={[GRID_HORIZONTAL_MARGIN, GRID_VERTICAL_MARGIN]}
                     containerPadding={[0, 0]}
                     onLayoutChange={(_, newLayouts) => {
                         if (dashboardMode === DashboardMode.Edit) {
@@ -111,7 +117,7 @@ export function DashboardItems(): JSX.Element {
                         updateContainerWidth(containerWidth, newCols)
                     }}
                     breakpoints={BREAKPOINTS}
-                    resizeHandles={canResizeWidth ? ['s', 'e', 'se'] : ['s']}
+                    resizeHandles={['s', 'e', 'se']}
                     cols={BREAKPOINT_COLUMN_COUNTS}
                     onResize={(_layout: any, _oldItem: any, newItem: any) => {
                         if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
@@ -126,6 +132,10 @@ export function DashboardItems(): JSX.Element {
                         scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
                     }}
                     onDrag={(_layout, _oldItem, _newItem, _placeholder, e) => {
+                        if (!(e instanceof MouseEvent)) {
+                            return
+                        }
+
                         isDragging.current = true
                         if (dragEndTimeout.current) {
                             window.clearTimeout(dragEndTimeout.current)
@@ -190,8 +200,7 @@ export function DashboardItems(): JSX.Element {
 
                         const commonTileProps = {
                             dashboardId: dashboard?.id,
-                            showResizeHandles: dashboardMode === DashboardMode.Edit && !isMobileView,
-                            canResizeWidth: canResizeWidth,
+                            showResizeHandles: canEditLayout,
                             showEditingControls: [
                                 DashboardPlacement.Dashboard,
                                 DashboardPlacement.ProjectHomepage,
@@ -250,9 +259,7 @@ export function DashboardItems(): JSX.Element {
                                     // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />
                             )
-                        }
-
-                        if (text) {
+                        } else if (text) {
                             return (
                                 <TextCard
                                     key={tile.id}
@@ -319,6 +326,7 @@ export function DashboardItems(): JSX.Element {
                                         </>
                                     }
                                     {...commonTileProps}
+                                    // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />
                             )
                         }
