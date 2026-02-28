@@ -683,7 +683,7 @@ function SceneDescription({
 
     return (
         <div className="scene-description -mt-4 relative focus-within:z-50">
-            <div className="-mx-[var(--button-padding-x-sm)] pb-2 flex items-center gap-0 max-w-prose">{Element}</div>
+            <div className="-mx-[var(--button-padding-x-sm)] pb-2 flex items-center gap-0">{Element}</div>
         </div>
     )
 }
