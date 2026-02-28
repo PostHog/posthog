@@ -116,11 +116,17 @@ Flox manages your development environment. The `manifest.toml` file declares all
 
 To get PostHog running in a dev environment:
 
-1. Once you have cloned the repo and installed OrbStack, install Flox:
+1. Once you have cloned the repo and installed OrbStack/Docker, install Flox:
+
+   **macOS:**
 
    ```bash
    brew install flox
    ```
+
+   **Linux:**
+
+   Follow the [official Flox installation guide](https://flox.dev/docs/install-flox/install/).
 
 2. From the root of the repository, activate the environment. (On first activation, you'll be prompted if you'd like the environment to be activated automatically using `direnv`.)
 
