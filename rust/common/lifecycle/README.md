@@ -257,7 +257,7 @@ The crate emits metrics via the `metrics` facade (no recorder installed by this 
 | `lifecycle_shutdown_completed_total`            | Counter   | `service_name`, `clean`                               | Once when monitor returns successfully         |
 | `lifecycle_component_healthy`                   | Gauge     | `service_name`, `component`                           | Continuously during normal operation           |
 
-Label values: `trigger_reason` = `signal`, `prestop`, `test`, `failure`, `requested`, `died`; `result` = `completed`, `timeout`, `died`; `clean` = `true` / `false`.
+Label values: `trigger_reason` = `signal`, `failure`, `requested`, `died`; `result` = `completed`, `timeout`, `died`; `clean` = `true` / `false`.
 
 `lifecycle_shutdown_completed_total` is **not** emitted on global timeout or if the process is killed; that asymmetry with `lifecycle_shutdown_initiated_total` is how incomplete shutdowns (e.g. SIGKILL) are detected.
 
