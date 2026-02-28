@@ -11,6 +11,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
+from prometheus_client import CollectorRegistry
+
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
     verify_and_fix_flags_cache_task,
@@ -18,8 +20,25 @@ from posthog.tasks.hypercache_verification import (
 )
 
 
+class PushGatewayTaskTestMixin:
+    """Sets up mocked PushGateway context so PushGatewayTask-based tasks can run in tests."""
+
+    def setUp(self) -> None:
+        super().setUp()  # type: ignore[misc]
+        self.registry = CollectorRegistry()
+        self.mock_context = MagicMock()
+        self.mock_context.__enter__ = MagicMock(return_value=self.registry)
+        self.mock_context.__exit__ = MagicMock(return_value=False)
+        self.patcher = patch("posthog.tasks.utils.pushed_metrics_registry", return_value=self.mock_context)
+        self.patcher.start()
+
+    def tearDown(self) -> None:
+        self.patcher.stop()
+        super().tearDown()  # type: ignore[misc]
+
+
 @override_settings(FLAGS_REDIS_URL="redis://test")
-class TestVerifyAndFixFlagsCacheTask(TestCase):
+class TestVerifyAndFixFlagsCacheTask(PushGatewayTaskTestMixin, TestCase):
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_verifies_flags_cache(self, mock_run_verification: MagicMock) -> None:
         mock_run_verification.return_value = MagicMock()
@@ -50,6 +69,17 @@ class TestVerifyAndFixFlagsCacheTask(TestCase):
         verify_and_fix_flags_cache_task()
 
         mock_run_verification.assert_called_once()
+
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
+    def test_pushgateway_metrics_recorded_on_success(self, mock_run_verification: MagicMock) -> None:
+        mock_run_verification.return_value = MagicMock()
+
+        verify_and_fix_flags_cache_task()
+
+        success = self.registry.get_sample_value("posthog_celery_verify_and_fix_flags_cache_task_success")
+        duration = self.registry.get_sample_value("posthog_celery_verify_and_fix_flags_cache_task_duration_seconds")
+        assert success == 1
+        assert duration is not None and duration >= 0
 
 
 @override_settings(FLAGS_REDIS_URL=None)
