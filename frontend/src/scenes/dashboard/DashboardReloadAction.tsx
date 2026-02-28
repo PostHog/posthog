@@ -200,6 +200,7 @@ export function DashboardReloadAction(): JSX.Element {
                                     triggerDashboardRefresh({ withAnalysis: true })
                                 }}
                                 aria-label="Refresh and analyze with AI"
+                                data-attr="dashboard-items-action-refresh-and-analyze"
                             >
                                 <IconSparkles className="text-ai size-4" />
                             </button>
