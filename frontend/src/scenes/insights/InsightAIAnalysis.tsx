@@ -9,7 +9,9 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { InsightQueryNode } from '~/queries/schema/schema-general'
+import { SidePanelTab } from '~/types'
 
 import { insightAIAnalysisLogic } from './insightAIAnalysisLogic'
 import { insightLogic } from './insightLogic'
@@ -26,9 +28,10 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
     const { analysis, isAnalyzing, hasClickedAnalyze, analysisFeedbackGiven, analysisError } = useValues(
         insightAIAnalysisLogic({ insightId: insight.id, query })
     )
-    const { startAnalysis, resetAnalysis, reportAnalysisFeedback } = useActions(
+    const { resetAnalysis, reportAnalysisFeedback } = useActions(
         insightAIAnalysisLogic({ insightId: insight.id, query })
     )
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     useEffect(() => {
         // Reset analysis when insight changes
@@ -57,17 +60,16 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                             {analysisError}
                         </LemonBanner>
                     )}
-                    <AIConsentPopoverWrapper onApprove={startAnalysis}>
+                    <AIConsentPopoverWrapper onApprove={() => openSidePanel(SidePanelTab.Max, '!Explain this insight')}>
                         <LemonButton
                             type="primary"
-                            onClick={startAnalysis}
+                            onClick={() => openSidePanel(SidePanelTab.Max, '!Explain this insight')}
                             sideIcon={null}
-                            loading={isAnalyzing}
                             disabledReason={
                                 insightDataLoading ? 'Please wait for the insight to finish loading' : undefined
                             }
                         >
-                            Analyze with AI
+                            Explain this insight
                         </LemonButton>
                     </AIConsentPopoverWrapper>
                 </>
