@@ -30,7 +30,7 @@ pub struct ManagerBuilder {
     enable_prestop_check: bool,
     prestop_path: PathBuf,
     health_poll_interval: Duration,
-    test_shutdown_receiver: Option<oneshot::Receiver<()>>,
+    external_shutdown_token: Option<CancellationToken>,
 }
 
 impl ManagerBuilder {
@@ -69,13 +69,10 @@ impl ManagerBuilder {
         self
     }
 
-    /// Inject a test shutdown trigger. When the receiver resolves (e.g. test sends on the paired sender),
-    /// the manager triggers shutdown. Use with `with_trap_signals(false)` and `with_prestop_check(false)`
-    /// in tests for deterministic, signal-free shutdown control.
-    ///
-    /// (see test `test_shutdown_trigger_initiates_shutdown`)
-    pub fn with_test_shutdown(mut self, receiver: oneshot::Receiver<()>) -> Self {
-        self.test_shutdown_receiver = Some(receiver);
+    /// Use an external shutdown token. The caller controls when shutdown begins by calling
+    /// `token.cancel()`. Use in tests for deterministic shutdown control.
+    pub fn with_shutdown_token(mut self, token: CancellationToken) -> Self {
+        self.external_shutdown_token = Some(token);
         self
     }
 
@@ -88,8 +85,7 @@ impl ManagerBuilder {
             enable_prestop_check: self.enable_prestop_check,
             prestop_path: self.prestop_path,
             health_poll_interval: self.health_poll_interval,
-            test_shutdown_receiver: self.test_shutdown_receiver,
-            shutdown_token: CancellationToken::new(),
+            shutdown_token: self.external_shutdown_token.unwrap_or_default(),
             event_tx_slot: Arc::new(OnceLock::new()),
             components: HashMap::new(),
             liveness_components: Vec::new(),
@@ -190,7 +186,6 @@ pub struct Manager {
     enable_prestop_check: bool,
     prestop_path: PathBuf,
     health_poll_interval: Duration,
-    test_shutdown_receiver: Option<oneshot::Receiver<()>>,
     shutdown_token: CancellationToken,
     event_tx_slot: Arc<OnceLock<mpsc::Sender<ComponentEvent>>>,
     components: HashMap<String, ComponentState>,
@@ -209,7 +204,7 @@ impl Manager {
             enable_prestop_check: true,
             prestop_path: PathBuf::from(DEFAULT_PRESTOP_PATH),
             health_poll_interval: Duration::from_secs(5),
-            test_shutdown_receiver: None,
+            external_shutdown_token: None,
         }
     }
 
@@ -387,20 +382,6 @@ impl Manager {
                         break;
                     }
                 }
-            });
-        }
-
-        if let Some(test_rx) = self.test_shutdown_receiver.take() {
-            let token = shutdown_token.clone();
-            let name_for_metrics = name.clone();
-            tokio::spawn(async move {
-                let _ = test_rx.await;
-                info!(
-                    trigger_reason = "test",
-                    "Lifecycle: shutdown initiated from test trigger"
-                );
-                metrics::emit_shutdown_initiated(&name_for_metrics, "test", "test");
-                token.cancel();
             });
         }
 

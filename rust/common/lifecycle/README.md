@@ -106,7 +106,7 @@ All options except `name` have sensible defaults.
 | `.with_prestop_check(bool)`               | Poll for pre-stop shutdown file (K8s pre-stop hook pattern).                                                                                                                                                   | `true`          |
 | `.with_prestop_path(path)`                | Override the pre-stop file path.                                                                                                                                                                               | `/tmp/shutdown` |
 | `.with_health_poll_interval(duration)`    | Override health monitor poll frequency. The health monitor is automatically active when any component has `with_liveness_deadline`. (see test `stall_triggers_shutdown`)                                       | `5s`            |
-| `.with_test_shutdown(receiver)`           | Inject a test shutdown trigger. When the oneshot receiver resolves (e.g. test sends on the paired sender), the manager triggers shutdown. Use with `with_trap_signals(false)` and `with_prestop_check(false)` in tests. (see test `test_shutdown_trigger_initiates_shutdown`) | `None`          |
+| `.with_shutdown_token(token)`             | Use an external `CancellationToken`; caller triggers shutdown via `token.cancel()`. Use in tests for deterministic shutdown.                                                                                   | `None`          |
 | `.build()`                                | Consume the builder and produce a `Manager`.                                                                                                                                                                   | —               |
 
 ### register() / ComponentOptions
@@ -295,19 +295,21 @@ by `component`, `result`.
 
 ## Testing
 
-For deterministic shutdown in tests, use `with_trap_signals(false)`, `with_prestop_check(false)`, and `with_test_shutdown`:
+For deterministic shutdown in tests, use `with_shutdown_token` on the builder. The test holds the token and calls `token.cancel()` to trigger shutdown:
 
 ```rust
-let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+use tokio_util::sync::CancellationToken;
+
+let shutdown_token = CancellationToken::new();
 let mut manager = Manager::builder("test-service")
     .with_trap_signals(false)
     .with_prestop_check(false)
-    .with_test_shutdown(shutdown_rx)
+    .with_shutdown_token(shutdown_token.clone())
     .build();
 
 // ... register components, spawn monitor_background, spawn component tasks ...
 
-shutdown_tx.send(()).ok(); // test triggers shutdown
+shutdown_token.cancel(); // test triggers shutdown
 guard.wait().await?;
 ```
 

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use lifecycle::{ComponentOptions, LifecycleError, Manager};
+use tokio_util::sync::CancellationToken;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -841,16 +842,16 @@ async fn mixed_component_timeout_outcomes() {
     assert!(result.is_ok());
 }
 
-/// Test shutdown trigger initiates shutdown. Use with_trap_signals(false) and
-/// with_prestop_check(false) for deterministic, signal-free shutdown control.
+/// Test shutdown trigger initiates shutdown. Uses Manager::builder with with_shutdown_token
+/// so the test can trigger shutdown by calling token.cancel().
 #[tokio::test]
 async fn test_shutdown_trigger_initiates_shutdown() {
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let shutdown_token = CancellationToken::new();
     let mut manager = Manager::builder("test")
         .with_trap_signals(false)
         .with_prestop_check(false)
         .with_global_shutdown_timeout(Duration::from_secs(5))
-        .with_test_shutdown(shutdown_rx)
+        .with_shutdown_token(shutdown_token.clone())
         .build();
 
     let handle = manager.register("worker", ComponentOptions::new());
@@ -865,7 +866,7 @@ async fn test_shutdown_trigger_initiates_shutdown() {
     drop(handle);
 
     tokio::time::sleep(Duration::from_millis(50)).await;
-    shutdown_tx.send(()).ok();
+    shutdown_token.cancel();
 
     let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
         .await
