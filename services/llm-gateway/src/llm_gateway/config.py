@@ -94,7 +94,8 @@ class Settings(BaseSettings):
 
     # ~600 bytes per entry (key + AuthenticatedUser + LRU overhead), 10000 entries ≈ 6 MB
     auth_cache_max_size: int = 10000
-    auth_cache_ttl: int = 900  # 15 minutes
+    auth_cache_ttl: int = 900  # 15 minutes — used for personal API keys
+    auth_cache_ttl_oauth: int = 300  # 5 minutes — OAuth tokens can be revoked on refresh, keep short
 
     team_rate_limit_multipliers: dict[int, int] = {}
 

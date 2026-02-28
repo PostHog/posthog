@@ -84,6 +84,8 @@ def register_all_admin():
 
     from products.desktop_recordings.backend.admin import DesktopRecordingAdmin
     from products.desktop_recordings.backend.models import DesktopRecording
+    from products.endpoints.backend.admin import EndpointAdmin, EndpointVersionAdmin
+    from products.endpoints.backend.models import Endpoint, EndpointVersion
     from products.signals.backend.admin import SignalReportAdmin
     from products.signals.backend.models import SignalReport
     from products.tasks.backend.admin import SandboxSnapshotAdmin, TaskAdmin, TaskRunAdmin
@@ -143,6 +145,9 @@ def register_all_admin():
     admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)
 
     admin.site.register(DesktopRecording, DesktopRecordingAdmin)
+
+    admin.site.register(Endpoint, EndpointAdmin)
+    admin.site.register(EndpointVersion, EndpointVersionAdmin)
 
     admin.site.register(SignalReport, SignalReportAdmin)
 

@@ -28,7 +28,7 @@ class TestSiteURLReachability(APIBaseTest):
     def test_url_not_reachable_error_status(self, logger_mock):
         test_url = "http://some-status-bad-url.test"
         with self.settings(SITE_URL=test_url):
-            with patch("requests.get") as mock_request:
+            with patch("posthog.tasks.exports.exporter_utils.external_requests.get") as mock_request:
                 mock_request.return_value.status_code = 500
                 try:
                     exporter_utils.log_error_if_site_url_not_reachable()
@@ -44,7 +44,7 @@ class TestSiteURLReachability(APIBaseTest):
     def test_url_reachable_success(self, logger_mock):
         test_url = "http://some-good-url.test"
         with self.settings(SITE_URL=test_url):
-            with patch("requests.get") as mock_request:
+            with patch("posthog.tasks.exports.exporter_utils.external_requests.get") as mock_request:
                 mock_request.return_value.status_code = 200
                 try:
                     exporter_utils.log_error_if_site_url_not_reachable()

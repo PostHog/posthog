@@ -75,7 +75,7 @@ class _LazyExternalHttpx:
             import httpx
 
             proxy_url = get_proxy_url()
-            self._client = httpx.Client(**({"proxy": proxy_url} if proxy_url else {}))
+            self._client = httpx.Client(proxy=proxy_url) if proxy_url else httpx.Client()
         return self._client
 
     def __getattr__(self, name: str) -> Any:

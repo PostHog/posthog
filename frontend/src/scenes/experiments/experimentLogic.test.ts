@@ -738,6 +738,16 @@ describe('experimentLogic', () => {
             },
         }
 
+        const zeroRolloutShippedVariantFilters = {
+            groups: [{ properties: [], rollout_percentage: 0 }],
+            multivariate: {
+                variants: [
+                    { key: 'control', rollout_percentage: 0 },
+                    { key: 'test', rollout_percentage: 100 },
+                ],
+            },
+        }
+
         const createExperiment = (overrides: Partial<Experiment>): Experiment =>
             ({
                 ...experiment,
@@ -782,6 +792,20 @@ describe('experimentLogic', () => {
                 expected: { key: 'running_but_no_rollout' },
             },
             {
+                desc: 'running experiment with zero rollout takes priority over single variant shipped',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: undefined,
+                    feature_flag: {
+                        id: 1,
+                        key: 'flag',
+                        active: true,
+                        filters: zeroRolloutShippedVariantFilters,
+                    } as any,
+                },
+                expected: { key: 'running_but_no_rollout' },
+            },
+            {
                 desc: 'ended experiment with flag still distributing multiple variants',
                 overrides: {
                     start_date: '2020-01-01',
@@ -789,6 +813,15 @@ describe('experimentLogic', () => {
                     feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
                 },
                 expected: { key: 'ended_but_multiple_variants_rolled_out' },
+            },
+            {
+                desc: 'ended experiment with flag active but zero group rollout',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: '2020-02-01',
+                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                },
+                expected: null,
             },
             {
                 desc: 'ended experiment with flag disabled',
@@ -826,6 +859,15 @@ describe('experimentLogic', () => {
                     feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
                 },
                 expected: { key: 'not_started_but_multiple_variants_rolled_out' },
+            },
+            {
+                desc: 'draft experiment with flag active but zero group rollout',
+                overrides: {
+                    start_date: undefined,
+                    end_date: undefined,
+                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                },
+                expected: null,
             },
             {
                 desc: 'draft experiment with flag disabled',

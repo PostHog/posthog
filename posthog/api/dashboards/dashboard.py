@@ -504,7 +504,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
             created_by_json = text_json.get("created_by", None)
             if created_by_json:
                 last_modified_by = user
-                created_by = User.objects.get(id=created_by_json.get("id"))
+                try:
+                    created_by = User.objects.get(
+                        id=created_by_json.get("id"),
+                        organization_membership__organization_id=instance.team.organization_id,
+                    )
+                except User.DoesNotExist:
+                    raise serializers.ValidationError("User not found in this organization.")
             else:
                 created_by = user
                 last_modified_by = None
