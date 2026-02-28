@@ -1098,6 +1098,79 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 4
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 2
 
+    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
+    def test_usage_report_replay_excludes_deleted_recordings(self) -> None:
+        timestamp = now() - relativedelta(hours=12)
+
+        # 2 normal web recordings
+        for i in range(1, 3):
+            produce_replay_summary(
+                team_id=self.team.pk,
+                session_id=f"web-{i}",
+                distinct_id=str(uuid4()),
+                first_timestamp=timestamp,
+                last_timestamp=timestamp + timedelta(seconds=1),
+                size=10,
+            )
+
+        # 1 deleted web recording — should be excluded
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="web-deleted",
+            distinct_id=str(uuid4()),
+            first_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=1),
+            size=10,
+            is_deleted=True,
+        )
+
+        # 1 normal mobile recording
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="mobile-normal",
+            distinct_id=str(uuid4()),
+            first_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=1),
+            snapshot_source="mobile",
+            snapshot_library="posthog-ios",
+            size=6,
+        )
+
+        # 1 deleted mobile recording — should be excluded
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="mobile-deleted",
+            distinct_id=str(uuid4()),
+            first_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=1),
+            snapshot_source="mobile",
+            snapshot_library="posthog-android",
+            size=6,
+            is_deleted=True,
+        )
+
+        # 1 deleted zero-duration recording — should be excluded
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="zero-duration-deleted",
+            distinct_id=str(uuid4()),
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+            is_deleted=True,
+        )
+
+        period = get_previous_day()
+        period_start, period_end = period
+
+        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        report = _get_team_report(all_reports, self.team)
+
+        assert report.recording_count_in_period == 2
+        assert report.mobile_recording_count_in_period == 1
+        assert report.mobile_billable_recording_count_in_period == 1
+        assert report.zero_duration_recording_count_in_period == 0
+        assert report.recording_bytes_in_period == 20  # 2 web * 10 bytes each
+
 
 class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     # @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
