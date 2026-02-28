@@ -8,7 +8,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { HealthCheckResult, PluginServerService } from '../types'
+import { HealthCheckResult, IngestionLane, PluginServerService } from '../types'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
@@ -41,13 +41,13 @@ export interface ErrorTrackingConsumerOptions {
     outputTopic: string
     cymbalBaseUrl: string
     cymbalTimeoutMs: number
-    lane: 'main' | 'overflow'
+    lane: IngestionLane
     overflowBucketCapacity: number
     overflowBucketReplenishRate: number
     statefulOverflowEnabled: boolean
     statefulOverflowRedisTTLSeconds: number
     statefulOverflowLocalCacheTTLSeconds: number
-    topHogPipeline: string
+    pipeline: string
 }
 
 /**
@@ -176,7 +176,7 @@ export class ErrorTrackingConsumer {
         this.topHog = new TopHog({
             kafkaProducer: this.deps.kafkaProducer,
             topic: KAFKA_CLICKHOUSE_TOPHOG,
-            pipeline: this.config.topHogPipeline,
+            pipeline: this.config.pipeline,
             lane: this.config.lane,
         })
         this.topHog.start()

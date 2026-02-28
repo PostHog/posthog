@@ -108,11 +108,9 @@ export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_CONSUMER_DLQ_TOPIC: string
     ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC: string
     ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC: string
-    CYMBAL_BASE_URL: string
-    CYMBAL_TIMEOUT_MS: number
+    ERROR_TRACKING_CYMBAL_BASE_URL: string
+    ERROR_TRACKING_CYMBAL_TIMEOUT_MS: number
 
-    /** The lane this consumer is processing (main or overflow). Defaults to main when null. */
-    ERROR_TRACKING_CONSUMER_LANE: 'main' | 'overflow' | null
     /** Token bucket capacity for rate limiting (events per token:distinct_id) */
     ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY: number
     /** Token bucket replenish rate (events per second) */
@@ -123,6 +121,4 @@ export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     /** TTL in seconds for local cache entries */
     ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
-    /** Pipeline name for TopHog metrics */
-    ERROR_TRACKING_TOPHOG_PIPELINE: string
 }

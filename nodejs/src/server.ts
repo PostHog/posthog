@@ -460,16 +460,16 @@ export class PluginServer {
                         dlqTopic: hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC,
                         overflowTopic: hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC,
                         outputTopic: hub.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
-                        cymbalBaseUrl: hub.CYMBAL_BASE_URL,
-                        cymbalTimeoutMs: hub.CYMBAL_TIMEOUT_MS,
-                        lane: hub.ERROR_TRACKING_CONSUMER_LANE ?? 'main',
+                        cymbalBaseUrl: hub.ERROR_TRACKING_CYMBAL_BASE_URL,
+                        cymbalTimeoutMs: hub.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
+                        lane: hub.INGESTION_LANE ?? 'main',
                         overflowBucketCapacity: hub.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
                         overflowBucketReplenishRate: hub.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
                         statefulOverflowEnabled: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
                         statefulOverflowRedisTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
                         statefulOverflowLocalCacheTTLSeconds:
                             hub.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                        topHogPipeline: hub.ERROR_TRACKING_TOPHOG_PIPELINE,
+                        pipeline: hub.INGESTION_PIPELINE ?? 'error_tracking',
                     }
                     const deps = {
                         kafkaProducer: hub.kafkaProducer,
