@@ -30,6 +30,7 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
     actions({
         startAnalysis: true,
         setHasClickedAnalyze: (hasClicked: boolean) => ({ hasClicked }),
+        setHasClickedSuggestions: (hasClicked: boolean) => ({ hasClicked }),
         resetAnalysis: true,
         reportAnalysisFeedback: (isPositive: boolean) => ({ isPositive }),
         reportSuggestionFeedback: (suggestionIndex: number, suggestionTitle: string, isPositive: boolean) => ({
@@ -76,6 +77,13 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
             false,
             {
                 setHasClickedAnalyze: (_, { hasClicked }) => hasClicked,
+                resetAnalysis: () => false,
+            },
+        ],
+        hasClickedSuggestions: [
+            false,
+            {
+                setHasClickedSuggestions: (_, { hasClicked }) => hasClicked,
                 resetAnalysis: () => false,
             },
         ],

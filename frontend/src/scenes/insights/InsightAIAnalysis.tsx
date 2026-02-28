@@ -25,10 +25,9 @@ export interface InsightAIAnalysisProps {
 export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Element | null {
     const { insight, insightProps } = useValues(insightLogic)
     const { insightDataLoading } = useValues(insightVizDataLogic(insightProps))
-    const { analysis, isAnalyzing, hasClickedAnalyze, analysisFeedbackGiven, analysisError } = useValues(
-        insightAIAnalysisLogic({ insightId: insight.id, query })
-    )
-    const { resetAnalysis, reportAnalysisFeedback } = useActions(
+    const { analysis, isAnalyzing, hasClickedAnalyze, hasClickedSuggestions, analysisFeedbackGiven, analysisError } =
+        useValues(insightAIAnalysisLogic({ insightId: insight.id, query }))
+    const { resetAnalysis, reportAnalysisFeedback, loadSuggestions, setHasClickedSuggestions } = useActions(
         insightAIAnalysisLogic({ insightId: insight.id, query })
     )
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -60,18 +59,49 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                             {analysisError}
                         </LemonBanner>
                     )}
-                    <AIConsentPopoverWrapper onApprove={() => openSidePanel(SidePanelTab.Max, '!Explain this insight')}>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => openSidePanel(SidePanelTab.Max, '!Explain this insight')}
-                            sideIcon={null}
-                            disabledReason={
-                                insightDataLoading ? 'Please wait for the insight to finish loading' : undefined
-                            }
+                    <div className="flex gap-2 flex-wrap">
+                        <AIConsentPopoverWrapper
+                            onApprove={() => openSidePanel(SidePanelTab.Max, '!Explain this insight')}
                         >
-                            Explain this insight
-                        </LemonButton>
-                    </AIConsentPopoverWrapper>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => openSidePanel(SidePanelTab.Max, '!Explain this insight')}
+                                sideIcon={null}
+                                data-attr="insight-ai-explain-button"
+                                disabledReason={
+                                    insightDataLoading ? 'Please wait for the insight to finish loading' : undefined
+                                }
+                            >
+                                Explain this insight
+                            </LemonButton>
+                        </AIConsentPopoverWrapper>
+                        <AIConsentPopoverWrapper
+                            onApprove={() => {
+                                setHasClickedSuggestions(true)
+                                loadSuggestions({})
+                            }}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    setHasClickedSuggestions(true)
+                                    loadSuggestions({})
+                                }}
+                                sideIcon={null}
+                                data-attr="insight-ai-suggestions-button"
+                                disabledReason={
+                                    hasClickedSuggestions
+                                        ? 'Suggestions already loading'
+                                        : insightDataLoading
+                                          ? 'Please wait for the insight to finish loading'
+                                          : undefined
+                                }
+                            >
+                                Suggest insights to dive deeper
+                            </LemonButton>
+                        </AIConsentPopoverWrapper>
+                    </div>
+                    {hasClickedSuggestions && <InsightSuggestions insightId={insight.id} query={query} />}
                 </>
             ) : isAnalyzing ? (
                 <div className="flex items-center gap-2 text-muted">
