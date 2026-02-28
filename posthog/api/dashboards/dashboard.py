@@ -890,7 +890,23 @@ class DashboardsViewSet(
         Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
         """
         dashboard = self.get_object()
-        before_results = self._get_cached_results_for_analysis(dashboard, request)
+
+        client_results = request.data.get("client_results")
+
+        if client_results and isinstance(client_results, dict):
+            # Use client-provided data (robust fallback)
+            before_results = {}
+            for tile_id, item in client_results.items():
+                # Ensure we summarize the data just like we do for cached results
+                # to keep the format consistent for the AI prompt
+                if isinstance(item, dict) and "data" in item:
+                    before_results[int(tile_id)] = {
+                        "insight_name": item.get("insight_name"),
+                        "data": summarize_insight_result(item["data"]),
+                    }
+        else:
+            before_results = self._get_cached_results_for_analysis(dashboard, request)
+
         cache_key = f"dashboard_refresh_before_{dashboard.id}_{request.user.id}_{now().timestamp()}"
         cache.set(cache_key, before_results, timeout=1800)  # 30 minutes
         return Response({"cache_key": cache_key})
@@ -909,7 +925,7 @@ class DashboardsViewSet(
 
         # Get 'before' state from cache
         before_results = cache.get(cache_key)
-        if not before_results:
+        if before_results is None:
             return Response(
                 {"error": "Analysis context expired or not found. Please refresh the dashboard again."},
                 status=status.HTTP_400_BAD_REQUEST,
