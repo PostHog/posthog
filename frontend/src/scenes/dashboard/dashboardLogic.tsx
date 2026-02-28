@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import uniqBy from 'lodash.uniqby'
+import posthog from 'posthog-js'
 import { Layout, Layouts } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
@@ -296,6 +297,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setAnalyzeStatus: (isAnalyzing: boolean) => ({ isAnalyzing }),
         setRefreshAnalysisCacheKey: (cacheKey: string | null) => ({ cacheKey }),
         setRefreshAnalysisResult: (result: string | null) => ({ result }),
+        setAnalysisRating: (rating: 'up' | 'down' | null) => ({ rating }),
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -899,6 +901,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 triggerDashboardRefresh: () => null,
             },
         ],
+        analysisRating: [
+            null as 'up' | 'down' | null,
+            {
+                setAnalysisRating: (_, { rating }) => rating,
+                setRefreshAnalysisResult: () => null,
+                triggerDashboardRefresh: () => null,
+            },
+        ],
         isAnalyzing: [
             false,
             {
@@ -1402,6 +1412,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        setAnalysisRating: ({ rating }) => {
+            posthog.capture('dashboard refresh ai analysis feedback', {
+                rating: rating === 'up' ? 'thumbs_up' : 'thumbs_down',
+                analysis_text: values.refreshAnalysisResult,
+            })
+        },
         setRefreshError: sharedListeners.reportRefreshTiming,
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,
