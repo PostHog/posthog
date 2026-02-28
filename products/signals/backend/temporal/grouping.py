@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import asyncio
+from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Literal, Optional
@@ -858,7 +859,7 @@ class TeamSignalGroupingWorkflow:
     """
 
     def __init__(self) -> None:
-        self._signal_buffer: list[EmitSignalInputs] = []
+        self._signal_buffer: deque[EmitSignalInputs] = deque()
         self._signals_processed: int = 0
         meter = workflow.metric_meter()
         self._signals_received_counter = meter.create_counter(
@@ -892,7 +893,7 @@ class TeamSignalGroupingWorkflow:
 
         while True:
             await workflow.wait_condition(lambda: len(self._signal_buffer) > 0)
-            signal = self._signal_buffer.pop(0)
+            signal = self._signal_buffer.popleft()
             self._buffer_size_gauge.set(len(self._signal_buffer))
 
             try:

@@ -85,10 +85,10 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
 
     # Recursively fetch all dependencies with a bfs
     # Fetch everything by names, ids and names are the same right now
-    to_process = [(root_query.name, root_query.external_tables)]
+    to_process = deque([(root_query.name, root_query.external_tables)])
 
     while to_process:
-        current_id, external_tables = to_process.pop(0)
+        current_id, external_tables = to_process.popleft()
 
         # Batch lookup all external tables at this level
         unseen_external_tables = [et for et in external_tables if et not in seen_nodes]

@@ -1,5 +1,6 @@
 import json
 import logging
+from collections import deque
 from typing import Any, Optional
 
 from rest_framework import serializers
@@ -422,11 +423,11 @@ def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]
                 in_degree[node] = in_degree[node] + 1
 
     # Find all nodes with in_degree 0
-    queue = [n for n, d in in_degree.items() if d == 0]
+    queue = deque(n for n, d in in_degree.items() if d == 0)
     sorted_list = []
 
     while queue:
-        current = queue.pop(0)
+        current = queue.popleft()
         sorted_list.append(current)
         # Decrease in-degree of dependent nodes
         for node, deps in edges.items():

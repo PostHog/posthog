@@ -1,3 +1,4 @@
+from collections import deque
 import math
 import uuid
 import typing
@@ -599,13 +600,11 @@ def generate_query_ranges(
         return
 
     epoch = dt.datetime.fromtimestamp(0, tz=dt.UTC)
-    list_done_ranges: list[tuple[dt.datetime, dt.datetime]] = list(done_ranges)
-
-    list_done_ranges.sort(key=operator.itemgetter(0))
+    list_done_ranges: deque[tuple[dt.datetime, dt.datetime]] = deque(sorted(done_ranges, key=operator.itemgetter(0)))
 
     while True:
         try:
-            next_range: tuple[dt.datetime | None, dt.datetime] = list_done_ranges.pop(0)
+            next_range: tuple[dt.datetime | None, dt.datetime] = list_done_ranges.popleft()
         except IndexError:
             if remaining_range[0] != remaining_range[1]:
                 # If they were equal it would mean we have finished.
