@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from django.test import TestCase, override_settings
 
 from posthog.tasks.hypercache_verification import (
+    verify_and_fix_flag_definitions_cache_task,
     verify_and_fix_flags_cache_task,
     verify_and_fix_team_metadata_cache_task,
 )
@@ -101,3 +102,41 @@ class TestVerifyAndFixTeamMetadataCacheTaskDisabled(TestCase):
         verify_and_fix_team_metadata_cache_task()
 
         mock_run_verification.assert_not_called()
+
+
+class TestVerifyAndFixFlagDefinitionsCacheTask(TestCase):
+    """Tests for the flag definitions cache verification task."""
+
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
+    def test_verifies_flag_definitions_cache(self, mock_run_verification: MagicMock) -> None:
+        mock_run_verification.return_value = MagicMock()
+
+        verify_and_fix_flag_definitions_cache_task()
+
+        # Only verifies with-cohorts variant (fixing it fixes both variants)
+        mock_run_verification.assert_called_once()
+        assert mock_run_verification.call_args[1]["cache_type"] == "flag_definitions"
+
+    @patch("posthog.tasks.hypercache_verification.capture_exception")
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
+    def test_captures_and_reraises_error(self, mock_run_verification: MagicMock, mock_capture: MagicMock) -> None:
+        error = Exception("flag_definitions verification failed")
+        mock_run_verification.side_effect = error
+
+        with self.assertRaises(Exception) as context:
+            verify_and_fix_flag_definitions_cache_task()
+
+        mock_capture.assert_called_once_with(error)
+        assert context.exception is error
+
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
+    def test_skips_when_lock_already_held(self, mock_run_verification: MagicMock) -> None:
+        from django.core.cache import cache as django_cache
+
+        lock_key = "posthog:hypercache_verification:flag_definitions:lock"
+        django_cache.add(lock_key, "locked", timeout=60)
+        try:
+            verify_and_fix_flag_definitions_cache_task()
+            mock_run_verification.assert_not_called()
+        finally:
+            django_cache.delete(lock_key)

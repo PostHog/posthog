@@ -1,0 +1,29 @@
+{
+    "name": "@posthog/auth-proxy",
+    "version": "1.0.0",
+    "description": "Cross-region OAuth proxy for PostHog Cloud (oauth.posthog.com)",
+    "keywords": [
+        "auth",
+        "multi-region",
+        "oauth",
+        "posthog",
+        "proxy"
+    ],
+    "license": "MIT",
+    "author": "PostHog Inc.",
+    "scripts": {
+        "dev": "wrangler dev",
+        "deploy": "wrangler deploy",
+        "cf-typegen": "wrangler types",
+        "test": "vitest",
+        "test:watch": "vitest watch",
+        "typecheck": "tsc --noEmit"
+    },
+    "devDependencies": {
+        "@cloudflare/workers-types": "^4.20260120.0",
+        "typescript": "^5.2.2",
+        "vite-tsconfig-paths": "^5.1.4",
+        "vitest": "^3.2.4",
+        "wrangler": "^4.59.0"
+    }
+}

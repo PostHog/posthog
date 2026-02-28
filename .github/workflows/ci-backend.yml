@@ -104,6 +104,7 @@ jobs:
                         - pytest.ini
                         - .test_durations # Used for pytest-split sharding
                         - frontend/src/queries/schema.json # Used for generating schema.py
+                        - rust/feature-flags/src/properties/property_models.rs # Operator parity check
                         - common/plugin_transpiler/src # Used for transpiling plugins
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
@@ -401,6 +402,21 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Check IDOR model coverage
               run: python .github/scripts/check-idor-model-coverage.py
+
+    check-operator-parity:
+        needs: [changes]
+        if: needs.changes.outputs.backend == 'true'
+        timeout-minutes: 2
+        name: Check operator parity across languages
+        runs-on: depot-ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.12.12
+            - name: Check operator parity
+              run: python .github/scripts/check-operator-parity.py
 
     check-migrations:
         needs: [changes]
@@ -1491,6 +1507,7 @@ jobs:
                 turbo-tests,
                 handle-snapshots,
                 check-idor-coverage,
+                check-operator-parity,
             ]
         name: Django Tests Pass
         runs-on: ubuntu-latest
@@ -1525,6 +1542,12 @@ jobs:
                   # Check IDOR coverage - must pass for Django Tests to be green
                   if [[ "${{ needs.check-idor-coverage.result }}" != "success" && "${{ needs.check-idor-coverage.result }}" != "skipped" ]]; then
                     echo "IDOR coverage check failed."
+                    exit 1
+                  fi
+
+                  # Check operator parity - must pass for Django Tests to be green
+                  if [[ "${{ needs.check-operator-parity.result }}" != "success" && "${{ needs.check-operator-parity.result }}" != "skipped" ]]; then
+                    echo "Operator parity check failed."
                     exit 1
                   fi
 

@@ -6,6 +6,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models.team import Team
+from posthog.temporal.ai.session_summary.activities.a5_embed_and_store_segments import SESSION_SEGMENTS_EMBEDDING_MODEL
 
 MAX_SEGMENTS_RETURNED = 50_000
 
@@ -32,21 +33,21 @@ def count_distinct_persons(team: Team, distinct_ids: list[str]) -> int:
 
 
 @sync_to_async
-def fetch_video_segment_metadata_rows(team: Team, lookback_hours: int):
-    """Fetch recent video segment metadata from ClickHouse - just metadata, without embedding vectors."""
+def fetch_video_segment_rows(team: Team, lookback_hours: int):
+    """Fetch recent video segments (metadata + embeddings) from ClickHouse."""
     with tags_context(product=Product.SESSION_SUMMARY):
         result = execute_hogql_query(
-            query_type="VideoSegmentMetadataForClustering",
+            query_type="VideoSegmentsForClustering",
             query=parse_select(
-                # Note: We don't select embedding here to avoid large payloads
                 """
                 SELECT
                     document_id,
                     content,
                     metadata,
-                    timestamp
-                FROM raw_document_embeddings
+                    embedding
+                FROM document_embeddings
                 WHERE timestamp >= now() - INTERVAL {lookback_hours} HOUR
+                    AND model_name = {model_name}
                     AND product = {product}
                     AND document_type = {document_type}
                     AND rendering = {rendering}
@@ -55,73 +56,7 @@ def fetch_video_segment_metadata_rows(team: Team, lookback_hours: int):
             ),
             placeholders={
                 "lookback_hours": ast.Constant(value=lookback_hours),
-                "product": ast.Constant(value="session-replay"),
-                "document_type": ast.Constant(value="video-segment"),
-                "rendering": ast.Constant(value="video-analysis"),
-                "max_segments_returned": ast.Constant(value=MAX_SEGMENTS_RETURNED),
-            },
-            team=team,
-        )
-    return result.results or []
-
-
-@sync_to_async
-def fetch_video_segment_metadata_by_document_ids(team: Team, document_ids: list[str]):
-    """Fetch segment metadata (no embeddings) for specific document_ids."""
-    if not document_ids:
-        return []
-    with tags_context(product=Product.SESSION_SUMMARY):
-        result = execute_hogql_query(
-            query_type="VideoSegmentMetadataByDocumentIds",
-            query=parse_select(
-                """
-                SELECT
-                    document_id,
-                    content,
-                    metadata,
-                    timestamp
-                FROM raw_document_embeddings
-                WHERE document_id IN {doc_ids}
-                    AND product = {product}
-                    AND document_type = {document_type}
-                    AND rendering = {rendering}
-                LIMIT {max_segments_returned}"""
-            ),
-            placeholders={
-                "doc_ids": ast.Constant(value=document_ids),
-                "product": ast.Constant(value="session-replay"),
-                "document_type": ast.Constant(value="video-segment"),
-                "rendering": ast.Constant(value="video-analysis"),
-                "max_segments_returned": ast.Constant(value=MAX_SEGMENTS_RETURNED),
-            },
-            team=team,
-        )
-    return result.results or []
-
-
-@sync_to_async
-def fetch_video_segment_embedding_rows(team: Team, document_ids: list[str]):
-    """Fetch video segment embeddings from ClickHouse - specific segments, with embedding vectors included."""
-    with tags_context(product=Product.SESSION_SUMMARY):
-        result = execute_hogql_query(
-            query_type="VideoSegmentEmbeddingsForClustering",
-            query=parse_select(
-                """
-                SELECT
-                    document_id,
-                    content,
-                    embedding,
-                    metadata,
-                    timestamp
-                FROM raw_document_embeddings
-                WHERE document_id IN {doc_ids}
-                    AND product = {product}
-                    AND document_type = {document_type}
-                    AND rendering = {rendering}
-                LIMIT {max_segments_returned}"""
-            ),
-            placeholders={
-                "doc_ids": ast.Constant(value=document_ids),
+                "model_name": ast.Constant(value=SESSION_SEGMENTS_EMBEDDING_MODEL.value),
                 "product": ast.Constant(value="session-replay"),
                 "document_type": ast.Constant(value="video-segment"),
                 "rendering": ast.Constant(value="video-analysis"),

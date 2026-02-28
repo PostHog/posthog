@@ -733,6 +733,12 @@ class CSPMiddleware:
         # nonce must be added to request (above) before generating response
         response = self.get_response(request)
 
+        content_type = response.get("Content-Type", "")
+        # csp headers only matter on html documents, so for defense in depth, add strong csp to all other requests
+        if "text/html" not in content_type:
+            response.headers["Content-Security-Policy"] = "default-src 'none'"
+            return response
+
         is_admin_view = request.path.startswith("/admin/")
         if is_admin_view:
             django_loginas_inline_script_hash = "sha256-2bSkJXtgXFhxZUhgXzWsEsKImxJEQsqjns0vi3KiSrI="

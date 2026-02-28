@@ -12,8 +12,20 @@ tokio::task_local! {
     static CANONICAL_LOG: RefCell<FlagsCanonicalLogLine>;
 }
 
+// Thread-local fallback for rayon worker threads.
+// Rayon threads don't have access to tokio task-locals, so we use a
+// std::thread_local to capture evaluation counters during parallel flag
+// evaluation. The counters are then merged back into the request's
+// canonical log on the tokio side after rayon returns.
+std::thread_local! {
+    static RAYON_CANONICAL_LOG: RefCell<Option<FlagsCanonicalLogLine>> = const { RefCell::new(None) };
+}
+
 /// Safely modify the canonical log if one exists in scope.
 /// No-ops silently if called outside a canonical log scope.
+///
+/// Tries the tokio task-local first (normal async request path), then
+/// falls back to the std::thread_local (rayon parallel-eval path).
 ///
 /// # Example
 /// ```ignore
@@ -21,7 +33,44 @@ tokio::task_local! {
 /// with_canonical_log(|log| log.property_cache_hits += 1);
 /// ```
 pub fn with_canonical_log(f: impl FnOnce(&mut FlagsCanonicalLogLine)) {
-    let _ = CANONICAL_LOG.try_with(|log| f(&mut log.borrow_mut()));
+    // Probe whether the tokio task-local is accessible without consuming `f`.
+    // On rayon threads there is no tokio task context, so this returns Err.
+    if CANONICAL_LOG.try_with(|_| ()).is_ok() {
+        CANONICAL_LOG.with(|log| f(&mut log.borrow_mut()));
+    } else {
+        RAYON_CANONICAL_LOG.with(|cell| {
+            if let Some(ref mut log) = *cell.borrow_mut() {
+                f(log);
+            }
+        });
+    }
+}
+
+#[must_use = "guard cleans up the thread-local on drop; dropping immediately is a no-op"]
+pub(crate) struct RayonCanonicalLogGuard;
+
+impl Drop for RayonCanonicalLogGuard {
+    fn drop(&mut self) {
+        drop(take_rayon_canonical_log());
+    }
+}
+
+/// Install a fresh canonical log on the current thread for rayon evaluation.
+/// Returns an RAII guard that clears the thread-local on drop, ensuring
+/// cleanup even if the evaluation panics. Call [`take_rayon_canonical_log`]
+/// before the guard is dropped to retrieve the accumulated counters.
+pub(crate) fn install_rayon_canonical_log() -> RayonCanonicalLogGuard {
+    RAYON_CANONICAL_LOG.with(|cell| {
+        *cell.borrow_mut() = Some(FlagsCanonicalLogLine::default());
+    });
+
+    RayonCanonicalLogGuard
+}
+
+/// Take the accumulated canonical log from the current rayon thread.
+/// Returns `None` if no log was installed.
+pub(crate) fn take_rayon_canonical_log() -> Option<FlagsCanonicalLogLine> {
+    RAYON_CANONICAL_LOG.with(|cell| cell.borrow_mut().take())
 }
 
 /// Run an async block with a canonical log in scope.
@@ -295,6 +344,29 @@ impl FlagsCanonicalLogLine {
                 self.static_cohort_queries as f64,
             );
         }
+    }
+
+    /// Merge evaluation counters accumulated on a rayon thread back into this log.
+    ///
+    /// Only merges fields that are written during per-flag evaluation inside
+    /// `evaluate_single_flag` and its callees. Request-level metadata (request_id,
+    /// team_id, ip, etc.) is intentionally not merged.
+    ///
+    /// `flags_errored` is excluded because it is incremented in `process_flag_result`,
+    /// which runs on the tokio task after rayon returns.
+    ///
+    /// Numeric counters are summed; boolean flags are OR'd.
+    ///
+    // TODO: consider splitting these eval counters into an `EvalCounters` sub-struct
+    // so that new counters are merged automatically and this field list doesn't drift.
+    // See https://github.com/PostHog/posthog/issues/49255
+    pub fn merge_rayon_delta(&mut self, delta: &FlagsCanonicalLogLine) {
+        self.flags_device_id_bucketing += delta.flags_device_id_bucketing;
+        self.cohorts_evaluated += delta.cohorts_evaluated;
+        self.property_cache_hits += delta.property_cache_hits;
+        self.property_cache_misses += delta.property_cache_misses;
+        self.person_properties_not_cached |= delta.person_properties_not_cached;
+        self.group_properties_not_cached |= delta.group_properties_not_cached;
     }
 
     /// Populate error fields from a FlagError without emitting.
@@ -743,6 +815,249 @@ mod tests {
             .await;
 
             assert_eq!(final_log.hash_key_override_status, Some("empty"));
+        }
+    }
+
+    mod merge_rayon_delta_tests {
+        use super::*;
+        use rstest::rstest;
+
+        #[rstest]
+        // Single delta with all counter fields populated
+        #[case(
+            &[(3, 5, 10, 2, true, false)],
+            3, 5, 10, 2, true, false
+        )]
+        // Two deltas accumulate: counters sum, booleans OR
+        #[case(
+            &[(1, 2, 3, 1, false, false), (2, 3, 7, 4, false, true)],
+            3, 5, 10, 5, false, true
+        )]
+        // Empty delta is a no-op
+        #[case(
+            &[(0, 0, 0, 0, false, false)],
+            0, 0, 0, 0, false, false
+        )]
+        // Boolean fields OR across deltas
+        #[case(
+            &[(0, 0, 0, 0, true, false), (0, 0, 0, 0, false, true)],
+            0, 0, 0, 0, true, true
+        )]
+        fn test_merge_rayon_delta_from_zero(
+            #[case] deltas: &[(usize, usize, usize, usize, bool, bool)],
+            #[case] expected_device_id: usize,
+            #[case] expected_cohorts: usize,
+            #[case] expected_cache_hits: usize,
+            #[case] expected_cache_misses: usize,
+            #[case] expected_person_not_cached: bool,
+            #[case] expected_group_not_cached: bool,
+        ) {
+            let mut log = FlagsCanonicalLogLine::default();
+
+            for &(device_id, cohorts, hits, misses, person, group) in deltas {
+                let delta = FlagsCanonicalLogLine {
+                    flags_device_id_bucketing: device_id,
+                    cohorts_evaluated: cohorts,
+                    property_cache_hits: hits,
+                    property_cache_misses: misses,
+                    person_properties_not_cached: person,
+                    group_properties_not_cached: group,
+                    ..Default::default()
+                };
+                log.merge_rayon_delta(&delta);
+            }
+
+            assert_eq!(log.flags_device_id_bucketing, expected_device_id);
+            assert_eq!(log.cohorts_evaluated, expected_cohorts);
+            assert_eq!(log.property_cache_hits, expected_cache_hits);
+            assert_eq!(log.property_cache_misses, expected_cache_misses);
+            assert_eq!(log.person_properties_not_cached, expected_person_not_cached);
+            assert_eq!(log.group_properties_not_cached, expected_group_not_cached);
+        }
+
+        #[test]
+        fn test_merge_into_preexisting_counters() {
+            let mut log = FlagsCanonicalLogLine {
+                property_cache_hits: 10,
+                property_cache_misses: 5,
+                cohorts_evaluated: 3,
+                flags_device_id_bucketing: 2,
+                person_properties_not_cached: true,
+                group_properties_not_cached: false,
+                ..Default::default()
+            };
+
+            let delta = FlagsCanonicalLogLine {
+                property_cache_hits: 7,
+                property_cache_misses: 3,
+                cohorts_evaluated: 2,
+                flags_device_id_bucketing: 1,
+                person_properties_not_cached: false,
+                group_properties_not_cached: true,
+                ..Default::default()
+            };
+
+            log.merge_rayon_delta(&delta);
+
+            assert_eq!(log.property_cache_hits, 17);
+            assert_eq!(log.property_cache_misses, 8);
+            assert_eq!(log.cohorts_evaluated, 5);
+            assert_eq!(log.flags_device_id_bucketing, 3);
+            assert!(log.person_properties_not_cached);
+            assert!(log.group_properties_not_cached);
+        }
+
+        #[test]
+        fn test_merge_does_not_touch_request_fields() {
+            let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+            log.team_id = Some(123);
+            log.flags_evaluated = 50;
+
+            let delta = FlagsCanonicalLogLine {
+                team_id: Some(999),
+                flags_evaluated: 42,
+                property_cache_hits: 5,
+                ..Default::default()
+            };
+
+            log.merge_rayon_delta(&delta);
+
+            // Request-level fields are unchanged
+            assert_eq!(log.team_id, Some(123));
+            assert_eq!(log.flags_evaluated, 50);
+            // Evaluation counter is merged
+            assert_eq!(log.property_cache_hits, 5);
+        }
+    }
+
+    mod rayon_fallback_tests {
+        use super::*;
+
+        #[test]
+        fn test_install_and_take_round_trip() {
+            let _guard = install_rayon_canonical_log();
+
+            // Modify via with_canonical_log (outside tokio scope, falls back to thread-local)
+            with_canonical_log(|log| {
+                log.property_cache_hits = 7;
+                log.cohorts_evaluated = 3;
+            });
+
+            let delta = take_rayon_canonical_log();
+            assert!(delta.is_some());
+            let delta = delta.unwrap();
+            assert_eq!(delta.property_cache_hits, 7);
+            assert_eq!(delta.cohorts_evaluated, 3);
+        }
+
+        #[test]
+        fn test_take_without_install_returns_none() {
+            // Ensure clean state
+            drop(take_rayon_canonical_log());
+            assert!(take_rayon_canonical_log().is_none());
+        }
+
+        #[test]
+        fn test_take_clears_the_thread_local() {
+            let _guard = install_rayon_canonical_log();
+            with_canonical_log(|log| log.property_cache_hits = 1);
+
+            let first = take_rayon_canonical_log();
+            assert!(first.is_some());
+
+            let second = take_rayon_canonical_log();
+            assert!(second.is_none());
+        }
+
+        #[test]
+        fn test_install_replaces_previous() {
+            let _guard = install_rayon_canonical_log();
+            with_canonical_log(|log| log.property_cache_hits = 99);
+
+            // Re-install should reset
+            let _guard = install_rayon_canonical_log();
+            let delta = take_rayon_canonical_log().unwrap();
+            assert_eq!(delta.property_cache_hits, 0);
+        }
+
+        #[test]
+        fn test_guard_cleans_up_on_panic() {
+            use std::panic::catch_unwind;
+
+            // Ensure clean state
+            drop(take_rayon_canonical_log());
+
+            let result = catch_unwind(|| {
+                let _guard = install_rayon_canonical_log();
+                with_canonical_log(|log| log.property_cache_hits = 42);
+                panic!("simulated evaluation panic");
+            });
+
+            assert!(result.is_err(), "should have caught the panic");
+            // The guard's Drop should have cleared the thread-local
+            assert!(
+                take_rayon_canonical_log().is_none(),
+                "thread-local should be clean after panic"
+            );
+        }
+
+        #[test]
+        fn test_with_canonical_log_noop_without_either_scope() {
+            // Ensure thread-local is clean
+            drop(take_rayon_canonical_log());
+
+            // Outside both tokio scope and rayon scope: should no-op without panic
+            with_canonical_log(|log| log.team_id = Some(123));
+        }
+
+        #[tokio::test]
+        async fn test_tokio_scope_takes_precedence_over_thread_local() {
+            // Install a rayon thread-local
+            let _guard = install_rayon_canonical_log();
+
+            // Run inside a tokio canonical log scope
+            let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+            let (_, final_log) = run_with_canonical_log(log, async {
+                with_canonical_log(|l| l.property_cache_hits = 42);
+            })
+            .await;
+
+            // The tokio scope should have received the update
+            assert_eq!(final_log.property_cache_hits, 42);
+
+            // The rayon thread-local should be untouched
+            let rayon_delta = take_rayon_canonical_log().unwrap();
+            assert_eq!(rayon_delta.property_cache_hits, 0);
+        }
+
+        #[test]
+        fn test_rayon_threads_are_isolated() {
+            use std::sync::{Arc, Barrier};
+
+            let barrier = Arc::new(Barrier::new(2));
+            let (tx1, rx1) = std::sync::mpsc::channel();
+            let (tx2, rx2) = std::sync::mpsc::channel();
+
+            let b1 = barrier.clone();
+            rayon::spawn(move || {
+                let _guard = install_rayon_canonical_log();
+                with_canonical_log(|log| log.property_cache_hits = 111);
+                b1.wait(); // sync so both threads are alive simultaneously
+                let delta = take_rayon_canonical_log().unwrap();
+                tx1.send(delta.property_cache_hits).unwrap();
+            });
+
+            let b2 = barrier.clone();
+            rayon::spawn(move || {
+                let _guard = install_rayon_canonical_log();
+                with_canonical_log(|log| log.property_cache_hits = 222);
+                b2.wait();
+                let delta = take_rayon_canonical_log().unwrap();
+                tx2.send(delta.property_cache_hits).unwrap();
+            });
+
+            assert_eq!(rx1.recv().unwrap(), 111);
+            assert_eq!(rx2.recv().unwrap(), 222);
         }
     }
 
