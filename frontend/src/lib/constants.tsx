@@ -245,6 +245,7 @@ export const FEATURE_FLAGS = {
     CDP_DWH_TABLE_SOURCE: 'cdp-dwh-table-source', // owner: #team-workflows-cdp
     COHORT_CALCULATION_HISTORY: 'cohort-calculation-history', // owner: @gustavo #team-feature-flags
     COHORT_EMAIL_LOOKUP_CLICKHOUSE: 'cohort-email-lookup-clickhouse', // owner: @gustavo #team-feature-flags
+    COHORT_INLINE_CALCULATION: 'inline-cohort-calculation', // owner: #team-analytics-platform, inlines fast dynamic cohort queries instead of using precomputed cohortpeople table
     CONDENSED_FILTER_BAR: 'condensed_filter_bar', // owner: @jordanm-posthog #team-web-analytics
     CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
@@ -293,6 +294,7 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_DISCUSSIONS: 'llm-analytics-discussions', // owner: #team-llm-analytics
     LLM_ANALYTICS_EARLY_ADOPTERS: 'llm-analytics-early-adopters', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS: 'llm-analytics-evaluations', // owner: #team-llm-analytics
+    LLM_ANALYTICS_OFFLINE_EVALS: 'llm-analytics-offline-evals', // owner: #team-llm-analytics
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS: 'llm-analytics-evaluations-custom-models', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS_ONBOARDING_EXPERIMENT: 'llm-analytics-evaluations-onboarding-experiment', // owner: #team-llm-analytics, multivariate=control,test-b,test-c
@@ -315,6 +317,7 @@ export const FEATURE_FLAGS = {
     LOGS_SETTINGS_JSON: 'logs-settings-json', // owner: #team-logs
     LOGS_SETTINGS_RETENTION: 'logs-settings-retention', // owner: #team-logs
     LOGS_SPARKLINE_SERVICE_BREAKDOWN: 'logs-sparkline-service-breakdown', // owner: #team-logs
+    MCP_SERVERS: 'mcp-servers', // owner: #team-posthog-ai
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing

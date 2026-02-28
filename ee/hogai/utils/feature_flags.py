@@ -116,6 +116,16 @@ def is_core_memory_disabled(team: Team, user: User) -> bool:
     )
 
 
+def has_mcp_servers_feature_flag(team: Team, user: User) -> bool:
+    return posthoganalytics.feature_enabled(
+        "mcp-servers",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
 def has_flags_mode_feature_flag(team: Team, user: User) -> bool:
     return posthoganalytics.feature_enabled(
         "posthog-ai-flags-mode",

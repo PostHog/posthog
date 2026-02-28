@@ -16,7 +16,6 @@ from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.proxy import Proxy, ProxyType
 from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
@@ -74,11 +73,8 @@ def get_driver() -> webdriver.Chrome:
     )  # Removes the "Chrome is being controlled by automated test software" bar
 
     if settings.OUTBOUND_PROXY_ENABLED and settings.OUTBOUND_PROXY_URL:
-        proxy = Proxy()
-        proxy.proxy_type = ProxyType.MANUAL
-        proxy.http_proxy = settings.OUTBOUND_PROXY_URL
-        proxy.ssl_proxy = settings.OUTBOUND_PROXY_URL
-        options.proxy = proxy
+        options.add_argument(f"--proxy-server={settings.OUTBOUND_PROXY_URL}")
+        options.add_argument("--proxy-bypass-list=<-loopback>")
 
     # Create a unique prefix for the temporary directory
     pid = os.getpid()

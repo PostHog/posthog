@@ -9,6 +9,7 @@ from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from requests import JSONDecodeError
 from structlog.types import FilteringBoundLogger
 
+from posthog.security.outbound_proxy import external_requests, make_proxied_requests_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
@@ -363,7 +364,7 @@ def get_messages(
 
     logger.debug("Requesting first page")
 
-    with requests.session() as session:
+    with make_proxied_requests_session() as session:
         while paginator.has_next_page:
             paginator.update_request(request)
             prepared_request = session.prepare_request(request)
@@ -378,7 +379,7 @@ def get_messages(
                 conversation_updated_at = conversation.get("updatedAt")
                 logger.debug(f"Requesting messages for conversation {id}")
 
-                conversation_response = requests.get(
+                conversation_response = external_requests.get(
                     f"{get_base_url(region, subdomain)}resources/conversations/{id}",
                     headers={"Authorization": f"Basic {basic_token}:"},
                 )
@@ -458,7 +459,7 @@ def vitally_source(
 
 def validate_credentials(secret_token: str, region: str, subdomain: Optional[str]) -> bool:
     basic_token = base64.b64encode(f"{secret_token}:".encode("ascii")).decode("ascii")
-    res = requests.get(
+    res = external_requests.get(
         f"{get_base_url(region, subdomain)}resources/users?limit=1",
         headers={"Authorization": f"Basic {basic_token}"},
     )

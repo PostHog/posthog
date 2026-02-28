@@ -56,6 +56,7 @@ PRODUCTS_APPS = [
     "products.workflows.backend.apps.WorkflowsConfig",
     "products.posthog_ai.backend.apps.PosthogAiConfig",
     "products.signals.backend.apps.SignalsConfig",
+    "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
 ]
 
@@ -361,6 +362,7 @@ SPECTACULAR_SETTINGS = {
     ],
     "ENUM_NAME_OVERRIDES": {
         "DashboardRestrictionLevel": "posthog.models.dashboard.Dashboard.RestrictionLevel",
+        "PropertyGroupOperator": ["AND", "OR"],
         "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "posthog.models.surveys.survey.Survey.SurveyType",

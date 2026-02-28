@@ -15,6 +15,7 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models.integration import Integration, SlackIntegration, SlackIntegrationError
 from posthog.models.organization import OrganizationMembership
+from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.ai.slack_conversation import (
     THINKING_MESSAGES,
     SlackConversationRunnerWorkflow,
@@ -77,7 +78,7 @@ def proxy_slack_event_to_secondary_region(request: HttpRequest) -> None:
     headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
 
     try:
-        response = requests.request(
+        response = external_requests.request(
             method=request.method or "POST",
             url=target_url,
             headers=headers,

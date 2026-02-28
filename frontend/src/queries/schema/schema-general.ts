@@ -415,6 +415,7 @@ export interface HogQLQueryModifiers {
     optimizeProjections?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
+    inlineCohortCalculation?: 'off' | 'auto' | 'always'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -4019,6 +4020,7 @@ export interface LLMTrace {
     errorCount?: number
     events: LLMTraceEvent[]
     isSupportTrace?: boolean
+    tools?: string[]
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {

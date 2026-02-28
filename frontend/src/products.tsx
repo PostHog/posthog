@@ -146,6 +146,11 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/datasets': ['LLMAnalyticsDatasets', 'llmAnalyticsDatasets'],
     '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
     '/llm-analytics/evaluations': ['LLMAnalyticsEvaluations', 'llmAnalyticsEvaluations'],
+    '/llm-analytics/evaluations/offline/experiments': ['LLMAnalyticsEvaluations', 'llmAnalyticsOfflineEvaluations'],
+    '/llm-analytics/evaluations/offline/experiments/:experimentId': [
+        'LLMAnalyticsEvaluations',
+        'llmAnalyticsOfflineEvaluationExperiment',
+    ],
     '/llm-analytics/evaluations/templates': ['LLMAnalyticsEvaluationTemplates', 'llmAnalyticsEvaluationTemplates'],
     '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
     '/llm-analytics/prompts': ['LLMAnalyticsPrompts', 'llmAnalyticsPrompts'],
@@ -200,6 +205,8 @@ export const productRedirects: Record<
         combineUrl(`/llm-analytics/users`, searchParams, hashParams).url,
     '/llm-observability/playground': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/playground`, searchParams, hashParams).url,
+    '/llm-analytics/evaluations/offline': (_params, searchParams, hashParams) =>
+        combineUrl(urls.llmAnalyticsOfflineEvaluations(), searchParams, hashParams).url,
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -669,6 +676,9 @@ export const productUrls = {
         }
     ): string => combineUrl(`/llm-analytics/datasets/${id}`, params).url,
     llmAnalyticsEvaluations: (): string => '/llm-analytics/evaluations',
+    llmAnalyticsOfflineEvaluations: (): string => '/llm-analytics/evaluations/offline/experiments',
+    llmAnalyticsOfflineEvaluationExperiment: (experimentId: string, encode: boolean = true): string =>
+        `/llm-analytics/evaluations/offline/experiments/${encode ? encodeURIComponent(experimentId) : experimentId}`,
     llmAnalyticsEvaluationTemplates: (): string => '/llm-analytics/evaluations/templates',
     llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
     llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
