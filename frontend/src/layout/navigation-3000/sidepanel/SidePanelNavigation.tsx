@@ -42,6 +42,7 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                     SidePanelTab.Max,
                     SidePanelTab.Discussion,
                     SidePanelTab.AccessControl,
+                    SidePanelTab.Activity,
                     SidePanelTab.Notebooks,
                 ]
                     .filter((tab) => tab === SidePanelTab.Info || visibleTabs.includes(tab))
