@@ -843,12 +843,19 @@ class DashboardsViewSet(
         if not changes:
             return None
 
+        # Dynamic instruction for large dashboards to prevent verbosity
+        prioritization_instruction = (
+            "List ONLY the top 3-5 most significant changes." if len(changes) > 5 else "List the significant changes."
+        )
+
         prompt = (
             "You are a product data analyst. A user just refreshed their dashboard. "
             "Compare the 'before' and 'after' data for the following insights and summarize what changed.\n\n"
             "Style Rules:\n"
             "- Focus ONLY on significant changes (drops, spikes, trend reversals).\n"
+            "- If including a summary, put it at the beginning of the response."
             "- If nothing significant changed, say so.\n"
+            f"{prioritization_instruction}\n"
             "- Group related findings.\n"
             "- Use concise bullet points.\n"
             "- Be direct and quantify changes when possible (e.g., '+15%', 'dropped by 30%').\n"
