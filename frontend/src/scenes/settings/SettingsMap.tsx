@@ -787,15 +787,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['headers', 'payload', 'body', 'request', 'response'],
             },
             {
-                id: 'web-vitals-autocapture',
-                title: 'Web vitals',
-                description: 'Capture web vitals metrics alongside session recordings for performance analysis.',
-                docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
-                platformSupport: FEATURE_SUPPORT.webVitals,
-                component: <WebVitalsAutocaptureSettings />,
-                keywords: ['lcp', 'cls', 'fcp', 'inp', 'performance'],
-            },
-            {
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 description:
