@@ -29,6 +29,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AppsMenu } from '~/layout/panel-layout/ai-first/AppsMenu'
 import { DataMenu } from '~/layout/panel-layout/ai-first/DataMenu'
+import { FilesMenu } from '~/layout/panel-layout/ai-first/FilesMenu'
 import { RecentsMenu } from '~/layout/panel-layout/ai-first/RecentsMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
@@ -150,25 +151,8 @@ export function AiFirstNavBar(): JSX.Element {
                                         </ButtonPrimitive>
 
                                         <DataMenu />
+                                        <FilesMenu isCollapsed={isLayoutNavCollapsed} />
                                         <RecentsMenu />
-                                    </Collapsible.Panel>
-                                </Collapsible.Root>
-                            )}
-
-                            {!isLayoutNavCollapsed && (
-                                <Collapsible.Root
-                                    open={expandedNavSections.files ?? true}
-                                    onOpenChange={() => toggleNavSection('files')}
-                                    className="px-1 mt-2"
-                                >
-                                    <Collapsible.Trigger className="flex items-center w-full px-2 py-1 cursor-pointer group">
-                                        <Label intent="menu" className="text-xxs text-tertiary flex-1 text-left">
-                                            Files
-                                        </Label>
-                                        <SectionChevron open={expandedNavSections.files ?? true} />
-                                    </Collapsible.Trigger>
-                                    <Collapsible.Panel>
-                                        <ProjectTree root="project://" onlyTree />
                                     </Collapsible.Panel>
                                 </Collapsible.Root>
                             )}

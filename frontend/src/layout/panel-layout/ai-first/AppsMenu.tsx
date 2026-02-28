@@ -161,7 +161,7 @@ export function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element
                     sideOffset={6}
                     alignOffset={-4}
                 >
-                    <Combobox.Popup className="primitive-menu-content min-w-[300px] flex flex-col p-1 max-h-(--available-height)">
+                    <Combobox.Popup className="primitive-menu-content min-w-[300px] flex flex-col p-1 h-(--available-height)">
                         <Combobox.Input
                             placeholder="Search apps"
                             className="w-full px-2 py-1.5 text-sm rounded-sm border border-primary bg-surface-primary focus:outline-none focus:ring-1 focus:ring-primary mb-1"
