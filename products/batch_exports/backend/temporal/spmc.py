@@ -1,11 +1,11 @@
-from collections import deque
-import math
-import uuid
-import typing
 import asyncio
-import datetime as dt
-import operator
 import collections.abc
+import datetime as dt
+import math
+import operator
+import typing
+import uuid
+from collections import deque
 
 from django.conf import settings
 
