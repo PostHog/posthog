@@ -106,7 +106,7 @@ All options except `name` have sensible defaults.
 | `.with_prestop_check(bool)`               | Poll for pre-stop shutdown file (K8s pre-stop hook pattern).                                                                                                                                                   | `true`          |
 | `.with_prestop_path(path)`                | Override the pre-stop file path.                                                                                                                                                                               | `/tmp/shutdown` |
 | `.with_health_poll_interval(duration)`    | Override health monitor poll frequency. The health monitor is automatically active when any component has `with_liveness_deadline`. (see test `stall_triggers_shutdown`)                                       | `5s`            |
-| `.with_shutdown_token(token)`             | Use an external `CancellationToken`; caller triggers shutdown via `token.cancel()`. Use in tests for deterministic shutdown.                                                                                   | `None`          |
+| `.with_shutdown_token(token)`             | Caller supplies an external `CancellationToken`. Use in tests to trigger deterministic, app-global shutdown (simulate `SIGTERM` from k8s etc.)                                                                                   | `None`          |
 | `.build()`                                | Consume the builder and produce a `Manager`.                                                                                                                                                                   | —               |
 
 ### register() / ComponentOptions
