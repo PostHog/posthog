@@ -74,13 +74,17 @@ export interface ErrorTrackingPipelineConfig {
  * 2. Apply event restrictions - Billing limits, drop/overflow
  * 3. Parse Kafka message - Parse message body into event
  * 4. Resolve team - Look up team by token
- * 5. Person properties - Fetch person by distinct_id (read-only)
- * 6. GeoIP enrichment - Enrich with geographic data based on IP
- * 7. Group type mapping - Map group types to indexes
- * 8. Cymbal processing - Symbolicate, fingerprint, and link issues
+ * 5. Cymbal processing - Symbolicate, fingerprint, and link issues
+ * 6. Person properties - Fetch person by distinct_id (read-only)
+ * 7. GeoIP enrichment - Enrich with geographic data based on IP
+ * 8. Group type mapping - Map group types to indexes
  * 9. Prepare event - Convert to PreIngestionEvent format, track if person found
  * 10. Create event - Build ErrorTrackingKafkaEvent (matches Cymbal's output format)
  * 11. Emit event - Produce to output topic
+ *
+ * Note: Cymbal runs before enrichment because it only needs the raw exception data
+ * for symbolication and fingerprinting. This reduces payload size and avoids
+ * wasted enrichment work if Cymbal suppresses the event.
  */
 export function createErrorTrackingPipeline(
     config: ErrorTrackingPipelineConfig
@@ -163,9 +167,13 @@ export function createErrorTrackingPipeline(
                                     )
                                     // Refresh TTLs for overflow lane events (keeps Redis flags alive)
                                     .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
+                                    // Process through Cymbal as a batch (before enrichment - Cymbal only
+                                    // needs raw exception data, not person/geoip/group data)
+                                    .pipeBatch(createCymbalProcessingStep(cymbalClient))
+                                    // Enrich, prepare, create, and emit events
                                     .sequentially((b) =>
                                         b
-                                            // Fetch person properties (read-only, no updates) [NEW]
+                                            // Fetch person properties (read-only, no updates)
                                             .pipe(
                                                 topHogWrapper(createPersonPropertiesReadOnlyStep(personRepository), [
                                                     timer('person_lookup_time', (input) => ({
@@ -174,17 +182,11 @@ export function createErrorTrackingPipeline(
                                                     })),
                                                 ])
                                             )
-                                            // Enrich with GeoIP data [NEW - wrap existing]
+                                            // Enrich with GeoIP data
                                             .pipe(createGeoIPEnrichmentStep(geoip))
-                                            // Map group types to indexes [NEW - wrap existing]
+                                            // Map group types to indexes
                                             .pipe(createGroupTypeMappingStep(groupTypeManager))
-                                    )
-                                    .gather()
-                                    // Process through Cymbal as a batch [NEW]
-                                    .pipeBatch(createCymbalProcessingStep(cymbalClient))
-                                    // Prepare, create, and emit events
-                                    .sequentially((b) =>
-                                        b
+                                            // Prepare event for emission
                                             .pipe(createErrorTrackingPrepareEventStep())
                                             .pipe(createCreateEventStep())
                                             .pipe(

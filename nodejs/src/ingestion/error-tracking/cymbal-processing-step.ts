@@ -19,10 +19,10 @@ export interface CymbalProcessingInput {
  * This is a batch step because Cymbal's API accepts arrays of events,
  * which is more efficient than individual requests.
  *
- * The event properties are expected to already contain:
- * - $exception_list: The exception stack traces
- * - $geoip_*: GeoIP enrichment data (from geoip step)
- * - $group_*: Group mappings (from group type mapping step)
+ * Cymbal only needs the raw event data containing $exception_list for
+ * symbolication and fingerprinting. Enrichment (person, geoip, groups)
+ * happens after Cymbal to reduce payload size and avoid wasted work
+ * if events are suppressed.
  */
 export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
     cymbalClient: CymbalClient
