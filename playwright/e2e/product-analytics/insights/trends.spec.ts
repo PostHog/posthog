@@ -13,6 +13,8 @@ const EXPECTED_CUSTOM_EVENT_COUNT = 8
 const EXPECTED_CHROME_COUNT = 5
 const EXPECTED_FIREFOX_COUNT = 3
 const EXPECTED_AMOUNT_SUM = 35
+const EXPECTED_CHROME_AMOUNT_SUM = 50
+const EXPECTED_FIREFOX_AMOUNT_SUM = -15
 
 const events = [
     // Pageviews: descending daily pattern over 7 days
@@ -258,6 +260,59 @@ test.describe('Trends insights', () => {
         })
     })
 
+    test('Display negative values and formatted numbers correctly in details table', async ({ page }) => {
+        const insight = new InsightPage(page)
+
+        await test.step('set up custom event with browser breakdown and property sum', async () => {
+            await insight.goToNewTrends()
+            await insight.trends.waitForChart()
+            await insight.trends.addBreakdown('Browser')
+            await insight.trends.waitForChart()
+            await insight.trends.selectEvent(0, CUSTOM_EVENT)
+            await insight.trends.waitForChart()
+            await insight.trends.selectMathWithAggregation(0, /property value/, 'sum')
+            await insight.trends.selectMathProperty('amount')
+            await insight.trends.waitForDetailsTable()
+        })
+
+        await test.step('verify Chrome row totals 50 and Firefox row totals -15', async () => {
+            const rows = insight.trends.detailsTable.locator('tbody tr')
+            const chromeRow = rows.filter({ hasText: 'Chrome' })
+            const firefoxRow = rows.filter({ hasText: 'Firefox' })
+            await expect(chromeRow).toContainText(String(EXPECTED_CHROME_AMOUNT_SUM))
+            await expect(firefoxRow).toContainText(String(EXPECTED_FIREFOX_AMOUNT_SUM))
+        })
+
+        await test.step('switch to Number chart and verify bold number shows net sum of 35', async () => {
+            await insight.trends.selectChartType(/^Number/)
+            await expect(insight.trends.boldNumber).toContainText(String(EXPECTED_AMOUNT_SUM))
+        })
+
+        await test.step('switch to line chart and set axis format to Percentage to verify % in details', async () => {
+            await insight.trends.selectChartType(/^Line chart(?! \()/)
+            await insight.trends.waitForDetailsTable()
+            await insight.trends.openOptionsPanel()
+            const formatPicker = page.getByTestId('chart-aggregation-axis-format')
+            await formatPicker.waitFor({ state: 'visible' })
+            await formatPicker.click()
+            await page.getByRole('button', { name: 'Percent (0-100)' }).click()
+            await page.keyboard.press('Escape')
+            await expect(insight.trends.detailsTable).toContainText('35%')
+            await expect(insight.trends.detailsTable).toContainText('50%')
+            await expect(insight.trends.detailsTable).toContainText('-15%')
+        })
+
+        await test.step('set axis format back to None and verify formatting is removed', async () => {
+            await insight.trends.openOptionsPanel()
+            const formatPicker = page.getByTestId('chart-aggregation-axis-format')
+            await formatPicker.waitFor({ state: 'visible' })
+            await formatPicker.click()
+            await page.getByRole('button', { name: 'None' }).click()
+            await page.keyboard.press('Escape')
+            await expect(insight.trends.detailsTable).not.toContainText('35%')
+        })
+    })
+
     test('Hover chart to see tooltip with data point values', async ({ page }) => {
         const insight = new InsightPage(page)
 
@@ -296,6 +351,12 @@ test.describe('Trends insights', () => {
             expect(multiText).toContain('Chrome')
             expect(multiText).toContain('Firefox')
         })
+
+        await test.step('navigate away and verify no orphaned tooltip', async () => {
+            await insight.goToList()
+            await expect(page.locator('table')).toBeVisible()
+            await expect(insight.trends.tooltip).toHaveCount(0, { timeout: 3000 })
+        })
     })
 
     test('Save an insight, make changes, discard them, and save a copy', async ({ page }) => {
@@ -310,17 +371,21 @@ test.describe('Trends insights', () => {
             await insight.save()
         })
 
-        await test.step('enter edit mode', async () => {
+        await test.step('enter edit mode and verify button states', async () => {
             await insight.edit()
             await expect(insight.saveButton).toBeVisible()
+            await expect(insight.saveButton).toBeDisabled()
+            await expect(insight.editButton).not.toBeVisible()
         })
 
         await test.step('change date range then discard and verify revert', async () => {
             await insight.trends.selectDateRange('Last 30 days')
             await expect(insight.trends.dateRangeButton).toContainText('Last 30 days')
+            await expect(insight.saveButton).toBeEnabled()
             await insight.discard()
             await insight.trends.waitForChart()
             await expect(insight.trends.dateRangeButton).toContainText('Last 7 days')
+            await expect(insight.editButton).toBeVisible()
         })
 
         await test.step('edit again, make a change, and save', async () => {
@@ -328,6 +393,17 @@ test.describe('Trends insights', () => {
             await insight.trends.selectDateRange('Last 14 days')
             await insight.save()
             await expect(insight.trends.dateRangeButton).toContainText('Last 14 days')
+        })
+
+        await test.step('switch insight type to Funnels and back, then discard', async () => {
+            await insight.edit()
+            await page.locator('[data-attr="insight-funnels-tab"]').click()
+            await expect(insight.activeTab).toContainText('Funnels')
+            await page.locator('[data-attr="insight-trends-tab"]').click()
+            await expect(insight.activeTab).toContainText('Trends')
+            await insight.trends.waitForChart()
+            await expect(insight.trends.dateRangeButton).toContainText('Last 14 days')
+            await insight.discard()
         })
 
         const copyName = randomString('copy')

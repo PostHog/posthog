@@ -115,7 +115,7 @@ export class TrendsInsight extends ChartInsightBase {
 
     async selectMathProperty(property: string): Promise<void> {
         await this.page.keyboard.press('Escape')
-        await this.mathPropertySelect().click({ force: true })
+        await this.mathPropertySelect().click()
         const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
         await searchField.waitFor({ state: 'visible' })
         await searchField.fill(property)
@@ -128,8 +128,8 @@ export class TrendsInsight extends ChartInsightBase {
     async selectChartType(namePattern: RegExp): Promise<void> {
         await this.page.keyboard.press('Escape')
         await expect(async () => {
-            await this.chartTypeButton.click({ force: true, timeout: 500 })
-            await this.page.getByRole('menuitem', { name: namePattern }).click({ force: true, timeout: 500 })
+            await this.chartTypeButton.click({ timeout: 500 })
+            await this.page.getByRole('menuitem', { name: namePattern }).click({ timeout: 500 })
             await expect(this.chartTypeButton).toHaveText(namePattern, { timeout: 1000 })
         }).toPass({ timeout: 15000 })
         await this.waitForChart()
@@ -138,12 +138,9 @@ export class TrendsInsight extends ChartInsightBase {
     async selectDateRange(text: string): Promise<void> {
         await this.page.keyboard.press('Escape')
         const dataAttr = `date-filter-${text.toLowerCase().replace(/\s+/g, '-')}`
-        // The insight page re-renders a lot, detaching DOM nodes.
-        // Retry the full open+click sequence with force (skips scroll and
-        // stability checks) until both clicks land in a stable window.
         await expect(async () => {
-            await this.dateRangeButton.click({ force: true, timeout: 500 })
-            await this.page.getByTestId(dataAttr).click({ force: true, timeout: 500 })
+            await this.dateRangeButton.click({ timeout: 500 })
+            await this.page.getByTestId(dataAttr).click({ timeout: 500 })
         }).toPass({ timeout: 15000 })
         await this.waitForChart()
     }
@@ -154,13 +151,13 @@ export class TrendsInsight extends ChartInsightBase {
 
     async duplicateSeries(seriesIndex: number): Promise<void> {
         await this.seriesEventButton(seriesIndex).hover()
-        await this.page.getByTestId(`more-button-${seriesIndex}`).click({ force: true })
+        await this.page.getByTestId(`more-button-${seriesIndex}`).click()
         await this.page.getByTestId(`show-prop-duplicate-${seriesIndex}`).click()
     }
 
     async deleteSeries(seriesIndex: number): Promise<void> {
         await this.seriesEventButton(seriesIndex).hover()
-        await this.page.getByTestId(`more-button-${seriesIndex}`).click({ force: true })
+        await this.page.getByTestId(`more-button-${seriesIndex}`).click()
         await this.page.getByRole('button', { name: 'Delete' }).click()
         await this.waitForChart()
     }
@@ -185,14 +182,8 @@ export class TrendsInsight extends ChartInsightBase {
     async removeBreakdown(index: number = 0): Promise<void> {
         await this.page.keyboard.press('Escape')
         const tag = this.page.getByTestId('breakdown-tag').nth(index)
-        const closeButton = tag.getByTestId('breakdown-tag-close')
-        if ((await closeButton.count()) > 0) {
-            await closeButton.click()
-        } else {
-            await tag.locator('[aria-haspopup="true"]').click()
-            await this.page.getByRole('button', { name: 'Remove breakdown' }).click()
-        }
-        await expect(tag).not.toBeVisible({ timeout: 10000 })
+        await tag.getByTestId('breakdown-tag-close').click()
+        await expect(tag).not.toBeVisible()
         await this.waitForChart()
     }
 
