@@ -5,9 +5,9 @@ import requests_mock as rm
 from posthog.security.outbound_proxy import (
     external_aiohttp_session,
     external_requests,
+    external_requests_session,
     get_proxy_config,
     get_proxy_url,
-    make_proxied_requests_session,
 )
 
 
@@ -53,7 +53,7 @@ def test_get_proxy_url(enabled, url, expected, settings):
 def test_make_proxied_session(enabled, url, settings):
     settings.OUTBOUND_PROXY_ENABLED = enabled
     settings.OUTBOUND_PROXY_URL = url
-    session = make_proxied_requests_session()
+    session = external_requests_session()
     if enabled and url:
         assert session.proxies["http"] == url
         assert session.proxies["https"] == url

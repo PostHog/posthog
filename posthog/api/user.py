@@ -83,7 +83,7 @@ from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
-from posthog.security.outbound_proxy import external_requests, make_proxied_requests_session
+from posthog.security.outbound_proxy import external_requests, external_requests_session
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
@@ -1320,7 +1320,7 @@ def test_slack_webhook(request):
         return JsonResponse({"error": "no webhook URL"})
     message = {"text": "_Greetings_ from PostHog!"}
     try:
-        session = make_proxied_requests_session()
+        session = external_requests_session()
 
         if not settings.DEBUG:
             raise_if_user_provided_url_unsafe(webhook)

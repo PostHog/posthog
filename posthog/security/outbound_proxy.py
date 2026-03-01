@@ -53,7 +53,7 @@ def get_proxy_url() -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def make_proxied_requests_session() -> requests.Session:
+def external_requests_session() -> requests.Session:
     session = requests.Session()
     cfg = get_proxy_config()
     if cfg:
@@ -61,7 +61,7 @@ def make_proxied_requests_session() -> requests.Session:
     return session
 
 
-external_requests: requests.Session = make_proxied_requests_session()
+external_requests: requests.Session = external_requests_session()
 
 
 # ---------------------------------------------------------------------------
