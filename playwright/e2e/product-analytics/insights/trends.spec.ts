@@ -6,8 +6,6 @@ import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/wor
 const events = [...pageviews.events, ...customEventsWithBreakdown.events]
 
 test.describe('Trends insights', () => {
-    test.setTimeout(60_000)
-
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
