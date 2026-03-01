@@ -393,9 +393,7 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
 
     _wait_for_events_in_clickhouse(team.pk, baseline_count + len(data.events))
 
-    # Infer taxonomy (event definitions, property definitions with types,
-    # and event↔property pairs) from the ClickHouse data so the taxonomic
-    # filter works correctly — same as what demo data does.
+    # Populate event/property definitions so the taxonomic filter works
     from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
 
     infer_taxonomy_for_team(team.pk)

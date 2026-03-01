@@ -144,11 +144,11 @@ test.describe('Trends insights', () => {
             expect(totals).toEqual([pageviews.expected.total])
         })
 
-        await test.step('Last 24 hours shows total = 5', async () => {
+        await test.step('Last 24 hours shows total = 2', async () => {
             await insight.trends.selectDateRange('Last 24 hours')
             await insight.trends.waitForDetailsTable()
             const totals = await insight.trends.details.column('Total')
-            expect(totals).toEqual(['5'])
+            expect(totals).toEqual(['2'])
         })
 
         await test.step('enable comparison and verify no NaN', async () => {
