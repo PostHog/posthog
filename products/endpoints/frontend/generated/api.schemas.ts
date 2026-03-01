@@ -2437,15 +2437,9 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
-/**
- * The type of property to aggregate on (event or person). Defaults to event.
- * @nullable
- */
-export type RetentionFilterApiAggregationPropertyType =
-    | (typeof RetentionFilterApiAggregationPropertyType)[keyof typeof RetentionFilterApiAggregationPropertyType]
-    | null
+export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
 
-export const RetentionFilterApiAggregationPropertyType = {
+export const AggregationPropertyTypeApi = {
     Event: 'event',
     Person: 'person',
 } as const
@@ -2569,11 +2563,8 @@ export interface RetentionFilterApi {
      * @nullable
      */
     aggregationProperty?: string | null
-    /**
-     * The type of property to aggregate on (event or person). Defaults to event.
-     * @nullable
-     */
-    aggregationPropertyType?: RetentionFilterApiAggregationPropertyType
+    /** The type of property to aggregate on (event or person). Defaults to event. */
+    aggregationPropertyType?: AggregationPropertyTypeApi | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     /** @nullable */
