@@ -94,6 +94,10 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                         team_id: String(input.eventToEmit.team_id),
                         distinct_id: input.eventToEmit.distinct_id,
                     })),
+                    count('emitted_events_per_partition', (input) => ({
+                        team_id: String(input.eventToEmit.team_id),
+                        partition: String(input.message.partition),
+                    })),
                 ]
             )
         )
