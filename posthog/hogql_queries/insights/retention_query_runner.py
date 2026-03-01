@@ -145,14 +145,17 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     @cached_property
     def aggregation_target(self) -> ast.Expr | None:
-        """
-        Extract prop val
-        """
         if (
             self.query.retentionFilter.aggregationType in [AggregationType.SUM, AggregationType.AVG]
             and self.query.retentionFilter.aggregationProperty
         ):
-            property_field = ast.Field(chain=["events", "properties", self.query.retentionFilter.aggregationProperty])
+            prop_name = self.query.retentionFilter.aggregationProperty
+            if self.query.retentionFilter.aggregationPropertyType == "person":
+                # person.properties resolves via the HogQL person join on the events table
+                chain = cast(list[str | int], ["person", "properties", prop_name])
+            else:
+                chain = cast(list[str | int], ["events", "properties", prop_name])
+            property_field = ast.Field(chain=chain)
             return ast.Call(
                 name="ifNull",
                 args=[

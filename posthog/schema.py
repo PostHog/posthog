@@ -14008,6 +14008,10 @@ class RetentionFilter(BaseModel):
         default=None,
         description="The property to aggregate when aggregationType is sum or avg",
     )
+    aggregationPropertyType: Literal["event", "person"] | None = Field(
+        default=None,
+        description="The type of property to aggregate on (event or person). Defaults to event.",
+    )
     aggregationType: AggregationType | None = Field(
         default=AggregationType.COUNT,
         description="The aggregation type to use for retention",
