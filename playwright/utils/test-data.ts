@@ -17,7 +17,6 @@ import { createEvent, daysAgo } from './event-data'
 
 const pvUser = (n: number): string => `pv-user-${n}`
 const customUser = (n: number): string => `custom-user-${n}`
-const retentionUser = (n: number): string => `retention-user-${n}`
 
 /**
  * 7-day descending pageview pattern: 10, 8, 6, 5, 4, 3, 2 = 38 total.
@@ -70,27 +69,5 @@ export const customEventsWithBreakdown = {
         amountSum: '35',
         chromeAmountSum: '50',
         firefoxAmountSum: '-15',
-    },
-}
-
-/**
- * Descending retention pattern: 10, 8, 6, 4, 3, 2, 1 over 7 days.
- * retention-user-N appears on days 6 through (6-N), giving a clean
- * retention curve where each cohort row shows decreasing return rates.
- */
-export const retentionEvents = {
-    eventName: 'retention_test_event',
-    events: [
-        ...createEvent({ event: 'retention_test_event', user: retentionUser, timestamp: daysAgo(6) }).repeat(10),
-        ...createEvent({ event: 'retention_test_event', user: retentionUser, timestamp: daysAgo(5) }).repeat(8),
-        ...createEvent({ event: 'retention_test_event', user: retentionUser, timestamp: daysAgo(4) }).repeat(6),
-        ...createEvent({ event: 'retention_test_event', user: retentionUser, timestamp: daysAgo(3) }).repeat(4),
-        ...createEvent({ event: 'retention_test_event', user: retentionUser, timestamp: daysAgo(2) }).repeat(3),
-        ...createEvent({ event: 'retention_test_event', user: retentionUser, timestamp: daysAgo(1) }).repeat(2),
-        ...createEvent({ event: 'retention_test_event', user: retentionUser, timestamp: daysAgo(0) }).repeat(1),
-    ],
-    expected: {
-        initialCohortSize: 10,
-        retentionPercentages: ['100.0%', '80.0%', '60.0%', '40.0%', '30.0%', '20.0%', '10.0%'],
     },
 }

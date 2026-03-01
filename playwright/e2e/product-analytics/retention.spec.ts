@@ -1,11 +1,21 @@
 import { InsightType } from '~/types'
 
 import { InsightPage } from '../../page-models/insightPage'
-import { retentionEvents } from '../../utils/test-data'
+import { createEvent, daysAgo } from '../../utils/event-data'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
-const EVENT_NAME = retentionEvents.eventName
-const events = retentionEvents.events
+const EVENT_NAME = 'retention_test_event'
+const user = (n: number): string => `retention-user-${n}`
+
+const events = [
+    ...createEvent({ event: EVENT_NAME, user, timestamp: daysAgo(6) }).repeat(10),
+    ...createEvent({ event: EVENT_NAME, user, timestamp: daysAgo(5) }).repeat(8),
+    ...createEvent({ event: EVENT_NAME, user, timestamp: daysAgo(4) }).repeat(6),
+    ...createEvent({ event: EVENT_NAME, user, timestamp: daysAgo(3) }).repeat(4),
+    ...createEvent({ event: EVENT_NAME, user, timestamp: daysAgo(2) }).repeat(3),
+    ...createEvent({ event: EVENT_NAME, user, timestamp: daysAgo(1) }).repeat(2),
+    ...createEvent({ event: EVENT_NAME, user, timestamp: daysAgo(0) }).repeat(1),
+]
 
 const isWeekHeader = (h: string): boolean => /week/i.test(h)
 const isDayHeader = (h: string): boolean => /Days?\s+1/.test(h)
@@ -43,10 +53,10 @@ test.describe('Retention', () => {
             // All users first appear on daysAgo(6), so only that cohort has users.
             // Row 0 = 7-days-ago (empty), Row 1 = 6-days-ago (10 users), rest empty.
             expect(sizes[0]).toBe(0)
-            expect(sizes[1]).toBe(retentionEvents.expected.initialCohortSize)
+            expect(sizes[1]).toBe(10)
 
             const percentages = await insight.retention.getCellPercentages(1)
-            expect(percentages).toEqual(retentionEvents.expected.retentionPercentages)
+            expect(percentages).toEqual(['100.0%', '80.0%', '60.0%', '40.0%', '30.0%', '20.0%', '10.0%'])
 
             // Empty cohorts should show 0%
             const emptyPercentages = await insight.retention.getCellPercentages(0)
@@ -102,7 +112,7 @@ test.describe('Retention', () => {
             await insight.retention.clickCohortRow(1)
             const personLinks = insight.retention.personsModal.locator('[data-attr="retention-person-link"]')
             await expect(personLinks.first()).toBeVisible()
-            expect(await personLinks.count()).toBe(retentionEvents.expected.initialCohortSize)
+            expect(await personLinks.count()).toBe(10)
         })
 
         await test.step('close modal and verify table is intact', async () => {
