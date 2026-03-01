@@ -68,16 +68,9 @@ export class InsightPage {
     }
 
     async save(): Promise<void> {
-        // Retry the full save flow: under concurrent load the save button
-        // click can race with a React re-render (detaching the DOM node) or
-        // the PATCH request can fail silently leaving the button re-enabled.
-        // Using toPass retries the click when the edit button hasn't appeared.
-        await expect(async () => {
-            if (await this.saveButton.isEnabled({ timeout: 500 }).catch(() => false)) {
-                await this.saveButton.click({ timeout: 500 })
-            }
-            await expect(this.editButton).toBeVisible({ timeout: 5_000 })
-        }).toPass({ timeout: 60_000 })
+        await this.saveButton.click()
+        await this.page.waitForURL(/^(?!.*\/new$).+$/)
+        await expect(this.editButton).toBeVisible()
     }
 
     async edit(): Promise<void> {
