@@ -21,7 +21,7 @@ import {
 import type { experimentLogicType } from './experimentLogicType'
 import type { experimentSceneLogicType } from './experimentSceneLogicType'
 
-export const EXPERIMENT_TABS = ['metrics', 'code', 'variants', 'history', 'feedback'] as const
+export const EXPERIMENT_TABS = ['metrics', 'ai_analysis', 'code', 'variants', 'history', 'feedback'] as const
 export type ExperimentTab = (typeof EXPERIMENT_TABS)[number]
 
 export interface ExperimentSceneLogicProps extends ExperimentLogicProps {
@@ -33,7 +33,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
     path(['scenes', 'experiments', 'experimentSceneLogic']),
     tabAwareScene(),
     actions({
-        setActiveTabKey: (activeTabKey: string) => ({ activeTabKey }),
+        setActiveTabKey: (activeTabKey: ExperimentTab) => ({ activeTabKey }),
         setSceneState: (experimentId: Experiment['id'], formMode: FormModes) => ({ experimentId, formMode }),
         setExperimentLogicRef: (
             logic: BuiltLogic<experimentLogicType> | null,
@@ -49,7 +49,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
     }),
     reducers({
         activeTabKey: [
-            'metrics' as string,
+            'metrics' as ExperimentTab,
             {
                 setActiveTabKey: (_, { activeTabKey }) => activeTabKey,
             },
@@ -289,8 +289,10 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
 
             // Handle tab query parameter — ignore unknown values
             const tabFromUrl = query?.tab as string | undefined
-            const targetTab =
-                tabFromUrl && EXPERIMENT_TABS.includes(tabFromUrl as ExperimentTab) ? tabFromUrl : 'metrics'
+            const targetTab: ExperimentTab =
+                tabFromUrl && EXPERIMENT_TABS.includes(tabFromUrl as ExperimentTab)
+                    ? (tabFromUrl as ExperimentTab)
+                    : 'metrics'
             if (targetTab !== values.activeTabKey) {
                 actions.setActiveTabKey(targetTab)
             }
@@ -328,8 +330,10 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
 
             // Handle tab query parameter — ignore unknown values
             const tabFromUrl = query?.tab as string | undefined
-            const targetTab =
-                tabFromUrl && EXPERIMENT_TABS.includes(tabFromUrl as ExperimentTab) ? tabFromUrl : 'metrics'
+            const targetTab: ExperimentTab =
+                tabFromUrl && EXPERIMENT_TABS.includes(tabFromUrl as ExperimentTab)
+                    ? (tabFromUrl as ExperimentTab)
+                    : 'metrics'
             if (targetTab !== values.activeTabKey) {
                 actions.setActiveTabKey(targetTab)
             }
