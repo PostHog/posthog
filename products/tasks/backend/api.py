@@ -685,8 +685,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1"):
             return True
 
-        if parsed.scheme == "https" and parsed.hostname and (
-            parsed.hostname.endswith(".modal.run") or parsed.hostname.endswith(".modal.host")
+        if (
+            parsed.scheme == "https"
+            and parsed.hostname
+            and (parsed.hostname.endswith(".modal.run") or parsed.hostname.endswith(".modal.host"))
         ):
             return True
 
