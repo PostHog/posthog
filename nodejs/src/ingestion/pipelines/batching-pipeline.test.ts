@@ -1,14 +1,12 @@
 import { Message } from 'node-rdkafka'
 
 import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
-import { BatchResult, BatchingContext, BatchingPipeline } from './batching-pipeline'
+import { BatchResult, BatchingPipeline } from './batching-pipeline'
 import { newBatchingPipeline } from './builders/helpers'
 import { PipelineResultWithContext } from './pipeline.interface'
 import { ok } from './results'
 
 type MsgCtx = { message: Message }
-type SubCtx = MsgCtx & BatchingContext
-
 function makeMessage(offset: number): Message {
     return {
         topic: 'test-topic',
@@ -37,12 +35,12 @@ function noopBeforeBatch(
     _batchContext: Record<string, never>,
     elements: BatchPipelineResultWithContext<any, MsgCtx>,
     _batchId: number
-): BatchResult<BatchPipelineResultWithContext<any, MsgCtx & BatchingContext>> {
-    return { value: elements as any, sideEffects: [] }
+): BatchResult<BatchPipelineResultWithContext<any, MsgCtx>> {
+    return { elements: elements as any }
 }
 
-function noopAfterBatch(): BatchResult<void> {
-    return { value: undefined, sideEffects: [] }
+function noopAfterBatch(): Promise<BatchResult<void>> {
+    return Promise.resolve({ elements: undefined })
 }
 
 describe('BatchingPipeline', () => {
@@ -55,7 +53,7 @@ describe('BatchingPipeline', () => {
     })
 
     function createCollector(options?: { concurrentBatches?: number }) {
-        return newBatchingPipeline<any, any, MsgCtx, Record<string, never>, SubCtx>(
+        return newBatchingPipeline<any, any, MsgCtx, Record<string, never>, MsgCtx>(
             beforeBatch,
             (builder) => builder,
             afterBatch,
@@ -64,7 +62,7 @@ describe('BatchingPipeline', () => {
     }
 
     function createStreamingCollector() {
-        return newBatchingPipeline<any, any, MsgCtx, Record<string, never>, SubCtx>(
+        return newBatchingPipeline<any, any, MsgCtx, Record<string, never>, MsgCtx>(
             beforeBatch,
             (builder) => builder.concurrently((b) => b.pipe((value) => Promise.resolve(ok(value)))),
             afterBatch,
@@ -79,8 +77,8 @@ describe('BatchingPipeline', () => {
         const allSideEffects: Promise<unknown>[] = []
         let r = await pipeline.next()
         while (r !== null) {
-            allResults.push(...r.value)
-            allSideEffects.push(...r.sideEffects)
+            allResults.push(...r.elements)
+            allSideEffects.push(...(r.sideEffects ?? []))
             r = await pipeline.next()
         }
         return { allResults, allSideEffects }
@@ -138,7 +136,7 @@ describe('BatchingPipeline', () => {
         const { allResults } = await drainAll(collector)
 
         expect(afterBatch).toHaveBeenCalledTimes(1)
-        expect(afterBatch.mock.calls[0][1]).toBe(0)
+        expect(afterBatch.mock.calls[0][2]).toBe(0)
         expect(allResults).toHaveLength(3)
         expect(allResults[0].context.messageId).toBe(0)
         expect(allResults[1].context.messageId).toBe(1)
@@ -178,7 +176,7 @@ describe('BatchingPipeline', () => {
         collector.feed(makeBatch([2]), {})
         const { allResults: results2 } = await drainAll(collector)
         expect(afterBatch).toHaveBeenCalledTimes(2)
-        expect(afterBatch.mock.calls[1][1]).toBe(1)
+        expect(afterBatch.mock.calls[1][2]).toBe(1)
         expect(results2).toHaveLength(1)
     })
 
@@ -189,7 +187,7 @@ describe('BatchingPipeline', () => {
             order.push('callback-start')
             await new Promise((r) => setTimeout(r, 10))
             order.push('callback-end')
-            return { value: undefined, sideEffects: [] }
+            return { elements: undefined }
         })
 
         const collector = createCollector()
@@ -211,7 +209,7 @@ describe('BatchingPipeline', () => {
             // next() loops internally until a batch completes
             const result = await collector.next()
             expect(result).not.toBeNull()
-            expect(result!.value).toHaveLength(3)
+            expect(result!.elements).toHaveLength(3)
             expect(afterBatch).toHaveBeenCalledTimes(1)
         })
 
@@ -224,16 +222,16 @@ describe('BatchingPipeline', () => {
             // batch 0 has 1 element, next() loops until it completes
             const result0 = await collector.next()
             expect(afterBatch).toHaveBeenCalledTimes(1)
-            expect(afterBatch.mock.calls[0][1]).toBe(0)
-            expect(result0!.value).toHaveLength(1)
+            expect(afterBatch.mock.calls[0][2]).toBe(0)
+            expect(result0!.elements).toHaveLength(1)
 
             // batch 1 has 2 elements, next() loops until it completes
             const result1 = await collector.next()
             expect(afterBatch).toHaveBeenCalledTimes(2)
-            expect(afterBatch.mock.calls[1][1]).toBe(1)
-            expect(result1!.value).toHaveLength(2)
-            expect(result1!.value[0].context.messageId).toBe(1)
-            expect(result1!.value[1].context.messageId).toBe(2)
+            expect(afterBatch.mock.calls[1][2]).toBe(1)
+            expect(result1!.elements).toHaveLength(2)
+            expect(result1!.elements[0].context.messageId).toBe(1)
+            expect(result1!.elements[1].context.messageId).toBe(2)
         })
 
         it('returns results from multiple batches completing on the same next() call', async () => {
@@ -244,29 +242,28 @@ describe('BatchingPipeline', () => {
 
             // Both batches are single-element. First next() may complete one or both.
             const result0 = await collector.next()
-            expect(result0!.value).toHaveLength(1)
+            expect(result0!.elements).toHaveLength(1)
 
             const result1 = await collector.next()
-            expect(result1!.value).toHaveLength(1)
+            expect(result1!.elements).toHaveLength(1)
 
             expect(afterBatch).toHaveBeenCalledTimes(2)
         })
     })
 
     it('beforeBatch can add extra context to elements', async () => {
-        const collector = newBatchingPipeline<any, any, MsgCtx, string, SubCtx>(
+        const collector = newBatchingPipeline<any, any, MsgCtx, string, MsgCtx>(
             (_batchContext, elements, batchId) => ({
-                value: elements.map((el) => ({
+                elements: elements.map((el) => ({
                     ...el,
                     context: {
                         ...el.context,
                         batchStore: `store-for-batch-${batchId}`,
                     },
                 })),
-                sideEffects: [],
             }),
             (builder) => builder,
-            () => ({ value: undefined, sideEffects: [] }),
+            () => Promise.resolve({ elements: undefined }),
             { concurrentBatches: Infinity }
         )
 
@@ -285,15 +282,15 @@ describe('BatchingPipeline', () => {
 
         const capturedBefore: Stores[] = []
         const capturedAfter: Stores[] = []
-        const collector = newBatchingPipeline<any, any, MsgCtx, Stores, SubCtx>(
-            (batchContext, elements, _batchId) => {
+        const collector = newBatchingPipeline<any, any, MsgCtx, Stores, MsgCtx>(
+            (batchContext, elements) => {
                 capturedBefore.push(batchContext)
-                return { value: elements as any, sideEffects: [] }
+                return { elements: elements as any }
             },
             (builder) => builder,
             (batchContext) => {
                 capturedAfter.push(batchContext)
-                return { value: undefined, sideEffects: [] }
+                return Promise.resolve({ elements: undefined })
             },
             { concurrentBatches: Infinity }
         )
@@ -315,8 +312,8 @@ describe('BatchingPipeline', () => {
     describe('side effects', () => {
         it('collects before hook side effects in next() result', async () => {
             const sideEffect = Promise.resolve('before-effect')
-            beforeBatch.mockImplementation((_batchCtx: any, elements: any, _batchId: number) => ({
-                value: elements,
+            beforeBatch.mockImplementation((_batchCtx: any, elements: any) => ({
+                elements,
                 sideEffects: [sideEffect],
             }))
 
@@ -330,10 +327,12 @@ describe('BatchingPipeline', () => {
 
         it('collects after hook side effects in next() result', async () => {
             const sideEffect = Promise.resolve('after-effect')
-            afterBatch.mockImplementation(() => ({
-                value: undefined,
-                sideEffects: [sideEffect],
-            }))
+            afterBatch.mockImplementation(() =>
+                Promise.resolve({
+                    elements: undefined,
+                    sideEffects: [sideEffect],
+                })
+            )
 
             const collector = createCollector()
             collector.feed(makeBatch([1]), {})
@@ -347,14 +346,16 @@ describe('BatchingPipeline', () => {
             const beforeEffect = Promise.resolve('before')
             const afterEffect = Promise.resolve('after')
 
-            beforeBatch.mockImplementation((_batchCtx: any, elements: any, _batchId: number) => ({
-                value: elements,
+            beforeBatch.mockImplementation((_batchCtx: any, elements: any) => ({
+                elements,
                 sideEffects: [beforeEffect],
             }))
-            afterBatch.mockImplementation(() => ({
-                value: undefined,
-                sideEffects: [afterEffect],
-            }))
+            afterBatch.mockImplementation(() =>
+                Promise.resolve({
+                    elements: undefined,
+                    sideEffects: [afterEffect],
+                })
+            )
 
             const collector = createCollector()
             collector.feed(makeBatch([1]), {})

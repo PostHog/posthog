@@ -4,8 +4,7 @@ import { logger } from '../../utils/logger'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { FlushResult, PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
-import { BatchProcessingStep } from '../pipelines/base-batch-pipeline'
-import { PipelineResult, ok } from '../pipelines/results'
+import { BatchResult } from '../pipelines/batching-pipeline'
 
 export interface FlushBatchStoresStepConfig {
     personsStore: PersonsStore
@@ -14,13 +13,12 @@ export interface FlushBatchStoresStepConfig {
 }
 
 /**
- * Batch processing step that flushes person and group stores and returns
- * Kafka produce promises as side effects.
+ * Flushes person and group stores and returns Kafka produce promises as side effects.
  *
- * This step should be added at the end of the pipeline after all events
- * have been processed but before handleResults/handleSideEffects.
+ * Used as the afterBatch hook in the joined ingestion pipeline, called once
+ * per batch after all events have been processed.
  *
- * The step:
+ * The function:
  * 1. Flushes both person and group stores (blocking DB operations)
  * 2. Creates Kafka produce promises for all store updates
  * 3. Returns those promises as side effects (non-blocking)
@@ -33,51 +31,31 @@ export interface FlushBatchStoresStepConfig {
  * @param config.personsStore - The person store (singleton per consumer)
  * @param config.groupStore - The group store (singleton per consumer)
  * @param config.kafkaProducer - Kafka producer for sending store updates
- *
- * @returns A batch processing step that flushes both stores
  */
-export function createFlushBatchStoresStep<T>(config: FlushBatchStoresStepConfig): BatchProcessingStep<T, void> {
+export async function flushBatchStores(config: FlushBatchStoresStepConfig): Promise<BatchResult<void>> {
     const { personsStore, groupStore, kafkaProducer } = config
 
-    return async function flushBatchStoresStep(batch: T[]): Promise<PipelineResult<void>[]> {
-        if (batch.length === 0) {
-            return []
-        }
+    try {
+        // Flush both stores in parallel (DB operations, still blocking)
+        const [_groupResults, personsStoreMessages] = await Promise.all([groupStore.flush(), personsStore.flush()])
 
-        try {
-            // Flush both stores in parallel (DB operations, still blocking)
-            const [_groupResults, personsStoreMessages] = await Promise.all([groupStore.flush(), personsStore.flush()])
+        // Create Kafka produce promises for all person/group store updates
+        const producePromises = createProducePromises(personsStoreMessages, kafkaProducer)
 
-            logger.info('🔄', 'flushBatchStoresStep: Flushed stores', {
-                batchSize: batch.length,
-                personStoreMessageCount: personsStoreMessages.length,
-            })
+        // Report metrics for this batch
+        personsStore.reportBatch()
+        groupStore.reportBatch()
 
-            // Create Kafka produce promises for all person/group store updates
-            const producePromises = createProducePromises(personsStoreMessages, kafkaProducer)
+        // Reset stores for next batch
+        personsStore.reset()
+        groupStore.reset()
 
-            // Report metrics for this batch
-            personsStore.reportBatch()
-            groupStore.reportBatch()
-
-            // Reset stores for next batch
-            personsStore.reset()
-            groupStore.reset()
-
-            // Return same number of results as input (cardinality requirement)
-            // Attach all side effects to the first result only to avoid duplication
-            // The pipeline framework will accumulate them into the first item's context
-            // We return undefined because this is a terminal step (BatchProcessingStep<T, void>)
-            return batch.map((_, index) => ok(undefined, index === 0 ? producePromises : []))
-        } catch (error) {
-            // If flush fails, the error will bubble up and fail the entire batch
-            // This maintains the existing behavior where flush errors are fatal
-            logger.error('❌', 'flushBatchStoresStep: Failed to flush stores', {
-                error,
-                batchSize: batch.length,
-            })
-            throw error
-        }
+        return { elements: undefined, sideEffects: producePromises }
+    } catch (error) {
+        // If flush fails, the error will bubble up and fail the entire batch
+        // This maintains the existing behavior where flush errors are fatal
+        logger.error('❌', 'flushBatchStores: Failed to flush stores', { error })
+        throw error
     }
 }
 
@@ -105,7 +83,7 @@ function createProducePromises(
                 .catch((error) => {
                     // Handle message size errors gracefully by capturing a warning
                     if (error instanceof MessageSizeTooLarge) {
-                        logger.warn('🪣', 'flushBatchStoresStep: Message size too large', {
+                        logger.warn('🪣', 'flushBatchStores: Message size too large', {
                             topic: record.topicMessage.topic,
                             teamId: record.teamId,
                             distinctId: record.distinctId,
@@ -114,11 +92,11 @@ function createProducePromises(
                         return captureIngestionWarning(kafkaProducer, record.teamId, 'message_size_too_large', {
                             eventUuid: record.uuid,
                             distinctId: record.distinctId,
-                            step: 'flushBatchStoresStep',
+                            step: 'flushBatchStores',
                         })
                     } else {
                         // Other errors should fail the side effect
-                        logger.error('❌', 'flushBatchStoresStep: Failed to produce message', {
+                        logger.error('❌', 'flushBatchStores: Failed to produce message', {
                             error,
                             topic: record.topicMessage.topic,
                             teamId: record.teamId,

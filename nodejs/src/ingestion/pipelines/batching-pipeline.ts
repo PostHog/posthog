@@ -6,8 +6,8 @@ export interface BatchingContext {
 }
 
 export interface BatchResult<T> {
-    value: T
-    sideEffects: Promise<unknown>[]
+    elements: T
+    sideEffects?: Promise<unknown>[]
 }
 
 export interface BatchingPipelineOptions {
@@ -83,9 +83,9 @@ export class BatchingPipeline<
             ) => BatchResult<BatchPipelineResultWithContext<TInput, CInput>>
             afterBatch: (
                 batchContext: CBatch,
-                results: BatchPipelineResultWithContext<TOutput, CSubOut>,
+                elements: BatchPipelineResultWithContext<TOutput, CSubOut>,
                 batchId: number
-            ) => BatchResult<void> | Promise<BatchResult<void>>
+            ) => Promise<BatchResult<BatchPipelineResultWithContext<TOutput, CSubOut>>>
         },
         options?: Partial<BatchingPipelineOptions>
     ) {
@@ -104,7 +104,7 @@ export class BatchingPipeline<
         const messageIds: number[] = []
         const inflight = new Set<number>()
 
-        const taggedElements = beforeResult.value.map((element) => {
+        const taggedElements = beforeResult.elements.map((element) => {
             const messageId = this.nextMessageId++
             messageIds.push(messageId)
             inflight.add(messageId)
@@ -124,7 +124,7 @@ export class BatchingPipeline<
             messageIds,
             inflight,
             results: new Map(),
-            beforeSideEffects: beforeResult.sideEffects,
+            beforeSideEffects: beforeResult.sideEffects ?? [],
         })
 
         this.subPipeline.feed(taggedElements)
@@ -171,8 +171,8 @@ export class BatchingPipeline<
                         this.messageIdToBatchId.delete(id)
                     }
                     const afterResult = await this.hooks.afterBatch(batch.batchContext, orderedResults, batchId)
-                    const sideEffects = [...batch.beforeSideEffects, ...afterResult.sideEffects]
-                    this.completedResults.push({ value: orderedResults, sideEffects })
+                    const sideEffects = [...batch.beforeSideEffects, ...(afterResult.sideEffects ?? [])]
+                    this.completedResults.push({ elements: afterResult.elements, sideEffects })
                 }
             }
 

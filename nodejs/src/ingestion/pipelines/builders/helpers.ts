@@ -12,7 +12,7 @@ export function newPipelineBuilder<T, C = Record<string, never>>(): StartPipelin
     return new StartPipelineBuilder<T, C>()
 }
 
-export function newBatchingPipeline<TInput, TOutput, CInput, CBatch, CSubOut extends BatchingContext>(
+export function newBatchingPipeline<TInput, TOutput, CInput, CBatch, CSubOut>(
     beforeBatch: (
         batchContext: CBatch,
         elements: BatchPipelineResultWithContext<TInput, CInput>,
@@ -20,18 +20,23 @@ export function newBatchingPipeline<TInput, TOutput, CInput, CBatch, CSubOut ext
     ) => BatchResult<BatchPipelineResultWithContext<TInput, CInput>>,
     callback: (
         builder: BatchPipelineBuilder<TInput, TInput, CInput & BatchingContext, CInput & BatchingContext>
-    ) => BatchPipelineBuilder<TInput, TOutput, CInput & BatchingContext, CSubOut>,
-    afterBatch: (batchContext: CBatch, batchId: number) => BatchResult<void> | Promise<BatchResult<void>>,
+    ) => BatchPipelineBuilder<TInput, TOutput, CInput & BatchingContext, CSubOut & BatchingContext>,
+    afterBatch: (
+        batchContext: CBatch,
+        elements: BatchPipelineResultWithContext<TOutput, CSubOut & BatchingContext>,
+        batchId: number
+    ) => Promise<BatchResult<void>>,
     options?: Partial<BatchingPipelineOptions>
-): BatchingPipeline<TInput, TOutput, CInput, CBatch, CInput & BatchingContext, CSubOut> {
+): BatchingPipeline<TInput, TOutput, CInput, CBatch, CInput & BatchingContext, CSubOut & BatchingContext> {
     const startBuilder = new BatchPipelineBuilder(new BufferingBatchPipeline<TInput, CInput & BatchingContext>())
     const subPipeline = callback(startBuilder).build()
     return new BatchingPipeline(
         subPipeline,
         {
             beforeBatch,
-            afterBatch: async (batchContext, _results, batchId) => {
-                return await afterBatch(batchContext, batchId)
+            afterBatch: async (batchContext, elements, batchId) => {
+                const result = await afterBatch(batchContext, elements, batchId)
+                return { elements, sideEffects: result.sideEffects }
             },
         },
         options
