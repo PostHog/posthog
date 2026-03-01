@@ -967,6 +967,7 @@ def toolbar_oauth_authorize(request):
         return HttpResponse(exc.detail, status=exc.status_code)
 
     request.session["toolbar_oauth_code_verifier"] = code_verifier
+    request.session["toolbar_oauth_code_verifier_ts"] = time.time()
 
     return redirect(authorization_url)
 
@@ -1004,6 +1005,9 @@ def toolbar_oauth_callback(request):
         code_verifier = None
     else:
         code_verifier = request.session.pop("toolbar_oauth_code_verifier", None)
+        verifier_ts = request.session.pop("toolbar_oauth_code_verifier_ts", None)
+        if code_verifier and (not verifier_ts or time.time() - verifier_ts > settings.TOOLBAR_OAUTH_STATE_TTL_SECONDS):
+            code_verifier = None
 
     if code_verifier and code and state:
         # Toolbar flow: exchange code for tokens on the server

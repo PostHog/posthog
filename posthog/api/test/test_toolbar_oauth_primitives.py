@@ -820,6 +820,17 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
         self.client.get(f"/toolbar_oauth/callback?code=auth_code&state={state}")
         assert "toolbar_oauth_code_verifier" not in self.client.session
 
+    @override_settings(TOOLBAR_OAUTH_STATE_TTL_SECONDS=0)
+    def test_callback_rejects_expired_code_verifier(self):
+        state = self._authorize_and_get_state()
+        assert "toolbar_oauth_code_verifier" in self.client.session
+
+        response = self.client.get(f"/toolbar_oauth/callback?code=auth_code&state={state}")
+        assert response.status_code == 200
+        # Expired verifier falls through to posthog-js relay flow
+        assert b'"type": "toolbar_oauth_result"' in response.content
+        assert b"access_token" not in response.content
+
     def test_authorize_rejects_post_method(self):
         response = self.client.post("/toolbar_oauth/authorize/")
         assert response.status_code == 405
