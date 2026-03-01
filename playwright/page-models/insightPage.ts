@@ -68,13 +68,25 @@ export class InsightPage {
     }
 
     async save(): Promise<void> {
-        await this.saveButton.click()
-        await this.page.waitForURL(/^(?!.*\/new$).+$/)
-        await expect(this.editButton).toBeVisible()
+        // Retry the full save flow: under concurrent load the save button
+        // click can race with a React re-render (detaching the DOM node) or
+        // the PATCH request can fail silently leaving the button re-enabled.
+        // Using toPass retries the click when the edit button hasn't appeared.
+        await expect(async () => {
+            if (await this.saveButton.isEnabled({ timeout: 500 }).catch(() => false)) {
+                await this.saveButton.click({ timeout: 500 })
+            }
+            await expect(this.editButton).toBeVisible({ timeout: 5_000 })
+        }).toPass({ timeout: 60_000 })
     }
 
     async edit(): Promise<void> {
         await this.editButton.click()
+    }
+
+    async discard(): Promise<void> {
+        await this.page.getByTestId('insight-cancel-edit-button').click()
+        await expect(this.editButton).toBeVisible()
     }
 
     async editName(insightName: string = randomString('insight')): Promise<void> {

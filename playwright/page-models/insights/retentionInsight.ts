@@ -1,7 +1,8 @@
 import { Locator, Page, expect } from '@playwright/test'
 
-export class RetentionInsight {
-    readonly chart: Locator
+import { ChartInsightBase } from './chartInsightBase'
+
+export class RetentionInsight extends ChartInsightBase {
     readonly table: Locator
     readonly tableHeaders: Locator
     readonly tableRows: Locator
@@ -10,13 +11,13 @@ export class RetentionInsight {
     readonly breakdownButton: Locator
     readonly alertsButton: Locator
     readonly chartFilter: Locator
-    readonly tooltip: Locator
     readonly personsModal: Locator
     readonly customBracketsCheckbox: Locator
     readonly sectionHeaders: Locator
 
-    constructor(private readonly page: Page) {
-        this.chart = page.getByTestId('trend-line-graph')
+    constructor(page: Page) {
+        super(page, page.getByTestId('trend-line-graph'))
+
         this.table = page.getByTestId('retention-table')
         this.tableHeaders = this.table.locator('th')
         this.tableRows = this.table.locator('tr')
@@ -25,7 +26,6 @@ export class RetentionInsight {
         this.breakdownButton = page.getByTestId('add-breakdown-button')
         this.alertsButton = page.getByTestId('insight-alerts-dropdown-menu-item')
         this.chartFilter = page.getByTestId('chart-filter')
-        this.tooltip = page.locator('.InsightTooltip')
         this.personsModal = page
             .locator('.LemonModal')
             .filter({ has: page.locator('.RetentionTable--non-interactive') })
@@ -97,17 +97,6 @@ export class RetentionInsight {
             await row.click()
         }).toPass({ timeout: 30000 })
         await this.waitForChart()
-    }
-
-    async hoverChartAt(xFraction: number, yFraction: number): Promise<void> {
-        const canvas = this.chart.locator('canvas')
-        await expect(canvas).toBeVisible()
-        await expect(async () => {
-            const box = (await canvas.boundingBox())!
-            await this.page.mouse.move(box.x - 5, box.y - 5)
-            await this.page.mouse.move(box.x + box.width * xFraction, box.y + box.height * yFraction)
-            await expect(this.tooltip).toBeVisible({ timeout: 1000 })
-        }).toPass({ timeout: 15000 })
     }
 
     get detailRows(): Locator {

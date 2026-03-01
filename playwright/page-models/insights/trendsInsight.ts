@@ -1,7 +1,8 @@
 import { Locator, Page, expect } from '@playwright/test'
 
-export class TrendsInsight {
-    readonly chart: Locator
+import { ChartInsightBase } from './chartInsightBase'
+
+export class TrendsInsight extends ChartInsightBase {
     readonly detailsTable: Locator
     readonly detailsLabels: Locator
     readonly firstSeries: Locator
@@ -12,16 +13,18 @@ export class TrendsInsight {
     readonly dateRangeButton: Locator
     readonly chartTypeButton: Locator
     readonly comparisonButton: Locator
+    readonly boldNumber: Locator
+    readonly boldNumberComparison: Locator
 
     private readonly detailsLoader: Locator
     private readonly addSeriesButton: Locator
     private readonly addFormulaButton: Locator
 
-    constructor(private readonly page: Page) {
-        this.chart = page.getByTestId('insights-graph')
+    constructor(page: Page) {
+        super(page, page.getByTestId('insights-graph'))
 
         this.detailsTable = page.getByTestId('insights-table-graph')
-        this.detailsLabels = this.detailsTable.locator('.insights-label')
+        this.detailsLabels = this.detailsTable.getByTestId('insight-label')
         this.detailsLoader = page.locator('.LemonTableLoader')
         this.addSeriesButton = page.getByTestId('add-action-event-button')
         this.firstSeries = page.getByTestId('trend-element-subject-0')
@@ -33,6 +36,8 @@ export class TrendsInsight {
         this.dateRangeButton = page.getByTestId('date-filter')
         this.chartTypeButton = page.getByTestId('chart-filter')
         this.comparisonButton = page.getByTestId('compare-filter')
+        this.boldNumber = page.getByTestId('bold-number-value')
+        this.boldNumberComparison = page.getByTestId('bold-number-comparison')
     }
 
     seriesEventButton(index: number): Locator {
@@ -45,7 +50,7 @@ export class TrendsInsight {
     }
 
     async waitForDetailsTable(): Promise<void> {
-        await this.detailsLabels.first().waitFor()
+        await this.detailsTable.locator('tbody tr').first().waitFor()
         await expect(this.detailsLoader).toHaveCount(0)
     }
 
@@ -54,11 +59,15 @@ export class TrendsInsight {
     }
 
     async selectEvent(seriesIndex: number, eventName: string): Promise<void> {
+        await this.page.keyboard.press('Escape')
         await this.seriesEventButton(seriesIndex).click()
         const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
         await searchField.waitFor({ state: 'visible' })
         await searchField.fill(eventName)
-        await this.page.locator('.taxonomic-list-row').first().click()
+        const row = this.page.locator('[data-attr^="prop-filter-"]').filter({ hasText: eventName }).first()
+        await row.waitFor({ state: 'visible' })
+        await row.click()
+        await this.waitForChart()
     }
 
     async addBreakdown(property: string): Promise<void> {
@@ -66,9 +75,11 @@ export class TrendsInsight {
         const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
         await searchField.waitFor({ state: 'visible' })
         await searchField.fill(property)
-        const row = this.page.locator('.taxonomic-list-row').first()
+        const row = this.page.locator('[data-attr^="prop-filter-"]').filter({ hasText: property }).first()
         await row.waitFor({ state: 'visible', timeout: 15000 })
         await row.click()
+        // Dismiss any lingering property info panel that opens instead of closing the popover
+        await this.page.keyboard.press('Escape')
     }
 
     async setFormula(formula: string): Promise<void> {
@@ -83,9 +94,44 @@ export class TrendsInsight {
         return this.page.getByTestId(`math-selector-${seriesIndex}`)
     }
 
+    mathPropertySelect(): Locator {
+        return this.page.getByTestId('math-property-select')
+    }
+
+    async selectMath(seriesIndex: number, mathName: string): Promise<void> {
+        await this.mathSelector(seriesIndex).click()
+        await this.page.getByRole('menuitem', { name: mathName }).click()
+        await this.waitForChart()
+    }
+
+    async selectMathWithAggregation(seriesIndex: number, mathName: RegExp, aggregation: string): Promise<void> {
+        await this.mathSelector(seriesIndex).click()
+        const mathItem = this.page.getByRole('menuitem', { name: mathName })
+        await mathItem.waitFor({ state: 'visible' })
+        await mathItem.getByRole('button').click()
+        await this.page.getByRole('menuitem', { name: aggregation }).click()
+        await this.waitForChart()
+    }
+
+    async selectMathProperty(property: string): Promise<void> {
+        await this.page.keyboard.press('Escape')
+        await this.mathPropertySelect().click({ force: true })
+        const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
+        await searchField.waitFor({ state: 'visible' })
+        await searchField.fill(property)
+        const row = this.page.locator('[data-attr^="prop-filter-"]').filter({ hasText: property }).first()
+        await row.waitFor({ state: 'visible' })
+        await row.click()
+        await this.waitForChart()
+    }
+
     async selectChartType(namePattern: RegExp): Promise<void> {
-        await this.chartTypeButton.click()
-        await this.page.getByRole('menuitem', { name: namePattern }).click()
+        await this.page.keyboard.press('Escape')
+        await expect(async () => {
+            await this.chartTypeButton.click({ force: true, timeout: 500 })
+            await this.page.getByRole('menuitem', { name: namePattern }).click({ force: true, timeout: 500 })
+            await expect(this.chartTypeButton).toHaveText(namePattern, { timeout: 1000 })
+        }).toPass({ timeout: 15000 })
         await this.waitForChart()
     }
 
@@ -137,9 +183,16 @@ export class TrendsInsight {
     }
 
     async removeBreakdown(index: number = 0): Promise<void> {
-        const tag = this.page.locator('.BreakdownTag').nth(index)
-        await tag.hover()
-        await tag.locator('[aria-label="close"]').or(tag.locator('button')).last().click({ force: true })
+        await this.page.keyboard.press('Escape')
+        const tag = this.page.getByTestId('breakdown-tag').nth(index)
+        const closeButton = tag.getByTestId('breakdown-tag-close')
+        if ((await closeButton.count()) > 0) {
+            await closeButton.click()
+        } else {
+            await tag.locator('[aria-haspopup="true"]').click()
+            await this.page.getByRole('button', { name: 'Remove breakdown' }).click()
+        }
+        await expect(tag).not.toBeVisible({ timeout: 10000 })
         await this.waitForChart()
     }
 
@@ -149,5 +202,34 @@ export class TrendsInsight {
 
     taxonomicResults(): Locator {
         return this.page.locator('.taxonomic-list-row')
+    }
+
+    async getDetailsColumnValues(columnIndex: number): Promise<string[]> {
+        const rows = this.detailsTable.locator('tbody tr')
+        const count = await rows.count()
+        const values: string[] = []
+        for (let i = 0; i < count; i++) {
+            const cell = rows.nth(i).locator('td').nth(columnIndex)
+            const text = (await cell.textContent()) ?? ''
+            values.push(text.trim())
+        }
+        return values
+    }
+
+    async getDetailsTotals(): Promise<string[]> {
+        const headers = this.detailsTable.locator('thead th')
+        const headerCount = await headers.count()
+        let totalColIndex = -1
+        for (let i = 0; i < headerCount; i++) {
+            const text = (await headers.nth(i).textContent()) ?? ''
+            if (/total/i.test(text)) {
+                totalColIndex = i
+                break
+            }
+        }
+        if (totalColIndex === -1) {
+            throw new Error('Could not find a "Total" column in the details table')
+        }
+        return this.getDetailsColumnValues(totalColIndex)
     }
 }
