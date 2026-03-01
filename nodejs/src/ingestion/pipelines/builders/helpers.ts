@@ -1,5 +1,5 @@
 import { BatchPipelineResultWithContext } from '../batch-pipeline.interface'
-import { BatchingContext, BatchingPipeline, BatchingPipelineOptions } from '../batching-pipeline'
+import { BatchResult, BatchingContext, BatchingPipeline, BatchingPipelineOptions } from '../batching-pipeline'
 import { BufferingBatchPipeline } from '../buffering-batch-pipeline'
 import { BatchPipelineBuilder } from './batch-pipeline-builders'
 import { StartPipelineBuilder } from './pipeline-builders'
@@ -14,13 +14,14 @@ export function newPipelineBuilder<T, C = Record<string, never>>(): StartPipelin
 
 export function newBatchingPipeline<TInput, TOutput, CInput, CBatch, CSubOut extends BatchingContext>(
     beforeBatch: (
-        elements: BatchPipelineResultWithContext<TInput, CInput & BatchingContext>,
+        batchContext: CBatch,
+        elements: BatchPipelineResultWithContext<TInput, CInput>,
         batchId: number
-    ) => { batchContext: CBatch; elements: BatchPipelineResultWithContext<TInput, CInput & BatchingContext> },
+    ) => BatchResult<BatchPipelineResultWithContext<TInput, CInput>>,
     callback: (
         builder: BatchPipelineBuilder<TInput, TInput, CInput & BatchingContext, CInput & BatchingContext>
     ) => BatchPipelineBuilder<TInput, TOutput, CInput & BatchingContext, CSubOut>,
-    afterBatch: (batchContext: CBatch, batchId: number) => void | Promise<void>,
+    afterBatch: (batchContext: CBatch, batchId: number) => BatchResult<void> | Promise<BatchResult<void>>,
     options?: Partial<BatchingPipelineOptions>
 ): BatchingPipeline<TInput, TOutput, CInput, CBatch, CInput & BatchingContext, CSubOut> {
     const startBuilder = new BatchPipelineBuilder(new BufferingBatchPipeline<TInput, CInput & BatchingContext>())
@@ -29,9 +30,8 @@ export function newBatchingPipeline<TInput, TOutput, CInput, CBatch, CSubOut ext
         subPipeline,
         {
             beforeBatch,
-            afterBatch: async (batchContext, results, batchId) => {
-                await afterBatch(batchContext, batchId)
-                return results
+            afterBatch: async (batchContext, _results, batchId) => {
+                return await afterBatch(batchContext, batchId)
             },
         },
         options
