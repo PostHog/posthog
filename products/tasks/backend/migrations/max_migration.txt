@@ -1,1 +1,7 @@
+<<<<<<< ours
 0024_task_title_manually_set
+||||||| ancestor
+0020_sandbox_environment
+=======
+0021_task_signal_report_alter_task_origin_product
+>>>>>>> theirs
