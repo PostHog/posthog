@@ -210,7 +210,7 @@ describe('ErrorTrackingConsumer', () => {
         it('should have correct config defaults', () => {
             expect(consumer['name']).toBe('error-tracking-consumer')
             expect(consumer['config'].groupId).toBe('error-tracking-ingestion')
-            expect(consumer['config'].topic).toBe('exceptions_ingestion_test')
+            expect(consumer['config'].topic).toBe('error_tracking_ingestion_test')
             expect(consumer['config'].dlqTopic).toBe('error_tracking_ingestion_dlq_test')
             expect(consumer['config'].outputTopic).toBe('clickhouse_events_json_test')
         })
