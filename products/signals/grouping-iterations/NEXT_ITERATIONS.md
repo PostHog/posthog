@@ -30,55 +30,38 @@ Results are strong — multi-signal groups are coherent with zero weak chaining 
 ### What's not ideal
 
 - 83% singleton rate.
-  Most singletons are genuinely distinct, but some should merge:
-  - Signals processed far apart in time never "see" each other.
-  - Signals rejected by specificity from group X never try group Y.
-  - Related singletons (e.g. 3 HubSpot connector issues) never get a chance to form their own group.
+  Most singletons are genuinely distinct — the specificity gate correctly rejects them.
+  Signals DO find each other (0 signals had no candidates), but the matching step
+  picks the wrong group first, specificity rejects, and the signal becomes a singleton
+  without trying alternative candidates.
 - The specificity gate is the primary filter (198 rejections),
   not a safety net. It's doing the matching step's job.
+
+### Grouping granularity: task generation vs. knowledge base
+
+Two valid grouping perspectives exist:
+
+**Task generation** (current, for Twig):
+signals grouped by actionable work item — one group = one PR / one set of tests.
+3 HubSpot feature requests (junction tables, incremental sync, OAuth scope)
+are 3 separate groups because they produce 3 different PRs.
+Including all HubSpot issues in 1 report leads to a useless report for Twig.
+
+**Knowledge base** (future, for UI/UX):
+signals grouped by product area or owner — "HubSpot" label on all 3.
+Useful for browsing, but not for task execution.
+Implementable as a labeling/tagging layer on top of task-generation groups.
+Not a priority for the Twig release.
+
+We stay with task-generation grouping. Knowledge-base labeling is a separate concern.
 
 ---
 
 ## Improvement areas
 
-### Area 1: Post-processing (singleton consolidation)
+### Area 1: Matching step improvements
 
-**Priority: P1 — highest impact-to-risk ratio**
-
-After all signals are processed, scan singletons for pairs/clusters that should merge.
-This is purely additive — can't degrade existing groups.
-
-#### 1a. Singleton-to-singleton consolidation
-
-**What:** For each singleton, compute embedding similarity against other singletons.
-If similarity is high, run the specificity check on the pair.
-If it passes, merge into a new multi-signal group.
-
-**Why:** Catches signals that were processed far apart and never appeared
-as candidates for each other. Also catches cases where two signals were both
-specificity-rejected from different groups but belong together.
-
-**Example from 413 run:** 3 HubSpot singletons (junction tables, incremental sync, OAuth scope)
-each got matched to different existing groups, rejected by specificity, became singletons.
-They share an embedding neighborhood but never tried to merge with each other.
-
-**Effort:** Moderate — reuses existing embedding cache and specificity check.
-Complexity is O(singletons^2) for similarity, but can cap at top-K per singleton.
-
-**Risk:** Low. Only touches singletons. Worst case: no merges pass specificity.
-
-#### 1b. Singleton-to-small-group consolidation
-
-**What:** After 1a, check if remaining singletons could join small groups (2-3 signals)
-that were formed during 1a or during main processing.
-
-**Effort:** Small increment over 1a.
-
-**Risk:** Low — same specificity gate applies.
-
-### Area 2: Matching step improvements
-
-**Priority: P2 — addresses root cause but higher risk**
+**Priority: P1 — addresses root cause**
 
 The matching step proposes bad matches based on keyword/embedding overlap.
 The specificity gate catches them (198 rejections), but ideally the matching step
@@ -88,7 +71,7 @@ Previous conclusion still holds:
 the bottleneck is the matching step, not the specificity prompt.
 Loosening the specificity gate (v2, v3) re-introduced weak chaining.
 
-#### 2a. Retry matching after specificity rejection
+#### 1a. Retry matching after specificity rejection
 
 **What:** When specificity rejects a match to group X,
 try the next-best candidate group Y instead of immediately creating a singleton.
@@ -101,6 +84,8 @@ try the next-best candidate group Y instead of immediately creating a singleton.
 
 **Why:** Currently 198 signals are rejected from their first-choice group.
 Some of those have a valid second-choice group that would pass specificity.
+The search results already contain candidates from multiple groups —
+we just need to try more than one.
 
 **Effort:** Moderate — needs matching prompt change (ranked output)
 or an extra matching call per rejection.
@@ -108,7 +93,7 @@ or an extra matching call per rejection.
 **Risk:** Moderate. Adds 1-2 LLM calls for ~40% of signals.
 Could slow processing. Marginal improvement per signal.
 
-#### 2b. PR framing in the matching prompt
+#### 1b. PR framing in the matching prompt
 
 **What:** Move the "would this be one PR?" framing from the specificity gate
 into the matching step itself.
@@ -123,7 +108,7 @@ Making it do the hard thinking means the specificity gate becomes a safety net.
 **Risk:** Could make matching more conservative (more singletons).
 Hard to tune — currently the separation of concerns (match vs. verify) is clean.
 
-#### 2c. Negative examples in matching prompt
+#### 1c. Negative examples in matching prompt
 
 **What:** Add explicit "do NOT match" patterns targeting the exact failure mode:
 signals that share a product keyword but describe different work items.
@@ -135,11 +120,11 @@ The LLM defaults to matching on surface similarity.
 
 **Risk:** Might not generalize across signal sets. Brittle to maintain.
 
-### Area 3: Candidate quality (search / filtering)
+### Area 2: Candidate quality (search / filtering)
 
-**Priority: P3 — supplementary, combine with other areas**
+**Priority: P2 — supplementary, combine with area 1**
 
-#### 3a. Reduce candidate noise before matching
+#### 2a. Reduce candidate noise before matching
 
 **What:** Filter candidates before the matching LLM sees them:
 
@@ -155,7 +140,7 @@ Fewer, higher-quality candidates = fewer bad match proposals.
 **Risk:** Static thresholds don't generalize across signal types.
 Different types have different embedding distances for "related."
 
-#### 3b. Work-item-specific query generation
+#### 2b. Work-item-specific query generation
 
 **What:** Generate search queries specific to the work item rather than the domain.
 E.g. instead of "workflow metrics issues" → "NaN display bug in workflow metrics overview tab."
@@ -166,18 +151,36 @@ E.g. instead of "workflow metrics issues" → "NaN display bug in workflow metri
 
 **Risk:** More specific queries might miss legitimate matches.
 
+### Area 3: Knowledge-base labeling (future, not for Twig)
+
+**Priority: P3 — separate concern, after Twig release**
+
+A presentation layer that groups singletons by product area / owner for browsing.
+Does not change task-generation grouping.
+
+#### 3a. Label/tag singletons by product area
+
+**What:** After task-generation grouping, run an additional pass
+to assign labels (e.g. "HubSpot", "Session Replay", "Billing") to singletons.
+Display as facets or filters in the UI, not as merged groups.
+
+**Why:** Users browsing signal reports want to see "all HubSpot issues,"
+even if each is a different work item.
+
+**Effort:** Moderate — needs a labeling LLM call or keyword extraction,
+plus UI work.
+
+**Risk:** Low — purely additive, doesn't affect task-generation groups.
+
 ---
 
 ## Recommended order
 
-1. **1a** (singleton consolidation) — lowest risk, purely additive, catches clear wins
-2. **2a** (retry after specificity rejection) — moderate effort, catches "wrong first choice" cases
-3. **2c** (negative examples) — cheap prompt experiment, test in harness
-4. **3a** (candidate filtering) — simple code change, can combine with any of the above
-5. **2b** (PR framing in matching) — significant change, try only if 1-4 are insufficient
-
-Approaches 1a and 2a can be developed independently and combined.
-Approach 3a is a good complement to any matching improvement.
+1. **1a** (retry after specificity rejection) — addresses "wrong first choice," reuses existing search results
+2. **1c** (negative examples) — cheap prompt experiment, test in harness
+3. **2a** (candidate filtering) — simple code change, can combine with any of the above
+4. **1b** (PR framing in matching) — significant change, try only if 1-3 are insufficient
+5. **3a** (labeling) — after Twig release, separate workstream
 
 ---
 
@@ -209,13 +212,14 @@ Large singleton clusters exist by keyword (19 dashboard, 18 workflow, 18 insight
 These are NOT under-grouped — they are genuinely different issues within the same product area.
 The specificity gate correctly identifies them as different work items.
 
-### Singletons that SHOULD merge (targets for consolidation)
+### Signals DO find each other — processing order is not the bottleneck
 
-- 3 HubSpot connector singletons (junction tables, incremental sync, OAuth scope)
-  — different concerns within the same connector, could be one owner
-- 2-3 MCP connection singletons (SSE handshake, tool discovery, OAuth registration)
-  — different failure modes but same integration surface
-- "Survey Slack interpolation" + existing "Survey Slack notification" group
-  — same narrow scope, rejected because "3 distinct problems"
+Tracing the HubSpot chain confirmed signals discover each other via semantic search:
 
-These are the cases singleton consolidation (1a) would catch.
+1. HubSpot 1 (00:15) "junction tables" → matched to data warehouse group → specificity rejected
+2. HubSpot 2 (00:17) "incremental sync" → **found HubSpot 1's singleton** → specificity rejected ("two unrelated improvements")
+3. HubSpot 3 (00:43) "OAuth scope" → **found HubSpot 2's singleton** → specificity rejected ("two unrelated improvements")
+
+The singletons correctly remain separate under task-generation grouping —
+they are genuinely different work items despite sharing the HubSpot domain.
+This is knowledge-base labeling territory, not a grouping defect.
