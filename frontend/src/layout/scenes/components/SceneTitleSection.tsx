@@ -45,7 +45,7 @@ export function SceneTitlePanelButton({
 }): JSX.Element | null {
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { sidePanelOpen } = useValues(sidePanelStateLogic)
+    const { sidePanelOpen, selectedTab } = useValues(sidePanelStateLogic)
 
     const inactiveMaxToolProps: UseMaxToolOptions = { identifier: 'read_data', active: false }
     const { openMax, definition } = useMaxTool(maxToolProps ? { ...maxToolProps, active: true } : inactiveMaxToolProps)
@@ -53,12 +53,11 @@ export function SceneTitlePanelButton({
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
 
-    if (sidePanelOpen) {
-        return null
-    }
+    const isMaxAlreadyOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
 
     return (
         <>
+            {/* AI button: always visible so users can access AI regardless of side panel state */}
             <ButtonPrimitive
                 className={buttonClassName}
                 onClick={(e) => {
@@ -73,13 +72,15 @@ export function SceneTitlePanelButton({
                 tooltip={
                     definition ? (
                         <>
-                            Open PostHog AI
+                            {isMaxAlreadyOpen ? 'PostHog AI is open' : 'Open PostHog AI'}
                             <br />
                             <div className="flex items-center">
                                 {definition.icon || <IconWrench />}
                                 <i className="ml-1.5">{definition.name}</i>
                             </div>
                         </>
+                    ) : isMaxAlreadyOpen ? (
+                        'PostHog AI is open'
                     ) : (
                         'Open PostHog AI'
                     )
@@ -97,27 +98,29 @@ export function SceneTitlePanelButton({
                 </div>
             </ButtonPrimitive>
 
-            {/* Size to mimic lemon button small */}
-            <ButtonPrimitive
-                className={cn(buttonClassName, 'group -mr-[2px]')}
-                onClick={(e) => {
-                    e.stopPropagation()
-                    e.preventDefault()
-                    openSidePanel(defaultTab)
-                }}
-                tooltip={
-                    <>
-                        Open context panel
-                        <RenderKeybind className="relative -top-px ml-1" keybind={[keyBinds.toggleRightNav]} />
-                    </>
-                }
-                tooltipPlacement="bottom-end"
-                tooltipCloseDelayMs={0}
-                iconOnly
-                data-attr="open-context-panel-button"
-            >
-                <IconSidePanel className="text-primary group-hover:text-primary z-10" />
-            </ButtonPrimitive>
+            {/* Side panel toggle: hidden when panel is already open */}
+            {!sidePanelOpen && (
+                <ButtonPrimitive
+                    className={cn(buttonClassName, 'group -mr-[2px]')}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        openSidePanel(defaultTab)
+                    }}
+                    tooltip={
+                        <>
+                            Open context panel
+                            <RenderKeybind className="relative -top-px ml-1" keybind={[keyBinds.toggleRightNav]} />
+                        </>
+                    }
+                    tooltipPlacement="bottom-end"
+                    tooltipCloseDelayMs={0}
+                    iconOnly
+                    data-attr="open-context-panel-button"
+                >
+                    <IconSidePanel className="text-primary group-hover:text-primary z-10" />
+                </ButtonPrimitive>
+            )}
         </>
     )
 }
