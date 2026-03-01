@@ -60,7 +60,6 @@ import {
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
-import { recordingsUniversalFiltersEmbedLogic } from './recordingsUniversalFiltersEmbedLogic'
 import { SavedFilters } from './SavedFilters'
 
 function HideRecordingsMenu(): JSX.Element {
@@ -215,7 +214,6 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
     useMountedLogic(groupsModel)
-    useMountedLogic(recordingsUniversalFiltersEmbedLogic)
 
     const { activeFilterTab } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistFiltersLogic)
