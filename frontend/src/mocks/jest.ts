@@ -15,7 +15,7 @@ beforeAll(() => {
         onUnhandledRequest(req) {
             const { hostname } = new URL(req.url)
             // Silence external requests entirely
-            if (hostname.endsWith('posthog.com') || hostname.endsWith('gravatar.com')) {
+            if (hostname === 'posthog.com' || hostname.endsWith('.posthog.com') || hostname === 'gravatar.com' || hostname.endsWith('.gravatar.com')) {
                 return
             }
             // Single-line warning instead of verbose multi-line stack trace
