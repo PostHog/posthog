@@ -250,6 +250,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/session_recording_playlists/:playlist_id/': {},
         '/api/environments/@current/add_product_intent/': MOCK_DEFAULT_TEAM,
         '/api/environments/:team_id/': MOCK_DEFAULT_TEAM,
+        '/api/user_home_settings/@me/': {},
     },
     options: {
         'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
