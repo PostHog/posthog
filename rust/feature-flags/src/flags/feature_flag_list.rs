@@ -88,6 +88,7 @@ impl FeatureFlagList {
                   f.deleted,
                   f.active,
                   f.ensure_experience_continuity,
+                  f.has_encrypted_payloads,
                   f.version,
                   f.evaluation_runtime,
                   COALESCE(
@@ -111,7 +112,7 @@ impl FeatureFlagList {
               -- Use IS TRUE to handle NULL values (NULL IS TRUE evaluates to FALSE, not NULL)
               AND NOT (f.is_remote_configuration IS TRUE AND f.has_encrypted_payloads IS TRUE)
             GROUP BY f.id, f.team_id, f.name, f.key, f.filters, f.deleted, f.active,
-                     f.ensure_experience_continuity, f.version, f.evaluation_runtime
+                     f.ensure_experience_continuity, f.has_encrypted_payloads, f.version, f.evaluation_runtime
         "#;
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
             .bind(team_id)
@@ -139,6 +140,7 @@ impl FeatureFlagList {
                         deleted: row.deleted,
                         active: row.active,
                         ensure_experience_continuity: row.ensure_experience_continuity,
+                        has_encrypted_payloads: row.has_encrypted_payloads,
                         version: row.version,
                         evaluation_runtime: row.evaluation_runtime,
                         evaluation_tags: row.evaluation_tags,
@@ -314,6 +316,7 @@ mod tests {
             deleted: false,
             active: true,
             ensure_experience_continuity: Some(false),
+            has_encrypted_payloads: None,
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
@@ -329,6 +332,7 @@ mod tests {
             deleted: false,
             active: true,
             ensure_experience_continuity: Some(false),
+            has_encrypted_payloads: None,
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
@@ -608,6 +612,7 @@ mod tests {
             deleted: false,
             active: true,
             ensure_experience_continuity: Some(false),
+            has_encrypted_payloads: None,
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,

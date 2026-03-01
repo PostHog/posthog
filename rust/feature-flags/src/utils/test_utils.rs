@@ -521,6 +521,7 @@ pub async fn insert_flag_for_team_in_pg(
             active: true,
             deleted: false,
             ensure_experience_continuity: Some(false),
+            has_encrypted_payloads: None,
             team_id,
             filters: json!({
                 "groups": [
@@ -813,6 +814,7 @@ pub fn create_test_flag(
         deleted: deleted.unwrap_or(false),
         active: active.unwrap_or(true),
         ensure_experience_continuity: Some(ensure_experience_continuity.unwrap_or(false)),
+        has_encrypted_payloads: None,
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
         evaluation_tags: None,

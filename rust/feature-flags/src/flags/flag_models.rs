@@ -104,6 +104,8 @@ pub struct FeatureFlag {
     #[serde(default)]
     pub ensure_experience_continuity: Option<bool>,
     #[serde(default)]
+    pub has_encrypted_payloads: Option<bool>,
+    #[serde(default)]
     pub version: Option<i32>,
     #[serde(default)]
     pub evaluation_runtime: Option<String>,
@@ -134,6 +136,8 @@ pub struct FeatureFlagRow {
     pub deleted: bool,
     pub active: bool,
     pub ensure_experience_continuity: Option<bool>,
+    #[serde(default)]
+    pub has_encrypted_payloads: Option<bool>,
     pub version: Option<i32>,
     #[serde(default)]
     pub evaluation_runtime: Option<String>,

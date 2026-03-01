@@ -13,6 +13,7 @@ const TEAM_COLUMNS: &str = "
     name,
     api_token,
     organization_id,
+    project_id,
     cookieless_server_hash_mode,
     timezone,
     autocapture_opt_out,

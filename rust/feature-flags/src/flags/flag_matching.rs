@@ -1088,6 +1088,7 @@ impl FeatureFlagMatcher {
                     name: None,
                     deleted: false,
                     ensure_experience_continuity: None,
+                    has_encrypted_payloads: None,
                     evaluation_runtime: None,
                     evaluation_tags: None,
                     bucketing_identifier: None,

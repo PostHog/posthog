@@ -10,6 +10,8 @@ pub struct Team {
     pub api_token: String,
     pub uuid: Uuid,
     pub organization_id: Option<Uuid>,
+    #[serde(default)]
+    pub project_id: i64,
     pub autocapture_opt_out: Option<bool>,
     pub autocapture_exceptions_opt_in: Option<bool>,
     pub autocapture_web_vitals_opt_in: Option<bool>,

@@ -1,10 +1,15 @@
+use std::time::Instant;
+
 use crate::{
-    api::{auth, errors::FlagError},
+    api::{auth, errors::FlagError, flag_definitions_from_pg::load_flag_definitions_from_pg},
     flags::{
         flag_analytics::increment_request_count, flag_request::FlagRequestType,
         flag_service::FlagService,
     },
     handler::types::Library,
+    metrics::consts::{
+        FLAG_DEFINITIONS_DB_FALLBACK_COUNTER, FLAG_DEFINITIONS_DB_FALLBACK_DURATION,
+    },
     router::State as AppState,
     team::team_models::Team,
 };
@@ -16,6 +21,7 @@ use axum::{
 };
 use common_hypercache::{CacheSource, KeyType};
 use common_metrics::inc;
+use metrics::histogram;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::info;
@@ -47,8 +53,8 @@ pub struct FlagDefinitionsQueryParams {
 /// The authentication must have access to the team specified by the token parameter.
 ///
 /// **Response:**
-/// The response is retrieved directly from Redis cache using Django's cache keys.
-/// No database fallback is provided - if the cache is empty, an error is returned.
+/// The response is first retrieved from HyperCache (Redis/S3). On cache miss,
+/// the response is built from PostgreSQL to avoid returning a 503.
 /// The response always includes cohort definitions.
 #[debug_handler]
 pub async fn flags_definitions(
@@ -98,10 +104,27 @@ pub async fn flags_definitions(
         }
     }
 
-    // Retrieve cached response from HyperCache (always with cohorts)
-    let cached_response = get_from_cache(&state, &team).await?;
+    // Try cache first, fall back to database on miss
+    let response = match get_from_cache(&state, &team).await {
+        Ok(cached) => cached,
+        Err(FlagError::CacheMiss) => {
+            info!(team_id = team.id, "Cache miss, falling back to database");
+            inc(FLAG_DEFINITIONS_DB_FALLBACK_COUNTER, &[], 1);
+            let start = Instant::now();
+            let result = load_flag_definitions_from_pg(
+                state.database_pools.non_persons_reader.clone(),
+                team.id,
+                team.project_id,
+            )
+            .await?;
+            histogram!(FLAG_DEFINITIONS_DB_FALLBACK_DURATION)
+                .record(start.elapsed().as_millis() as f64);
+            result
+        }
+        Err(e) => return Err(e),
+    };
 
-    Ok(Json(cached_response).into_response())
+    Ok(Json(response).into_response())
 }
 
 /// Handles non-GET HTTP methods (HEAD, OPTIONS, and unsupported methods)

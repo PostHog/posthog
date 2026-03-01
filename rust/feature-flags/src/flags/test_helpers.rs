@@ -70,6 +70,7 @@ pub fn create_simple_flag(properties: Vec<PropertyFilter>, rollout_percentage: f
         deleted: false,
         active: true,
         ensure_experience_continuity: Some(false),
+        has_encrypted_payloads: None,
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
         evaluation_tags: None,
