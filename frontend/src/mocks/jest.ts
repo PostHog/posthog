@@ -11,7 +11,17 @@ window.confirm = jest.fn()
 
 beforeAll(() => {
     useAvailableFeatures([])
-    mswServer.listen()
+    mswServer.listen({
+        onUnhandledRequest(req) {
+            const url = req.url.toString()
+            // Silence external requests entirely
+            if (url.includes('us.i.posthog.com') || url.includes('gravatar.com')) {
+                return
+            }
+            // Single-line warning instead of verbose multi-line stack trace
+            console.warn(`[MSW] Unhandled ${req.method} ${url}`)
+        },
+    })
 })
 afterEach(() => mswServer.resetHandlers())
 afterAll(() => mswServer.close())
