@@ -595,7 +595,7 @@ async def materialize_model(
                 f"Data type not supported in model {model_label}: {error_message}. This is likely due to decimal precision."
             ) from e
         elif "is not supported for conversion into Arrow" in error_message:
-            error_message = "Column type not supported for Arrow export. Try casting UUID or IP address columns to strings using toString()."
+            error_message = "Column type not supported for Arrow export. Ensure all columns use supported data types, or cast unsupported columns to strings."
             saved_query.latest_error = error_message
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
@@ -882,11 +882,9 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
                 is_array_type = ch_type.lower().startswith("array(")
 
-                # For array types, we only skip conversion if the inner type is natively supported
-                # by Arrow (e.g. Array(DateTime) is fine). But Array(UUID), Array(IPv4), etc.
-                # are NOT supported by ArrowStream and need arrayMap(x -> toString(x), col).
-                # For scalar types, we skip if it's an array (handled above).
-                # Skip plain array types whose inner type IS Arrow-compatible (e.g. Array(String), Array(Int64))
+                # Only skip array types whose inner type is natively Arrow-compatible (not in
+                # arrow_type_conversion), e.g. Array(String) or Array(Int64).
+                # Array(UUID), Array(IPv4), Array(DateTime), etc. are converted via arrayMap.
                 is_skippable_array = is_array_type and not any(
                     uat.lower() in ch_type.lower() for uat in arrow_type_conversion.keys()
                 )
