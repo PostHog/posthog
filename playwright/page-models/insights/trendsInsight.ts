@@ -65,7 +65,7 @@ export class TrendsInsight extends ChartInsightBase {
         const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
         await searchField.waitFor({ state: 'visible' })
         await searchField.fill(eventName)
-        const row = this.page.locator('[data-attr^="prop-filter-"]').filter({ hasText: eventName }).first()
+        const row = this.page.getByRole('button', { name: eventName }).first()
         await row.waitFor({ state: 'visible' })
         await row.click()
         await this.waitForChart()
@@ -76,11 +76,9 @@ export class TrendsInsight extends ChartInsightBase {
         const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
         await searchField.waitFor({ state: 'visible' })
         await searchField.fill(property)
-        const row = this.page.locator('[data-attr^="prop-filter-"]').filter({ hasText: property }).first()
+        const row = this.page.getByRole('button', { name: property }).first()
         await row.waitFor({ state: 'visible', timeout: 15000 })
         await row.click()
-        // Dismiss any lingering property info panel that opens instead of closing the popover
-        await this.page.keyboard.press('Escape')
     }
 
     async setFormula(formula: string): Promise<void> {
@@ -120,7 +118,7 @@ export class TrendsInsight extends ChartInsightBase {
         const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
         await searchField.waitFor({ state: 'visible' })
         await searchField.fill(property)
-        const row = this.page.locator('[data-attr^="prop-filter-"]').filter({ hasText: property }).first()
+        const row = this.page.getByRole('button', { name: property }).first()
         await row.waitFor({ state: 'visible' })
         await row.click()
         await this.waitForChart()
