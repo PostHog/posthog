@@ -370,7 +370,12 @@ const NodeComponent = React.memo(function NodeComponent(props: { id: string; dat
     const canOpenInEditor = type !== 'table' && type !== 'endpoint' && savedQueryId
     const handleNodeClick = useCallback((): void => {
         if (type === 'endpoint') {
-            newTab(urls.endpoint(props.data.name))
+            const versionMatch = props.data.name.match(/^(.+)_v(\d+)$/)
+            if (versionMatch) {
+                newTab(urls.endpoint(versionMatch[1], parseInt(versionMatch[2])))
+            } else {
+                newTab(urls.endpoint(props.data.name))
+            }
         } else if (canOpenInEditor) {
             newTab(urls.sqlEditor({ view_id: savedQueryId }))
         }

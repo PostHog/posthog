@@ -64,8 +64,6 @@ export interface NodeApi {
     readonly user_tag: string | null
     /** @nullable */
     readonly sync_interval: string | null
-    /** @nullable */
-    readonly endpoint_name: string | null
 }
 
 export interface PaginatedNodeListApi {
