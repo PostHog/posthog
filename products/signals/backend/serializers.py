@@ -46,7 +46,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "updated_at",
             "artefact_count",
         ]
-        read_only_fields = fields
+        read_only_fields = [f for f in fields if f != "status"]
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):

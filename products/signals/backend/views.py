@@ -104,7 +104,9 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     list=extend_schema(exclude=True),
     retrieve=extend_schema(exclude=True),
 )
-class SignalReportViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewSet):
+class SignalReportViewSet(
+    TeamAndOrgViewSetMixin, mixins.UpdateModelMixin, mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewSet
+):
     serializer_class = SignalReportSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]

@@ -40,6 +40,7 @@ class SignalReport(UUIDModel):
         PENDING_INPUT = "pending_input"
         READY = "ready"
         FAILED = "failed"
+        DISMISSED = "dismissed"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.POTENTIAL)
