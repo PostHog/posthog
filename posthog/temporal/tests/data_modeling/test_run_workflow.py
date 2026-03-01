@@ -1763,3 +1763,68 @@ async def test_create_default_modifiers_for_team_in_async_context(ateam):
             create_default_modifiers_for_team(team)
         # wrapped doesn't raise
         await database_sync_to_async(create_default_modifiers_for_team)(team)
+
+
+async def test_hogql_table_converts_array_uuid_columns_with_array_map(ateam):
+    """Regression test: Array(UUID) columns must be converted using arrayMap(x -> toString(x), col).
+
+    ClickHouse cannot output UUID types in ArrowStream format, which causes:
+      'The type UUID of a column person_ids is not supported for conversion into Arrow data format'
+    This affects columns like person_ids (which is Array(UUID) on the raw_sessions table).
+    The fix uses arrayMap to apply toString to each element instead of wrapping the whole column.
+    """
+    captured_sql = None
+
+    async def mock_astream_query(self, query, *args, **kwargs):
+        nonlocal captured_sql
+        captured_sql = query
+        return
+        yield  # type: ignore[unreachable]
+
+    # Simulate DESCRIBE TABLE returning a column of type Array(UUID)
+    describe_response = b"person_ids\tArray(UUID)\t\t\t\t\t"
+
+    async def mock_apost_query(self, query, *args, **kwargs):
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.content.read = unittest.mock.AsyncMock(return_value=describe_response)
+        return mock_response.__aenter__.return_value
+
+    logger = unittest.mock.AsyncMock()
+    query = "SELECT groupArray(person_id) AS person_ids FROM events LIMIT 1"
+
+    with (
+        unittest.mock.patch(
+            "posthog.temporal.common.clickhouse.ClickHouseClient.astream_query_as_arrow",
+            mock_astream_query,
+        ),
+        unittest.mock.patch(
+            "posthog.temporal.common.clickhouse.ClickHouseClient.apost_query",
+        ) as mock_post,
+    ):
+        # Set up the context manager mock for apost_query
+        mock_ctx = unittest.mock.AsyncMock()
+        mock_ctx.__aenter__ = unittest.mock.AsyncMock(
+            return_value=unittest.mock.AsyncMock(
+                content=unittest.mock.AsyncMock(read=unittest.mock.AsyncMock(return_value=describe_response))
+            )
+        )
+        mock_ctx.__aexit__ = unittest.mock.AsyncMock(return_value=None)
+        mock_post.return_value = mock_ctx
+
+        try:
+            async for _ in hogql_table(query, ateam, logger):
+                break
+        except (StopAsyncIteration, StopIteration):
+            pass
+
+    # The generated ArrowStream SQL should use arrayMap to convert Array(UUID) to Array(String)
+    assert captured_sql is not None, "SQL was not captured"
+    assert "arrayMap" in captured_sql, (
+        f"Expected arrayMap in SQL for Array(UUID) conversion, got: {captured_sql}"
+    )
+    assert "toString" in captured_sql, (
+        f"Expected toString in SQL for Array(UUID) conversion, got: {captured_sql}"
+    )
+    assert "person_ids" in captured_sql, (
+        f"Expected person_ids column in SQL, got: {captured_sql}"
+    )
