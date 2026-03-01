@@ -225,7 +225,6 @@ export const defaultMocks: Mocks = {
         '/api/sdk_versions/': sdkVersions,
         '/api/team_sdk_versions/': teamSdkVersions,
         '/api/environments/:team_id/endpoints/': EMPTY_PAGINATED_RESPONSE,
-        '/api/user_home_settings/@me/': {},
         '/api/projects/:team_id/signal_source_configs/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/eligible_feature_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/stats/': {},
@@ -250,7 +249,6 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/session_recording_playlists/:playlist_id/': {},
         '/api/environments/@current/add_product_intent/': MOCK_DEFAULT_TEAM,
         '/api/environments/:team_id/': MOCK_DEFAULT_TEAM,
-        '/api/user_home_settings/@me/': {},
     },
     options: {
         'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
