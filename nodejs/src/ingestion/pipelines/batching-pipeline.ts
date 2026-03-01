@@ -18,6 +18,14 @@ export function batch<CBatch, TInput, C>(
     return { batchContext, elements }
 }
 
+export interface BatchingPipelineOptions {
+    concurrentBatches: number
+}
+
+const BATCHING_PIPELINE_DEFAULTS: BatchingPipelineOptions = {
+    concurrentBatches: 1,
+}
+
 interface TrackedBatch<TOutput, CBatch, CSubOut> {
     batchContext: CBatch
     messageIds: number[]
@@ -73,6 +81,8 @@ export class BatchingPipeline<
     private batches = new Map<number, TrackedBatch<TOutput, CBatch, CSubOut>>()
     private messageIdToBatchId = new Map<number, number>()
 
+    private options: BatchingPipelineOptions
+
     constructor(
         private subPipeline: BatchPipeline<TInput, TOutput, CSubIn, CSubOut>,
         private hooks: {
@@ -87,11 +97,19 @@ export class BatchingPipeline<
             ) =>
                 | BatchPipelineResultWithContext<TOutput, CSubOut>
                 | Promise<BatchPipelineResultWithContext<TOutput, CSubOut>>
-        }
-    ) {}
+        },
+        options?: Partial<BatchingPipelineOptions>
+    ) {
+        this.options = { ...BATCHING_PIPELINE_DEFAULTS, ...options }
+    }
 
     feed(elements: BatchPipelineResultWithContext<TInput, CInput>): FeedResult {
+        if (this.batches.size >= this.options.concurrentBatches) {
+            return { ok: false, reason: `at concurrent batch capacity (${this.options.concurrentBatches})` }
+        }
+
         const batchId = this.nextBatchId++
+
         const messageIds: number[] = []
         const inflight = new Set<number>()
 

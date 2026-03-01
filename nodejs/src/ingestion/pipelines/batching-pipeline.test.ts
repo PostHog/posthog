@@ -42,11 +42,12 @@ describe('BatchingPipeline', () => {
         afterBatch = jest.fn()
     })
 
-    function createCollector() {
+    function createCollector(options?: { concurrentBatches?: number }) {
         return newBatchingPipeline<any, any, MsgCtx, Record<string, never>, SubCtx>(
             beforeBatch,
             (builder) => builder,
-            afterBatch
+            afterBatch,
+            { concurrentBatches: Infinity, ...options }
         )
     }
 
@@ -54,7 +55,8 @@ describe('BatchingPipeline', () => {
         return newBatchingPipeline<any, any, MsgCtx, Record<string, never>, SubCtx>(
             beforeBatch,
             (builder) => builder.concurrently((b) => b.pipe((value) => Promise.resolve(ok(value)))),
-            afterBatch
+            afterBatch,
+            { concurrentBatches: Infinity }
         )
     }
 
@@ -256,7 +258,8 @@ describe('BatchingPipeline', () => {
                 })),
             }),
             (builder) => builder,
-            () => {}
+            () => {},
+            { concurrentBatches: Infinity }
         )
 
         collector.feed(makeBatch([1, 2]))
@@ -279,7 +282,8 @@ describe('BatchingPipeline', () => {
             (builder) => builder,
             (batchContext) => {
                 captured.push(batchContext)
-            }
+            },
+            { concurrentBatches: Infinity }
         )
 
         collector.feed(makeBatch([1]))
@@ -290,5 +294,37 @@ describe('BatchingPipeline', () => {
             { personsStore: 'persons-0', groupStore: 'groups-0' },
             { personsStore: 'persons-1', groupStore: 'groups-1' },
         ])
+    })
+
+    describe('concurrentBatches', () => {
+        it('feed() rejects with reason when at limit (default concurrentBatches: 1)', () => {
+            const collector = createCollector({ concurrentBatches: 1 })
+
+            expect(collector.feed(makeBatch([1]))).toEqual({ ok: true })
+            expect(collector.feed(makeBatch([2]))).toMatchObject({ ok: false, reason: expect.any(String) })
+        })
+
+        it('draining a batch frees a slot', async () => {
+            const collector = createCollector({ concurrentBatches: 1 })
+
+            expect(collector.feed(makeBatch([1])).ok).toBe(true)
+            expect(collector.feed(makeBatch([2])).ok).toBe(false)
+
+            await drainAll(collector)
+
+            expect(collector.feed(makeBatch([3])).ok).toBe(true)
+        })
+
+        it('feed() accepts when under limit and rejects when at limit', async () => {
+            const collector = createCollector({ concurrentBatches: 2 })
+
+            expect(collector.feed(makeBatch([1])).ok).toBe(true)
+            expect(collector.feed(makeBatch([2])).ok).toBe(true)
+            expect(collector.feed(makeBatch([3])).ok).toBe(false)
+
+            await drainAll(collector)
+
+            expect(collector.feed(makeBatch([4])).ok).toBe(true)
+        })
     })
 })
