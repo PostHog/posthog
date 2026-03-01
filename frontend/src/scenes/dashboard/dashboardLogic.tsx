@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import uniqBy from 'lodash.uniqby'
+import posthog from 'posthog-js'
 import { Layout, Layouts } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
@@ -181,8 +182,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadingDashboardItemsStarted: (action: DashboardLoadAction) => ({ action }),
         /** Expose response size information about the current dashboard load in dashboardLoadData. */
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
-        /** Manually refresh the entire dashboard. */
-        triggerDashboardRefresh: true,
+        /** Manually refresh the entire dashboard. Pass withAnalysis: true to also run AI analysis after refresh. */
+        triggerDashboardRefresh: (payload?: { withAnalysis?: boolean }) => ({
+            withAnalysis: payload?.withAnalysis ?? false,
+        }),
         /** Manually refresh a single insight from the insight card on the dashboard. */
         refreshDashboardItem: (payload: { tile: DashboardTile<QueryBasedInsightModel> }) => payload,
         /** Refresh tiles of a loaded dashboard e.g. stale tiles after initial load, previewed tiles after applying filters, etc. */
@@ -292,6 +295,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             loadLayoutFromServerOnPreview,
         }),
         dashboardNotFound: true,
+
+        /**
+         * AI Dashboard Refresh Analysis.
+         */
+        setAnalyzeStatus: (isAnalyzing: boolean) => ({ isAnalyzing }),
+        setRefreshAnalysisCacheKey: (cacheKey: string | null) => ({ cacheKey }),
+        setRefreshAnalysisResult: (result: string | null) => ({ result }),
+        setAnalysisRating: (rating: 'up' | 'down' | null) => ({ rating }),
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -877,6 +888,35 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }),
             },
         ],
+        refreshAnalysisCacheKey: [
+            null as string | null,
+            {
+                setRefreshAnalysisCacheKey: (_, { cacheKey }) => cacheKey,
+                triggerDashboardRefresh: () => null,
+            },
+        ],
+        refreshAnalysisResult: [
+            null as string | null,
+            {
+                setRefreshAnalysisResult: (_, { result }) => result,
+                triggerDashboardRefresh: () => null,
+            },
+        ],
+        analysisRating: [
+            null as 'up' | 'down' | null,
+            {
+                setAnalysisRating: (_, { rating }) => rating,
+                setRefreshAnalysisResult: () => null,
+                triggerDashboardRefresh: () => null,
+            },
+        ],
+        isAnalyzing: [
+            false,
+            {
+                setAnalyzeStatus: (_, { isAnalyzing }) => isAnalyzing,
+                triggerDashboardRefresh: () => false,
+            },
+        ],
         isSavingTags: [
             false,
             {
@@ -1128,9 +1168,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         textTiles: [(s) => [s.tiles], (tiles) => tiles.filter((t) => !!t.text)],
         itemsLoading: [
-            (s) => [s.dashboardLoading, s.dashboardStreaming, s.refreshStatus, s.initialVariablesLoaded],
-            (dashboardLoading, dashboardStreaming, refreshStatus, initialVariablesLoaded) => {
+            (s) => [s.dashboardLoading, s.dashboardStreaming, s.refreshStatus, s.initialVariablesLoaded, s.isAnalyzing],
+            (dashboardLoading, dashboardStreaming, refreshStatus, initialVariablesLoaded, isAnalyzing) => {
                 return (
+                    isAnalyzing ||
                     dashboardLoading ||
                     dashboardStreaming ||
                     Object.values(refreshStatus).some((s) => s.loading || s.queued) ||
@@ -1372,6 +1413,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        setAnalysisRating: ({ rating }) => {
+            posthog.capture('dashboard refresh ai analysis feedback', {
+                rating: rating === 'up' ? 'thumbs_up' : 'thumbs_down',
+                analysis_text: values.refreshAnalysisResult,
+            })
+        },
         updateTileColor: async ({ tileId, color }) => {
             const previousColor = values.tiles.find((tile) => tile.id === tileId)?.color
             actions.setTileProperty(tileId, { color })
@@ -1420,6 +1467,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 primary_interaction_id: dashboardQueryId,
                 time_to_see_data_ms: Math.floor(performance.now() - startTime),
             })
+
+            if (values.isAnalyzing) {
+                actions.setAnalyzeStatus(false)
+                actions.setRefreshAnalysisCacheKey(null)
+            }
         },
         tileStreamingFailure: ({ error }) => {
             if (error?.message?.includes('404') || error?.status === 404) {
@@ -1492,9 +1544,32 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         /** Triggered from dashboard refresh button, when user refreshes entire dashboard */
-        triggerDashboardRefresh: () => {
-            // reset auto refresh interval
+        triggerDashboardRefresh: async ({ withAnalysis }, breakpoint) => {
             actions.resetInterval()
+
+            if (withAnalysis) {
+                try {
+                    // Snapshot the current cached state ("before") before any refresh happens
+                    const snapshotResponse = await api.create(
+                        `api/environments/${values.currentTeamId}/dashboards/${props.id}/snapshot`,
+                        {}
+                    )
+                    const { cache_key: cacheKey } = snapshotResponse
+
+                    if (!cacheKey) {
+                        throw new Error('No cache key returned from snapshot')
+                    }
+
+                    actions.setRefreshAnalysisCacheKey(cacheKey)
+                    actions.setAnalyzeStatus(true)
+
+                    await breakpoint()
+                } catch (e: any) {
+                    lemonToast.error('Failed to start analysis: ' + String(e))
+                    return
+                }
+            }
+
             actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh, forceRefresh: true })
         },
         /** Called when a single insight is refreshed manually on the dashboard */
@@ -1693,6 +1768,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         refreshDurationMs: Math.floor(performance.now() - dashboardRefreshStartTime),
                     }
                 )
+
+                // Run AI analysis after tiles finish, if it was requested and refresh wasn't aborted
+                if (values.isAnalyzing && values.refreshAnalysisCacheKey && tilesAbortedCount === 0) {
+                    const cacheKey = values.refreshAnalysisCacheKey
+                    try {
+                        const analysisResponse = await api.create(
+                            `api/environments/${values.currentTeamId}/dashboards/${dashboardId}/analyze_refresh_result`,
+                            { cache_key: cacheKey }
+                        )
+                        actions.setRefreshAnalysisResult(analysisResponse.result)
+                    } catch (e: any) {
+                        lemonToast.error('Failed to analyze dashboard changes: ' + String(e))
+                    } finally {
+                        actions.setAnalyzeStatus(false)
+                        actions.setRefreshAnalysisCacheKey(null)
+                    }
+                }
             }
         },
         saveEditModeChanges: () => {

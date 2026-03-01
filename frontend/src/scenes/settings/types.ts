@@ -51,6 +51,7 @@ export type SettingSectionId =
     | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'organization-details'
     | 'organization-integrations'
+    | 'organization-oauth-apps'
     | 'organization-members'
     | 'organization-notifications'
     | 'organization-roles'
@@ -136,6 +137,7 @@ export type SettingId =
     | 'project-move'
     | 'organization-display-name'
     | 'organization-integrations-list'
+    | 'organization-oauth-apps-list'
     | 'invites'
     | 'members'
     | 'email-members'

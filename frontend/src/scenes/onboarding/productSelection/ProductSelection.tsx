@@ -1,8 +1,37 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import * as Icons from '@posthog/icons'
-import { IconArrowRight, IconChevronDown, IconSparkles } from '@posthog/icons'
+import {
+    IconArrowRight,
+    IconBolt,
+    IconBuilding,
+    IconChevronDown,
+    IconClock,
+    IconCursor,
+    IconDatabase,
+    IconDecisionTree,
+    IconDownload,
+    IconGear,
+    IconGraph,
+    IconLlmAnalytics,
+    IconLogomark,
+    IconMessage,
+    IconNotification,
+    IconPassword,
+    IconPeople,
+    IconPieChart,
+    IconPlaylist,
+    IconRevert,
+    IconRewindPlay,
+    IconSampling,
+    IconSparkles,
+    IconStack,
+    IconTerminal,
+    IconTestTube,
+    IconToggle,
+    IconUnlock,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
@@ -15,7 +44,35 @@ import { UseCaseDefinition } from '../productRecommendations'
 import { availableOnboardingProducts } from '../utils'
 import { productSelectionLogic } from './productSelectionLogic'
 
-const isValidIconKey = (key: string): key is keyof typeof Icons => key in Icons
+const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {
+    IconBolt,
+    IconBuilding,
+    IconClock,
+    IconCursor,
+    IconDatabase,
+    IconDecisionTree,
+    IconDownload,
+    IconGear,
+    IconGraph,
+    IconLlmAnalytics,
+    IconLogomark,
+    IconMessage,
+    IconNotification,
+    IconPassword,
+    IconPeople,
+    IconPieChart,
+    IconPlaylist,
+    IconRevert,
+    IconRewindPlay,
+    IconSampling,
+    IconStack,
+    IconTerminal,
+    IconTestTube,
+    IconToggle,
+    IconUnlock,
+    IconWarning,
+}
+
 type AvailableOnboardingProductKey = keyof typeof availableOnboardingProducts
 
 const isAvailableOnboardingProductKey = (key: string | ProductKey): key is AvailableOnboardingProductKey =>
@@ -25,12 +82,12 @@ export function getProductIcon(
     iconKey?: string | null,
     { iconColor, className }: { iconColor?: string; className?: string } = {}
 ): JSX.Element {
-    if (iconKey && isValidIconKey(iconKey)) {
-        const IconComponent = Icons[iconKey]
+    const IconComponent = iconKey ? ICON_MAP[iconKey] : undefined
+    if (IconComponent) {
         return <IconComponent className={className} color={iconColor} />
     }
 
-    return <Icons.IconLogomark className={className} />
+    return <IconLogomark className={className} />
 }
 
 function BrowsingHistoryBanner(): JSX.Element | null {
@@ -170,7 +227,7 @@ function ChoosePathStep(): JSX.Element {
                 >
                     <div className="flex flex-col items-center text-center gap-3">
                         <div className="text-3xl">
-                            <Icons.IconCursor className="text-3xl" color="rgb(100, 116, 139)" />
+                            <IconCursor className="text-3xl" color="rgb(100, 116, 139)" />
                         </div>
                         <div>
                             <div className="font-semibold mb-1">I'll pick myself</div>

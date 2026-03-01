@@ -3,7 +3,8 @@ import './Dashboard.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
@@ -69,10 +70,13 @@ function DashboardScene(): JSX.Element {
         dashboardFailedToLoad,
         accessDeniedToDashboard,
         hasVariables,
+        refreshAnalysisResult,
+        analysisRating,
     } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, setRefreshAnalysisResult, setAnalysisRating } =
+        useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
     useFileSystemLogView({
         type: 'dashboard',
@@ -111,6 +115,37 @@ function DashboardScene(): JSX.Element {
                     })}
                 >
                     <DashboardOverridesBanner />
+
+                    {refreshAnalysisResult && (
+                        <LemonBanner
+                            type="info"
+                            onClose={() => setRefreshAnalysisResult(null)}
+                            className="mb-4 [&>.flex]:items-start"
+                            hideIcon
+                        >
+                            <div className="whitespace-pre-wrap">{refreshAnalysisResult}</div>
+                            <div className="flex items-center gap-0.5 mt-2">
+                                {analysisRating ? (
+                                    <span className="text-muted text-xs">Thanks for the feedback!</span>
+                                ) : (
+                                    <>
+                                        <LemonButton
+                                            size="xsmall"
+                                            icon={<IconThumbsUp />}
+                                            tooltip="Helpful"
+                                            onClick={() => setAnalysisRating('up')}
+                                        />
+                                        <LemonButton
+                                            size="xsmall"
+                                            icon={<IconThumbsDown />}
+                                            tooltip="Not helpful"
+                                            onClick={() => setAnalysisRating('down')}
+                                        />
+                                    </>
+                                )}
+                            </div>
+                        </LemonBanner>
+                    )}
 
                     <SceneStickyBar showBorderBottom={false}>
                         <div className="flex gap-2 justify-between">
