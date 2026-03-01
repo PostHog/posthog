@@ -13,13 +13,13 @@ beforeAll(() => {
     useAvailableFeatures([])
     mswServer.listen({
         onUnhandledRequest(req) {
-            const url = req.url.toString()
+            const { hostname } = new URL(req.url)
             // Silence external requests entirely
-            if (url.includes('us.i.posthog.com') || url.includes('gravatar.com')) {
+            if (hostname.endsWith('posthog.com') || hostname.endsWith('gravatar.com')) {
                 return
             }
             // Single-line warning instead of verbose multi-line stack trace
-            console.warn(`[MSW] Unhandled ${req.method} ${url}`)
+            console.warn(`[MSW] Unhandled ${req.method} ${req.url}`)
         },
     })
 })
