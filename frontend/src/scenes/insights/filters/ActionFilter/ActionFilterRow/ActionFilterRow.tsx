@@ -374,9 +374,7 @@ export function ActionFilterRow({
             data-attr={'trend-element-subject-' + index}
             fullWidth
             truncate
-            groupType={
-                showQuickFilters ? TaxonomicFilterGroupType.SuggestedFilters : (filter.type as TaxonomicFilterGroupType)
-            }
+            groupType={TaxonomicFilterGroupType.SuggestedFilters}
             value={getValue(value, filter)}
             filter={filter}
             onChange={(changedValue, taxonomicGroupType, item) => {
