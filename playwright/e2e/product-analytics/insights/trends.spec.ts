@@ -1,47 +1,9 @@
 import { InsightPage } from '../../../page-models/insightPage'
 import { randomString } from '../../../utils'
-import { createEvent, daysAgo } from '../../../utils/event-data'
+import { customEventsWithBreakdown, pageviews } from '../../../utils/test-data'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'
 
-const PAGEVIEW = '$pageview'
-const CUSTOM_EVENT = 'trends_test_event'
-const pvUser = (n: number): string => `pv-user-${n}`
-const customUser = (n: number): string => `custom-user-${n}`
-
-const EXPECTED_TOTAL_PAGEVIEWS = 38
-const EXPECTED_CUSTOM_EVENT_COUNT = 8
-const EXPECTED_CHROME_COUNT = 5
-const EXPECTED_FIREFOX_COUNT = 3
-const EXPECTED_AMOUNT_SUM = 35
-const EXPECTED_CHROME_AMOUNT_SUM = 50
-const EXPECTED_FIREFOX_AMOUNT_SUM = -15
-
-const events = [
-    // Pageviews: descending daily pattern over 7 days
-    ...createEvent({ event: PAGEVIEW, user: pvUser, timestamp: daysAgo(6) }).repeat(10),
-    ...createEvent({ event: PAGEVIEW, user: pvUser, timestamp: daysAgo(5) }).repeat(8),
-    ...createEvent({ event: PAGEVIEW, user: pvUser, timestamp: daysAgo(4) }).repeat(6),
-    ...createEvent({ event: PAGEVIEW, user: pvUser, timestamp: daysAgo(3) }).repeat(5),
-    ...createEvent({ event: PAGEVIEW, user: pvUser, timestamp: daysAgo(2) }).repeat(4),
-    ...createEvent({ event: PAGEVIEW, user: pvUser, timestamp: daysAgo(1) }).repeat(3),
-    ...createEvent({ event: PAGEVIEW, user: pvUser, timestamp: daysAgo(0) }).repeat(2),
-
-    // Custom events: Chrome with positive amounts
-    ...createEvent({
-        event: CUSTOM_EVENT,
-        user: customUser,
-        timestamp: daysAgo(3),
-        properties: { $browser: 'Chrome', amount: 10 },
-    }).repeat(5),
-
-    // Custom events: Firefox with negative amounts
-    ...createEvent({
-        event: CUSTOM_EVENT,
-        user: customUser,
-        timestamp: daysAgo(2),
-        properties: { $browser: 'Firefox', amount: -5 },
-    }).repeat(3),
-]
+const events = [...pageviews.events, ...customEventsWithBreakdown.events]
 
 test.describe('Trends insights', () => {
     test.setTimeout(60_000)
@@ -77,8 +39,8 @@ test.describe('Trends insights', () => {
 
         await test.step('verify total pageview count in details table', async () => {
             await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.getDetailsTotals()
-            expect(totals).toEqual([String(EXPECTED_TOTAL_PAGEVIEWS)])
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual([pageviews.expected.total])
         })
     })
 
@@ -88,11 +50,11 @@ test.describe('Trends insights', () => {
         await insight.trends.waitForChart()
 
         await test.step('change event to custom event and verify total', async () => {
-            await insight.trends.selectEvent(0, CUSTOM_EVENT)
+            await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
             await insight.trends.waitForChart()
             await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.getDetailsTotals()
-            expect(totals).toEqual([String(EXPECTED_CUSTOM_EVENT_COUNT)])
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual([customEventsWithBreakdown.expected.total])
         })
 
         await test.step('add second series with pageview and verify both totals', async () => {
@@ -100,8 +62,8 @@ test.describe('Trends insights', () => {
             await insight.trends.selectEvent(1, 'Pageview')
             await insight.trends.waitForChart()
             await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.getDetailsTotals()
-            expect(totals).toEqual([String(EXPECTED_CUSTOM_EVENT_COUNT), String(EXPECTED_TOTAL_PAGEVIEWS)])
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual([customEventsWithBreakdown.expected.total, pageviews.expected.total])
         })
 
         await test.step('duplicate first series', async () => {
@@ -122,7 +84,7 @@ test.describe('Trends insights', () => {
         await test.step('switch to custom event', async () => {
             await insight.goToNewTrends()
             await insight.trends.waitForChart()
-            await insight.trends.selectEvent(0, CUSTOM_EVENT)
+            await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
             await insight.trends.waitForChart()
         })
 
@@ -130,17 +92,17 @@ test.describe('Trends insights', () => {
             await insight.trends.selectMathWithAggregation(0, /property value/, 'sum')
             await insight.trends.selectMathProperty('amount')
             await insight.trends.selectChartType(/^Number/)
-            await expect(insight.trends.boldNumber).toContainText(String(EXPECTED_AMOUNT_SUM))
+            await expect(insight.trends.boldNumber).toContainText(customEventsWithBreakdown.expected.amountSum)
         })
 
         await test.step('switch to unique users and verify bold number = 5', async () => {
             await insight.trends.selectMath(0, 'Unique users')
-            await expect(insight.trends.boldNumber).toContainText('5')
+            await expect(insight.trends.boldNumber).toContainText(customEventsWithBreakdown.expected.uniqueUsers)
         })
 
         await test.step('switch to total count and verify bold number = 8', async () => {
             await insight.trends.selectMath(0, 'Total count')
-            await expect(insight.trends.boldNumber).toContainText(String(EXPECTED_CUSTOM_EVENT_COUNT))
+            await expect(insight.trends.boldNumber).toContainText(customEventsWithBreakdown.expected.total)
         })
     })
 
@@ -152,14 +114,14 @@ test.describe('Trends insights', () => {
         await test.step('cumulative line chart shows total in details table', async () => {
             await insight.trends.selectChartType(/^Line chart \(cumulative\)/)
             await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.getDetailsTotals()
-            expect(totals).toEqual([String(EXPECTED_TOTAL_PAGEVIEWS)])
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual([pageviews.expected.total])
         })
 
         await test.step('Number chart shows bold number = 38', async () => {
             await insight.trends.selectChartType(/^Number/)
             await expect(insight.trends.boldNumber).toBeVisible()
-            await expect(insight.trends.boldNumber).toContainText(String(EXPECTED_TOTAL_PAGEVIEWS))
+            await expect(insight.trends.boldNumber).toContainText(pageviews.expected.total)
         })
 
         await test.step('enable comparison and verify no NaN', async () => {
@@ -178,14 +140,14 @@ test.describe('Trends insights', () => {
 
         await test.step('Last 7 days shows total = 38', async () => {
             await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.getDetailsTotals()
-            expect(totals).toEqual([String(EXPECTED_TOTAL_PAGEVIEWS)])
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual([pageviews.expected.total])
         })
 
         await test.step('Last 24 hours shows total = 5', async () => {
             await insight.trends.selectDateRange('Last 24 hours')
             await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.getDetailsTotals()
+            const totals = await insight.trends.details.column('Total')
             expect(totals).toEqual(['5'])
         })
 
@@ -211,25 +173,24 @@ test.describe('Trends insights', () => {
         await test.step('add Browser breakdown and switch to custom event', async () => {
             await insight.trends.addBreakdown('Browser')
             await insight.trends.waitForChart()
-            await insight.trends.selectEvent(0, CUSTOM_EVENT)
+            await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
             await insight.trends.waitForChart()
             await insight.trends.waitForDetailsTable()
         })
 
         await test.step('verify Chrome = 5 and Firefox = 3', async () => {
-            const totals = await insight.trends.getDetailsTotals()
-            expect(totals.sort()).toEqual([String(EXPECTED_CHROME_COUNT), String(EXPECTED_FIREFOX_COUNT)].sort())
-            const tableText = await insight.trends.detailsTable.textContent()
-            expect(tableText).toContain('Chrome')
-            expect(tableText).toContain('Firefox')
+            const chromeTotal = await insight.trends.details.row('Chrome').column('Total')
+            const firefoxTotal = await insight.trends.details.row('Firefox').column('Total')
+            expect(chromeTotal).toEqual(customEventsWithBreakdown.expected.chromeCount)
+            expect(firefoxTotal).toEqual(customEventsWithBreakdown.expected.firefoxCount)
         })
 
         await test.step('remove breakdown and verify single total returns', async () => {
             await insight.trends.removeBreakdown()
             await insight.trends.waitForChart()
             await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.getDetailsTotals()
-            expect(totals).toEqual([String(EXPECTED_CUSTOM_EVENT_COUNT)])
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual([customEventsWithBreakdown.expected.total])
         })
     })
 
@@ -240,7 +201,7 @@ test.describe('Trends insights', () => {
             await insight.goToNewTrends()
             await insight.trends.waitForChart()
             await insight.trends.addSeries()
-            await insight.trends.selectEvent(1, CUSTOM_EVENT)
+            await insight.trends.selectEvent(1, customEventsWithBreakdown.eventName)
             await insight.trends.waitForChart()
         })
 
@@ -248,8 +209,8 @@ test.describe('Trends insights', () => {
             await insight.trends.setFormula('A + B')
             await insight.trends.waitForChart()
             await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.getDetailsTotals()
-            expect(totals).toEqual([String(EXPECTED_TOTAL_PAGEVIEWS + EXPECTED_CUSTOM_EVENT_COUNT)])
+            const totals = await insight.trends.details.column('Total')
+            expect(totals).toEqual(['46'])
         })
 
         await test.step('disable formula mode and verify both series return', async () => {
@@ -268,7 +229,7 @@ test.describe('Trends insights', () => {
             await insight.trends.waitForChart()
             await insight.trends.addBreakdown('Browser')
             await insight.trends.waitForChart()
-            await insight.trends.selectEvent(0, CUSTOM_EVENT)
+            await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
             await insight.trends.waitForChart()
             await insight.trends.selectMathWithAggregation(0, /property value/, 'sum')
             await insight.trends.selectMathProperty('amount')
@@ -279,13 +240,13 @@ test.describe('Trends insights', () => {
             const rows = insight.trends.detailsTable.locator('tbody tr')
             const chromeRow = rows.filter({ hasText: 'Chrome' })
             const firefoxRow = rows.filter({ hasText: 'Firefox' })
-            await expect(chromeRow).toContainText(String(EXPECTED_CHROME_AMOUNT_SUM))
-            await expect(firefoxRow).toContainText(String(EXPECTED_FIREFOX_AMOUNT_SUM))
+            await expect(chromeRow).toContainText(customEventsWithBreakdown.expected.chromeAmountSum)
+            await expect(firefoxRow).toContainText(customEventsWithBreakdown.expected.firefoxAmountSum)
         })
 
         await test.step('switch to Number chart and verify bold number shows net sum of 35', async () => {
             await insight.trends.selectChartType(/^Number/)
-            await expect(insight.trends.boldNumber).toContainText(String(EXPECTED_AMOUNT_SUM))
+            await expect(insight.trends.boldNumber).toContainText(customEventsWithBreakdown.expected.amountSum)
         })
 
         await test.step('switch to line chart and set axis format to Percentage to verify % in details', async () => {
@@ -344,7 +305,7 @@ test.describe('Trends insights', () => {
         await test.step('add breakdown and verify tooltip shows Chrome and Firefox', async () => {
             await insight.trends.addBreakdown('Browser')
             await insight.trends.waitForChart()
-            await insight.trends.selectEvent(0, CUSTOM_EVENT)
+            await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
             await insight.trends.waitForChart()
             await insight.trends.hoverChartAt(0.5, 0.5)
             const multiText = await insight.trends.tooltip.textContent()

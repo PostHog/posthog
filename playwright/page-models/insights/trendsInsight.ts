@@ -1,5 +1,6 @@
 import { Locator, Page, expect } from '@playwright/test'
 
+import { TableHelper } from '../../utils/table-helper'
 import { ChartInsightBase } from './chartInsightBase'
 
 export class TrendsInsight extends ChartInsightBase {
@@ -195,32 +196,7 @@ export class TrendsInsight extends ChartInsightBase {
         return this.page.locator('.taxonomic-list-row')
     }
 
-    async getDetailsColumnValues(columnIndex: number): Promise<string[]> {
-        const rows = this.detailsTable.locator('tbody tr')
-        const count = await rows.count()
-        const values: string[] = []
-        for (let i = 0; i < count; i++) {
-            const cell = rows.nth(i).locator('td').nth(columnIndex)
-            const text = (await cell.textContent()) ?? ''
-            values.push(text.trim())
-        }
-        return values
-    }
-
-    async getDetailsTotals(): Promise<string[]> {
-        const headers = this.detailsTable.locator('thead th')
-        const headerCount = await headers.count()
-        let totalColIndex = -1
-        for (let i = 0; i < headerCount; i++) {
-            const text = (await headers.nth(i).textContent()) ?? ''
-            if (/total/i.test(text)) {
-                totalColIndex = i
-                break
-            }
-        }
-        if (totalColIndex === -1) {
-            throw new Error('Could not find a "Total" column in the details table')
-        }
-        return this.getDetailsColumnValues(totalColIndex)
+    get details(): TableHelper {
+        return new TableHelper(this.detailsTable)
     }
 }
