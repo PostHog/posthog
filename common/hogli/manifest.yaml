@@ -272,7 +272,8 @@ build:
             - build:schema-latest-versions
         description: Generate all schema definitions (frontend JSON, Python, latest versions)
     build:openapi-schema:
-        cmd: 'mkdir -p frontend/tmp && DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 python manage.py
+        cmd:
+            'mkdir -p frontend/tmp && DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 OPENAPI_MOCK_INTERNAL_API_SECRET=1 python manage.py
             spectacular --file frontend/tmp/openapi.json --format openapi-json && echo "OpenAPI
             schema written to frontend/tmp/openapi.json"
 
@@ -289,10 +290,18 @@ build:
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema
+    build:openapi-mcp:
+        cmd: pnpm --filter=@posthog/mcp run generate-orval-schemas
+        description: Generate Orval Zod schemas for MCP tool handlers
+    build:openapi-mcp-tools:
+        cmd: pnpm --filter=@posthog/mcp run generate-tools
+        description: Generate MCP tool handlers from YAML definitions + Orval schemas
     build:openapi:
         steps:
             - build:openapi-schema
             - build:openapi-types
+            - build:openapi-mcp
+            - build:openapi-mcp-tools
         description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build
@@ -472,7 +481,7 @@ quality:
         cmd: pnpm format
         description: Format both backend and frontend code
     format:yaml:
-        cmd: pnpm exec oxfmt
+        cmd: pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format JSON, YAML files
     format:css:
         cmd: pnpm stylelint --fix --allow-empty-input "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
@@ -510,6 +519,12 @@ tools:
     tool:download-mmdb:
         bin_script: download-mmdb
         description: Download and cache GeoLite2 MaxMind database with retry logic
+    tool:download-sentiment-model:
+        bin_script: download-sentiment-model
+        description: Download and export sentiment ONNX model for local LLM Analytics
+            development
+        services:
+            - temporal
     tool:hog:
         bin_script: hog
         description: Run HogQL interpreter (TypeScript/Python) or compiled bytecode

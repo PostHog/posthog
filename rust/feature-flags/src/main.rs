@@ -153,7 +153,7 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
 fn main() {
     let config = Config::init_from_env().expect("Invalid configuration:");
 
-    let threads = ThreadCounts::from_available_parallelism();
+    let threads = ThreadCounts::new(config.thread_pool_cores);
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads.rayon_threads)
@@ -174,13 +174,8 @@ fn main() {
     let rayon_dispatcher = RayonDispatcher::new(max_concurrent_batch_evals);
 
     eprintln!(
-        "Initialized thread pools: tokio_workers={}, rayon_threads={}, max_concurrent_batch_evals={} (from {} available cores)",
-        threads.tokio_workers,
-        threads.rayon_threads,
-        max_concurrent_batch_evals,
-        std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1)
+        "Initialized thread pools: tokio_workers={}, rayon_threads={}, max_concurrent_batch_evals={}",
+        threads.tokio_workers, threads.rayon_threads, max_concurrent_batch_evals,
     );
 
     tokio_runtime.block_on(async_main(config, rayon_dispatcher))

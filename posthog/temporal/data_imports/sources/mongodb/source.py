@@ -77,10 +77,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         if not connection_params.get("database"):
             return False, "Database name is required in connection string"
 
-        if not connection_params.get("is_srv"):
-            valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id, False)
-            if not valid_host:
-                return False, host_errors
+        valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id)
+        if not valid_host:
+            return False, host_errors
 
         try:
             collection_names = get_collection_names(config)

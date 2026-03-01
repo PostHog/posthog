@@ -22,6 +22,8 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey, PropertyOperator
 
+from posthog.hogql.property import parse_semver
+
 from posthog.api.cohort import CohortSerializer
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.documentation import extend_schema
@@ -34,15 +36,10 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import (
-    PersonalAPIKeyAuthentication,
-    ProjectSecretAPIKeyAuthentication,
-    SessionAuthentication,
-    TemporaryTokenAuthentication,
-)
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
-from posthog.event_usage import report_user_action
+from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
@@ -818,7 +815,11 @@ class FeatureFlagSerializer(
                             code="cohort_does_not_exist",
                         )
 
-                if prop.operator in ("is_date_before", "is_date_after"):
+                if prop.operator in (
+                    PropertyOperator.IS_DATE_BEFORE,
+                    PropertyOperator.IS_DATE_AFTER,
+                    PropertyOperator.IS_DATE_EXACT,
+                ):
                     parsed_date = determine_parsed_date_for_property_matching(prop.value)
 
                     if not parsed_date:
@@ -848,6 +849,62 @@ class FeatureFlagSerializer(
                         detail=f"The '{prop.operator}' operator is only valid for cohort properties, not '{prop.type}' properties.",
                         code="invalid_operator",
                     )
+
+                if prop.operator in (PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN):
+                    if not isinstance(prop.value, list) or len(prop.value) != 2:
+                        raise serializers.ValidationError(
+                            detail=f"{prop.operator} operator requires a two-element array [min, max]",
+                            code="invalid_value",
+                        )
+                    try:
+                        if float(prop.value[0]) > float(prop.value[1]):
+                            raise serializers.ValidationError(
+                                detail=f"{prop.operator} operator requires min value to be less than or equal to max value",
+                                code="invalid_value",
+                            )
+                    except (ValueError, TypeError):
+                        raise serializers.ValidationError(
+                            detail=f"{prop.operator} operator requires numeric values",
+                            code="invalid_value",
+                        )
+
+                semver_operators = (
+                    PropertyOperator.SEMVER_EQ,
+                    PropertyOperator.SEMVER_NEQ,
+                    PropertyOperator.SEMVER_GT,
+                    PropertyOperator.SEMVER_GTE,
+                    PropertyOperator.SEMVER_LT,
+                    PropertyOperator.SEMVER_LTE,
+                    PropertyOperator.SEMVER_TILDE,
+                    PropertyOperator.SEMVER_CARET,
+                    PropertyOperator.SEMVER_WILDCARD,
+                )
+                if prop.operator in semver_operators:
+                    if not isinstance(prop.value, str):
+                        raise serializers.ValidationError(
+                            detail=f"Invalid value for operator {prop.operator}: expected a semver string",
+                            code="invalid_value",
+                        )
+                    try:
+                        semver_value = prop.value
+                        if str(prop.operator) == PropertyOperator.SEMVER_WILDCARD:
+                            semver_value = semver_value.rstrip(".*")
+                        parse_semver(semver_value)
+                    except (ValueError, IndexError):
+                        raise serializers.ValidationError(
+                            detail=f"Invalid semver value for operator {prop.operator}: {prop.value}",
+                            code="invalid_value",
+                        )
+
+                if prop.operator in (
+                    PropertyOperator.ICONTAINS_MULTI,
+                    PropertyOperator.NOT_ICONTAINS_MULTI,
+                ):
+                    if not isinstance(prop.value, list):
+                        raise serializers.ValidationError(
+                            detail=f"{prop.operator} operator requires a list of values",
+                            code="invalid_value",
+                        )
 
         payloads = filters.get("payloads", {})
 
@@ -1052,11 +1109,7 @@ class FeatureFlagSerializer(
 
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
-        # SessionAuthentication is used for standard browser-based web UI requests.
-        # All other authentication methods (API keys, OAuth tokens, toolbar tokens, etc.)
-        # are classified as "api" for analytics purposes.
-        is_web_auth = isinstance(request.successful_authenticator, SessionAuthentication)
-        analytics_metadata["source"] = "web" if is_web_auth else "api"
+        analytics_metadata.update(get_request_analytics_properties(request))
         report_user_action(request.user, "feature flag created", analytics_metadata)
 
         return instance
@@ -1220,7 +1273,11 @@ class FeatureFlagSerializer(
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
 
-        report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
+        report_user_action(
+            request.user,
+            "feature flag updated",
+            {**instance.get_analytics_metadata(), **get_request_analytics_properties(request)},
+        )
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         # if the request was made with a personal API key

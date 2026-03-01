@@ -67,7 +67,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         return "****"
 
     def validate_api_key(self, value: str) -> str:
-        provider = self.initial_data.get("provider", LLMProvider.OPENAI)
+        provider = self.initial_data.get("provider", self.instance.provider if self.instance else LLMProvider.OPENAI)
 
         if provider == LLMProvider.OPENAI:
             if not value.startswith(("sk-", "sk-proj-")):

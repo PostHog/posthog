@@ -31,9 +31,9 @@ from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
 from posthog.models.group.util import create_group, raw_create_group_ch
 from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
-from posthog.models.property_definition import PropertyType
 from posthog.models.user import User
 
+from products.event_definitions.backend.models.property_definition import PropertyType
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.notebooks.backend.util import (
     create_bullet_list,

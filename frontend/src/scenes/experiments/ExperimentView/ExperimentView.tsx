@@ -54,6 +54,7 @@ import {
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
+import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
 import { Info } from './Info'
@@ -247,8 +248,14 @@ const VariantsTab = (): JSX.Element => {
 export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
         useValues(experimentLogic)
-    const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
-        useActions(experimentLogic)
+    const {
+        setExperiment,
+        setExposureCriteria,
+        updateExposureCriteria,
+        updateExperimentMetrics,
+        addSharedMetricsToExperiment,
+        removeSharedMetricFromExperiment,
+    } = useActions(experimentLogic)
 
     if (!tabId) {
         throw new Error('<ExperimentView /> must receive a tabId prop')
@@ -271,7 +278,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
         if (showWizard) {
             return (
                 <BindLogic logic={createExperimentLogic} props={{ experiment, tabId }}>
-                    <BindLogic logic={experimentWizardLogic} props={{ tabId }}>
+                    <BindLogic logic={experimentWizardLogic} props={{ experiment, tabId }}>
                         <ExperimentWizard />
                     </BindLogic>
                 </BindLogic>
@@ -287,6 +294,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                 <LoadingState />
             ) : (
                 <>
+                    <ExperimentWarningBanner />
                     {usesNewQueryRunner ? <Info tabId={tabId} /> : <LegacyExperimentInfo />}
                     {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                     <LemonTabs
@@ -399,7 +407,16 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                     closeSharedMetricModal()
                                 }}
                             />
-                            <ExposureCriteriaModal />
+                            <ExposureCriteriaModal
+                                onSave={(exposureCriteria) => {
+                                    setExposureCriteria(exposureCriteria)
+                                    /**
+                                     * this will trigger a save of the experiment and
+                                     * a refresh of the results
+                                     */
+                                    updateExposureCriteria()
+                                }}
+                            />
                             <RunningTimeCalculatorModal />
                         </>
                     ) : (

@@ -23,6 +23,7 @@ from posthog.event_usage import groups
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
+from posthog.security.url_validation import is_url_allowed
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.tasks import exporter
@@ -148,6 +149,11 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         ]
                     }
                 )
+
+        if export_context and export_context.get("heatmap_url"):
+            ok, err = is_url_allowed(export_context["heatmap_url"])
+            if not ok:
+                raise ValidationError({"export_context": ["heatmap_url not allowed"]})
 
         data["team_id"] = self.context["team_id"]
         return data

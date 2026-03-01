@@ -446,6 +446,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ experiment, metadata }),
         reportExperimentUpdated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
+        reportExperimentInconsistencyWarningShown: (experiment: Experiment, warningKey: string) => ({
+            experiment,
+            warningKey,
+        }),
         reportExperimentMetricsRefreshed: (
             experiment: Experiment,
             forceRefresh: boolean,
@@ -566,12 +570,65 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId: ExperimentIdType,
             metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
             teamId?: number | null,
-            queryId?: string | null
+            queryId?: string | null,
+            context?: {
+                duration_ms: number
+                is_cached: boolean
+                metric_index: number
+                is_primary: boolean
+                is_retry: boolean
+                refresh_id: string
+                metric_kind: string
+            }
         ) => ({
             experimentId,
             metric,
             teamId,
             queryId,
+            context,
+        }),
+        reportExperimentMetricError: (
+            experimentId: ExperimentIdType,
+            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
+            teamId: number | null | undefined,
+            queryId: string | null,
+            context: {
+                duration_ms: number
+                metric_index: number
+                is_primary: boolean
+                is_retry: boolean
+                refresh_id: string
+                metric_kind: string
+                error_type: 'timeout' | 'out_of_memory' | 'server_error' | 'network_error' | 'unknown'
+                error_code: string | null
+                error_message: string | null
+                status_code: number | null
+            }
+        ) => ({
+            experimentId,
+            metric,
+            teamId,
+            queryId,
+            context,
+        }),
+        reportExperimentResultsRefreshCompleted: (
+            experimentId: ExperimentIdType,
+            teamId: number | null | undefined,
+            context: {
+                total_duration_ms: number
+                primary_metrics_count: number
+                secondary_metrics_count: number
+                successful_count: number
+                errored_count: number
+                cached_count: number
+                triggered_by: 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
+                force_refresh: boolean
+                refresh_id: string
+            }
+        ) => ({
+            experimentId,
+            teamId,
+            context,
         }),
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentFeatureFlagSelected: (featureFlagKey: string) => ({ featureFlagKey }),
@@ -733,6 +790,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             selected,
             recommendationSource,
         }),
+        reportOnboardingReverseProxyDomainEntered: (domain: string) => ({ domain }),
+        reportOnboardingReverseProxyDocsClicked: true,
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
@@ -1272,6 +1331,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 duration,
             })
         },
+        reportExperimentInconsistencyWarningShown: ({ experiment, warningKey }) => {
+            posthog.capture('experiment inconsistency warning shown', {
+                ...getEventPropertiesForExperiment(experiment),
+                warning_key: warningKey,
+            })
+        },
         reportExperimentMetricsRefreshed: ({ experiment, forceRefresh, context }) => {
             posthog.capture('experiment metrics refreshed', {
                 ...getEventPropertiesForExperiment(experiment),
@@ -1419,6 +1484,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_id: experimentId,
                 team_id: teamId,
                 query_id: queryId,
+                ...getEventPropertiesForMetric(metric),
                 metric,
             })
         },
@@ -1429,15 +1495,34 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 query_id: queryId,
                 error_code: errorCode,
                 error_message: errorMessage,
+                ...getEventPropertiesForMetric(metric),
                 metric,
             })
         },
-        reportExperimentMetricFinished: ({ experimentId, metric, teamId, queryId }) => {
+        reportExperimentMetricFinished: ({ experimentId, metric, teamId, queryId, context }) => {
             posthog.capture('experiment metric finished', {
                 experiment_id: experimentId,
                 team_id: teamId,
                 query_id: queryId,
+                ...getEventPropertiesForMetric(metric),
                 metric,
+                ...context,
+            })
+        },
+        reportExperimentMetricError: ({ experimentId, metric, teamId, queryId, context }) => {
+            posthog.capture('experiment metric error', {
+                experiment_id: experimentId,
+                team_id: teamId,
+                query_id: queryId,
+                ...getEventPropertiesForMetric(metric),
+                ...context,
+            })
+        },
+        reportExperimentResultsRefreshCompleted: ({ experimentId, teamId, context }) => {
+            posthog.capture('experiment results refresh completed', {
+                experiment_id: experimentId,
+                team_id: teamId,
+                ...context,
             })
         },
         reportExperimentFeatureFlagModalOpened: () => {
@@ -1857,6 +1942,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('sdk selected', {
                 sdk: sdk.key,
             })
+        },
+        reportOnboardingReverseProxyDomainEntered: ({ domain }) => {
+            posthog.capture('onboarding reverse proxy domain entered', { domain })
+        },
+        reportOnboardingReverseProxyDocsClicked: () => {
+            posthog.capture('onboarding reverse proxy docs clicked')
         },
         // command bar
         reportCommandBarStatusChanged: ({ status }) => {

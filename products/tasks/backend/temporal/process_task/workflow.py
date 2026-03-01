@@ -49,7 +49,7 @@ class ProcessTaskOutput:
     sandbox_id: Optional[str] = None
 
 
-SANDBOX_SESSION_TIMEOUT_MINUTES = 60
+INACTIVITY_TIMEOUT_MINUTES = 5
 
 
 @temporalio.workflow.defn(name="process-task")
@@ -60,6 +60,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._task_completed: bool = False
         self._completion_status: str = "completed"
         self._completion_error: Optional[str] = None
+        self._heartbeat_received: bool = False
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -120,17 +121,25 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
 
-            # Wait for completion signal or timeout
-            try:
-                await workflow.wait_condition(
-                    lambda: self._task_completed,
-                    timeout=timedelta(minutes=SANDBOX_SESSION_TIMEOUT_MINUTES),
-                )
-            except TimeoutError:
-                # Timeout reached without signal - treat as completed
-                self._completion_status = "completed"
+            # Wait for completion signal or inactivity timeout.
+            # Heartbeat signals reset the inactivity timer, keeping the workflow alive
+            # as long as the agent is actively producing logs.
+            while not self._task_completed:
+                try:
+                    await workflow.wait_condition(
+                        lambda: self._task_completed or self._heartbeat_received,
+                        timeout=timedelta(minutes=INACTIVITY_TIMEOUT_MINUTES),
+                    )
+                except TimeoutError:
+                    break
 
-            await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
+                if self._heartbeat_received and not self._task_completed:
+                    self._heartbeat_received = False
+                    continue
+
+            if self._task_completed:
+                await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
+
             await self._post_slack_update()
 
             return ProcessTaskOutput(
@@ -280,7 +289,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.signal
     async def complete_task(self, status: str = "completed", error_message: Optional[str] = None) -> None:
-        """Signal from API that task is complete."""
         self._completion_status = status
         self._completion_error = error_message
         self._task_completed = True
+
+    @temporalio.workflow.signal
+    async def heartbeat(self) -> None:
+        self._heartbeat_received = True

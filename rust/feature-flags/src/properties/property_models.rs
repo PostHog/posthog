@@ -7,6 +7,8 @@ pub enum OperatorType {
     IsNot,
     Icontains,
     NotIcontains,
+    IcontainsMulti,
+    NotIcontainsMulti,
     Regex,
     NotRegex,
     Gt,

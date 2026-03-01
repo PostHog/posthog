@@ -1,11 +1,15 @@
+import socket
 import typing
 import builtins
 import datetime as dt
+import ipaddress
 import dataclasses
 import collections.abc
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
+from urllib.parse import urlparse
 
+from django.conf import settings
 from django.db import transaction
 from django.utils.timezone import now
 
@@ -40,7 +44,6 @@ from posthog.batch_exports.service import (
     backfill_export,
     cancel_running_batch_export_run,
     delete_batch_export,
-    fetch_earliest_backfill_start_at,
     pause_batch_export,
     sync_batch_export,
     sync_cancel_running_batch_export_backfill,
@@ -375,6 +378,7 @@ class HogQLSelectQueryField(serializers.Field):
                     parsed_query,
                     context=HogQLContext(
                         team_id=self.context["team_id"],
+                        user=self.context["request"].user,
                         enable_select_queries=True,
                         modifiers=HogQLQueryModifiers(
                             personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
@@ -412,6 +416,73 @@ class _SubqueryFinder(TraversingVisitor):
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self.found = True
+
+
+INTERNAL_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+)
+
+
+def is_ip_internal(ip: str) -> bool:
+    """Check if IP belongs to an internal network."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        raise ValueError("Could not parse IP")
+
+    if any(addr in network for network in INTERNAL_NETWORKS):
+        return True
+    return False
+
+
+def resolve_and_validate_url(url: str) -> None:
+    """Ensure provided url point to a non-internal IP."""
+    try:
+        parsed = urlparse(url)
+    except Exception as e:
+        raise ValueError(f"Invalid URL'{url}': {e}") from e
+
+    host = parsed.hostname
+    if not host:
+        raise ValueError("URL has no hostname")
+
+    resolve_and_validate_host(host)
+
+
+def resolve_and_validate_host(host: str) -> None:
+    """Ensure provided host resolves to a non-internal IP."""
+    if host == "localhost" and (settings.TEST or settings.DEBUG):
+        return
+
+    # Host may already be an IP literal
+    try:
+        if is_ip_internal(host):
+            raise ValueError("Host resolved to internal IP")
+        return
+    except ValueError:
+        # Not an IP literal, requires DNS
+        pass
+
+    try:
+        # getaddrinfo supports both ipv4 and ipv6
+        results = socket.getaddrinfo(host, None)
+    except socket.gaierror as e:
+        raise ValueError(f"Could not resolve '{host}': {e}") from e
+
+    # Keeps only unique ips from the result tuple
+    resolved_ips = {str(r[4][0]) for r in results}
+
+    for ip in resolved_ips:
+        if is_ip_internal(ip):
+            raise ValueError("Host resolved to internal IP")
 
 
 class BatchExportSerializer(serializers.ModelSerializer):
@@ -635,6 +706,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if merged_config.get("endpoint_url") == "":
                 destination_attrs["config"]["endpoint_url"] = None
 
+            if merged_config.get("endpoint_url") is not None:
+                try:
+                    resolve_and_validate_url(merged_config["endpoint_url"])
+                except ValueError:
+                    raise serializers.ValidationError(f"Invalid endpoint_url: '{merged_config['endpoint_url']}'")
+
         if destination_type == BatchExportDestination.Destination.DATABRICKS:
             team_id = self.context["team_id"]
             team = Team.objects.get(id=team_id)
@@ -751,6 +828,15 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 send_feature_flag_events=False,
             ):
                 raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
+
+        if destination_type in (
+            BatchExportDestination.Destination.POSTGRES,
+            BatchExportDestination.Destination.REDSHIFT,
+        ):
+            try:
+                resolve_and_validate_host(merged_config["host"])
+            except ValueError:
+                raise serializers.ValidationError(f"Invalid host: '{merged_config['host']}'")
 
         return destination_attrs
 
@@ -1113,7 +1199,7 @@ class BatchExportBackfillSerializer(serializers.ModelSerializer):
         if not total_runs:
             return None
 
-        if obj.start_at is None:
+        if obj.start_at is None and obj.adjusted_start_at is None:
             # if it's just a single run, backfilling from the beginning of time, we can't calculate progress based on
             # the number of completed runs so better to return None
             return None
@@ -1176,36 +1262,9 @@ def create_backfill(
     else:
         end_at = None
 
-    if (start_at is not None or end_at is not None) and batch_export.model is not None:
-        try:
-            earliest_backfill_start_at = fetch_earliest_backfill_start_at(
-                team_id=team.pk,
-                model=batch_export.model,
-                interval_time_delta=batch_export.interval_time_delta,
-                exclude_events=batch_export.destination.config.get("exclude_events", []),
-                include_events=batch_export.destination.config.get("include_events", []),
-            )
-            if earliest_backfill_start_at is None:
-                raise ValidationError("There is no data to backfill for this model.")
-
-            earliest_backfill_start_at = earliest_backfill_start_at.astimezone(team.timezone_info)
-
-            if end_at is not None and end_at < earliest_backfill_start_at:
-                raise ValidationError(
-                    "The provided backfill date range contains no data. The earliest possible backfill start date is "
-                    f"{earliest_backfill_start_at.strftime('%Y-%m-%d %H:%M:%S')}",
-                )
-
-            if start_at is not None and start_at < earliest_backfill_start_at:
-                logger.info(
-                    "Backfill start_at '%s' is before the earliest possible backfill start_at '%s', setting start_at "
-                    "to earliest_backfill_start_at",
-                    start_at,
-                    earliest_backfill_start_at,
-                )
-                start_at = earliest_backfill_start_at
-        except NotImplementedError:
-            logger.warning("No backfill check implemented for model: '%s'; skipping", batch_export.model)
+    # Note: earliest backfill date validation and adjustment is now done in the Temporal workflow
+    # via the get_backfill_info activity. This allows the potentially slow ClickHouse query to run
+    # asynchronously rather than blocking the HTTP request.
 
     if start_at is None or end_at is None:
         return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)

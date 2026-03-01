@@ -109,21 +109,21 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             ],
             (experimentMissing): boolean => experimentMissing ?? false,
         ],
-        isExperimentRunningSelector: [
+        isExperimentLaunchedSelector: [
             (s) => [s.experimentLogicRef],
-            (experimentLogicRef) => experimentLogicRef?.logic.selectors.isExperimentRunning,
+            (experimentLogicRef) => experimentLogicRef?.logic.selectors.isExperimentLaunched,
         ],
-        isExperimentRunning: [
+        isExperimentLaunched: [
             (s) => [
                 (state, props) => {
                     try {
-                        return s.isExperimentRunningSelector?.(state, props)?.(state, props)
+                        return s.isExperimentLaunchedSelector?.(state, props)?.(state, props)
                     } catch {
                         return false
                     }
                 },
             ],
-            (isExperimentRunning): boolean => isExperimentRunning ?? false,
+            (isExperimentLaunched): boolean => isExperimentLaunched ?? false,
         ],
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],
@@ -198,7 +198,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
     listeners(({ sharedListeners, values }) => ({
         setSceneState: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
-            values.experimentLogicRef?.logic.actions.loadExperiment()
+            values.experimentLogicRef?.logic.actions.loadExperiment({ triggeredBy: 'page_load' })
         },
         setEditMode: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)

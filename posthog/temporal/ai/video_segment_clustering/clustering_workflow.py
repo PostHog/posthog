@@ -66,7 +66,9 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                         lookback_hours=inputs.lookback_hours,
                     )
                 ],
-                start_to_close_timeout=timedelta(seconds=300),
+                start_to_close_timeout=timedelta(
+                    seconds=660
+                ),  # Should exceed HOGQL_INCREASED_MAX_EXECUTION_TIME (600s)
                 retry_policy=RetryPolicy(
                     maximum_attempts=3,
                     initial_interval=timedelta(seconds=1),
@@ -95,15 +97,11 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
             ),
         )
 
-        segments = fetch_result.segments
-
-        if len(segments) < inputs.min_segments:
+        if fetch_result.document_count < inputs.min_segments:
             workflow.logger.info(
-                f"Skipping clustering: only {len(segments)} segments, need at least {inputs.min_segments}"
+                f"Skipping clustering: only {fetch_result.document_count} segments, need at least {inputs.min_segments}"
             )
             return None
-
-        document_ids = [s.document_id for s in segments]
 
         # Activity 3: Cluster segments (includes noise handling)
         clustering_result = await workflow.execute_activity(
@@ -111,7 +109,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
             args=[
                 ClusterSegmentsActivityInputs(
                     team_id=inputs.team_id,
-                    document_ids=document_ids,
+                    storage_key=fetch_result.storage_key,
                 )
             ],
             start_to_close_timeout=timedelta(seconds=180),
@@ -136,7 +134,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                 EmitSignalsActivityInputs(
                     team_id=inputs.team_id,
                     clusters=all_clusters,
-                    segments=segments,
+                    storage_key=fetch_result.storage_key,
                 )
             ],
             start_to_close_timeout=timedelta(seconds=300),

@@ -85,7 +85,7 @@ export const getVercelAIGatewaySteps = (ctx: OnboardingComponentsContext): StepD
                     <Markdown>
                         We call Vercel AI Gateway through the OpenAI client and generate a response. We'll use PostHog's
                         OpenAI provider to capture all the details of the call. Initialize PostHog with your PostHog
-                        project API key and host from [your project settings](https://app.posthog.com/settings/project),
+                        project token and host from [your project settings](https://app.posthog.com/settings/project),
                         then pass the PostHog client along with the Vercel AI Gateway base URL to our OpenAI wrapper.
                     </Markdown>
 

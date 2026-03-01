@@ -24,7 +24,7 @@ from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.ai.video_segment_clustering.schedule import create_video_segment_clustering_coordinator_schedule
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.delete_recordings.types import DeleteRecordingMetadataInput
+from posthog.temporal.delete_recordings.types import PurgeDeletedMetadataInput
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
 from posthog.temporal.experiments.schedule import (
@@ -308,39 +308,42 @@ async def create_ducklake_compaction_schedule(client: Client):
         )
 
 
-async def create_delete_recording_metadata_schedule(client: Client):
-    """Create or update the schedule for the delete recording metadata workflow.
+async def create_purge_deleted_recording_metadata_schedule(client: Client):
+    """Create or update the schedule for the purge deleted recording metadata workflow.
 
-    This schedule runs daily at midnight UTC to delete queued recording metadata from ClickHouse.
+    This schedule runs daily at 3 AM UTC to permanently delete ClickHouse metadata
+    for recordings that have been deleted.
     """
-    delete_recording_metadata_schedule = Schedule(
+    purge_deleted_recording_metadata_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
-            "delete-recording-metadata",
-            DeleteRecordingMetadataInput(dry_run=False),
-            id="delete-recording-metadata-schedule",
+            "purge-deleted-recording-metadata",
+            PurgeDeletedMetadataInput(),
+            id="purge-deleted-recording-metadata-schedule",
             task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=1),
+                maximum_attempts=3,
+                initial_interval=timedelta(minutes=5),
             ),
         ),
         spec=ScheduleSpec(
             calendars=[
                 ScheduleCalendarSpec(
-                    comment="Daily at midnight UTC",
-                    hour=[ScheduleRange(start=0, end=0)],
+                    comment="Daily at 3 AM UTC",
+                    hour=[ScheduleRange(start=3, end=3)],
                 )
             ]
         ),
     )
 
-    if await a_schedule_exists(client, "delete-recording-metadata-schedule"):
-        await a_update_schedule(client, "delete-recording-metadata-schedule", delete_recording_metadata_schedule)
+    if await a_schedule_exists(client, "purge-deleted-recording-metadata-schedule"):
+        await a_update_schedule(
+            client, "purge-deleted-recording-metadata-schedule", purge_deleted_recording_metadata_schedule
+        )
     else:
         await a_create_schedule(
             client,
-            "delete-recording-metadata-schedule",
-            delete_recording_metadata_schedule,
+            "purge-deleted-recording-metadata-schedule",
+            purge_deleted_recording_metadata_schedule,
             trigger_immediately=False,
         )
 
@@ -357,8 +360,7 @@ schedules = [
     create_generation_clustering_coordinator_schedule,
     create_video_segment_clustering_coordinator_schedule,
     create_ducklake_compaction_schedule,
-    # create_delete_recording_metadata_schedule is disabled during recording-api rollout.
-    # Deletion is now handled by the recording-api (crypto-shredding + Kafka deletion events).
+    create_purge_deleted_recording_metadata_schedule,
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
     create_realtime_cohort_calculation_schedule,

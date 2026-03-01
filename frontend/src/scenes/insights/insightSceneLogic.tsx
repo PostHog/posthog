@@ -61,6 +61,19 @@ function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
     )
 }
 
+function normalizeItemId(itemId: string | undefined): string | number | null {
+    if (itemId === undefined) {
+        return null
+    }
+    if (itemId === 'new' || itemId.startsWith('new-')) {
+        return 'new'
+    }
+    if (Number.isInteger(+itemId)) {
+        return parseInt(itemId, 10)
+    }
+    return itemId
+}
+
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     tabAwareScene(),
@@ -138,14 +151,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         itemId: [
             null as null | string | number,
             {
-                setSceneState: (_, { itemId }) =>
-                    itemId !== undefined
-                        ? itemId === 'new' || itemId?.startsWith('new-')
-                            ? 'new'
-                            : Number.isInteger(+itemId)
-                              ? parseInt(itemId, 10)
-                              : itemId
-                        : null,
+                setSceneState: (_, { itemId }) => normalizeItemId(itemId),
             },
         ],
         alertId: [
@@ -223,6 +229,22 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 },
             ],
             (insightQuery) => insightQuery,
+        ],
+        insightDataSelector: [
+            (s) => [s.insightDataLogicRef],
+            (insightDataLogicRef) => insightDataLogicRef?.logic.selectors.insightData,
+        ],
+        insightData: [
+            (s) => [
+                (state, props) => {
+                    try {
+                        return s.insightDataSelector?.(state, props)?.(state, props)
+                    } catch {
+                        return null
+                    }
+                },
+            ],
+            (insightData) => insightData,
         ],
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
         insight: [
@@ -330,13 +352,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         maxContext: [
-            (s) => [s.insight, s.filtersOverride, s.variablesOverride],
-            (insight: Partial<QueryBasedInsightModel>, filtersOverride, variablesOverride): MaxContextInput[] => {
+            (s) => [s.insight, s.filtersOverride, s.variablesOverride, s.insightData],
+            (
+                insight: Partial<QueryBasedInsightModel>,
+                filtersOverride,
+                variablesOverride,
+                insightData
+            ): MaxContextInput[] => {
                 if (!insight || !insight.short_id || !insight.query) {
                     return []
                 }
+                // Merge the latest result from insightDataLogic (more up-to-date than insight.result)
+                const insightWithResult =
+                    insightData?.result != null ? { ...insight, result: insightData.result } : insight
                 return [
-                    createMaxContextHelpers.insight(insight, {
+                    createMaxContextHelpers.insight(insightWithResult, {
                         filtersOverride: filtersOverride ?? undefined,
                         variablesOverride: variablesOverride ?? undefined,
                     }),
@@ -460,18 +490,26 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const alertChanged = (alert_id ?? null) !== values.alertId
             const isExistingInsight = shortId !== 'new'
 
+            const itemIdChanged =
+                (currentScene?.activeSceneLogic as BuiltLogic<insightSceneLogicType>)?.values.itemId !==
+                normalizeItemId(itemId)
+
             if (
                 isExistingInsight &&
+                method !== 'PUSH' &&
                 currentScene?.activeSceneId === Scene.Insight &&
                 currentScene.activeSceneLogic &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightMode ===
                     insightMode &&
-                !alertChanged
+                !alertChanged &&
+                !itemIdChanged
             ) {
                 // Nothing about the scene has changed, skip re-processing.
                 // New insights (/insights/new) are excluded because the insight type
                 // or dashboard in hash/search params may have changed.
+                // PUSH navigations are excluded because the user explicitly navigated
+                // (e.g. clicking an insight link from the list), so we must reload.
                 return
             }
 
@@ -486,6 +524,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const tileFiltersOverride = searchParams['tile_filters_override']
 
             if (
+                initial ||
+                method === 'PUSH' ||
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
                 (itemId ?? null) !== values.itemId ||

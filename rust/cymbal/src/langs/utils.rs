@@ -31,25 +31,26 @@ pub fn get_token_context(token: &Token<'_>, line: usize) -> Option<Context> {
     get_context_lines(lines, line, line_limit)
 }
 
-fn get_context_lines<'a, L>(lines: L, line: usize, context_len: usize) -> Option<Context>
+pub fn get_context_lines<'a, L>(lines: L, line: usize, context_len: usize) -> Option<Context>
 where
     L: Iterator<Item = &'a str>,
 {
     let start = line.saturating_sub(context_len).saturating_sub(1);
 
     let mut lines = lines.enumerate().skip(start);
+    // enumerate() is 0-based but line numbers displayed in the UI should be 1-based
     let before = (&mut lines)
         .take(line - start)
-        .map(|(number, line)| ContextLine::new(number as u32, line))
+        .map(|(number, line)| ContextLine::new(number as u32 + 1, line))
         .collect();
 
     let line = lines
         .next()
-        .map(|(number, line)| ContextLine::new(number as u32, line))?;
+        .map(|(number, line)| ContextLine::new(number as u32 + 1, line))?;
 
     let after = lines
         .take(context_len)
-        .map(|(number, line)| ContextLine::new(number as u32, line))
+        .map(|(number, line)| ContextLine::new(number as u32 + 1, line))
         .collect();
 
     Some(Context {
