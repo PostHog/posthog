@@ -4,7 +4,7 @@ import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { pipelineLastStepCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from '../../worker/ingestion/pipeline-helpers'
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipeline, BatchPipelineResultWithContext, FeedResult } from './batch-pipeline.interface'
 import { PipelineResult, isDlqResult, isDropResult, isOkResult, isRedirectResult } from './results'
 
 export type PipelineConfig = {
@@ -29,8 +29,8 @@ export class ResultHandlingPipeline<
         private config: PipelineConfig
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
-        this.pipeline.feed(elements)
+    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): FeedResult {
+        return this.pipeline.feed(elements)
     }
 
     async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {

@@ -350,7 +350,10 @@ export class IngestionConsumer {
     private async runIngestionPipeline(messages: Message[]): Promise<void> {
         const batch = messages.map((message) => createContext(ok({ message }), { message }))
 
-        this.joinedPipeline.feed(batch)
+        const feedResult = this.joinedPipeline.feed(batch)
+        if (!feedResult.ok) {
+            throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
+        }
 
         // Drain the pipeline
         while ((await this.joinedPipeline.next()) !== null) {

@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger'
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipeline, BatchPipelineResultWithContext, FeedResult } from './batch-pipeline.interface'
 import { PipelineResultWithContext } from './pipeline.interface'
 
 export interface BatchingContext {
@@ -90,7 +90,7 @@ export class BatchingPipeline<
         }
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
+    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): FeedResult {
         const batchId = this.nextBatchId++
         const messageIds: number[] = []
         const inflight = new Set<number>()
@@ -122,6 +122,7 @@ export class BatchingPipeline<
         })
 
         this.subPipeline.feed(mappedElements)
+        return { ok: true }
     }
 
     async next(): Promise<BatchPipelineResultWithContext<TOutput, CSubOut> | null> {

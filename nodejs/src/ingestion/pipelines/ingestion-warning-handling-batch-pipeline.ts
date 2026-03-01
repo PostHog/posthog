@@ -1,6 +1,6 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipeline, BatchPipelineResultWithContext, FeedResult } from './batch-pipeline.interface'
 import { TeamIdContext } from './builders/batch-pipeline-builders'
 
 export class IngestionWarningHandlingBatchPipeline<
@@ -15,8 +15,8 @@ export class IngestionWarningHandlingBatchPipeline<
         private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
-        this.previousPipeline.feed(elements)
+    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): FeedResult {
+        return this.previousPipeline.feed(elements)
     }
 
     async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
