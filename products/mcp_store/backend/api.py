@@ -579,7 +579,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         )
 
         if token_response.status_code != 200:
-            logger.error("OAuth token exchange failed", status_code=token_response.status_code)
+            logger.error(
+                "OAuth token exchange failed", status_code=token_response.status_code, error=token_response.text
+            )
             return Response({"detail": "Failed to exchange authorization code"}, status=status.HTTP_400_BAD_REQUEST)
 
         return token_response.json()
@@ -616,7 +618,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         )
 
         if token_response.status_code != 200:
-            logger.error("DCR token exchange failed", status_code=token_response.status_code)
+            logger.error("DCR token exchange failed", status_code=token_response.status_code, error=token_response.text)
             return Response({"detail": "Failed to exchange authorization code"}, status=status.HTTP_400_BAD_REQUEST)
 
         return token_response.json()
