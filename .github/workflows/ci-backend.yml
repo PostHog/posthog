@@ -384,8 +384,15 @@ jobs:
                   include-hidden-files: true
                   retention-days: 2
 
+            - name: Verify new snapshots for flakiness
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              shell: bash
+              run: |
+                  .github/scripts/verify-new-snapshots.sh
+
             - name: Generate snapshot patch
               if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              shell: bash
               run: |
                   mkdir -p /tmp/patches
                   git add -N '*.ambr' || true
