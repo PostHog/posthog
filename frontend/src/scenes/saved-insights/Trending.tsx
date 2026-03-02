@@ -1,6 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { IconInfo } from '@posthog/icons'
+
 import { CompactList } from 'lib/components/CompactList/CompactList'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
@@ -14,7 +17,14 @@ export function Trending(): JSX.Element {
 
     return (
         <CompactList
-            title="Trending"
+            title={
+                <div className="flex items-center gap-1">
+                    Trending
+                    <Tooltip title="Trending insights are calculated based on the number of unique views in the last 7 days.">
+                        <IconInfo className="text-muted text-base" />
+                    </Tooltip>
+                </div>
+            }
             viewAllURL={urls.savedInsights(SavedInsightsTabs.All)}
             loading={trendingInsightsLoading}
             emptyMessage={{

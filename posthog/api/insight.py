@@ -1144,8 +1144,9 @@ class InsightViewSet(
             if len(viewers_by_insight[iid]) < 3:
                 viewers_by_insight[iid].append(viewer.user)
 
-        for item in data:
+        for item, instance in zip(data, queryset):
             item["viewers"] = UserBasicSerializer(viewers_by_insight.get(item["id"], []), many=True).data
+            item["view_count"] = getattr(instance, "view_count", 0)
 
         return Response(data=data, status=status.HTTP_200_OK)
 

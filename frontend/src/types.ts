@@ -2228,6 +2228,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     last_modified_by: UserBasicType | null
     last_viewed_at?: string | null
     viewers?: UserBasicType[]
+    view_count?: number
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
