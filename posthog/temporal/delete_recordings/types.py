@@ -17,17 +17,17 @@ class DeletionProgress(BaseModel):
 
 
 class DeletionConfig(BaseModel):
+    deleted_by: str
     dry_run: bool = False
     batch_size: Annotated[int, Field(ge=1, le=MAX_DELETE_BATCH_SIZE)] = MAX_DELETE_BATCH_SIZE
     max_deletions_per_second: float = 30
     reason: str = ""
-    deleted_by: str = ""
 
 
 class RecordingsWithPersonInput(BaseModel):
     distinct_ids: list[str]
     team_id: int
-    config: DeletionConfig = DeletionConfig()
+    config: DeletionConfig
     cursor: str | None = None
     page_size: int = 10_000
     progress: DeletionProgress | None = None
@@ -35,7 +35,7 @@ class RecordingsWithPersonInput(BaseModel):
 
 class RecordingsWithTeamInput(BaseModel):
     team_id: int
-    config: DeletionConfig = DeletionConfig()
+    config: DeletionConfig
     cursor: str | None = None
     page_size: int = 10_000
     progress: DeletionProgress | None = None
@@ -44,17 +44,19 @@ class RecordingsWithTeamInput(BaseModel):
 class RecordingsWithQueryInput(BaseModel):
     query: str
     team_id: int
-    config: DeletionConfig = DeletionConfig()
+    config: DeletionConfig
     query_limit: int = 100
     cursor: str | None = None
     progress: DeletionProgress | None = None
 
 
 class RecordingsWithSessionIdsInput(BaseModel):
-    session_ids: list[str]
+    s3_prefix: str
+    total_chunks: int
+    chunk_size: int
+    total_session_ids: int
     team_id: int
-    config: DeletionConfig = DeletionConfig()
-    page_size: int = 10_000
+    config: DeletionConfig
     source_filename: str | None = None
     progress: DeletionProgress | None = None
 
@@ -62,8 +64,8 @@ class RecordingsWithSessionIdsInput(BaseModel):
 class DeleteRecordingsInput(BaseModel):
     team_id: int
     session_ids: list[str]
+    deleted_by: str
     dry_run: bool = False
-    deleted_by: str = ""
 
 
 class DeleteRecordingsResult(BaseModel):
@@ -96,6 +98,16 @@ class DeletionCertificate(BaseModel):
     total_recordings_found: int
     total_deleted: int
     total_failed: int
+
+
+class LoadChunkInput(BaseModel):
+    s3_prefix: str
+    chunk_index: int
+
+
+class CleanupChunksInput(BaseModel):
+    s3_prefix: str
+    total_chunks: int
 
 
 class LoadRecordingError(Exception):

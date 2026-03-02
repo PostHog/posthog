@@ -15,7 +15,11 @@ from posthog.models.feature_flag.flags_cache import (
     refresh_expiring_flags_caches,
     update_flags_cache,
 )
-from posthog.models.feature_flag.local_evaluation import update_flag_caches
+from posthog.models.feature_flag.local_evaluation import (
+    FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
+    FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
+    update_flag_caches,
+)
 from posthog.models.team import Team
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
@@ -274,3 +278,121 @@ def compute_feature_flag_metrics(self: PushGatewayTask) -> None:
         top_total_size_bytes=top_by_total[0]["total_size"] if top_by_total else 0,
         top_total_size_pg_bytes=top_by_total[0]["total_pg_size"] if top_by_total else 0,
     )
+
+
+@shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+def refresh_expiring_flag_definitions_cache_entries(self: PushGatewayTask) -> None:
+    """
+    Periodic task to refresh flag definitions caches before they expire.
+
+    Refreshes both with-cohorts and without-cohorts cache variants.
+    Runs hourly and refreshes caches with TTL < 24 hours to prevent cache misses.
+
+    Note: Most cache updates happen via Django signals when flags change.
+    This job just prevents expiration-related cache misses.
+    """
+
+    from posthog.storage.cache_expiry_manager import refresh_expiring_caches
+
+    successful_gauge = Gauge(
+        "posthog_flag_definitions_cache_refresh_successful_count",
+        "Number of flag definitions caches successfully refreshed",
+        registry=self.metrics_registry,
+    )
+    failed_gauge = Gauge(
+        "posthog_flag_definitions_cache_refresh_failed_count",
+        "Number of flag definitions caches that failed to refresh",
+        registry=self.metrics_registry,
+    )
+
+    start_time = time.time()
+    logger.info(
+        "Starting flag definitions cache sync",
+        ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
+        limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
+    )
+
+    total_successful = 0
+    total_failed = 0
+
+    # Refresh both cache variants
+    for config, variant_name in [
+        (FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG, "with-cohorts"),
+        (FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG, "without-cohorts"),
+    ]:
+        try:
+            successful, failed = refresh_expiring_caches(
+                config=config,
+                ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
+                limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
+            )
+            total_successful += successful
+            total_failed += failed
+            logger.info(
+                "Completed flag definitions cache refresh for variant",
+                variant=variant_name,
+                successful_refreshes=successful,
+                failed_refreshes=failed,
+            )
+        except Exception as e:
+            logger.exception(
+                "Failed to refresh flag definitions cache variant",
+                variant=variant_name,
+                error=str(e),
+            )
+            total_failed += 1
+
+    successful_gauge.set(total_successful)
+    failed_gauge.set(total_failed)
+
+    duration = time.time() - start_time
+    logger.info(
+        "Completed flag definitions cache refresh",
+        total_successful_refreshes=total_successful,
+        total_failed_refreshes=total_failed,
+        duration_seconds=duration,
+    )
+
+
+@shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+def cleanup_stale_flag_definitions_expiry_tracking_task(self: PushGatewayTask) -> None:
+    """
+    Periodic task to clean up stale entries in the flag definitions cache expiry tracking sorted sets.
+
+    Removes entries for teams that no longer exist in the database.
+    Runs daily to prevent sorted set bloat from deleted teams.
+    Cleans up both with-cohorts and without-cohorts sorted sets.
+    """
+
+    from posthog.storage.cache_expiry_manager import cleanup_stale_expiry_tracking
+
+    entries_cleaned_gauge = Gauge(
+        "posthog_cleanup_stale_flag_definitions_expiry_entries_cleaned",
+        "Number of stale flag definitions expiry tracking entries cleaned up",
+        registry=self.metrics_registry,
+    )
+
+    total_removed = 0
+    configs = [
+        (FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG, "with-cohorts"),
+        (FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG, "without-cohorts"),
+    ]
+
+    for config, variant_name in configs:
+        try:
+            removed_count = cleanup_stale_expiry_tracking(config)
+            total_removed += removed_count
+            logger.info(
+                "Completed flag definitions expiry tracking cleanup for variant",
+                variant=variant_name,
+                removed_count=removed_count,
+            )
+        except Exception as e:
+            logger.exception(
+                "Failed to cleanup flag definitions expiry tracking for variant",
+                variant=variant_name,
+                error=str(e),
+            )
+
+    entries_cleaned_gauge.set(total_removed)
+    logger.info("Completed flag definitions expiry tracking cleanup", total_removed_count=total_removed)

@@ -9,10 +9,12 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from posthog.temporal.delete_recordings.types import (
+    CleanupChunksInput,
     DeleteRecordingsInput,
     DeleteRecordingsResult,
     DeletionCertificate,
     DeletionConfig,
+    LoadChunkInput,
     LoadRecordingsPage,
     PurgeDeletedMetadataInput,
     PurgeDeletedMetadataResult,
@@ -28,6 +30,8 @@ from posthog.temporal.delete_recordings.workflows import (
     DeleteRecordingsWithTeamWorkflow,
     PurgeDeletedRecordingMetadataWorkflow,
 )
+
+TEST_CONFIG = DeletionConfig(deleted_by="test@posthog.com")
 
 
 @pytest.mark.asyncio
@@ -69,7 +73,7 @@ async def test_delete_recordings_with_person_workflow():
         ):
             result = await env.client.execute_workflow(
                 DeleteRecordingsWithPersonWorkflow.run,
-                RecordingsWithPersonInput(distinct_ids=TEST_DISTINCT_IDS, team_id=TEST_TEAM_ID),
+                RecordingsWithPersonInput(distinct_ids=TEST_DISTINCT_IDS, team_id=TEST_TEAM_ID, config=TEST_CONFIG),
                 id=workflow_id,
                 task_queue=task_queue_name,
             )
@@ -122,7 +126,7 @@ async def test_delete_recordings_with_person_workflow_dry_run():
                 RecordingsWithPersonInput(
                     distinct_ids=TEST_DISTINCT_IDS,
                     team_id=TEST_TEAM_ID,
-                    config=DeletionConfig(dry_run=True),
+                    config=DeletionConfig(deleted_by="test@posthog.com", dry_run=True),
                 ),
                 id=workflow_id,
                 task_queue=task_queue_name,
@@ -166,7 +170,7 @@ async def test_delete_recordings_with_no_sessions_found():
         ):
             result = await env.client.execute_workflow(
                 DeleteRecordingsWithTeamWorkflow.run,
-                RecordingsWithTeamInput(team_id=TEST_TEAM_ID),
+                RecordingsWithTeamInput(team_id=TEST_TEAM_ID, config=TEST_CONFIG),
                 id=workflow_id,
                 task_queue=task_queue_name,
             )
@@ -216,7 +220,7 @@ async def test_delete_recordings_with_team_workflow():
         ):
             result = await env.client.execute_workflow(
                 DeleteRecordingsWithTeamWorkflow.run,
-                RecordingsWithTeamInput(team_id=TEST_TEAM_ID),
+                RecordingsWithTeamInput(team_id=TEST_TEAM_ID, config=TEST_CONFIG),
                 id=workflow_id,
                 task_queue=task_queue_name,
             )
@@ -261,7 +265,9 @@ async def test_delete_recordings_with_team_workflow_dry_run():
         ):
             result = await env.client.execute_workflow(
                 DeleteRecordingsWithTeamWorkflow.run,
-                RecordingsWithTeamInput(team_id=TEST_TEAM_ID, config=DeletionConfig(dry_run=True)),
+                RecordingsWithTeamInput(
+                    team_id=TEST_TEAM_ID, config=DeletionConfig(deleted_by="test@posthog.com", dry_run=True)
+                ),
                 id=workflow_id,
                 task_queue=task_queue_name,
             )
@@ -312,7 +318,7 @@ async def test_delete_recordings_with_query_workflow():
         ):
             result = await env.client.execute_workflow(
                 DeleteRecordingsWithQueryWorkflow.run,
-                RecordingsWithQueryInput(query=TEST_QUERY, team_id=TEST_TEAM_ID),
+                RecordingsWithQueryInput(query=TEST_QUERY, team_id=TEST_TEAM_ID, config=TEST_CONFIG),
                 id=workflow_id,
                 task_queue=task_queue_name,
             )
@@ -360,7 +366,11 @@ async def test_delete_recordings_with_query_workflow_dry_run():
         ):
             result = await env.client.execute_workflow(
                 DeleteRecordingsWithQueryWorkflow.run,
-                RecordingsWithQueryInput(query=TEST_QUERY, team_id=TEST_TEAM_ID, config=DeletionConfig(dry_run=True)),
+                RecordingsWithQueryInput(
+                    query=TEST_QUERY,
+                    team_id=TEST_TEAM_ID,
+                    config=DeletionConfig(deleted_by="test@posthog.com", dry_run=True),
+                ),
                 id=workflow_id,
                 task_queue=task_queue_name,
             )
@@ -405,7 +415,9 @@ async def test_delete_recordings_with_batching():
         ):
             result = await env.client.execute_workflow(
                 DeleteRecordingsWithTeamWorkflow.run,
-                RecordingsWithTeamInput(team_id=TEST_TEAM_ID, config=DeletionConfig(batch_size=100)),
+                RecordingsWithTeamInput(
+                    team_id=TEST_TEAM_ID, config=DeletionConfig(deleted_by="test@posthog.com", batch_size=100)
+                ),
                 id=workflow_id,
                 task_queue=task_queue_name,
             )
@@ -458,7 +470,7 @@ async def test_delete_recordings_certificate_with_mixed_results():
         ):
             result = await env.client.execute_workflow(
                 DeleteRecordingsWithTeamWorkflow.run,
-                RecordingsWithTeamInput(team_id=TEST_TEAM_ID),
+                RecordingsWithTeamInput(team_id=TEST_TEAM_ID, config=TEST_CONFIG),
                 id=workflow_id,
                 task_queue=task_queue_name,
             )
@@ -511,7 +523,7 @@ async def test_delete_recordings_with_pagination():
         ):
             result = await env.client.execute_workflow(
                 DeleteRecordingsWithTeamWorkflow.run,
-                RecordingsWithTeamInput(team_id=TEST_TEAM_ID),
+                RecordingsWithTeamInput(team_id=TEST_TEAM_ID, config=TEST_CONFIG),
                 id=workflow_id,
                 task_queue=task_queue_name,
             )
@@ -563,7 +575,7 @@ async def test_rate_limiting_sleeps_when_execution_is_fast(num_sessions, max_per
                     DeleteRecordingsWithTeamWorkflow.run,
                     RecordingsWithTeamInput(
                         team_id=TEST_TEAM_ID,
-                        config=DeletionConfig(max_deletions_per_second=max_per_second),
+                        config=DeletionConfig(deleted_by="test@posthog.com", max_deletions_per_second=max_per_second),
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue_name,
@@ -604,7 +616,7 @@ async def test_rate_limiting_disabled_when_zero():
                     DeleteRecordingsWithTeamWorkflow.run,
                     RecordingsWithTeamInput(
                         team_id=TEST_TEAM_ID,
-                        config=DeletionConfig(max_deletions_per_second=0),
+                        config=DeletionConfig(deleted_by="test@posthog.com", max_deletions_per_second=0),
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue_name,
@@ -615,7 +627,9 @@ async def test_rate_limiting_disabled_when_zero():
 
 def test_delete_recordings_with_person_workflow_parse_inputs():
     result = DeleteRecordingsWithPersonWorkflow.parse_inputs(
-        ['{"distinct_ids": ["id1", "id2"], "team_id": 123, "config": {"batch_size": 50}}']
+        [
+            '{"distinct_ids": ["id1", "id2"], "team_id": 123, "config": {"deleted_by": "test@posthog.com", "batch_size": 50}}'
+        ]
     )
     assert result.distinct_ids == ["id1", "id2"]
     assert result.team_id == 123
@@ -624,7 +638,7 @@ def test_delete_recordings_with_person_workflow_parse_inputs():
 
 def test_delete_recordings_with_team_workflow_parse_inputs():
     result = DeleteRecordingsWithTeamWorkflow.parse_inputs(
-        ['{"team_id": 456, "config": {"dry_run": true, "batch_size": 50}}']
+        ['{"team_id": 456, "config": {"deleted_by": "test@posthog.com", "dry_run": true, "batch_size": 50}}']
     )
     assert result.team_id == 456
     assert result.config.dry_run is True
@@ -634,7 +648,7 @@ def test_delete_recordings_with_team_workflow_parse_inputs():
 def test_delete_recordings_with_query_workflow_parse_inputs():
     result = DeleteRecordingsWithQueryWorkflow.parse_inputs(
         [
-            '{"query": "date_from=-7d", "team_id": 789, "config": {"dry_run": false, "batch_size": 75}, "query_limit": 500}'
+            '{"query": "date_from=-7d", "team_id": 789, "config": {"deleted_by": "test@posthog.com", "dry_run": false, "batch_size": 75}, "query_limit": 500}'
         ]
     )
     assert result.query == "date_from=-7d"
@@ -687,12 +701,23 @@ async def test_delete_recordings_with_session_ids_workflow():
     TEST_SESSION_IDS = ["session-a", "session-b", "session-c"]
 
     deleted_sessions: list[str] = []
+    cleanup_called = False
+
+    @activity.defn(name="load-session-id-chunk")
+    async def load_chunk_mocked(input: LoadChunkInput) -> LoadRecordingsPage:
+        assert input.chunk_index == 0
+        return LoadRecordingsPage(session_ids=TEST_SESSION_IDS)
 
     @activity.defn(name="delete-recordings")
     async def delete_recordings_mocked(input: DeleteRecordingsInput) -> DeleteRecordingsResult:
         assert input.team_id == TEST_TEAM_ID
         deleted_sessions.extend(input.session_ids)
         return DeleteRecordingsResult(deleted=input.session_ids)
+
+    @activity.defn(name="cleanup-session-id-chunks")
+    async def cleanup_mocked(input: CleanupChunksInput) -> None:
+        nonlocal cleanup_called
+        cleanup_called = True
 
     task_queue_name = str(uuid.uuid4())
     workflow_id = str(uuid.uuid4())
@@ -701,21 +726,25 @@ async def test_delete_recordings_with_session_ids_workflow():
             env.client,
             task_queue=task_queue_name,
             workflows=[DeleteRecordingsWithSessionIdsWorkflow],
-            activities=[delete_recordings_mocked],
+            activities=[load_chunk_mocked, delete_recordings_mocked, cleanup_mocked],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             result = await env.client.execute_workflow(
                 DeleteRecordingsWithSessionIdsWorkflow.run,
                 RecordingsWithSessionIdsInput(
-                    session_ids=TEST_SESSION_IDS,
+                    s3_prefix="deletion-inputs/test/",
+                    total_chunks=1,
+                    chunk_size=10_000,
+                    total_session_ids=3,
                     team_id=TEST_TEAM_ID,
-                    config=DeletionConfig(reason="test cleanup"),
+                    config=DeletionConfig(deleted_by="test@posthog.com", reason="test cleanup"),
                 ),
                 id=workflow_id,
                 task_queue=task_queue_name,
             )
 
     assert sorted(deleted_sessions) == sorted(TEST_SESSION_IDS)
+    assert cleanup_called is True
 
     certificate = DeletionCertificate.model_validate(result)
     assert certificate.workflow_type == "session_ids"
@@ -729,18 +758,31 @@ async def test_delete_recordings_with_session_ids_workflow():
 
 
 @pytest.mark.asyncio
-async def test_delete_recordings_with_session_ids_workflow_chunks_large_input():
-    """Session IDs are processed in chunks of 10,000 — verify multiple delete_recordings calls."""
+async def test_delete_recordings_with_session_ids_workflow_multiple_chunks():
+    """Session IDs spread across multiple S3 chunks — verify all chunks are loaded and deleted."""
     TEST_TEAM_ID: int = 66666
-    TEST_SESSION_IDS = [f"session-{i}" for i in range(25_000)]
+    CHUNK_0 = [f"session-{i}" for i in range(100)]
+    CHUNK_1 = [f"session-{i}" for i in range(100, 200)]
+    CHUNK_2 = [f"session-{i}" for i in range(200, 250)]
+    CHUNKS = [CHUNK_0, CHUNK_1, CHUNK_2]
 
     batch_calls: list[list[str]] = []
+    load_calls: list[int] = []
+
+    @activity.defn(name="load-session-id-chunk")
+    async def load_chunk_mocked(input: LoadChunkInput) -> LoadRecordingsPage:
+        load_calls.append(input.chunk_index)
+        return LoadRecordingsPage(session_ids=CHUNKS[input.chunk_index])
 
     @activity.defn(name="delete-recordings")
     async def delete_recordings_mocked(input: DeleteRecordingsInput) -> DeleteRecordingsResult:
         batch_calls.append(input.session_ids)
         return DeleteRecordingsResult(deleted=input.session_ids)
 
+    @activity.defn(name="cleanup-session-id-chunks")
+    async def cleanup_mocked(input: CleanupChunksInput) -> None:
+        assert input.total_chunks == 3
+
     task_queue_name = str(uuid.uuid4())
     workflow_id = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -748,42 +790,54 @@ async def test_delete_recordings_with_session_ids_workflow_chunks_large_input():
             env.client,
             task_queue=task_queue_name,
             workflows=[DeleteRecordingsWithSessionIdsWorkflow],
-            activities=[delete_recordings_mocked],
+            activities=[load_chunk_mocked, delete_recordings_mocked, cleanup_mocked],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             result = await env.client.execute_workflow(
                 DeleteRecordingsWithSessionIdsWorkflow.run,
                 RecordingsWithSessionIdsInput(
-                    session_ids=TEST_SESSION_IDS,
+                    s3_prefix="deletion-inputs/test/",
+                    total_chunks=3,
+                    chunk_size=100,
+                    total_session_ids=250,
                     team_id=TEST_TEAM_ID,
+                    config=TEST_CONFIG,
                     source_filename="big-export.csv",
                 ),
                 id=workflow_id,
                 task_queue=task_queue_name,
             )
 
-    # 25,000 sessions with default batch_size=100 → 3 chunks of 10k, each producing 100 delete_recordings calls
+    assert load_calls == [0, 1, 2]
+
     all_deleted = [sid for batch in batch_calls for sid in batch]
-    assert len(all_deleted) == 25_000
-    assert sorted(all_deleted) == sorted(TEST_SESSION_IDS)
+    assert len(all_deleted) == 250
+    assert sorted(all_deleted) == sorted(CHUNK_0 + CHUNK_1 + CHUNK_2)
 
     certificate = DeletionCertificate.model_validate(result)
     assert certificate.workflow_type == "session_ids"
     assert certificate.source_filename == "big-export.csv"
-    assert certificate.total_recordings_found == 25_000
-    assert certificate.total_deleted == 25_000
+    assert certificate.total_recordings_found == 250
+    assert certificate.total_deleted == 250
     assert certificate.total_failed == 0
 
 
 @pytest.mark.asyncio
 async def test_delete_recordings_with_session_ids_workflow_dry_run():
     TEST_TEAM_ID: int = 66666
-    TEST_SESSION_IDS = ["session-a", "session-b"]
+
+    @activity.defn(name="load-session-id-chunk")
+    async def load_chunk_mocked(input: LoadChunkInput) -> LoadRecordingsPage:
+        return LoadRecordingsPage(session_ids=["session-a", "session-b"])
 
     @activity.defn(name="delete-recordings")
     async def delete_recordings_mocked(input: DeleteRecordingsInput) -> DeleteRecordingsResult:
         assert input.dry_run is True
         return DeleteRecordingsResult(deleted=[])
+
+    @activity.defn(name="cleanup-session-id-chunks")
+    async def cleanup_mocked(input: CleanupChunksInput) -> None:
+        pass
 
     task_queue_name = str(uuid.uuid4())
     workflow_id = str(uuid.uuid4())
@@ -792,13 +846,18 @@ async def test_delete_recordings_with_session_ids_workflow_dry_run():
             env.client,
             task_queue=task_queue_name,
             workflows=[DeleteRecordingsWithSessionIdsWorkflow],
-            activities=[delete_recordings_mocked],
+            activities=[load_chunk_mocked, delete_recordings_mocked, cleanup_mocked],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             result = await env.client.execute_workflow(
                 DeleteRecordingsWithSessionIdsWorkflow.run,
                 RecordingsWithSessionIdsInput(
-                    session_ids=TEST_SESSION_IDS, team_id=TEST_TEAM_ID, config=DeletionConfig(dry_run=True)
+                    s3_prefix="deletion-inputs/test/",
+                    total_chunks=1,
+                    chunk_size=10_000,
+                    total_session_ids=2,
+                    team_id=TEST_TEAM_ID,
+                    config=DeletionConfig(deleted_by="test@posthog.com", dry_run=True),
                 ),
                 id=workflow_id,
                 task_queue=task_queue_name,
@@ -813,9 +872,14 @@ async def test_delete_recordings_with_session_ids_workflow_dry_run():
 
 def test_delete_recordings_with_session_ids_workflow_parse_inputs():
     result = DeleteRecordingsWithSessionIdsWorkflow.parse_inputs(
-        ['{"session_ids": ["s1", "s2"], "team_id": 123, "config": {"batch_size": 50}}']
+        [
+            '{"s3_prefix": "deletion-inputs/wf-123/", "total_chunks": 3, "chunk_size": 10000, "total_session_ids": 25000, "team_id": 123, "config": {"deleted_by": "test@posthog.com", "batch_size": 50}}'
+        ]
     )
-    assert result.session_ids == ["s1", "s2"]
+    assert result.s3_prefix == "deletion-inputs/wf-123/"
+    assert result.total_chunks == 3
+    assert result.chunk_size == 10000
+    assert result.total_session_ids == 25000
     assert result.team_id == 123
     assert result.config.batch_size == 50
 
@@ -844,7 +908,7 @@ def test_queue_delete_team_recordings(team_ids, expected_calls):
         return mock_client
 
     with patch("posthog.temporal.common.client.async_connect", side_effect=fake_connect):
-        _queue_delete_team_recordings(team_ids)
+        _queue_delete_team_recordings(team_ids, deleted_by="test@posthog.com")
 
     assert mock_client.start_workflow.call_count == expected_calls
     for call in mock_client.start_workflow.call_args_list:
@@ -860,4 +924,4 @@ def test_queue_delete_team_recordings_raises_when_temporal_unavailable():
 
     with patch("posthog.temporal.common.client.async_connect", side_effect=fail_connect):
         with pytest.raises(RuntimeError, match="Temporal unavailable"):
-            _queue_delete_team_recordings([1])
+            _queue_delete_team_recordings([1], deleted_by="test@posthog.com")
