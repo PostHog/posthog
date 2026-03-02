@@ -80,6 +80,10 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         props.sourceQuery?.kind === NodeKind.HogQLQuery
                             ? (props.sourceQuery.variables ?? undefined)
                             : undefined
+                    const connectionId =
+                        props.sourceQuery?.kind === NodeKind.HogQLQuery
+                            ? (props.sourceQuery.connectionId ?? undefined)
+                            : undefined
 
                     const response = await performQuery<HogQLMetadata>(
                         setLatestVersionsOnQuery(
@@ -91,6 +95,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                                 globals: props.globals,
                                 sourceQuery: props.sourceQuery,
                                 variables,
+                                connectionId,
                             },
                             { recursion: false }
                         )

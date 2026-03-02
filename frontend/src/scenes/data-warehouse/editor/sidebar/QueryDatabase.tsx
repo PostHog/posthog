@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import {
     IconBrackets,
@@ -45,6 +45,7 @@ export const QueryDatabase = (): JSX.Element => {
         searchTerm,
         joinsByFieldName,
         editingDraftId,
+        selectedSourceId,
     } = useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
@@ -181,6 +182,37 @@ export const QueryDatabase = (): JSX.Element => {
         }
     }
 
+    const displayedTreeData = useMemo(() => {
+        const sourceData = searchTerm ? searchTreeData : treeData
+
+        if (!selectedSourceId) {
+            return sourceData
+        }
+
+        const flattenedTables = sourceData.flatMap((item) => {
+            if (
+                item.record?.type === 'sources' ||
+                item.record?.type === 'views' ||
+                item.record?.type === 'managed-views'
+            ) {
+                return item.children ?? []
+            }
+
+            return [item]
+        })
+
+        return [
+            {
+                id: searchTerm ? 'search-tables' : 'tables',
+                name: 'Tables',
+                type: 'node' as const,
+                icon: <IconDatabase />,
+                record: { type: 'tables' },
+                children: flattenedTables,
+            },
+        ]
+    }, [searchTerm, searchTreeData, selectedSourceId, treeData])
+
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
         setTreeRef(treeRef)
@@ -190,8 +222,16 @@ export const QueryDatabase = (): JSX.Element => {
         <LemonTree
             ref={treeRef}
             // TODO: Can move this to treedata selector but selectors are maxed out on dependencies
-            data={searchTerm ? searchTreeData : treeData}
-            expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
+            data={displayedTreeData}
+            expandedItemIds={
+                selectedSourceId
+                    ? searchTerm
+                        ? ['search-tables', ...expandedSearchFolders]
+                        : ['tables', ...expandedFolders]
+                    : searchTerm
+                      ? expandedSearchFolders
+                      : expandedFolders
+            }
             onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
@@ -607,7 +647,15 @@ export const QueryDatabase = (): JSX.Element => {
                 return (
                     <TreeNodeDisplayIcon
                         item={item}
-                        expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
+                        expandedItemIds={
+                            selectedSourceId
+                                ? searchTerm
+                                    ? ['search-tables', ...expandedSearchFolders]
+                                    : ['tables', ...expandedFolders]
+                                : searchTerm
+                                  ? expandedSearchFolders
+                                  : expandedFolders
+                        }
                     />
                 )
             }}

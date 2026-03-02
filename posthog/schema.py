@@ -15755,6 +15755,9 @@ class HogQLQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
     query: str
+    connectionId: str | None = Field(
+        default=None, description="Optional direct query connection id for running against a specific source"
+    )
     response: HogQLQueryResponse | None = None
     tags: QueryLogTags | None = None
     values: dict[str, Any] | None = Field(
@@ -18219,6 +18222,9 @@ class DatabaseSchemaQuery(BaseModel):
         extra="forbid",
     )
     kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
+    connectionId: str | None = Field(
+        default=None, description="Optional direct query connection id for schema introspection"
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: DatabaseSchemaQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -18735,6 +18741,9 @@ class HogQLAutocomplete(BaseModel):
     language: HogLanguage = Field(..., description="Language to validate")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query: str = Field(..., description="Query to validate")
+    connectionId: str | None = Field(
+        default=None, description="Optional direct query connection id for running against a specific source"
+    )
     response: HogQLAutocompleteResponse | None = None
     sourceQuery: (
         EventsNode
@@ -18811,6 +18820,9 @@ class HogQLMetadata(BaseModel):
     language: HogLanguage = Field(..., description="Language to validate")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query: str = Field(..., description="Query to validate")
+    connectionId: str | None = Field(
+        default=None, description="Optional direct query connection id for running against a specific source"
+    )
     response: HogQLMetadataResponse | None = None
     sourceQuery: (
         EventsNode

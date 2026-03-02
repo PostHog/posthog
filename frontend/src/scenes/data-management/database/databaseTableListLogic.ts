@@ -40,19 +40,27 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setConnection: (connectionId: string | null, sourceId: string | null) => ({ connectionId, sourceId }),
     }),
-    loaders({
+    loaders(({ values }) => ({
         database: [
             null as Required<DatabaseSchemaQueryResponse> | null,
             {
                 loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> =>
                     await performQuery(
-                        setLatestVersionsOnQuery({ kind: NodeKind.DatabaseSchemaQuery }) as DatabaseSchemaQuery
+                        setLatestVersionsOnQuery({
+                            kind: NodeKind.DatabaseSchemaQuery,
+                            connectionId: values.connectionId ?? undefined,
+                        }) as DatabaseSchemaQuery
                     ),
             },
         ],
+    })),
+    reducers({
+        searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
+        connectionId: [null as string | null, { setConnection: (_, { connectionId }) => connectionId }],
+        selectedSourceId: [null as string | null, { setConnection: (_, { sourceId }) => sourceId }],
     }),
-    reducers({ searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }] }),
     selectors({
         allPosthogTables: [
             (s) => [s.allTables],
@@ -88,8 +96,11 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         posthogTables: [
-            (s) => [s.allPosthogTables],
-            (allPosthogTables: DatabaseSchemaTable[]): DatabaseSchemaTable[] => {
+            (s) => [s.allPosthogTables, s.selectedSourceId],
+            (allPosthogTables: DatabaseSchemaTable[], selectedSourceId: string | null): DatabaseSchemaTable[] => {
+                if (selectedSourceId) {
+                    return []
+                }
                 const visiblePosthogTableNames = new Set(['events', 'groups', 'persons', 'sessions'])
                 return allPosthogTables.filter((table) => visiblePosthogTableNames.has(table.name))
             },
@@ -101,8 +112,11 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         systemTables: [
-            (s) => [s.allTables],
-            (allTables: DatabaseSchemaTable[]): DatabaseSchemaTable[] => {
+            (s) => [s.allTables, s.selectedSourceId],
+            (allTables: DatabaseSchemaTable[], selectedSourceId: string | null): DatabaseSchemaTable[] => {
+                if (selectedSourceId) {
+                    return []
+                }
                 return allTables.filter((n) => n.type === 'system')
             },
             { resultEqualityCheck: objectsEqual },
@@ -113,9 +127,12 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         dataWarehouseTables: [
-            (s) => [s.allTables],
-            (allTables: DatabaseSchemaTable[]): DatabaseSchemaDataWarehouseTable[] => {
-                return allTables.filter((n): n is DatabaseSchemaDataWarehouseTable => n.type === 'data_warehouse')
+            (s) => [s.allTables, s.selectedSourceId],
+            (allTables: DatabaseSchemaTable[], selectedSourceId: string | null): DatabaseSchemaDataWarehouseTable[] => {
+                return allTables.filter(
+                    (n): n is DatabaseSchemaDataWarehouseTable =>
+                        n.type === 'data_warehouse' && (!selectedSourceId || n.source?.id === selectedSourceId)
+                )
             },
             { resultEqualityCheck: objectsEqual },
         ],

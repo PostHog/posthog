@@ -20,6 +20,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { FixErrorButton } from './components/FixErrorButton'
+import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
 import { OutputPane } from './OutputPane'
 import { QueryPane } from './QueryPane'
@@ -54,6 +55,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
             >
                 <div className="flex items-center gap-2">
                     <ExpandDatabaseTreeButton />
+                    <CollapsedConnectionSelector mode={mode} />
                     <RunButton />
                     <LemonDivider vertical />
                     <QueryVariablesMenu
@@ -195,3 +197,13 @@ const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId
 
     return <OutputPane tabId={tabId} />
 })
+
+function CollapsedConnectionSelector({ mode }: { mode?: SQLEditorMode }): JSX.Element | null {
+    const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
+
+    if (!isDatabaseTreeCollapsed || (mode && mode !== SQLEditorMode.FullScene)) {
+        return null
+    }
+
+    return <ConnectionSelector />
+}

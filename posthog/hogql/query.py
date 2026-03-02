@@ -64,6 +64,8 @@ class HogQLQueryExecutor:
     direct_postgres_sql: Optional[str] = None
     direct_postgres_source_id: Optional[str] = None
     direct_postgres_values: dict[str, object] | None = None
+    connection_id: Optional[str] = None
+    selected_direct_source_id: Optional[str] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -235,10 +237,15 @@ class HogQLQueryExecutor:
         direct_source_ids = self._extract_direct_postgres_sources_from_type(query_type)
 
         if len(direct_source_ids) == 0:
+            if self.connection_id is not None:
+                raise ExposedHogQLError("The selected connection requires querying tables from that source.")
             return
 
         if len(direct_source_ids) > 1:
             raise ExposedHogQLError("Direct Postgres queries can only reference a single source.")
+
+        if self.selected_direct_source_id is not None and self.selected_direct_source_id not in direct_source_ids:
+            raise ExposedHogQLError("The query references a different source than the selected connection.")
 
         all_table_types = Resolver(context=self.hogql_context or self.context)._extract_tables_from_query_type(
             query_type
@@ -321,7 +328,11 @@ class HogQLQueryExecutor:
 
         from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
-        source = ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
+        source = (
+            ExternalDataSource.objects.get(team=self.team, connection_id=self.connection_id)
+            if self.connection_id is not None
+            else ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
+        )
         source_config = source.job_inputs or {}
 
         with psycopg.connect(

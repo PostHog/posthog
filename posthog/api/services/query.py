@@ -33,11 +33,31 @@ from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode,
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_warehouse.backend.models import DataWarehouseJoin, ExternalDataSource
 
 from common.hogvm.python.debugger import color_bytecode
 
 logger = structlog.get_logger(__name__)
+
+
+def _source_id_for_connection(team: Team, connection_id: str | None) -> str | None:
+    if not connection_id:
+        return None
+
+    source = ExternalDataSource.objects.filter(team_id=team.pk, connection_id=connection_id).first()
+    return str(source.source_id) if source else None
+
+
+def _filter_schema_tables_for_connection(tables: dict, source_id: str | None) -> dict:
+    if not source_id:
+        return tables
+
+    return {
+        name: table
+        for name, table in tables.items()
+        if getattr(table, "type", None) == "data_warehouse"
+        and getattr(getattr(table, "source", None), "id", None) == source_id
+    }
 
 
 def process_query_dict(
@@ -158,17 +178,25 @@ def process_query_model(
             except Exception as e:
                 result = HogQueryResponse(results=f"ERROR: {str(e)}")
         elif isinstance(query, HogQLAutocomplete):
-            result = get_hogql_autocomplete(query=query, team=team)
+            connection_source_id = _source_id_for_connection(team, query.connectionId)
+            database = None
+            if connection_source_id:
+                database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team))
+            result = get_hogql_autocomplete(query=query, team=team, database_arg=database)
         elif isinstance(query, HogQLMetadata):
             metadata_query = HogQLMetadata.model_validate(query)
             metadata_response = get_hogql_metadata(query=metadata_query, team=team)
             result = metadata_response
         elif isinstance(query, DatabaseSchemaQuery):
             joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
+            source_id = _source_id_for_connection(team, query.connectionId)
             database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team))
             context = HogQLContext(team_id=team.pk, team=team, database=database)
             result = DatabaseSchemaQueryResponse(
-                tables=database.serialize(context, include_hidden_posthog_tables=True),
+                tables=_filter_schema_tables_for_connection(
+                    database.serialize(context, include_hidden_posthog_tables=True),
+                    source_id,
+                ),
                 joins=[
                     DataWarehouseViewLink.model_validate(
                         {

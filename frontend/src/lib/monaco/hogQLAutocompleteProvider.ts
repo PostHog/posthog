@@ -104,6 +104,11 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
             lineNumber: position.lineNumber,
             column: word.endColumn,
         })
+        const connectionId =
+            logic.isMounted() && logic.props.sourceQuery?.kind === NodeKind.HogQLQuery
+                ? (logic.props.sourceQuery.connectionId ?? undefined)
+                : undefined
+
         const query: HogQLAutocomplete = setLatestVersionsOnQuery(
             {
                 kind: NodeKind.HogQLAutocomplete,
@@ -113,6 +118,7 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
                 filters: logic.isMounted() ? logic.props.metadataFilters : undefined,
                 globals: logic.isMounted() ? logic.props.globals : undefined,
                 sourceQuery: logic.isMounted() ? logic.props.sourceQuery : undefined,
+                connectionId,
                 startPosition: startOffset,
                 endPosition: endOffset,
             },
