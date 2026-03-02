@@ -92,16 +92,20 @@ function FunnelFlowGraphContent(): JSX.Element {
                 onPaneClick={closeOpenPopovers}
                 onNodeClick={closeOpenPopovers}
             >
-                {!isProfileMode && <Background gap={36} variant={BackgroundVariant.Dots} />}
-                {!isProfileMode && <Controls showInteractive={false} fitViewOptions={fitViewOptions} />}
-                {!isProfileMode && laidOutNodes.length > 4 && (
-                    <MiniMap
-                        zoomable
-                        pannable
-                        nodeStrokeWidth={3}
-                        nodeColor="var(--border)"
-                        nodeStrokeColor="var(--border)"
-                    />
+                {!isProfileMode && (
+                    <>
+                        <Background gap={36} variant={BackgroundVariant.Dots} />
+                        <Controls showInteractive={false} fitViewOptions={fitViewOptions} />
+                        {laidOutNodes.length > 4 && (
+                            <MiniMap
+                                zoomable
+                                pannable
+                                nodeStrokeWidth={3}
+                                nodeColor="var(--border)"
+                                nodeStrokeColor="var(--border)"
+                            />
+                        )}
+                    </>
                 )}
             </ReactFlow>
         </div>
