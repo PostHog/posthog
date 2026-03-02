@@ -251,7 +251,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase<PluginsServe
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
         // TODO: Add back in group enrichment if necessary
-        // await this.groupsManager.enrichGroups(invocationGlobals)
+        // await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
 
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
