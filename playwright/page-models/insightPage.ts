@@ -77,6 +77,11 @@ export class InsightPage {
         await this.editButton.click()
     }
 
+    async discard(): Promise<void> {
+        await this.page.getByTestId('insight-cancel-edit-button').click()
+        await expect(this.editButton).toBeVisible()
+    }
+
     async editName(insightName: string = randomString('insight')): Promise<void> {
         const nameField = this.page.getByTestId('scene-title-textarea')
         await expect(nameField).toBeVisible()
