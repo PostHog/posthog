@@ -68,7 +68,7 @@ PLAYLIST_COUNTER_SCHEDULE_CRON = get_from_env(
 # Example: "2,42" means team 2 and team 42 process all cohorts
 REALTIME_COHORT_CALCULATION_TEAMS: set[int] = {
     int(team_id.strip())
-    for team_id in get_from_env("REALTIME_COHORT_CALCULATION_TEAMS", "1,2").split(",")
+    for team_id in get_from_env("REALTIME_COHORT_CALCULATION_TEAMS", "2").split(",")
     if team_id.strip()
 }
 
@@ -76,7 +76,7 @@ REALTIME_COHORT_CALCULATION_TEAMS: set[int] = {
 # Example: 0.5 means 50% of cohorts for all other teams
 REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE: float = get_from_env(
     "REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE",
-    1.0,
+    0.0,
     type_cast=float,
 )
 
@@ -84,16 +84,16 @@ REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE: float = get_from_env(
 # Faster cohorts (p90 and p95) run more frequently, slower cohorts run less frequently
 REALTIME_COHORT_CALCULATION_P0_P90_INTERVAL_MINUTES: int = get_from_env(
     "REALTIME_COHORT_CALCULATION_P0_P90_INTERVAL_MINUTES",
-    1,
+    10,
     type_cast=int,
 )
 REALTIME_COHORT_CALCULATION_P90_P95_INTERVAL_MINUTES: int = get_from_env(
     "REALTIME_COHORT_CALCULATION_P90_P95_INTERVAL_MINUTES",
-    2,
+    20,
     type_cast=int,
 )
 REALTIME_COHORT_CALCULATION_P95_P100_INTERVAL_MINUTES: int = get_from_env(
     "REALTIME_COHORT_CALCULATION_P95_P100_INTERVAL_MINUTES",
-    3,
+    30,
     type_cast=int,
 )
