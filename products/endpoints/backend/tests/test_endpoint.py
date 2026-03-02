@@ -1055,6 +1055,128 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(endpoint.derived_from_insight, "abc123xyz")
 
 
+class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.var_id_1 = "00000000-0000-0000-0000-000000000001"
+        self.var_id_2 = "00000000-0000-0000-0000-000000000002"
+        self.variable_query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts}",
+            "variables": {
+                self.var_id_1: {"variableId": self.var_id_1, "code_name": "start_ts", "value": "2024-01-01"},
+                self.var_id_2: {"variableId": self.var_id_2, "code_name": "end_ts", "value": "2024-02-01"},
+            },
+        }
+
+    def _create_endpoint_with_variables(self, name="range-endpoint"):
+        from posthog.models.insight_variable import InsightVariable
+
+        InsightVariable.objects.create(
+            team=self.team, id="00000000-0000-0000-0000-000000000001", code_name="start_ts", type="String"
+        )
+        InsightVariable.objects.create(
+            team=self.team, id="00000000-0000-0000-0000-000000000002", code_name="end_ts", type="String"
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/",
+            {"name": name, "query": self.variable_query},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()
+
+    def test_preview_returns_transform(self):
+        self._create_endpoint_with_variables()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/range-endpoint/materialization_preview/"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+
+        assert data["can_materialize"] is True
+        assert data["reason"] is None
+        assert data["transformed_query"] is not None
+        assert "toStartOfDay" in data["transformed_query"]
+        assert len(data["range_pairs"]) == 1
+        assert data["range_pairs"][0]["column"] == "timestamp"
+        assert set(data["range_pairs"][0]["variables"]) == {"start_ts", "end_ts"}
+
+    def test_preview_with_bucket_override(self):
+        self._create_endpoint_with_variables()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/range-endpoint/materialization_preview/",
+            {"bucket_overrides[timestamp]": "hour"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+
+        assert data["can_materialize"] is True
+        assert "toStartOfHour" in data["transformed_query"]
+        assert "toStartOfDay" not in data["transformed_query"]
+        assert data["range_pairs"][0]["bucket_fn"] == "toStartOfHour"
+
+    def test_preview_non_materializable_query(self):
+        create_endpoint_with_version(
+            name="simple-endpoint",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/simple-endpoint/materialization_preview/"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+
+        # No variables, but query is materializable
+        assert data["can_materialize"] is True
+        assert data["transformed_query"] is not None
+
+    def test_create_does_not_auto_materialize(self):
+        endpoint_data = self._create_endpoint_with_variables("no-auto-mat")
+
+        # Should NOT be materialized
+        assert endpoint_data["is_materialized"] is False
+        assert endpoint_data.get("materialization", {}).get("status") is None
+
+    def test_bucket_overrides_stored_on_version(self):
+        from posthog.models.insight_variable import InsightVariable
+
+        InsightVariable.objects.create(
+            team=self.team, id="00000000-0000-0000-0000-000000000001", code_name="start_ts", type="String"
+        )
+        InsightVariable.objects.create(
+            team=self.team, id="00000000-0000-0000-0000-000000000002", code_name="end_ts", type="String"
+        )
+
+        self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/",
+            {"name": "bucket-test", "query": self.variable_query},
+            format="json",
+        )
+
+        # Enable materialization with bucket overrides
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/bucket-test/",
+            {"is_materialized": True, "bucket_overrides": {"timestamp": "hour"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["bucket_overrides"] == {"timestamp": "hour"}
+
+        # Verify persisted
+        from products.endpoints.backend.models import EndpointVersion
+
+        version = EndpointVersion.objects.get(endpoint__name="bucket-test", endpoint__team=self.team, version=1)
+        assert version.bucket_overrides == {"timestamp": "hour"}
+
+
 class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [

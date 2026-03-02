@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 
 from products.endpoints.backend.materialization import (
@@ -455,6 +457,166 @@ class TestVariableAnalysis(APIBaseTest):
         by_name = {v.code_name: v for v in var_infos}
         assert by_name["name"].operator == ast.CompareOperationOp.Eq
         assert by_name["start"].operator == ast.CompareOperationOp.GtEq
+
+
+class TestRangePairDetection(APIBaseTest):
+    """Test detection of range variable pairs for time bucketing."""
+
+    def test_range_pair_detection(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts} AND properties.$host = {variables.host}",
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "start_ts", "value": "2024-01-01"},
+                "var-2": {"variableId": "var-2", "code_name": "end_ts", "value": "2024-02-01"},
+                "var-3": {"variableId": "var-3", "code_name": "host", "value": "example.com"},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        assert can_materialize is True
+        assert len(var_infos) == 3
+
+        by_name = {v.code_name: v for v in var_infos}
+
+        # start_ts and end_ts should be detected as a range pair
+        assert by_name["start_ts"].bucket_fn == "toStartOfDay"
+        assert by_name["end_ts"].bucket_fn == "toStartOfDay"
+
+        # host is equality — no bucket_fn
+        assert by_name["host"].bucket_fn is None
+
+    def test_single_range_op_not_paired(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE timestamp >= {variables.start_ts}",
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "start_ts", "value": "2024-01-01"},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        assert can_materialize is True
+        assert len(var_infos) == 1
+        # Single range op — no pair, no bucket_fn
+        assert var_infos[0].bucket_fn is None
+
+    def test_non_reaggregatable_function_rejected_with_range_vars(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT avg(properties.duration) FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts}",
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "start_ts", "value": "2024-01-01"},
+                "var-2": {"variableId": "var-2", "code_name": "end_ts", "value": "2024-02-01"},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        assert can_materialize is False
+        assert "avg" in reason
+        assert "re-aggregated" in reason
+
+    @parameterized.expand(
+        [
+            (
+                "count_distinct_syntax",
+                "SELECT count(DISTINCT person_id) FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts}",
+            ),
+            (
+                "countDistinct_function",
+                "SELECT countDistinct(person_id) FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts}",
+            ),
+        ]
+    )
+    def test_distinct_count_rejected_with_range_vars(self, _name, query_str):
+        query = {
+            "kind": "HogQLQuery",
+            "query": query_str,
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "start_ts", "value": "2024-01-01"},
+                "var-2": {"variableId": "var-2", "code_name": "end_ts", "value": "2024-02-01"},
+            },
+        }
+
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        assert can_materialize is False
+        assert "re-aggregated" in reason
+
+    def test_range_pair_bucketed_in_transform(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts}",
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "start_ts", "value": "2024-01-01"},
+                "var-2": {"variableId": "var-2", "code_name": "end_ts", "value": "2024-02-01"},
+            },
+        }
+
+        _, _, var_infos = analyze_variables_for_materialization(query)
+        transformed = transform_query_for_materialization(query, var_infos, self.team)
+
+        transformed_query = transformed["query"]
+        # Should use toStartOfDay(timestamp) instead of raw timestamp in GROUP BY
+        assert "toStartOfDay" in transformed_query
+        # GROUP BY should contain toStartOfDay, not raw timestamp
+        group_by_part = transformed_query.split("GROUP BY")[1] if "GROUP BY" in transformed_query else ""
+        assert "toStartOfDay" in group_by_part
+
+    @parameterized.expand(
+        [
+            ("hour", "toStartOfHour"),
+            ("day", "toStartOfDay"),
+            ("week", "toStartOfWeek"),
+            ("month", "toStartOfMonth"),
+        ]
+    )
+    def test_bucket_override_applied_to_range_pair(self, override_key, expected_fn):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts}",
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "start_ts", "value": "2024-01-01"},
+                "var-2": {"variableId": "var-2", "code_name": "end_ts", "value": "2024-02-01"},
+            },
+        }
+
+        _, _, var_infos = analyze_variables_for_materialization(query, bucket_overrides={"timestamp": override_key})
+
+        by_name = {v.code_name: v for v in var_infos}
+        assert by_name["start_ts"].bucket_fn == expected_fn
+        assert by_name["end_ts"].bucket_fn == expected_fn
+
+    def test_bucket_override_in_transform(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts}",
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "start_ts", "value": "2024-01-01"},
+                "var-2": {"variableId": "var-2", "code_name": "end_ts", "value": "2024-02-01"},
+            },
+        }
+
+        _, _, var_infos = analyze_variables_for_materialization(query)
+        transformed = transform_query_for_materialization(
+            query, var_infos, self.team, bucket_overrides={"timestamp": "hour"}
+        )
+
+        transformed_query = transformed["query"]
+        assert "toStartOfHour" in transformed_query
+        assert "toStartOfDay" not in transformed_query
+
+    def test_bucket_override_ignores_non_range_variables(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "event_name", "value": "$pageview"},
+            },
+        }
+
+        _, _, var_infos = analyze_variables_for_materialization(query, bucket_overrides={"event": "hour"})
+
+        assert var_infos[0].bucket_fn is None
 
 
 class TestQueryTransformation(APIBaseTest):
@@ -962,20 +1124,21 @@ class TestMaterializedQueryExecution(APIBaseTest):
         query_str = "SELECT count() as total, toStartOfDay(timestamp) as date FROM events"
         parsed = parse_select(query_str)
 
-        # Transform the SELECT expressions
         assert isinstance(parsed, ast.SelectQuery)
         transformed = transform_select_for_materialized_table(parsed.select, self.team)
 
-        # Should have 2 field references
         assert len(transformed) == 2
 
-        # First should be Field(chain=["total"])
-        assert isinstance(transformed[0], ast.Field)
-        assert transformed[0].chain == ["total"]
+        # count() as total → aggregate, re-aggregate with sum
+        assert isinstance(transformed[0].expr, ast.Field)
+        assert transformed[0].expr.chain == ["total"]
+        assert transformed[0].is_aggregate is True
+        assert transformed[0].reaggregate_fn == "sum"
 
-        # Second should be Field(chain=["date"])
-        assert isinstance(transformed[1], ast.Field)
-        assert transformed[1].chain == ["date"]
+        # toStartOfDay(timestamp) as date → non-aggregate
+        assert isinstance(transformed[1].expr, ast.Field)
+        assert transformed[1].expr.chain == ["date"]
+        assert transformed[1].is_aggregate is False
 
     def test_select_transformation_without_alias(self):
         from posthog.hogql.parser import parse_select
@@ -985,16 +1148,15 @@ class TestMaterializedQueryExecution(APIBaseTest):
         query_str = "SELECT count() FROM events"
         parsed = parse_select(query_str)
 
-        # Transform the SELECT expressions
         assert isinstance(parsed, ast.SelectQuery)
         transformed = transform_select_for_materialized_table(parsed.select, self.team)
 
-        # Should have 1 field reference
         assert len(transformed) == 1
 
-        # Should be Field(chain=["count()"])
-        assert isinstance(transformed[0], ast.Field)
-        assert transformed[0].chain == ["count()"]
+        assert isinstance(transformed[0].expr, ast.Field)
+        assert transformed[0].expr.chain == ["count()"]
+        assert transformed[0].is_aggregate is True
+        assert transformed[0].reaggregate_fn == "sum"
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -1283,6 +1445,7 @@ class TestMaterializedReadPath(APIBaseTest):
                     var_value,
                     op=mat_var.operator,
                     value_wrapper_fns=mat_var.value_wrapper_fns,
+                    bucket_fn=mat_var.bucket_fn,
                 )
 
         return select_query.to_hogql()
