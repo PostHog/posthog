@@ -4,6 +4,7 @@
         "https://eu.posthog.com/integrations/stripe/callback",
         "https://app.posthog.com/integrations/stripe/callback"
     ],
+    "connect_permissions": null,
     "constants": {
         "POSTHOG_DASHBOARD_URL": "https://app.posthog.com",
         "POSTHOG_EU_BASE_URL": "https://eu.posthog.com",
@@ -83,6 +84,13 @@
     "post_install_action": {
         "type": "onboarding"
     },
+    "provisioning": {
+        "account_configuration_schema": "{\"type\":\"object\",\"properties\":{\"region\":{\"type\":\"string\",\"enum\":[\"US\",\"EU\"],\"description\":\"Which PostHog region to connect the Stripe account to\"}},\"required\":[\"region\"],\"additionalProperties\":false}",
+        "base_url": "https://app.posthog.com/api/agentic/",
+        "capabilities": null,
+        "oauth_client_secret_secret_store_key": "posthog_access_token",
+        "scopes": null
+    },
     "stripe_api_access_type": "oauth",
     "ui_extension": {
         "content_security_policy": {
@@ -104,15 +112,6 @@
                 "viewport": "onboarding"
             }
         ]
-    },
-    "provisioning": {
-        "base_url": "https://app.posthog.com/api/agentic/",
-        "oauth_scopes": ["organization:read", "organization:write", "project:read", "project:write"],
-        "oauth_token_endpoint": "https://oauth.posthog.com/oauth/token",
-        "oauth_client_id": "ca_LAVHfa1QgiRsgQ23ZUT3Z3WMGRieTgEr",
-        "oauth_client_secret_secret_store_key": "posthog_access_token",
-        "account_configuration_schema": "{\"type\":\"object\",\"properties\":{\"region\":{\"type\":\"string\",\"enum\":[\"US\",\"EU\"],\"description\":\"Which PostHog region to connect the Stripe account to\"}},\"required\":[\"region\"],\"additionalProperties\":false}",
-        "llm_context": "https://posthog.com/llms.txt"
     },
     "version": "0.1.0"
 }
