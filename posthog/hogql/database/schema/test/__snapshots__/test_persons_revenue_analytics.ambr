@@ -4671,7 +4671,7 @@
                  FROM
                    (SELECT person.id AS id,
                            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
-                           nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email,
+                           replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
                            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
                            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
                            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'metadata'), ''), 'null'), '^"|"$', '') AS properties___metadata,
