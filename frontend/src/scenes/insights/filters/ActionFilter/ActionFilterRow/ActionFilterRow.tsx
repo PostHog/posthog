@@ -44,7 +44,6 @@ import {
     TaxonomicPopoverProps,
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
@@ -234,10 +233,10 @@ export function ActionFilterRow({
     definitionPopoverRenderer,
     operatorAllowlist,
 }: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
-    const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
-    const effectiveActionsTaxonomicGroupTypes = showQuickFilters
-        ? [TaxonomicFilterGroupType.SuggestedFilters, ...actionsTaxonomicGroupTypes]
-        : actionsTaxonomicGroupTypes
+    const effectiveActionsTaxonomicGroupTypes = [
+        TaxonomicFilterGroupType.SuggestedFilters,
+        ...actionsTaxonomicGroupTypes,
+    ]
 
     const { currentTeamId } = useValues(teamLogic)
     const { entityFilterVisible } = useValues(logic)
@@ -375,9 +374,7 @@ export function ActionFilterRow({
             data-attr={'trend-element-subject-' + index}
             fullWidth
             truncate
-            groupType={
-                showQuickFilters ? TaxonomicFilterGroupType.SuggestedFilters : (filter.type as TaxonomicFilterGroupType)
-            }
+            groupType={TaxonomicFilterGroupType.SuggestedFilters}
             value={getValue(value, filter)}
             filter={filter}
             onChange={(changedValue, taxonomicGroupType, item) => {
