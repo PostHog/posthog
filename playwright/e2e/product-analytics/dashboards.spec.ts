@@ -178,6 +178,7 @@ test.describe('Dashboards', () => {
 
         await test.step('verify the variable control shows the default value', async () => {
             await expect(page).toHaveURL(/\/dashboard\//)
+            await dashboard.closeInfoPanel()
             await expect(dashboard.insightCards).toBeVisible()
             await expect(dashboard.variableButtons.first()).toContainText('5')
         })
@@ -208,6 +209,44 @@ test.describe('Dashboards', () => {
             await expect(page).toHaveURL(/\/dashboard$/)
             await expect(page.getByText('Not found')).not.toBeVisible()
             await expect(page.getByText(dashboardName)).not.toBeVisible()
+        })
+    })
+
+    test('Deleting an insight from dashboard redirects back', async ({ page }) => {
+        const dashboard = new DashboardPage(page)
+        const insight = new InsightPage(page)
+
+        await test.step('create a dashboard with an insight', async () => {
+            await dashboard.createNew()
+            await dashboard.addInsightToNewDashboard()
+            await expect(dashboard.insightCards).toBeVisible()
+        })
+
+        await test.step('open the insight from the dashboard', async () => {
+            await dashboard.openFirstTileMenu()
+            await dashboard.selectTileMenuOption('Edit')
+            await expect(page).toHaveURL(/edit/)
+        })
+
+        await test.step('open the info panel and click delete', async () => {
+            await insight.openInfoPanel()
+            await insight.clickDeleteInsight()
+            await expect(page.locator('.LemonModal').filter({ hasText: 'Delete insight?' })).toBeVisible()
+        })
+
+        await test.step('cancel the dialog and verify we stay on the insight', async () => {
+            await insight.cancelDeleteDialog()
+            await expect(page).toHaveURL(/edit/)
+        })
+
+        await test.step('click delete again and confirm', async () => {
+            await insight.clickDeleteInsight()
+            await insight.confirmDeleteDialog()
+        })
+
+        await test.step('verify redirect to the dashboard with no insight cards', async () => {
+            await expect(page).toHaveURL(/\/dashboard\//)
+            await expect(dashboard.insightCards).toHaveCount(0)
         })
     })
 

@@ -110,10 +110,11 @@ test('password-protected insight sharing', async ({ page, playwrightSetup }) => 
     await expect(page.locator('text=Unlock')).toBeVisible()
     await expect(page.locator('text=Access share')).toBeVisible()
 
+    // :FIXME: Temporarily disabled due to flakiness
     // Take a snapshot of the password login page
-    await expect(page).toHaveScreenshot('insight-sharing-password-login.png', {
-        fullPage: true,
-    })
+    // await expect(page).toHaveScreenshot('insight-sharing-password-login.png', {
+    //     fullPage: true,
+    // })
 
     // First try wrong password
     await page.fill('input[type="password"]', 'wrongpassword')

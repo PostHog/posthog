@@ -265,6 +265,7 @@ class EventSource(StrEnum):
     POSTHOG_AI = "posthog_ai"
     TERRAFORM = "terraform"
     MCP = "mcp"
+    WIZARD = "wizard"
 
 
 def get_event_source(request) -> EventSource:
@@ -272,6 +273,8 @@ def get_event_source(request) -> EventSource:
     user_agent = request.META.get("HTTP_USER_AGENT", "")
     if "posthog/terraform-provider" in user_agent:
         return EventSource.TERRAFORM
+    if "posthog/wizard" in user_agent:
+        return EventSource.WIZARD
     if "posthog/mcp-server" in user_agent:
         return EventSource.MCP
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):

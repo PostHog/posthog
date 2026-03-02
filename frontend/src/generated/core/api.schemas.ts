@@ -233,6 +233,31 @@ export interface PatchedOrganizationMemberApi {
 }
 
 /**
+ * Serializer for organization-scoped OAuth applications (read-only).
+ */
+export interface OrganizationOAuthApplicationApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name?: string
+    /** @maxLength 100 */
+    client_id?: string
+    readonly redirect_uris_list: readonly string[]
+    /** True if this application has been verified by PostHog */
+    is_verified?: boolean
+    readonly created: string
+    readonly updated: string
+}
+
+export interface PaginatedOrganizationOAuthApplicationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationOAuthApplicationApi[]
+}
+
+/**
  * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
 passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
 backward compatibility of the REST API.
@@ -1099,10 +1124,11 @@ export interface SharingConfigurationApi {
  * `azure-blob` - Azure Blob
  * `firebase` - Firebase
  * `jira` - Jira
+ * `pinterest-ads` - Pinterest Ads
  */
-export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
+export type KindE61EnumApi = (typeof KindE61EnumApi)[keyof typeof KindE61EnumApi]
 
-export const KindCf2EnumApi = {
+export const KindE61EnumApi = {
     Slack: 'slack',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
@@ -1128,6 +1154,7 @@ export const KindCf2EnumApi = {
     AzureBlob: 'azure-blob',
     Firebase: 'firebase',
     Jira: 'jira',
+    PinterestAds: 'pinterest-ads',
 } as const
 
 /**
@@ -1135,7 +1162,7 @@ export const KindCf2EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindCf2EnumApi
+    kind: KindE61EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1157,7 +1184,7 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: KindCf2EnumApi
+    kind?: KindE61EnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1823,6 +1850,17 @@ export type InvitesListParams = {
 }
 
 export type MembersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type OauthApplicationsListParams = {
     /**
      * Number of results to return per page.
      */

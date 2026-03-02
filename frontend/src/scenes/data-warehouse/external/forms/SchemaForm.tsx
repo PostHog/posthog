@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonModal, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
@@ -119,12 +120,19 @@ export default function SchemaForm(): JSX.Element {
 
                                         if (field) {
                                             return (
-                                                <>
+                                                <div className="flex items-center justify-end">
+                                                    {field.nullable && (
+                                                        <Tooltip
+                                                            title={`This field is nullable. Any rows where ${field.label} is null will not be synced.`}
+                                                        >
+                                                            <IconWarning className="mr-1 text-warning text-xl" />
+                                                        </Tooltip>
+                                                    )}
                                                     <span className="leading-5">{field.label}</span>
                                                     <LemonTag className="ml-2" type="success">
                                                         {field.type}
                                                     </LemonTag>
-                                                </>
+                                                </div>
                                             )
                                         }
                                     }

@@ -27,7 +27,7 @@ class TestSlackTokenStorage(BaseTest):
 
         assert get_support_slack_bot_token(self.team) == "xoxb-test-token"
 
-    def test_save_sets_slack_enabled_and_team_id_in_settings(self):
+    def test_save_sets_slack_enabled_and_team_id(self):
         save_supporthog_slack_token(
             team=self.team,
             user=self.user,
@@ -39,7 +39,10 @@ class TestSlackTokenStorage(BaseTest):
         self.team.refresh_from_db()
         settings = self.team.conversations_settings or {}
         assert settings["slack_enabled"] is True
-        assert settings["slack_team_id"] == "T_SETTINGS"
+        assert "slack_team_id" not in settings
+
+        config = TeamConversationsSlackConfig.objects.get(team=self.team)
+        assert config.slack_team_id == "T_SETTINGS"
 
     def test_token_not_in_conversations_settings_json(self):
         save_supporthog_slack_token(
@@ -90,7 +93,7 @@ class TestSlackTokenStorage(BaseTest):
 
         assert get_support_slack_bot_token(self.team) == ""
 
-    def test_clear_sets_slack_enabled_false(self):
+    def test_clear_sets_slack_enabled_false_and_clears_config(self):
         save_supporthog_slack_token(
             team=self.team,
             user=self.user,
@@ -108,6 +111,10 @@ class TestSlackTokenStorage(BaseTest):
         self.team.refresh_from_db()
         settings = self.team.conversations_settings or {}
         assert settings["slack_enabled"] is False
+
+        config = TeamConversationsSlackConfig.objects.get(team=self.team)
+        assert config.slack_team_id is None
+        assert config.slack_bot_token is None
 
     def test_clear_noop_when_no_token(self):
         self.team.conversations_settings = {"slack_enabled": True}
@@ -139,8 +146,8 @@ class TestSlackTokenStorage(BaseTest):
         )
 
         assert get_support_slack_bot_token(self.team) == "xoxb-second"
-        self.team.refresh_from_db()
-        assert (self.team.conversations_settings or {}).get("slack_team_id") == "T_SECOND"
+        config = TeamConversationsSlackConfig.objects.get(team=self.team)
+        assert config.slack_team_id == "T_SECOND"
 
     def test_extension_auto_created_on_team_creation(self):
         config = get_or_create_team_extension(self.team, TeamConversationsSlackConfig)

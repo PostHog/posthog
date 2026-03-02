@@ -251,26 +251,36 @@ export class HogFlowExecutorService {
             })
             triggerMatch = filterResult.match
         }
-        if (hogFlow.conversion?.filters && person) {
-            const filterResult = await filterFunctionInstrumented({
-                fn: hogFlow,
-                filters: hogFlow.conversion.filters,
-                filterGlobals: invocation.filterGlobals,
-            })
-            conversionMatch = filterResult.match
+        if (hogFlow.conversion?.filters?.length && person) {
+            if (hogFlow.conversion.bytecode?.length) {
+                const filterResult = await filterFunctionInstrumented({
+                    fn: hogFlow,
+                    filters: {
+                        bytecode: hogFlow.conversion.bytecode || [],
+                        properties: hogFlow.conversion.filters || [],
+                    },
+                    filterGlobals: invocation.filterGlobals,
+                })
+                conversionMatch = filterResult.match
+            } else {
+                logger.error(
+                    'HogFlowExecutorService: Conversion filters are set but no bytecode is provided. This means we cannot evaluate the conversion filters to determine if we should exit the flow.',
+                    { hogFlowId: hogFlow.id }
+                )
+            }
         }
 
         switch (hogFlow.exit_condition) {
             case 'exit_on_trigger_not_matched':
                 if (triggerMatch === false) {
                     shouldExit = true
-                    exitReason = 'Person no longer matches trigger filters'
+                    exitReason = `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] no longer matches trigger filters`
                 }
                 break
             case 'exit_on_conversion':
                 if (conversionMatch === true) {
                     shouldExit = true
-                    exitReason = 'Person matches conversion filters'
+                    exitReason = `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] matches conversion filters`
                 }
                 break
             case 'exit_on_trigger_not_matched_or_conversion':
@@ -278,8 +288,8 @@ export class HogFlowExecutorService {
                     shouldExit = true
                     exitReason =
                         triggerMatch === false
-                            ? 'Person no longer matches trigger filters'
-                            : 'Person matches conversion filters'
+                            ? `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] no longer matches trigger filters`
+                            : `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] matches conversion filters`
                 }
                 break
         }

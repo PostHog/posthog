@@ -224,13 +224,11 @@ export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?
         }
         // Timestamp doesn't fall in any segment (e.g. timezone mismatch).
         // Pick the nearest segment that has a windowId so the player can still boot.
-        const nearest =
-            timestamp < segments[0].startTimestamp
-                ? segments.find((s) => s.windowId !== undefined)
-                : [...segments].reverse().find((s) => s.windowId !== undefined)
-
-        if (nearest) {
-            return nearest
+        if (timestamp < segments[0].startTimestamp) {
+            const nearest = segments.find((s) => s.windowId !== undefined)
+            if (nearest) {
+                return nearest
+            }
         }
 
         return {
@@ -1366,7 +1364,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlayer: ({ player }) => {
             if (player) {
                 if (values.currentTimestamp !== undefined) {
-                    actions.seekToTimestamp(values.currentTimestamp)
+                    actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
                 }
                 actions.syncPlayerSpeed()
                 // Ensure we respect the persisted playing state when the player is reinitialized
@@ -1409,7 +1407,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Otherwise keep existing player visible (last valid frame)
             }
             if (values.currentTimestamp !== undefined) {
-                actions.seekToTimestamp(values.currentTimestamp)
+                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
             }
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
@@ -1435,7 +1433,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
                 actions.endBuffer()
-                actions.seekToTimestamp(values.currentTimestamp)
+                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
             }
         },
         initializePlayerFromStart: () => {
@@ -1509,6 +1507,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.initializePlayerFromStart()
             }
             actions.checkBufferingCompleted()
+
+            // If snapshot data arrived but the replayer hasn't been created yet,
+            // try initializing it now. This handles the race condition where
+            // setRootFrame fired before data was available (e.g. in modals where
+            // the DOM is ready before network requests complete).
+            if (!values.player && values.rootFrame) {
+                actions.tryInitReplayer()
+            }
 
             breakpoint()
         },
@@ -1760,112 +1766,128 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         updateAnimation: () => {
-            // Track frame timing for playback performance monitoring
-            const frameNow = performance.now()
-            if (cache.lastFrameTime !== undefined) {
-                const delta = frameNow - cache.lastFrameTime
-                cache.frameCount = (cache.frameCount || 0) + 1
-                if (delta > 50) {
-                    cache.droppedFrames = (cache.droppedFrames || 0) + 1
-                }
-                if (delta > (cache.maxFrameTime || 0)) {
-                    cache.maxFrameTime = delta
-                }
-            }
-            cache.lastFrameTime = frameNow
-
-            // The main loop of the player. Called on each frame
-            const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
-            let newTimestamp = values.fromRRWebPlayerTime(rrwebPlayerTime)
-
-            // Detect when the replayer is stuck (same timestamp for consecutive frames).
-            // This happens in window segments where the replayer has no events at the
-            // current offset (e.g. inactive segments deep into a window's timeline).
-            // After a few stuck frames, advance time manually so playback doesn't freeze.
-            if (newTimestamp !== undefined && newTimestamp === cache._lastAnimTimestamp) {
-                cache._stuckFrames = (cache._stuckFrames || 0) + 1
-            } else {
-                cache._stuckFrames = 0
-            }
-            cache._lastAnimTimestamp = newTimestamp
-
-            const isStuck = cache._stuckFrames >= 5
-            // Only manually advance when rrweb can't provide a timestamp (gap with no
-            // replayer for this windowId) or when truly stuck. Don't override rrweb's
-            // timestamp unconditionally for gaps — rrweb may still be playing at high
-            // speed (e.g. skip inactivity) and overriding causes PostHog's tracked
-            // position to diverge from rrweb's actual playback position.
-            const shouldManuallyAdvance =
-                (newTimestamp == undefined && values.currentSegment?.kind === 'gap') || isStuck
-            if (shouldManuallyAdvance && values.currentTimestamp) {
-                newTimestamp = values.currentTimestamp + values.roughAnimationFPS
-            }
-
-            // If we're beyond buffered position, set to buffering
-            if (values.currentSegment?.kind === 'buffer') {
-                // Pause only the animation, not our player, so it will restart
-                // when the buffering progresses
-                values.player?.replayer?.pause()
-                actions.startBuffer()
-                actions.clearPlayerError()
+            // Prevent synchronous re-entry: setCurrentSegment → seekToTimestamp can
+            // dispatch updateAnimation again within the same call stack. When that
+            // happens, defer to the next animation frame instead of recursing.
+            if (cache._inUpdateAnimation) {
+                cache.disposables.add(() => {
+                    const timerId = requestAnimationFrame(actions.updateAnimation)
+                    return () => cancelAnimationFrame(timerId)
+                }, 'animationTimer')
                 return
             }
+            cache._inUpdateAnimation = true
 
-            if (newTimestamp == undefined) {
-                // no newTimestamp is unexpected, bail out
-                return
-            }
+            try {
+                // Track frame timing for playback performance monitoring
+                const frameNow = performance.now()
+                if (cache.lastFrameTime !== undefined) {
+                    const delta = frameNow - cache.lastFrameTime
+                    cache.frameCount = (cache.frameCount || 0) + 1
+                    if (delta > 50) {
+                        cache.droppedFrames = (cache.droppedFrames || 0) + 1
+                    }
+                    if (delta > (cache.maxFrameTime || 0)) {
+                        cache.maxFrameTime = delta
+                    }
+                }
+                cache.lastFrameTime = frameNow
 
-            // If we are beyond the current segment then move to the next one
-            if (values.currentSegment && newTimestamp > values.currentSegment.endTimestamp) {
-                const nextSegment = values.segmentForTimestamp(newTimestamp)
+                // The main loop of the player. Called on each frame
+                const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
+                let newTimestamp = values.fromRRWebPlayerTime(rrwebPlayerTime)
 
-                if (nextSegment) {
-                    // NOTE: confusingly this setCurrentTimestamp call is essential to playback
-                    // we rely on the segmentation to travel smoothly through the recording
-                    actions.setCurrentTimestamp(Math.max(newTimestamp, nextSegment.startTimestamp))
-                    actions.setCurrentSegment(nextSegment)
+                // Detect when the replayer is stuck (same timestamp for consecutive frames).
+                // This happens in window segments where the replayer has no events at the
+                // current offset (e.g. inactive segments deep into a window's timeline).
+                // After a few stuck frames, advance time manually so playback doesn't freeze.
+                if (newTimestamp !== undefined && newTimestamp === cache._lastAnimTimestamp) {
+                    cache._stuckFrames = (cache._stuckFrames || 0) + 1
                 } else {
-                    // At the end of the recording. Pause the player and set fully to the end
-                    actions.setEndReached()
+                    cache._stuckFrames = 0
                 }
+                cache._lastAnimTimestamp = newTimestamp
+
+                const isStuck = cache._stuckFrames >= 5
+                // Only manually advance when rrweb can't provide a timestamp (gap with no
+                // replayer for this windowId) or when truly stuck. Don't override rrweb's
+                // timestamp unconditionally for gaps — rrweb may still be playing at high
+                // speed (e.g. skip inactivity) and overriding causes PostHog's tracked
+                // position to diverge from rrweb's actual playback position.
+                const shouldManuallyAdvance =
+                    (newTimestamp == undefined && values.currentSegment?.kind === 'gap') || isStuck
+                if (shouldManuallyAdvance && values.currentTimestamp) {
+                    newTimestamp = values.currentTimestamp + values.roughAnimationFPS
+                }
+
+                // If we're beyond buffered position, set to buffering
+                if (values.currentSegment?.kind === 'buffer') {
+                    // Pause only the animation, not our player, so it will restart
+                    // when the buffering progresses
+                    values.player?.replayer?.pause()
+                    actions.startBuffer()
+                    actions.clearPlayerError()
+                    return
+                }
+
+                if (newTimestamp == undefined) {
+                    // no newTimestamp is unexpected, bail out
+                    return
+                }
+
+                // If we are beyond the current segment then move to the next one
+                if (values.currentSegment && newTimestamp > values.currentSegment.endTimestamp) {
+                    const nextSegment = values.segmentForTimestamp(newTimestamp)
+
+                    if (nextSegment) {
+                        // NOTE: confusingly this setCurrentTimestamp call is essential to playback
+                        // we rely on the segmentation to travel smoothly through the recording
+                        actions.setCurrentTimestamp(Math.max(newTimestamp, nextSegment.startTimestamp))
+                        actions.setCurrentSegment(nextSegment)
+                    } else {
+                        // At the end of the recording. Pause the player and set fully to the end
+                        actions.setEndReached()
+                    }
+
+                    if (values.pauseForced) {
+                        actions.setPause()
+                    }
+                    return
+                }
+
+                if (
+                    values.trackedWindow &&
+                    values.currentSegment &&
+                    values.currentSegment.windowId !== values.trackedWindow
+                ) {
+                    actions.setSkippingInactivity(true)
+                    actions.setMaskWindow(true)
+                } else {
+                    actions.setMaskWindow(false)
+                }
+
+                // The normal loop. Progress the player position and continue the loop
+                actions.setCurrentTimestamp(newTimestamp)
+
+                // Throttled position update for store-based loading (every 5s)
+                if (
+                    values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test' &&
+                    (!cache.lastPlaybackPositionUpdate || newTimestamp - cache.lastPlaybackPositionUpdate > 5000)
+                ) {
+                    cache.lastPlaybackPositionUpdate = newTimestamp
+                    actions.updatePlaybackPosition(newTimestamp)
+                }
+
+                cache.disposables.add(() => {
+                    const timerId = requestAnimationFrame(actions.updateAnimation)
+                    return () => cancelAnimationFrame(timerId)
+                }, 'animationTimer')
 
                 if (values.pauseForced) {
                     actions.setPause()
                 }
-                return
-            }
-
-            if (
-                values.trackedWindow &&
-                values.currentSegment &&
-                values.currentSegment.windowId !== values.trackedWindow
-            ) {
-                actions.setSkippingInactivity(true)
-                actions.setMaskWindow(true)
-            } else {
-                actions.setMaskWindow(false)
-            }
-
-            // The normal loop. Progress the player position and continue the loop
-            actions.setCurrentTimestamp(newTimestamp)
-
-            // Throttled position update for store-based loading (every 5s)
-            if (
-                values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test' &&
-                (!cache.lastPlaybackPositionUpdate || newTimestamp - cache.lastPlaybackPositionUpdate > 5000)
-            ) {
-                cache.lastPlaybackPositionUpdate = newTimestamp
-                actions.updatePlaybackPosition(newTimestamp)
-            }
-
-            cache.disposables.add(() => {
-                const timerId = requestAnimationFrame(actions.updateAnimation)
-                return () => cancelAnimationFrame(timerId)
-            }, 'animationTimer')
-
-            if (values.pauseForced) {
-                actions.setPause()
+            } finally {
+                cache._inUpdateAnimation = false
             }
         },
         stopAnimation: () => {

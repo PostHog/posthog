@@ -47,11 +47,11 @@ describe('SodiumRecordingDecryptor', () => {
         const decryptor = new SodiumRecordingDecryptor(mockKeyStore)
         const clearText = Buffer.from('hello world')
 
-        const encrypted = await encryptor.encryptBlock('session-123', 1, clearText)
-        const decrypted = await decryptor.decryptBlock('session-123', 1, encrypted)
+        const { data: encrypted } = await encryptor.encryptBlock('session-123', 1, clearText)
+        const result = await decryptor.decryptBlock('session-123', 1, encrypted)
 
         expect(mockKeyStore.getKey).toHaveBeenCalledWith('session-123', 1)
-        expect(decrypted).toEqual(clearText)
+        expect(result).toEqual({ data: clearText, sessionState: 'ciphertext' })
     })
 
     it('should throw error if getKey fails', async () => {
@@ -64,7 +64,7 @@ describe('SodiumRecordingDecryptor', () => {
     it('should throw error if decryption fails with wrong key', async () => {
         const encryptor = new SodiumRecordingEncryptor(mockKeyStore)
         const clearText = Buffer.from('hello world')
-        const encrypted = await encryptor.encryptBlock('session-123', 1, clearText)
+        const { data: encrypted } = await encryptor.encryptBlock('session-123', 1, clearText)
 
         const wrongKey: SessionKey = {
             plaintextKey: Buffer.from([
@@ -86,10 +86,10 @@ describe('SodiumRecordingDecryptor', () => {
         const decryptor = new SodiumRecordingDecryptor(mockKeyStore)
         const clearText = Buffer.from('')
 
-        const encrypted = await encryptor.encryptBlock('session-123', 1, clearText)
-        const decrypted = await decryptor.decryptBlock('session-123', 1, encrypted)
+        const { data: encrypted } = await encryptor.encryptBlock('session-123', 1, clearText)
+        const result = await decryptor.decryptBlock('session-123', 1, encrypted)
 
-        expect(decrypted).toEqual(clearText)
+        expect(result).toEqual({ data: clearText, sessionState: 'ciphertext' })
     })
 
     it('should handle large buffer roundtrip', async () => {
@@ -97,10 +97,10 @@ describe('SodiumRecordingDecryptor', () => {
         const decryptor = new SodiumRecordingDecryptor(mockKeyStore)
         const clearText = Buffer.alloc(1024 * 1024, 'x')
 
-        const encrypted = await encryptor.encryptBlock('session-123', 1, clearText)
-        const decrypted = await decryptor.decryptBlock('session-123', 1, encrypted)
+        const { data: encrypted } = await encryptor.encryptBlock('session-123', 1, clearText)
+        const result = await decryptor.decryptBlock('session-123', 1, encrypted)
 
-        expect(decrypted).toEqual(clearText)
+        expect(result).toEqual({ data: clearText, sessionState: 'ciphertext' })
     })
 
     it('should handle binary data roundtrip', async () => {
@@ -108,10 +108,10 @@ describe('SodiumRecordingDecryptor', () => {
         const decryptor = new SodiumRecordingDecryptor(mockKeyStore)
         const binaryData = Buffer.from([0x00, 0x01, 0x02, 0xff, 0xfe, 0xfd])
 
-        const encrypted = await encryptor.encryptBlock('session-123', 1, binaryData)
-        const decrypted = await decryptor.decryptBlock('session-123', 1, encrypted)
+        const { data: encrypted } = await encryptor.encryptBlock('session-123', 1, binaryData)
+        const result = await decryptor.decryptBlock('session-123', 1, encrypted)
 
-        expect(decrypted).toEqual(binaryData)
+        expect(result).toEqual({ data: binaryData, sessionState: 'ciphertext' })
     })
 
     it('should throw error if ciphertext is tampered', async () => {
@@ -119,7 +119,7 @@ describe('SodiumRecordingDecryptor', () => {
         const decryptor = new SodiumRecordingDecryptor(mockKeyStore)
         const clearText = Buffer.from('hello world')
 
-        const encrypted = await encryptor.encryptBlock('session-123', 1, clearText)
+        const { data: encrypted } = await encryptor.encryptBlock('session-123', 1, clearText)
         encrypted[0] = encrypted[0] ^ 0xff
 
         await expect(decryptor.decryptBlock('session-123', 1, encrypted)).rejects.toThrow()
@@ -130,7 +130,7 @@ describe('SodiumRecordingDecryptor', () => {
         const decryptor = new SodiumRecordingDecryptor(mockKeyStore)
         const clearText = Buffer.from('hello world')
 
-        const encrypted = await encryptor.encryptBlock('session-123', 1, clearText)
+        const { data: encrypted } = await encryptor.encryptBlock('session-123', 1, clearText)
         const truncated = encrypted.subarray(0, encrypted.length - 5)
 
         await expect(decryptor.decryptBlock('session-123', 1, truncated)).rejects.toThrow()
@@ -189,10 +189,10 @@ describe('SodiumRecordingDecryptor', () => {
         mockKeyStore.getKey.mockResolvedValue(cleartextSessionKey)
 
         const decryptor = new SodiumRecordingDecryptor(mockKeyStore)
-        const cipherText = Buffer.from('hello world')
+        const blockData = Buffer.from('hello world')
 
-        const result = await decryptor.decryptBlock('session-123', 1, cipherText)
+        const result = await decryptor.decryptBlock('session-123', 1, blockData)
 
-        expect(result).toEqual(cipherText)
+        expect(result).toEqual({ data: blockData, sessionState: 'cleartext' })
     })
 })
