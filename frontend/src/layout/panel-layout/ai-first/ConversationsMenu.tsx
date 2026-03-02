@@ -150,7 +150,6 @@ export function ConversationsMenu({ isCollapsed }: { isCollapsed: boolean }): JS
                             </>
                         }
                         tooltipPlacement="right"
-                        onClick={() => setOpen(!open)}
                         menuItem={!isCollapsed}
                         className="hidden lg:flex"
                     >

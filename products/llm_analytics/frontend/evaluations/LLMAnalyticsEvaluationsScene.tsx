@@ -16,9 +16,12 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -35,6 +38,7 @@ import {
     PASS_RATE_SUCCESS_THRESHOLD,
     PASS_RATE_WARNING_THRESHOLD,
 } from './components/EvaluationMetrics'
+import { OfflineEvaluationsTab } from './components/OfflineEvaluationsTab'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
@@ -44,6 +48,25 @@ export const scene: SceneExport = {
     component: LLMAnalyticsEvaluationsScene,
     logic: llmEvaluationsLogic,
     productKey: ProductKey.LLM_ANALYTICS,
+}
+
+function getActiveTab(
+    pathname: string,
+    searchParams: Record<string, unknown>,
+    showOfflineEvals: boolean
+): 'online-evals' | 'offline-evals' {
+    if (!showOfflineEvals) {
+        return 'online-evals'
+    }
+
+    const normalizedPathname = removeProjectIdIfPresent(pathname)
+    const offlineEvaluationsPath = urls.llmAnalyticsOfflineEvaluations()
+    if (normalizedPathname === offlineEvaluationsPath || normalizedPathname.startsWith(`${offlineEvaluationsPath}/`)) {
+        return 'offline-evals'
+    }
+
+    const tab = searchParams.tab
+    return tab === 'offline-evals' || tab === 'offline' ? 'offline-evals' : 'online-evals'
 }
 
 function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Element {
@@ -64,7 +87,7 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const evaluationUrl = (id: string): string => combineUrl(urls.llmAnalyticsEvaluation(id), searchParams).url
-    const settingsUrl = combineUrl(urls.llmAnalyticsEvaluations(), { ...searchParams, tab: 'settings' }).url
+    const settingsUrl = urls.settings('environment-llm-analytics', 'llm-analytics-byok')
 
     const filteredEvaluationsWithMetrics = evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
         filteredEvaluations.some((filtered) => filtered.id === evaluation.id)
@@ -244,7 +267,7 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
 
             <div className="flex justify-between items-center">
                 <div>
-                    <h2 className="text-xl font-semibold">Evaluations</h2>
+                    <h2 className="text-xl font-semibold">Online evals</h2>
                     <p className="text-muted">
                         Configure evaluation prompts and triggers to automatically assess your LLM generations.
                     </p>
@@ -272,7 +295,7 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
             <div className="flex items-center gap-2">
                 <LemonInput
                     type="search"
-                    placeholder="Search evaluations..."
+                    placeholder="Search online evals..."
                     value={evaluationsFilter}
                     data-attr="evaluations-search-input"
                     onChange={setEvaluationsFilter}
@@ -296,20 +319,49 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
 }
 
 export function LLMAnalyticsEvaluationsScene({ tabId }: { tabId?: string }): JSX.Element {
-    const { searchParams } = useValues(router)
+    const { searchParams, location } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
     const evaluationsLogic = useMountedLogic(llmEvaluationsLogic({ tabId }))
     const metricsLogic = evaluationMetricsLogic({ tabId })
+    const showOfflineEvals = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
+    const activeTab = getActiveTab(location.pathname, searchParams, showOfflineEvals)
 
     useAttachedLogic(metricsLogic, evaluationsLogic)
 
     const tabs: LemonTab<string>[] = [
         {
-            key: 'evaluations',
-            label: 'Evaluations',
+            key: 'online-evals',
+            label: 'Online evals',
             content: <LLMAnalyticsEvaluationsContent tabId={tabId} />,
-            link: combineUrl(urls.llmAnalyticsEvaluations(), { ...searchParams, tab: undefined }).url,
+            link: combineUrl(urls.llmAnalyticsEvaluations(), {
+                ...searchParams,
+                tab: undefined,
+                experiment: undefined,
+            }).url,
             'data-attr': 'evaluations-tab',
         },
+        ...(showOfflineEvals
+            ? [
+                  {
+                      key: 'offline-evals',
+                      label: (
+                          <span className="inline-flex items-center gap-1">
+                              <span>Offline evals</span>
+                              <LemonTag type="completion" size="small">
+                                  Alpha
+                              </LemonTag>
+                          </span>
+                      ),
+                      content: <OfflineEvaluationsTab tabId={tabId} />,
+                      link: combineUrl(urls.llmAnalyticsOfflineEvaluations(), {
+                          ...searchParams,
+                          tab: undefined,
+                          experiment: undefined,
+                      }).url,
+                      'data-attr': 'offline-evals-tab',
+                  } as LemonTab<string>,
+              ]
+            : []),
         {
             key: 'settings',
             label: 'Settings',
@@ -340,7 +392,7 @@ export function LLMAnalyticsEvaluationsScene({ tabId }: { tabId?: string }): JSX
                             </LemonButton>
                         }
                     />
-                    <LemonTabs activeKey="evaluations" data-attr="evaluations-tabs" tabs={tabs} sceneInset />
+                    <LemonTabs activeKey={activeTab} data-attr="evaluations-tabs" tabs={tabs} sceneInset />
                 </SceneContent>
             </BindLogic>
         </BindLogic>

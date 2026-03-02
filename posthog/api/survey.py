@@ -846,16 +846,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
 
-        end_date = validated_data.get("end_date")
-
-        if instance.targeting_flag:
-            # turn off feature flag if survey is completed
-            if end_date is None:
-                instance.targeting_flag.active = True
-            else:
-                instance.targeting_flag.active = False
-            instance.targeting_flag.save()
-
         iteration_count = validated_data.get("iteration_count", None)
         if (
             instance.current_iteration is not None
@@ -925,7 +915,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 team,
             )
 
-        self._add_user_survey_interacted_filters(instance, end_date)
+        should_flag_be_active = self._should_survey_flags_be_active(instance)
+
+        if instance.targeting_flag:
+            instance.targeting_flag.active = should_flag_be_active
+            instance.targeting_flag.save()
+
+        self._add_user_survey_interacted_filters(instance)
         self._associate_actions(instance, validated_data.get("conditions"))
         self._add_internal_response_sampling_filters(instance)
         return instance
@@ -971,7 +967,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         instance.actions.set(Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids))
         instance.save()
 
-    def _add_user_survey_interacted_filters(self, instance: Survey, end_date=None):
+    def _should_survey_flags_be_active(self, instance: Survey) -> bool:
+        return bool(instance.start_date) and not instance.end_date and not instance.archived
+
+    def _add_user_survey_interacted_filters(self, instance: Survey):
+        should_flag_be_active = self._should_survey_flags_be_active(instance)
+
         survey_key = f"{instance.id}"
         if instance.iteration_count is not None and instance.iteration_count > 0:
             survey_key = f"{instance.id}/{instance.current_iteration or 1}"
@@ -1046,7 +1047,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 instance.internal_targeting_flag, serialized_data_filters, flag_name_suffix="-custom"
             )
 
-            internal_targeting_flag.active = bool(instance.start_date) and not end_date
+            internal_targeting_flag.active = should_flag_be_active
             internal_targeting_flag.save()
 
             instance.internal_targeting_flag_id = internal_targeting_flag.id
@@ -1057,7 +1058,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 None,
                 user_submitted_dismissed_filter,
                 instance.name,
-                bool(instance.start_date) and not end_date,
+                should_flag_be_active,
                 flag_name_suffix="-custom",
             )
             instance.internal_targeting_flag_id = new_flag.id

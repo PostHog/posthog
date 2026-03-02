@@ -5,19 +5,21 @@ import { UUIDT } from '~/utils/utils'
 
 import { KAFKA_PERSON } from '../../config/kafka-topics'
 import { ClickHousePerson, Team } from '../../types'
+import { PluginsServerConfig } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CyclotronPerson, HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
 import { getPersonDisplayName } from '../utils'
-import { CdpEventsConsumer, CdpEventsConsumerHub } from './cdp-events.consumer'
+import { CdpConsumerBaseDeps } from './cdp-base.consumer'
+import { CdpEventsConsumer } from './cdp-events.consumer'
 import { counterParseError } from './metrics'
 
 export class CdpPersonUpdatesConsumer extends CdpEventsConsumer {
     protected name = 'CdpPersonUpdatesConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
 
-    constructor(hub: CdpEventsConsumerHub) {
-        super(hub, KAFKA_PERSON, 'cdp-person-updates-consumer')
+    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
+        super(config, deps, KAFKA_PERSON, 'cdp-person-updates-consumer')
     }
 
     protected filterHogFunction(hogFunction: HogFunctionType): boolean {
@@ -36,7 +38,7 @@ export class CdpPersonUpdatesConsumer extends CdpEventsConsumer {
 
                         const [teamHogFunctions, team] = await Promise.all([
                             this.hogFunctionManager.getHogFunctionsForTeam(data.team_id, ['destination']),
-                            this.hub.teamManager.getTeam(data.team_id),
+                            this.deps.teamManager.getTeam(data.team_id),
                         ])
 
                         const filteredHogFunctions = teamHogFunctions.filter(this.filterHogFunction)
@@ -45,7 +47,7 @@ export class CdpPersonUpdatesConsumer extends CdpEventsConsumer {
                             return
                         }
 
-                        globals.push(convertClickhousePersonToInvocationGlobals(data, team, this.hub.SITE_URL))
+                        globals.push(convertClickhousePersonToInvocationGlobals(data, team, this.config.SITE_URL))
                     } catch (e) {
                         logger.error('Error parsing message', e)
                         counterParseError.labels({ error: e.message }).inc()

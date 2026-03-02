@@ -24,6 +24,7 @@ function PersonRow({ person }: { person: PersonType }): JSX.Element {
             onClick={() => {
                 reportPersonOpenedFromNewlySeenPersonsList()
             }}
+            dataAttr="active-user-item"
         />
     )
 }

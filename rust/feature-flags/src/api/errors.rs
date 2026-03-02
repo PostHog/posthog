@@ -198,6 +198,16 @@ impl FlagError {
         }
     }
 
+    /// Whether this error definitively means the token does not map to any team.
+    /// Transient infrastructure errors (timeouts, Redis/DB unavailable) return false
+    /// to avoid poisoning the negative cache with valid tokens during outages.
+    pub fn is_token_not_found(&self) -> bool {
+        matches!(
+            self,
+            FlagError::TokenValidationError | FlagError::RowNotFound
+        )
+    }
+
     /// Returns a short error code for canonical logging.
     pub fn error_code(&self) -> &'static str {
         self.error_metadata().0
@@ -854,6 +864,23 @@ mod tests {
                 "status_code() should be >= 500 for {error:?}, got {status}"
             );
         }
+    }
+
+    #[test]
+    fn test_is_token_not_found() {
+        // These errors mean the token definitively doesn't map to a team
+        assert!(FlagError::TokenValidationError.is_token_not_found());
+        assert!(FlagError::RowNotFound.is_token_not_found());
+
+        // Transient infrastructure errors should NOT be treated as "not found"
+        assert!(!FlagError::CacheMiss.is_token_not_found());
+        assert!(!FlagError::RedisUnavailable.is_token_not_found());
+        assert!(!FlagError::DatabaseUnavailable.is_token_not_found());
+        assert!(!FlagError::TimeoutError(None).is_token_not_found());
+        assert!(!FlagError::TimeoutError(Some("pool_timeout".to_string())).is_token_not_found());
+        assert!(!FlagError::DatabaseError(sqlx::Error::PoolTimedOut, None).is_token_not_found());
+        assert!(!FlagError::Internal("serialization failed".to_string()).is_token_not_found());
+        assert!(!FlagError::DataParsingError.is_token_not_found());
     }
 
     #[test]

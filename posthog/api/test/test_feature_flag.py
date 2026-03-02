@@ -369,11 +369,20 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ("regex",),
             ("is_set",),
             ("is_date_before",),
+            ("is_date_exact",),
             ("semver_gt",),
         ]
     )
     def test_can_create_flag_with_valid_operator(self, operator: str) -> None:
-        value = "" if operator == "is_set" else "2025-01-01" if "date" in operator else "test"
+        value = (
+            ""
+            if operator == "is_set"
+            else "2025-01-01"
+            if "date" in operator
+            else "1.2.3"
+            if "semver" in operator
+            else "test"
+        )
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags",
             {
@@ -4239,6 +4248,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         [
             ("malformed_relative", "6hed", "is_date_before"),
             ("malformed_absolute", "1234-02-993284", "is_date_after"),
+            ("malformed_exact", "not-a-date", "is_date_exact"),
         ]
     )
     def test_create_flag_with_invalid_date(self, _name, invalid_date, operator):
@@ -4263,6 +4273,155 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "attr": "filters",
             }.items(),
             resp.json().items(),
+        )
+
+    @parameterized.expand(
+        [
+            ("between", "between"),
+            ("not_between", "not_between"),
+            ("is_cleaned_path_exact", "is_cleaned_path_exact"),
+        ]
+    )
+    def test_cant_create_flag_with_unsupported_operator(self, _name, operator):
+        resp = self._create_flag_with_properties(
+            "unsupported-op-flag",
+            [{"key": "age", "type": "person", "value": "test", "operator": operator}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(resp.json()["code"], "unsupported_operator")
+        self.assertIn(operator, resp.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("between", "between"),
+            ("not_between", "not_between"),
+            ("is_cleaned_path_exact", "is_cleaned_path_exact"),
+        ]
+    )
+    def test_cant_update_flag_with_unsupported_operator(self, _name, operator):
+        flag = self._create_flag_with_properties(
+            f"flag-to-update-{_name}",
+            [{"key": "age", "type": "person", "value": "test", "operator": "exact"}],
+        )
+        resp = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.json()['id']}/",
+            {
+                "filters": {
+                    "groups": [
+                        {"properties": [{"key": "age", "type": "person", "value": "test", "operator": operator}]}
+                    ]
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["code"], "unsupported_operator")
+        self.assertIn(operator, resp.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("min_to_gte", "min", "gte"),
+            ("max_to_lte", "max", "lte"),
+        ]
+    )
+    def test_create_flag_aliases_operator(self, _name, input_op, saved_op):
+        resp = self._create_flag_with_properties(
+            f"alias-flag-{_name}",
+            [{"key": "age", "type": "person", "value": "10", "operator": input_op}],
+        )
+        saved_operator = resp.json()["filters"]["groups"][0]["properties"][0]["operator"]
+        self.assertEqual(saved_operator, saved_op)
+
+    @parameterized.expand(
+        [
+            ("min_to_gte", "min", "gte"),
+            ("max_to_lte", "max", "lte"),
+        ]
+    )
+    def test_update_flag_aliases_operator(self, _name, input_op, saved_op):
+        flag = self._create_flag_with_properties(
+            f"flag-alias-update-{_name}",
+            [{"key": "age", "type": "person", "value": "5", "operator": "exact"}],
+        )
+        resp = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.json()['id']}/",
+            {
+                "filters": {
+                    "groups": [{"properties": [{"key": "age", "type": "person", "value": "10", "operator": input_op}]}]
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        saved_operator = resp.json()["filters"]["groups"][0]["properties"][0]["operator"]
+        self.assertEqual(saved_operator, saved_op)
+
+    @parameterized.expand(
+        [
+            ("not_a_string", "semver_gt", 123),
+            ("list_value", "semver_eq", ["1.2.3"]),
+            ("invalid_format", "semver_lt", "not-semver"),
+            ("empty_string", "semver_gte", ""),
+            ("tilde_invalid", "semver_tilde", "abc"),
+            ("caret_invalid", "semver_caret", "x.y.z"),
+            ("wildcard_invalid", "semver_wildcard", ""),
+        ]
+    )
+    def test_create_flag_with_invalid_semver_value(self, _name, operator, value):
+        resp = self._create_flag_with_properties(
+            "semver-flag",
+            [{"key": "app_version", "type": "person", "value": value, "operator": operator}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(resp.json()["code"], "invalid_value")
+
+    @parameterized.expand(
+        [
+            ("eq", "semver_eq", "1.2.3"),
+            ("neq", "semver_neq", "2.0.0"),
+            ("gt", "semver_gt", "1.0"),
+            ("gte", "semver_gte", "0.1.0"),
+            ("lt", "semver_lt", "10.20.30"),
+            ("lte", "semver_lte", "1.0.0"),
+            ("tilde", "semver_tilde", "1.2.3"),
+            ("tilde_bare_major", "semver_tilde", "1"),
+            ("caret", "semver_caret", "0.2.3"),
+            ("wildcard", "semver_wildcard", "1.2.*"),
+        ]
+    )
+    def test_create_flag_with_valid_semver_value(self, _name, operator, value):
+        self._create_flag_with_properties(
+            f"semver-flag-{_name}",
+            [{"key": "app_version", "type": "person", "value": value, "operator": operator}],
+            expected_status=status.HTTP_201_CREATED,
+        )
+
+    @parameterized.expand(
+        [
+            ("scalar_string", "icontains_multi", "just-a-string"),
+            ("integer", "not_icontains_multi", 42),
+        ]
+    )
+    def test_create_flag_with_invalid_multi_contains_value(self, _name, operator, value):
+        resp = self._create_flag_with_properties(
+            "multi-flag",
+            [{"key": "url", "type": "person", "value": value, "operator": operator}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(resp.json()["code"], "invalid_value")
+        self.assertIn("requires a list", resp.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("icontains_multi_list", "icontains_multi", ["foo", "bar"]),
+            ("not_icontains_multi_list", "not_icontains_multi", ["baz"]),
+        ]
+    )
+    def test_create_flag_with_valid_multi_contains_value(self, _name, operator, value):
+        self._create_flag_with_properties(
+            f"multi-flag-{_name}",
+            [{"key": "url", "type": "person", "value": value, "operator": operator}],
+            expected_status=status.HTTP_201_CREATED,
         )
 
     def test_creating_feature_flag_with_non_existant_cohort(self):

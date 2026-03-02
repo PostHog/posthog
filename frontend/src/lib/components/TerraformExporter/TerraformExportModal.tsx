@@ -20,6 +20,7 @@ interface TerraformExportModalProps {
     isOpen: boolean
     onClose: () => void
     resource: TerraformExportResource
+    'data-attr'?: string
 }
 
 function getBaseName(resource: TerraformExportResource): string {
@@ -64,7 +65,12 @@ function getDescription(resource: TerraformExportResource, result: TerraformExpo
     )
 }
 
-export function TerraformExportModal({ isOpen, onClose, resource }: TerraformExportModalProps): JSX.Element {
+export function TerraformExportModal({
+    isOpen,
+    onClose,
+    resource,
+    'data-attr': dataAttr,
+}: TerraformExportModalProps): JSX.Element {
     const baseName = getBaseName(resource)
     const state = useTerraformExport(resource, isOpen)
     const handleDownload = useTerraformDownload(state.result, baseName)
@@ -77,6 +83,7 @@ export function TerraformExportModal({ isOpen, onClose, resource }: TerraformExp
             isOpen={isOpen}
             onClose={onClose}
             title="Manage with Terraform"
+            data-attr={dataAttr}
             description={getDescription(resource, state.result)}
             footer={
                 <div className="flex justify-between w-full">

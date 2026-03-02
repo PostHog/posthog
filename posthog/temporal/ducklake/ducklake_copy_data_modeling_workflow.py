@@ -1,4 +1,3 @@
-import re
 import json
 import datetime as dt
 import dataclasses
@@ -17,6 +16,7 @@ from posthog.ducklake.common import (
     get_duckgres_server_for_team,
     get_ducklake_catalog_for_team,
     is_dev_mode,
+    sanitize_ducklake_identifier,
 )
 from posthog.ducklake.storage import (
     cleanup_staged_files,
@@ -168,11 +168,8 @@ async def prepare_data_modeling_ducklake_metadata_activity(
                 saved_query_name=saved_query.name,
                 normalized_name=normalized_name,
                 source_table_uri=model.table_uri,
-                schema_name=_sanitize_ducklake_identifier(
-                    f"{DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX}_team_{inputs.team_id}",
-                    default_prefix=DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX,
-                ),
-                table_name=_sanitize_ducklake_identifier(model.model_label or normalized_name, default_prefix="model"),
+                schema_name="posthog_data_modeling",
+                table_name=sanitize_ducklake_identifier(model.model_label or normalized_name, default_prefix="model"),
                 verification_queries=list(get_data_modeling_verification_queries(model.model_label)),
                 partition_column=partition_column,
                 staging_uri=staging_uri,
@@ -541,19 +538,6 @@ def _attach_ducklake_catalog(conn: duckdb.DuckDBPyConnection, config: dict[str, 
     except duckdb.CatalogException as exc:
         if alias not in str(exc):
             raise
-
-
-_IDENTIFIER_SANITIZE_RE = re.compile(r"[^0-9a-zA-Z]+")
-
-
-def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
-    """Normalize identifiers so they are safe for DuckDB (lowercase alnum + underscores)."""
-    cleaned = _IDENTIFIER_SANITIZE_RE.sub("_", (raw or "").strip()).strip("_").lower()
-    if not cleaned:
-        cleaned = default_prefix
-    if cleaned[0].isdigit():
-        cleaned = f"{default_prefix}_{cleaned}"
-    return cleaned[:63]
 
 
 def _detect_partition_column_name(table_uri: str) -> str | None:

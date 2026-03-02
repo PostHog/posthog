@@ -4,15 +4,23 @@
 {% block content %}
 <style>
     @media print {
-        #header, #nav-sidebar, .breadcrumbs, .no-print {
+        @page {
+            margin: 10mm;
+            size: A4;
+        }
+        #header, #nav-sidebar, .breadcrumbs, .no-print,
+        #branding, #user-tools, .module.caption {
             display: none !important;
         }
-        #content {
+        html, body, #container, #content, #content-main,
+        .colM, .change-form {
             margin: 0 !important;
-            padding: 20px !important;
-        }
-        body {
+            padding: 0 !important;
             background: white !important;
+            min-height: 0 !important;
+        }
+        .certificate {
+            zoom: 0.85;
         }
     }
 
@@ -32,15 +40,15 @@
     }
 
     .certificate-header h1 {
-        color: #111;
+        color: #1a1a1a;
         margin: 0 0 8px 0;
         font-size: 28px;
     }
 
     .certificate-header .reference {
         font-family: monospace;
-        font-size: 13px;
-        color: #666;
+        font-size: 14px;
+        color: #6b7280;
     }
 
     .dry-run-watermark {
@@ -64,9 +72,9 @@
     }
 
     .section h2 {
-        font-size: 16px;
-        color: #111;
-        border-bottom: 1px solid #ccc;
+        font-size: 14px;
+        color: #1a1a1a;
+        border-bottom: 1px solid #d1d5db;
         padding-bottom: 8px;
         margin-bottom: 15px;
         text-transform: uppercase;
@@ -77,16 +85,17 @@
         display: grid;
         grid-template-columns: 200px 1fr;
         gap: 8px 20px;
+        font-size: 14px;
     }
 
     .info-grid dt {
         font-weight: 600;
-        color: #555;
+        color: #6b7280;
     }
 
     .info-grid dd {
         margin: 0;
-        color: #333;
+        color: #1a1a1a;
         word-break: break-all;
     }
 
@@ -98,7 +107,7 @@
     }
 
     .summary-card {
-        border: 1px solid #ccc;
+        border: 1px solid #d1d5db;
         padding: 15px;
         text-align: center;
     }
@@ -106,12 +115,12 @@
     .summary-card .number {
         font-size: 32px;
         font-weight: bold;
-        color: #111;
+        color: #1a1a1a;
     }
 
     .summary-card .label {
         font-size: 12px;
-        color: #666;
+        color: #6b7280;
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
@@ -124,16 +133,16 @@
 
     .method-list li {
         padding: 8px 0;
+        font-size: 14px;
     }
 
     .method-list li strong {
-        color: #111;
+        color: #1a1a1a;
     }
 
     .method-list li span {
         display: block;
-        font-size: 13px;
-        color: #666;
+        color: #6b7280;
         margin-top: 2px;
     }
 
@@ -148,19 +157,19 @@
         text-decoration: none;
         font-size: 14px;
         cursor: pointer;
-        border: 1px solid #ccc;
+        border: 1px solid #d1d5db;
         background: #fff;
-        color: #333;
+        color: #1a1a1a;
     }
 
     .actions-bar a:hover, .actions-bar button:hover {
-        background: #f5f5f5;
+        background: #f9fafb;
     }
 
     .contact-info p {
         margin: 4px 0;
         font-size: 14px;
-        color: #333;
+        color: #1a1a1a;
     }
 
     .contact-info .name {
@@ -170,10 +179,10 @@
     .footer {
         margin-top: 40px;
         padding-top: 20px;
-        border-top: 1px solid #ccc;
+        border-top: 1px solid #d1d5db;
         text-align: center;
-        color: #999;
-        font-size: 12px;
+        color: #6b7280;
+        font-size: 14px;
     }
 </style>
 
@@ -196,7 +205,7 @@
     <div class="section">
         <h2>Data Subject Details</h2>
         <dl class="info-grid">
-            <dt>Name</dt>
+            <dt>Organization</dt>
             <dd>{{ team.organization.name }}</dd>
 
             <dt>Customer ID</dt>
