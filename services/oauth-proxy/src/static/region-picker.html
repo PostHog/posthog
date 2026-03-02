@@ -285,7 +285,7 @@
                 </p>
 
                 <div class="redirect-banner" id="redirect-banner" style="display: none">
-                    <span>You last logged in on <span class="region-name" id="redirect-region-name"></span>. Redirecting in <span id="redirect-countdown">5</span>s...</span>
+                    <span>You last logged in on <span class="region-name" id="redirect-region-name"></span>. Redirecting in <span id="redirect-countdown">7</span>s...</span>
                     <div class="progress-bar"><div class="progress-bar-fill" id="progress-fill"></div></div>
                     <div class="redirect-actions">
                         <a class="btn-secondary" id="redirect-cancel">Cancel redirect</a>
@@ -310,11 +310,11 @@
 
         // Auto-redirect if user has previously logged in to a region
         (function() {
-            var REDIRECT_SECONDS = 5;
+            var REDIRECT_SECONDS = 7;
             var cookie = document.cookie.split('; ').find(function(c) { return c.startsWith('ph_current_instance='); });
             if (!cookie) return;
 
-            var value = decodeURIComponent(cookie.split('=')[1]).replace(/"/g, '');
+            var value = decodeURIComponent(cookie.substring(cookie.indexOf('=') + 1)).replace(/"/g, '');
             var region = null;
             try {
                 var hostname = new URL(value).hostname;
