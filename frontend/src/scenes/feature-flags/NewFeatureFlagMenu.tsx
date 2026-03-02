@@ -1,11 +1,25 @@
-import { useActions } from 'kea'
-import React from 'react'
+import { useActions, useValues } from 'kea'
+import React, { useState } from 'react'
 
-import { IconCode, IconFlask, IconPeople, IconSparkles, IconTestTube, IconToggle, IconWrench } from '@posthog/icons'
+import {
+    IconArrowLeft,
+    IconCode,
+    IconFlask,
+    IconPeople,
+    IconRocket,
+    IconServer,
+    IconSparkles,
+    IconTestTube,
+    IconToggle,
+    IconWrench,
+} from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { FlagIntent } from 'scenes/feature-flags/featureFlagIntentWarningLogic'
 import { getToolDefinition } from 'scenes/max/max-constants'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { createSuggestionGroup } from 'scenes/max/utils'
@@ -21,7 +35,6 @@ interface TemplateMetadata {
     name: string
     description: string
     icon: React.ComponentType
-    url: string
 }
 
 const TEMPLATE_METADATA: Record<FeatureFlagTemplate, TemplateMetadata> = {
@@ -29,29 +42,47 @@ const TEMPLATE_METADATA: Record<FeatureFlagTemplate, TemplateMetadata> = {
         name: 'Simple flag',
         description: 'On/off for all users',
         icon: IconToggle,
-        url: urls.featureFlagNew({ template: 'simple' }),
     },
     targeted: {
         name: 'Targeted release',
         description: 'Release to specific users',
         icon: IconPeople,
-        url: urls.featureFlagNew({ template: 'targeted' }),
     },
     multivariate: {
         name: 'Multivariate',
         description: 'Multiple variants',
         icon: IconTestTube,
-        url: urls.featureFlagNew({ template: 'multivariate' }),
     },
     'targeted-multivariate': {
         name: 'Targeted multivariate',
         description: 'Variants for specific users',
         icon: IconFlask,
-        url: urls.featureFlagNew({ template: 'targeted-multivariate' }),
     },
 }
 
 const TEMPLATES: FeatureFlagTemplate[] = ['simple', 'targeted', 'multivariate', 'targeted-multivariate']
+
+interface IntentOption {
+    key: FlagIntent
+    name: string
+    description: string
+    icon: React.ComponentType
+}
+
+const INTENT_OPTIONS: IntentOption[] = [
+    {
+        key: 'local-eval',
+        name: 'Local evaluation',
+        description: 'Evaluate server-side without network requests',
+        icon: IconServer,
+    },
+    {
+        key: 'first-page-load',
+        name: 'Prevent flicker',
+        description: 'Avoid false evaluations on first load',
+        icon: IconRocket,
+    },
+]
 
 const AI_TOOL_DEFINITION = getToolDefinition('create_feature_flag')!
 const AI_SUGGESTIONS = [
@@ -61,9 +92,54 @@ const AI_SUGGESTIONS = [
     'Create a beta testing flag for…',
 ]
 
+function IntentSubmenu({ template, onBack }: { template: FeatureFlagTemplate; onBack: () => void }): JSX.Element {
+    const metadata = TEMPLATE_METADATA[template]
+
+    return (
+        <>
+            <LemonButton icon={<IconArrowLeft />} onClick={onBack} fullWidth size="small">
+                <span className="text-xs text-secondary">{metadata.name}</span>
+            </LemonButton>
+            <LemonDivider className="my-1" />
+            {INTENT_OPTIONS.map((intent) => (
+                <LemonButton
+                    key={intent.key}
+                    icon={<intent.icon />}
+                    to={urls.featureFlagNew({ template, intent: intent.key })}
+                    data-attr="new-feature-flag-menu-intent"
+                    data-attr-intent={intent.key}
+                    fullWidth
+                >
+                    <div className="flex flex-col text-sm py-1">
+                        <strong>{intent.name}</strong>
+                        <span className="text-xs font-sans font-normal">{intent.description}</span>
+                    </div>
+                </LemonButton>
+            ))}
+            <LemonDivider className="my-1" />
+            <LemonButton
+                to={urls.featureFlagNew({ template })}
+                data-attr="new-feature-flag-menu-skip-intent"
+                fullWidth
+                size="small"
+            >
+                <span className="text-xs text-secondary">Skip — no evaluation warnings</span>
+            </LemonButton>
+        </>
+    )
+}
+
 export function OverlayForNewFeatureFlagMenu(): JSX.Element {
+    const { featureFlags } = useValues(enabledFeaturesLogic)
     const { setActiveGroup } = useActions(maxLogic({ tabId: 'sidepanel' }))
     const { openSidePanel } = useActions(sidePanelLogic)
+
+    const intentsEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS]
+    const [selectedTemplate, setSelectedTemplate] = useState<FeatureFlagTemplate | null>(null)
+
+    if (intentsEnabled && selectedTemplate) {
+        return <IntentSubmenu template={selectedTemplate} onBack={() => setSelectedTemplate(null)} />
+    }
 
     return (
         <>
@@ -73,7 +149,9 @@ export function OverlayForNewFeatureFlagMenu(): JSX.Element {
                     <LemonButton
                         key={template}
                         icon={<metadata.icon />}
-                        to={metadata.url}
+                        {...(intentsEnabled
+                            ? { onClick: () => setSelectedTemplate(template) }
+                            : { to: urls.featureFlagNew({ template }) })}
                         data-attr="new-feature-flag-menu-item"
                         data-attr-template={template}
                         fullWidth
@@ -124,7 +202,6 @@ export function OverlayForNewFeatureFlagMenu(): JSX.Element {
                 data-attr="new-feature-flag-ai-menu-item"
                 data-attr-flag-type="ai"
                 onClick={() => {
-                    // Show the suggestions from the feature flag tool
                     setActiveGroup(
                         createSuggestionGroup(AI_TOOL_DEFINITION.name, React.createElement(IconWrench), AI_SUGGESTIONS)
                     )
