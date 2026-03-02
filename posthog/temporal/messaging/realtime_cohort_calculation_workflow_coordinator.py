@@ -182,6 +182,25 @@ async def get_query_percentile_thresholds_activity(
 
         # Calculate percentiles directly from cohort last_calculation_duration_ms field
         # This uses the same metric that we store during cohort calculation (Python timing)
+        #
+        # POTENTIAL ISSUE: This approach is flawed because percentile thresholds (p90, p95, etc.)
+        # are calculated independently for each scheduled workflow execution. Since the three
+        # percentile-based schedules run at different intervals:
+        # - p0-p90: Every 1 minute
+        # - p90-p95: Every 2 minutes
+        # - p95-p100: Every 3 minutes
+        #
+        # The p90 and p95 thresholds can change between executions due to:
+        # 1. New cohort calculations completing between schedule runs
+        # 2. The rolling 24-hour window shifting slightly
+        # 3. Floating point precision differences
+        #
+        # This can result in:
+        # - OVERLAP: A cohort being processed by both p0-p90 and p90-p95 workflows
+        # - GAPS: A cohort being skipped by all workflows
+        #
+        # A better approach would be to calculate percentiles once and distribute the work,
+        # or ensure all schedules use the exact same threshold values.
 
         from posthog.models.cohort.cohort import Cohort
 
