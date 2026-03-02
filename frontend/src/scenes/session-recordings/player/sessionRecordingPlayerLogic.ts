@@ -912,7 +912,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (!currentTimestamp || !sessionPlayerData?.start) {
                     return 0
                 }
-                return Math.max(0, currentTimestamp - sessionPlayerData.start.valueOf())
+                const time = currentTimestamp - sessionPlayerData.start.valueOf()
+                return clamp(time, 0, sessionPlayerData.durationMs || Infinity)
             },
         ],
 
