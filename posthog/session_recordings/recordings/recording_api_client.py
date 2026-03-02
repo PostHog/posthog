@@ -114,7 +114,7 @@ class RecordingApiClient:
             )
             raise BlockFetchError(f"Failed to decompress block: {str(e)}")
 
-    async def delete_recordings(self, session_ids: list[str], team_id: int, deleted_by: str = "") -> list[str]:
+    async def delete_recordings(self, session_ids: list[str], team_id: int, deleted_by: str) -> list[str]:
         """
         Delete recordings via the Recording API.
 

@@ -11,7 +11,7 @@ from django.shortcuts import get_object_or_404
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -30,7 +30,7 @@ from posthog.schema import ProductKey
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
 from posthog.api.capture import capture_internal
-from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
+from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.insight import capture_legacy_api_call
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
@@ -68,7 +68,7 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
+from posthog.temporal.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
 from posthog.utils import format_query_params_absolute_url, is_anonymous_id
 
 logger = structlog.get_logger(__name__)
@@ -205,6 +205,58 @@ class MinimalPersonSerializer(PersonSerializer):
 
     def get_distinct_ids(self, person):
         return person.distinct_ids[:10]
+
+
+class PersonPropertiesAtTimeMetadataSerializer(serializers.Serializer):
+    """Serializer for the point-in-time query metadata."""
+
+    queried_timestamp = serializers.CharField(help_text="The timestamp that was queried in ISO format")
+    include_set_once = serializers.BooleanField(help_text="Whether $set_once operations were included")
+    distinct_id_used = serializers.CharField(allow_null=True, help_text="The distinct_id parameter used in the request")
+    person_id_used = serializers.CharField(allow_null=True, help_text="The person_id parameter used in the request")
+    query_mode = serializers.CharField(help_text="Whether the query used 'distinct_id' or 'person_id' mode")
+    distinct_ids_queried = serializers.ListField(
+        child=serializers.CharField(), help_text="All distinct_ids that were queried for this person"
+    )
+    distinct_ids_count = serializers.IntegerField(help_text="Number of distinct_ids associated with this person")
+
+
+class PersonPropertiesAtTimeDebugSerializer(serializers.Serializer):
+    """Serializer for the debug information (only available to staff users)."""
+
+    query = serializers.CharField(help_text="The ClickHouse query that was executed")
+    params = serializers.DictField(help_text="The parameters passed to the query")
+    events_found = serializers.IntegerField(help_text="Number of events found")
+    events = serializers.ListField(
+        child=serializers.DictField(), help_text="Raw events that were used to build the properties"
+    )
+    error = serializers.CharField(required=False, help_text="Error message if debug query failed")
+
+
+class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
+    """Serializer for the point-in-time person properties response."""
+
+    # Base PersonSerializer fields
+    id = serializers.IntegerField(help_text="The person ID")
+    name = serializers.CharField(help_text="The person's display name")
+    distinct_ids = serializers.ListField(
+        child=serializers.CharField(), help_text="All distinct IDs associated with this person"
+    )
+    properties = serializers.DictField(
+        child=serializers.CharField(allow_blank=True, allow_null=True),
+        help_text="Person properties as they existed at the specified time",
+    )
+    created_at = serializers.DateTimeField(help_text="When the person was first created")
+    uuid = serializers.UUIDField(help_text="The person's UUID")
+    last_seen_at = serializers.DateTimeField(help_text="When the person was last seen", allow_null=True)
+
+    # Additional fields for point-in-time response
+    point_in_time_metadata = PersonPropertiesAtTimeMetadataSerializer(
+        help_text="Metadata about the point-in-time query"
+    )
+    debug = PersonPropertiesAtTimeDebugSerializer(
+        required=False, help_text="Debug information (only available when debug=true and DEBUG=True)"
+    )
 
 
 def get_funnel_actor_class(filter: Filter) -> Callable:
@@ -1061,6 +1113,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 workflow_input = RecordingsWithPersonInput(
                     distinct_ids=person.distinct_ids,
                     team_id=self.team_id,
+                    config=DeletionConfig(deleted_by=cast(User, self.request.user).email, reason="person deletion"),
                 )
                 workflow_id = f"delete-recordings-{self.team_id}-person-{person.uuid}-{uuid.uuid4()}"
                 tasks.append(
@@ -1078,6 +1131,206 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             await asyncio.gather(*tasks)
 
         asyncio.run(start_all_workflows())
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="distinct_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="The distinct_id of the person (mutually exclusive with person_id)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="person_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="The person_id (UUID) to build properties for (mutually exclusive with distinct_id)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="timestamp",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="ISO datetime string for the point in time (e.g., '2023-06-15T14:30:00Z')",
+                required=True,
+            ),
+            OpenApiParameter(
+                name="include_set_once",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                description="Whether to handle $set_once operations (default: false)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="debug",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                description="Whether to include debug information with raw events (only works when DEBUG=True, default: false)",
+                required=False,
+            ),
+        ],
+        responses={
+            200: PersonPropertiesAtTimeResponseSerializer,
+            400: {"description": "Bad request - invalid parameters"},
+            404: {"description": "Person not found"},
+            500: {"description": "Internal server error"},
+        },
+        tags=["persons"],
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["person:read"])
+    def properties_at_time(self, request: request.Request) -> response.Response:
+        """
+        Get person properties as they existed at a specific point in time.
+
+        This endpoint reconstructs person properties by querying ClickHouse events
+        for $set and $set_once operations up to the specified timestamp.
+
+        Query parameters:
+        - distinct_id: The distinct_id of the person
+        - timestamp: ISO datetime string for the point in time (e.g., "2023-06-15T14:30:00Z")
+        - include_set_once: Whether to handle $set_once operations (default: false)
+        - debug: Whether to include debug information with raw events (default: false)
+        """
+        from posthog.models.person.point_in_time_properties import (
+            build_person_properties_at_time,
+            get_person_and_distinct_ids_for_identifier,
+        )
+
+        distinct_id = request.GET.get("distinct_id")
+        person_id = request.GET.get("person_id")
+        timestamp_str = request.GET.get("timestamp")
+        include_set_once = request.GET.get("include_set_once", "false").lower() == "true"
+        debug = request.GET.get("debug", "false").lower() == "true"
+
+        # Validate parameters
+        if distinct_id and person_id:
+            return response.Response(
+                {"error": "Cannot provide both distinct_id and person_id - choose one"},
+                status=400,
+            )
+
+        if not distinct_id and not person_id:
+            return response.Response(
+                {"error": "Must provide either distinct_id or person_id parameter"},
+                status=400,
+            )
+
+        if not timestamp_str:
+            return response.Response(
+                {"error": "timestamp parameter is required (ISO format: 2023-06-15T14:30:00Z)"},
+                status=400,
+            )
+
+        try:
+            # Parse timestamp - support both with and without timezone
+            if timestamp_str.endswith("Z"):
+                timestamp = datetime.fromisoformat(timestamp_str[:-1]).replace(tzinfo=UTC)
+            elif "+" in timestamp_str or timestamp_str.count("-") > 2:
+                timestamp = datetime.fromisoformat(timestamp_str)
+            else:
+                timestamp = datetime.fromisoformat(timestamp_str).replace(tzinfo=UTC)
+        except ValueError as e:
+            identifier = distinct_id or person_id
+            logger.warning(
+                "Invalid timestamp format for %s %s: %s", "distinct_id" if distinct_id else "person_id", identifier, e
+            )
+            return response.Response(
+                {"error": "Invalid timestamp format. Use ISO format like 2023-06-15T14:30:00Z"},
+                status=400,
+            )
+
+        try:
+            # Get person object and all distinct_ids in a single query
+            person, distinct_ids_queried = get_person_and_distinct_ids_for_identifier(
+                team_id=self.team_id,
+                distinct_id=distinct_id,
+                person_id=person_id,
+            )
+
+            if not person or not distinct_ids_queried:
+                identifier = distinct_id or person_id
+                identifier_type = "distinct_id" if distinct_id else "person_id"
+                return response.Response(
+                    {"error": f"Person with {identifier_type} '{identifier}' not found"},
+                    status=404,
+                )
+
+            # Build point-in-time properties using the pre-fetched distinct_ids
+            # If debug mode is enabled, get raw events to avoid duplicate query
+            debug_rows: list[Any] = []
+            debug_query: str = ""
+            debug_params: dict[str, Any] = {}
+            point_in_time_properties: dict[str, Any]
+            if debug and settings.DEBUG:
+                result = build_person_properties_at_time(
+                    team_id=self.team_id,
+                    timestamp=timestamp,
+                    distinct_ids=distinct_ids_queried,
+                    include_set_once=include_set_once,
+                    return_debug_info=True,
+                )
+                # Type cast to help mypy understand the tuple unpacking
+                point_in_time_properties, debug_rows, debug_query, debug_params = cast(
+                    tuple[dict[str, Any], list[Any], str, dict[str, Any]], result
+                )
+            else:
+                point_in_time_properties = cast(
+                    dict[str, Any],
+                    build_person_properties_at_time(
+                        team_id=self.team_id,
+                        timestamp=timestamp,
+                        distinct_ids=distinct_ids_queried,
+                        include_set_once=include_set_once,
+                    ),
+                )
+
+            # Serialize the person object
+            person_data = PersonSerializer(person, context={"get_team": lambda: self.team}).data
+
+            # Replace current properties with point-in-time properties
+            person_data["properties"] = point_in_time_properties
+
+            # Add metadata about the point-in-time query
+            person_data["point_in_time_metadata"] = {
+                "queried_timestamp": timestamp.isoformat(),
+                "include_set_once": include_set_once,
+                "distinct_id_used": distinct_id,
+                "person_id_used": person_id,
+                "query_mode": "distinct_id" if distinct_id else "person_id",
+                "distinct_ids_queried": distinct_ids_queried,
+                "distinct_ids_count": len(distinct_ids_queried),
+            }
+
+            # Add debug information if requested and in debug mode
+            if debug and settings.DEBUG:
+                # Use the raw events, query, and params that were already fetched to avoid duplicate query
+                person_data["debug"] = {
+                    "query": debug_query,
+                    "params": debug_params,
+                    "events_found": len(debug_rows),
+                    "events": [
+                        {"properties_json": row[0], "timestamp": str(row[1]), "event": row[2]} for row in debug_rows
+                    ],
+                }
+
+            return response.Response(person_data)
+
+        except Exception:
+            identifier = distinct_id or person_id
+            identifier_type = "distinct_id" if distinct_id else "person_id"
+            logger.exception(
+                "Failed to build person properties at time for %s %s",
+                identifier_type,
+                identifier,
+                distinct_id=distinct_id,
+                person_id=person_id,
+                timestamp=timestamp_str,
+            )
+            return response.Response(
+                {"error": f"Failed to retrieve person properties for {identifier_type} '{identifier}'"},
+                status=500,
+            )
 
 
 def paginated_result(

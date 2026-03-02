@@ -413,7 +413,7 @@ class TestExports(APIBaseTest):
             },
         )
 
-    @patch("posthog.tasks.exports.csv_exporter.requests.request")
+    @patch("posthog.tasks.exports.csv_exporter.external_requests.request")
     def test_can_download_a_csv(self, patched_request) -> None:
         with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
             _create_event(
@@ -1070,7 +1070,7 @@ class TestExportMixin(APIBaseTest):
         Use this function to test the CSV output of exports in other tests
         """
         with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
-            with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+            with patch("posthog.tasks.exports.csv_exporter.external_requests.request") as patched_request:
 
                 def requests_side_effect(*args, **kwargs):
                     response = self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
