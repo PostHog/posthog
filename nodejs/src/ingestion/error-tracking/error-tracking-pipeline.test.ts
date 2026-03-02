@@ -160,6 +160,27 @@ describe('ErrorTrackingPipeline', () => {
     }
 
     /**
+     * Helper to get ingestion warnings that were queued.
+     * Ingestion warnings are sent via queueMessages to the ingestion_warnings topic.
+     */
+    const getIngestionWarnings = (): any[] => {
+        return mockKafkaProducer.queueMessages.mock.calls
+            .filter((call) => {
+                const arg = call[0]
+                // queueMessages can receive a single TopicMessage or an array
+                const topicMessages = Array.isArray(arg) ? arg : [arg]
+                return topicMessages.some((tm: any) => tm.topic?.includes('ingestion_warnings'))
+            })
+            .flatMap((call) => {
+                const arg = call[0]
+                const topicMessages = Array.isArray(arg) ? arg : [arg]
+                return topicMessages
+                    .filter((tm: any) => tm.topic?.includes('ingestion_warnings'))
+                    .flatMap((tm: any) => tm.messages.map((m: { value: string }) => parseJSON(m.value)))
+            })
+    }
+
+    /**
      * Creates a Cymbal response that includes enriched properties.
      * In real usage, Cymbal receives the enriched event and returns it with
      * fingerprint/issue_id added. This helper simulates that behavior.
@@ -665,6 +686,75 @@ describe('ErrorTrackingPipeline', () => {
             const props = parseJSON(producedEvents[0].properties)
             expect(props.custom_property).toBe('should-be-preserved')
             expect(props.$browser).toBe('Chrome')
+        })
+
+        it('emits ingestion warning when Cymbal returns $cymbal_errors', async () => {
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+
+            // Cymbal returns event with processing errors attached
+            const cymbalResponse = createCymbalResponse({
+                uuid: 'event-with-errors',
+                properties: {
+                    $exception_list: [{ type: 'Error', value: 'Test error' }],
+                    $exception_fingerprint: 'test-fingerprint',
+                    $exception_issue_id: 'test-issue-id',
+                    $cymbal_errors: [
+                        'No sourcemap found for source url: https://example.com/app.js',
+                        'Token not found for frame: app.js:10:5',
+                    ],
+                },
+            })
+            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+
+            const message = createKafkaMessage({ eventUuid: 'event-with-errors' })
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            // Event should still be emitted (errors don't block processing)
+            const producedEvents = getProducedEvents()
+            expect(producedEvents).toHaveLength(1)
+
+            // Verify ingestion warning was sent
+            const warnings = getIngestionWarnings()
+            expect(warnings).toHaveLength(1)
+            expect(warnings[0].type).toBe('error_tracking_exception_processing_errors')
+            expect(warnings[0].team_id).toBe(123)
+
+            const details = parseJSON(warnings[0].details)
+            expect(details.eventUuid).toBe('event-with-errors')
+            expect(details.errors).toEqual([
+                'No sourcemap found for source url: https://example.com/app.js',
+                'Token not found for frame: app.js:10:5',
+            ])
+        })
+
+        it('does not emit ingestion warning when Cymbal returns no errors', async () => {
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+
+            // Cymbal returns event without errors
+            const cymbalResponse = createCymbalResponse({
+                properties: {
+                    $exception_list: [{ type: 'Error', value: 'Test error' }],
+                    $exception_fingerprint: 'test-fingerprint',
+                    $exception_issue_id: 'test-issue-id',
+                    // No $cymbal_errors
+                },
+            })
+            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+
+            const message = createKafkaMessage({})
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            // Event should be emitted
+            const producedEvents = getProducedEvents()
+            expect(producedEvents).toHaveLength(1)
+
+            // No ingestion warning should be sent
+            const warnings = getIngestionWarnings()
+            expect(warnings).toHaveLength(0)
         })
 
         it('always uses full person_mode to preserve group properties', async () => {

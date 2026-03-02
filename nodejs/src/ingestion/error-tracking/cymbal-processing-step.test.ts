@@ -231,4 +231,120 @@ describe('createCymbalProcessingStep', () => {
         // Error should propagate up so Kafka doesn't commit the offset and retries the batch
         await expect(step(inputs)).rejects.toThrow('Cymbal unavailable')
     })
+
+    describe('ingestion warnings', () => {
+        it('emits warning when Cymbal returns $cymbal_errors', async () => {
+            const input = createInput({ uuid: 'event-with-errors' })
+
+            const response = createResponse({
+                uuid: 'event-with-errors',
+                properties: {
+                    $exception_list: [{ type: 'Error', value: 'Test error' }],
+                    $exception_fingerprint: 'test-fingerprint',
+                    $cymbal_errors: ['No sourcemap found for source url: https://example.com/app.js'],
+                },
+            })
+
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([response])
+
+            const results = await step([input])
+
+            expect(results[0].type).toBe(PipelineResultType.OK)
+            if (isOkResult(results[0])) {
+                expect(results[0].warnings).toHaveLength(1)
+                expect(results[0].warnings[0]).toEqual({
+                    type: 'error_tracking_exception_processing_errors',
+                    details: {
+                        eventUuid: 'event-with-errors',
+                        errors: ['No sourcemap found for source url: https://example.com/app.js'],
+                    },
+                    key: 'event-with-errors',
+                })
+            }
+        })
+
+        it('emits warning with multiple errors', async () => {
+            const input = createInput({ uuid: 'event-multiple-errors' })
+
+            const response = createResponse({
+                uuid: 'event-multiple-errors',
+                properties: {
+                    $exception_list: [{ type: 'Error', value: 'Test error' }],
+                    $cymbal_errors: [
+                        'No sourcemap found for source url: https://example.com/app.js',
+                        'Invalid source map: failed to parse',
+                    ],
+                },
+            })
+
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([response])
+
+            const results = await step([input])
+
+            expect(results[0].type).toBe(PipelineResultType.OK)
+            if (isOkResult(results[0])) {
+                expect(results[0].warnings).toHaveLength(1)
+                expect(results[0].warnings[0].details.errors).toEqual([
+                    'No sourcemap found for source url: https://example.com/app.js',
+                    'Invalid source map: failed to parse',
+                ])
+            }
+        })
+
+        it('does not emit warning when $cymbal_errors is empty', async () => {
+            const input = createInput({ uuid: 'event-no-errors' })
+
+            const response = createResponse({
+                uuid: 'event-no-errors',
+                properties: {
+                    $exception_list: [{ type: 'Error', value: 'Test error' }],
+                    $exception_fingerprint: 'test-fingerprint',
+                    $cymbal_errors: [],
+                },
+            })
+
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([response])
+
+            const results = await step([input])
+
+            expect(results[0].type).toBe(PipelineResultType.OK)
+            if (isOkResult(results[0])) {
+                expect(results[0].warnings).toHaveLength(0)
+            }
+        })
+
+        it('does not emit warning when $cymbal_errors is absent', async () => {
+            const input = createInput({ uuid: 'event-no-errors-field' })
+
+            const response = createResponse({
+                uuid: 'event-no-errors-field',
+                properties: {
+                    $exception_list: [{ type: 'Error', value: 'Test error' }],
+                    $exception_fingerprint: 'test-fingerprint',
+                    // No $cymbal_errors field
+                },
+            })
+
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([response])
+
+            const results = await step([input])
+
+            expect(results[0].type).toBe(PipelineResultType.OK)
+            if (isOkResult(results[0])) {
+                expect(results[0].warnings).toHaveLength(0)
+            }
+        })
+
+        it('does not emit warning for suppressed events', async () => {
+            const input = createInput({ uuid: 'suppressed-event' })
+
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([null])
+
+            const results = await step([input])
+
+            expect(results[0].type).toBe(PipelineResultType.DROP)
+            // Drop results also have warnings array but it should be empty
+            expect(results[0].warnings).toHaveLength(0)
+        })
+    })
 })

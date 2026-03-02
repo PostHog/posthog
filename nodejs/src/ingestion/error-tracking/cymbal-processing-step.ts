@@ -3,13 +3,39 @@ import { Team } from '~/types'
 import { logger } from '~/utils/logger'
 
 import { BatchProcessingStep } from '../pipelines/base-batch-pipeline'
+import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { PipelineResult, drop, ok } from '../pipelines/results'
 import { CymbalClient } from './cymbal/client'
-import { CymbalRequest } from './cymbal/types'
+import { CymbalRequest, CymbalResponse } from './cymbal/types'
 
 export interface CymbalProcessingInput {
     event: PluginEvent
     team: Team
+}
+
+/**
+ * Extracts ingestion warnings from Cymbal's response.
+ *
+ * When Cymbal encounters processing errors (e.g., missing sourcemaps, invalid properties,
+ * empty exception list), it attaches them to $cymbal_errors and still returns the event.
+ * We convert these to ingestion warnings so users can see them in the PostHog UI.
+ */
+function getCymbalProcessingWarnings(response: CymbalResponse, eventUuid: string): PipelineWarning[] {
+    const cymbalErrors = response.properties.$cymbal_errors
+    if (!Array.isArray(cymbalErrors) || cymbalErrors.length === 0) {
+        return []
+    }
+
+    return [
+        {
+            type: 'error_tracking_exception_processing_errors',
+            details: {
+                eventUuid,
+                errors: cymbalErrors,
+            },
+            key: eventUuid, // Debounce by event UUID
+        },
+    ]
 }
 
 /**
@@ -64,7 +90,10 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
                     properties: response.properties,
                 }
 
-                return ok({ ...input, event: processedEvent })
+                // Check for processing errors from Cymbal
+                const warnings = getCymbalProcessingWarnings(response, input.event.uuid)
+
+                return ok({ ...input, event: processedEvent }, [], warnings)
             })
         } catch (error) {
             logger.error('❌', 'cymbal_batch_processing_error', {
