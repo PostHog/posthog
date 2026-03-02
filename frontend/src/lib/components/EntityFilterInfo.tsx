@@ -58,7 +58,7 @@ export function EntityFilterInfo({
             )}
             style={style}
         >
-            <span className="inline-flex items-center gap-1">
+            <span className={clsx(icon && 'inline-flex items-center gap-1')}>
                 {icon}
                 <span
                     className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
