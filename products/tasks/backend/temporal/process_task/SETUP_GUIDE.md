@@ -44,8 +44,17 @@ The client ID `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` is the dev constant fro
 Add to your `.env`:
 
 ```bash
+# Required: DEBUG must be True for DockerSandbox
+DEBUG=True
+
 # Sandbox provider (required for local dev)
 SANDBOX_PROVIDER=docker
+
+# Do NOT set SANDBOX_API_URL when using Docker.
+# DockerSandbox auto-rewrites POSTHOG_API_URL inside the container:
+#   localhost/127.0.0.1 → host.docker.internal
+#   port 8010 (Caddy) → 8000 (Django direct, Caddy returns empty responses from Docker)
+# If you must override, use port 8000: SANDBOX_API_URL=http://host.docker.internal:8000
 
 # JWT keys for OAuth and sandbox connections - get these from .env.example
 SANDBOX_JWT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
@@ -71,19 +80,45 @@ Create a `tasks` feature flag at 100% rollout:
 
 This is the feature flag used on the endpoints and in the temporal worker.
 
-## 5. Temporal worker
+## 5. Start Temporal
+
+The workflow requires a running Temporal server. You can start it via docker-compose or standalone.
+
+**Option A: docker-compose** (recommended if you already run PostHog via docker-compose):
+
+```bash
+docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal up -d
+```
+
+This starts `temporal`, `temporal-ui` (at http://localhost:8081), `temporal-admin-tools`, and `elasticsearch`.
+
+**Option B: standalone** (lighter, no docker-compose):
+
+```bash
+temporal server start-dev
+```
+
+## 6. Start the Temporal worker
+
+The worker process listens on the `development-task-queue` (in DEBUG mode) and executes the `process-task` workflow. Start it with:
+
+```bash
+./bin/temporal-django-worker
+```
+
+This runs `python3 manage.py start_temporal_worker` under the hood.
 
 The `process-task` workflow defined in `products/tasks/backend/temporal/process_task/workflow.py` provisions a sandbox, starts an agent inside it, and waits for the agent to finish. The workflow orchestrates these activities:
 
 1. **get_task_processing_context** — Loads the TaskRun from the database, validates the GitHub integration and repository, and builds a `TaskProcessingContext` carrying all the IDs needed by later activities
 2. **get_sandbox_for_repository** — Creates an OAuth access token, provisions a Docker sandbox (reusing a snapshot if one exists), clones the repository, and stores the sandbox URL in `TaskRun.state`
 3. **start_agent_server** — Runs `npx agent-server` inside the sandbox and polls `/health` until it responds
-4. **wait_condition** — The workflow blocks for up to 60 minutes, waiting for a `complete_task` signal sent by the API when the agent finishes
+4. **wait_condition** — The workflow blocks with a 5-minute inactivity timeout, extended by `heartbeat` signals from the agent. Exits on a `complete_task` signal or when no heartbeat arrives within 5 minutes
 5. **cleanup_sandbox** — Destroys the sandbox container (always runs, even on failure)
 
 The activities live in `products/tasks/backend/temporal/process_task/activities/`.
 
-## 6. Running via the UI
+## 7. Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what is happening with a background cloud run.
 
@@ -92,7 +127,7 @@ This is very minimal at the moment, but the tasks page can be used to see what i
 3. Click "Run task"
 4. Watch logs stream in the session view
 
-## 7. Testing with local agent packages
+## 8. Testing with local agent packages
 
 To test changes to `@posthog/agent` before publishing:
 
@@ -110,15 +145,17 @@ This builds a `posthog-sandbox-base-local` Docker image that overlays your local
 
 ## Troubleshooting
 
-| Problem                           | Solution                                                                                        |
-| --------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Docker not running                | Start Docker Desktop or the Docker daemon                                                       |
-| Temporal not reachable            | Ensure Temporal is running on `127.0.0.1:7233`. Check with `temporal server start-dev`          |
-| Feature flag not enabled          | Create the `tasks` flag at 100% rollout (see step 4)                                            |
-| Array OAuth app missing           | Run the Django shell command in step 2                                                          |
-| GitHub token expired              | Tokens from GitHub App installations expire after ~1 hour. Re-run the task to get a fresh token |
-| "Task workflow execution blocked" | The `tasks` feature flag is not enabled for this user/org                                       |
-| Sandbox image build fails         | Check Docker has enough disk space. Delete old images with `docker system prune`                |
-| Agent server health check fails   | Check sandbox logs: `docker exec <container_id> cat /tmp/agent-server.log`                      |
-| `SANDBOX_JWT_PRIVATE_KEY` missing | Generate an RSA key (see step 3) and add it to your `.env`                                      |
-| Port conflict on 47821            | Another sandbox or process is using the port. Kill it or restart Docker                         |
+| Problem                           | Solution                                                                                                                                                       |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Docker not running                | Start Docker Desktop or the Docker daemon                                                                                                                      |
+| Temporal not reachable            | Ensure Temporal is running on `127.0.0.1:7233`. Check with `temporal server start-dev`                                                                         |
+| Feature flag not enabled          | Create the `tasks` flag at 100% rollout (see step 4)                                                                                                           |
+| Array OAuth app missing           | Run the Django shell command in step 2                                                                                                                         |
+| GitHub token expired              | Tokens from GitHub App installations expire after ~1 hour. Re-run the task to get a fresh token                                                                |
+| "Task workflow execution blocked" | The `tasks` feature flag is not enabled for this user/org                                                                                                      |
+| Sandbox image build fails         | Check Docker has enough disk space. Delete old images with `docker system prune`                                                                               |
+| Agent server health check fails   | Check sandbox logs: `docker exec <container_id> cat /tmp/agent-server.log`                                                                                     |
+| `SANDBOX_JWT_PRIVATE_KEY` missing | Generate an RSA key (see step 3) and add it to your `.env`                                                                                                     |
+| Port conflict on 47821            | Another sandbox or process is using the port. Kill it or restart Docker                                                                                        |
+| Sandbox can't reach PostHog API   | Don't set `SANDBOX_API_URL` with Docker — auto-transform handles it. If overriding, use port 8000, not 8010 (Caddy returns empty responses from inside Docker) |
+| `DEBUG` not set                   | `SANDBOX_PROVIDER=docker` requires `DEBUG=True`. Without it, you'll get "DockerSandbox cannot be used in production"                                           |
