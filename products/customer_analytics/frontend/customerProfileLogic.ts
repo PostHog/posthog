@@ -364,7 +364,7 @@ export function addGroupAttrsToNode({ attrs, node, children = [] }: AddAttrsToNo
             return {
                 ...node,
                 attrs: {
-                    ...attrs,
+                    ...node.attrs,
                     query: {
                         ...DEFAULT_QUERY,
                         contextKey: 'group-profile-events',
