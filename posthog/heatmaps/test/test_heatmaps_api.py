@@ -580,19 +580,18 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"date_from": "2023-03-08", "aggregation": choice}, expected_status_code=expected_status_code
         )
 
+    @parameterized.expand(
+        [
+            ("explicit_true", {"date_from": "2023-03-08", "hide_zero_coordinates": "true"}),
+            ("default", {"date_from": "2023-03-08"}),
+        ]
+    )
     @freezegun.freeze_time("2025-03-31")
-    def test_hide_zero_coordinates_filters_out_zero_zero_events(self) -> None:
+    def test_hide_zero_coordinates_filters_out_zero_zero_events(self, _name: str, params: dict) -> None:
         self._create_heatmap_event("session_1", "click", x=0, y=0)
         self._create_heatmap_event("session_2", "click", x=10, y=20)
 
-        self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "hide_zero_coordinates": "true"}, 1)
-
-    @freezegun.freeze_time("2025-03-31")
-    def test_hide_zero_coordinates_default_true(self) -> None:
-        self._create_heatmap_event("session_1", "click", x=0, y=0)
-        self._create_heatmap_event("session_2", "click", x=10, y=20)
-
-        self._assert_heatmap_single_result_count({"date_from": "2023-03-08"}, 1)
+        self._assert_heatmap_single_result_count(params, 1)
 
     @freezegun.freeze_time("2025-03-31")
     def test_hide_zero_coordinates_false_includes_zero_zero(self) -> None:

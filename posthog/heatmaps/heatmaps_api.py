@@ -367,6 +367,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         offset = validated_data.pop("offset")
         points = validated_data.pop("points")
         validated_data.pop("aggregation", None)
+        validated_data.pop("hide_zero_coordinates", None)
 
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in validated_data.items()}
         placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
