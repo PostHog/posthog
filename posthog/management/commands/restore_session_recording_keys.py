@@ -86,22 +86,21 @@ class Command(BaseCommand):
         return arn
 
     def _get_backup_iam_role(self, backup_client) -> str:
-        plans = backup_client.list_backup_plans().get("BackupPlansList", [])
-
-        for plan in plans:
-            selections = backup_client.list_backup_selections(BackupPlanId=plan["BackupPlanId"]).get(
-                "BackupSelectionsList", []
-            )
-            for selection in selections:
-                detail = backup_client.get_backup_selection(
-                    BackupPlanId=plan["BackupPlanId"],
-                    SelectionId=selection["SelectionId"],
-                )
-                iam_role_arn = detail["BackupSelection"].get("IamRoleArn", "")
-                resources = detail["BackupSelection"].get("Resources", [])
-                if any(LIVE_TABLE_NAME in r for r in resources):
-                    self.stdout.write(f"Found IAM role: {iam_role_arn}")
-                    return iam_role_arn
+        plans_paginator = backup_client.get_paginator("list_backup_plans")
+        for plans_page in plans_paginator.paginate():
+            for plan in plans_page.get("BackupPlansList", []):
+                selections_paginator = backup_client.get_paginator("list_backup_selections")
+                for sel_page in selections_paginator.paginate(BackupPlanId=plan["BackupPlanId"]):
+                    for selection in sel_page.get("BackupSelectionsList", []):
+                        detail = backup_client.get_backup_selection(
+                            BackupPlanId=plan["BackupPlanId"],
+                            SelectionId=selection["SelectionId"],
+                        )
+                        iam_role_arn = detail["BackupSelection"].get("IamRoleArn", "")
+                        resources = detail["BackupSelection"].get("Resources", [])
+                        if any(LIVE_TABLE_NAME in r for r in resources):
+                            self.stdout.write(f"Found IAM role: {iam_role_arn}")
+                            return iam_role_arn
 
         raise CommandError(
             "Could not find IAM role for backup. Check that a backup plan exists for the session-recording-keys table."
@@ -218,7 +217,7 @@ class Command(BaseCommand):
             "TableName": table_name,
             "IndexName": TEAM_ID_INDEX,
             "KeyConditionExpression": "team_id = :tid",
-            "FilterExpression": "session_state <> :deleted",
+            "FilterExpression": "attribute_not_exists(session_state) OR session_state <> :deleted",
             "ExpressionAttributeValues": {
                 ":tid": {"N": str(team_id)},
                 ":deleted": {"S": "deleted"},
@@ -246,41 +245,44 @@ class Command(BaseCommand):
         skipped = 0
         restored_session_ids: list[tuple[str, int]] = []
 
-        for item in items:
-            session_id = item["session_id"]["S"]
-            team_id = int(item["team_id"]["N"])
-            state = item.get("session_state", {}).get("S", "cleartext")
+        try:
+            for item in items:
+                session_id = item["session_id"]["S"]
+                team_id = int(item["team_id"]["N"])
+                state = item.get("session_state", {}).get("S", "cleartext")
 
-            if dry_run:
-                self.stdout.write(f"  [DRY RUN] Would restore session_id={session_id} team_id={team_id} state={state}")
-                restored += 1
-                continue
-
-            try:
-                dynamodb_client.put_item(
-                    TableName=LIVE_TABLE_NAME,
-                    Item=item,
-                    ConditionExpression="session_state = :deleted OR attribute_not_exists(session_id)",
-                    ExpressionAttributeValues={
-                        ":deleted": {"S": "deleted"},
-                    },
-                )
-                self.stdout.write(
-                    self.style.SUCCESS(f"  Restored session_id={session_id} team_id={team_id} state={state}")
-                )
-                restored += 1
-                restored_session_ids.append((session_id, team_id))
-            except ClientError as e:
-                if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                if dry_run:
                     self.stdout.write(
-                        f"  Skipped session_id={session_id} team_id={team_id} (not deleted in live table)"
+                        f"  [DRY RUN] Would restore session_id={session_id} team_id={team_id} state={state}"
                     )
-                    skipped += 1
-                else:
-                    raise
+                    restored += 1
+                    continue
 
-        if restored_session_ids and not dry_run:
-            self._undelete_metadata(restored_session_ids)
+                try:
+                    dynamodb_client.put_item(
+                        TableName=LIVE_TABLE_NAME,
+                        Item=item,
+                        ConditionExpression="session_state = :deleted OR attribute_not_exists(session_id)",
+                        ExpressionAttributeValues={
+                            ":deleted": {"S": "deleted"},
+                        },
+                    )
+                    self.stdout.write(
+                        self.style.SUCCESS(f"  Restored session_id={session_id} team_id={team_id} state={state}")
+                    )
+                    restored += 1
+                    restored_session_ids.append((session_id, team_id))
+                except ClientError as e:
+                    if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                        self.stdout.write(
+                            f"  Skipped session_id={session_id} team_id={team_id} (not deleted in live table)"
+                        )
+                        skipped += 1
+                    else:
+                        raise
+        finally:
+            if restored_session_ids and not dry_run:
+                self._undelete_metadata(restored_session_ids)
 
         suffix = " (DRY RUN)" if dry_run else ""
         self.stdout.write(self.style.SUCCESS(f"\nDone: {restored} restored, {skipped} skipped{suffix}"))
@@ -294,6 +296,7 @@ class Command(BaseCommand):
         # UPDATE not DELETE: after a merge, deletion marker and data are one row.
         # DELETE would remove all session metadata. UPDATE rewrites all parts safely.
         sync_execute(
+            # nosemgrep: clickhouse-fstring-param-audit — CLICKHOUSE_CLUSTER is from Django settings, not user input
             f"""
             ALTER TABLE sharded_session_replay_events
             ON CLUSTER '{CLICKHOUSE_CLUSTER}'

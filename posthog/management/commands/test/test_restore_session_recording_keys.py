@@ -55,13 +55,24 @@ def _make_backup_client(
             }
         ]
 
-    paginator = MagicMock()
-    paginator.paginate.return_value = [{"RecoveryPoints": recovery_points}]
+    recovery_paginator = MagicMock()
+    recovery_paginator.paginate.return_value = [{"RecoveryPoints": recovery_points}]
+
+    plans_paginator = MagicMock()
+    plans_paginator.paginate.return_value = [{"BackupPlansList": [{"BackupPlanId": "plan-1"}]}]
+
+    selections_paginator = MagicMock()
+    selections_paginator.paginate.return_value = [{"BackupSelectionsList": [{"SelectionId": "sel-1"}]}]
+
+    def _get_paginator(operation):
+        return {
+            "list_recovery_points_by_backup_vault": recovery_paginator,
+            "list_backup_plans": plans_paginator,
+            "list_backup_selections": selections_paginator,
+        }[operation]
 
     client = MagicMock()
-    client.get_paginator.return_value = paginator
-    client.list_backup_plans.return_value = {"BackupPlansList": [{"BackupPlanId": "plan-1"}]}
-    client.list_backup_selections.return_value = {"BackupSelectionsList": [{"SelectionId": "sel-1"}]}
+    client.get_paginator.side_effect = _get_paginator
     client.get_backup_selection.return_value = {
         "BackupSelection": {
             "IamRoleArn": role_arn,
@@ -328,7 +339,8 @@ class TestRestoreSessionRecordingKeysCommand:
                 stdout=out,
             )
 
-        backup.get_paginator.assert_not_called()
+        paginator_calls = [c.args[0] for c in backup.get_paginator.call_args_list]
+        assert "list_recovery_points_by_backup_vault" not in paginator_calls
         _, kwargs = backup.start_restore_job.call_args
         assert kwargs["RecoveryPointArn"] == explicit_arn
 
