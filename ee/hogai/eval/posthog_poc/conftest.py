@@ -4,15 +4,19 @@ import os
 
 import pytest
 
-from ee.hogai.eval.conftest import set_up_evals  # noqa: F401
+from posthog.conftest import _django_db_setup
 
 from .client import PostHogEvalClient
 
 pytest_plugins = (
-    "posthog.conftest",
     "ee.hogai.eval.posthog_poc.suites.ticket_summary",
     "ee.hogai.eval.posthog_poc.suites.memory",
 )
+
+
+@pytest.fixture(scope="session")
+def set_up_evals(django_db_setup, django_db_keepdb, django_db_blocker):  # noqa: F811
+    yield from _django_db_setup(django_db_keepdb, django_db_blocker)
 
 
 @pytest.fixture
