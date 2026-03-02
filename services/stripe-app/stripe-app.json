@@ -74,6 +74,10 @@
         {
             "permission": "payment_method_read",
             "purpose": "Read payment methods for data syncing"
+        },
+        {
+            "permission": "account_requests_write",
+            "purpose": "Allows PostHog Stripe app to create and sign in to PostHog accounts."
         }
     ],
     "post_install_action": {
@@ -100,6 +104,26 @@
                 "viewport": "onboarding"
             }
         ]
+    },
+    "provisioning": {
+        "base_url": "https://app.posthog.com/api/agentic/",
+        "oauth_scopes": ["organization:read", "organization:write", "project:read", "project:write"],
+        "oauth_token_endpoint": "https://oauth.posthog.com/oauth/token",
+        "oauth_client_id": "ca_LAVHfa1QgiRsgQ23ZUT3Z3WMGRieTgEr",
+        "oauth_client_secret_secret_store_key": "posthog_access_token",
+        "account_configuration_schema": {
+            "type": "object",
+            "properties": {
+                "region": {
+                    "type": "string",
+                    "enum": ["US", "EU"],
+                    "description": "Which PostHog region to connect the Stripe account to"
+                }
+            },
+            "required": ["region"],
+            "additionalProperties": false
+        },
+        "llm_context": "https://posthog.com/llms.txt"
     },
     "version": "0.1.0"
 }
