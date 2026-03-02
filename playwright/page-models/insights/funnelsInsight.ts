@@ -22,16 +22,13 @@ export class FunnelsInsight {
         this.chart = this.verticalChart.or(this.horizontalChart)
         this.histogram = page.getByTestId('funnel-histogram')
         this.trendsLineGraph = page.getByTestId('trend-line-graph-funnel')
-        this.stepLegends = this.verticalChart.locator('.StepLegend')
+        this.stepLegends = this.verticalChart.getByTestId('funnel-step-legend')
         this.layoutSelector = page.getByTestId('funnel-bar-layout-selector')
         this.stepOrderFilter = page.getByTestId('funnel-step-order-filter')
-        this.tooltip = page.locator('.FunnelTooltip').or(page.locator('.InsightTooltip'))
+        this.tooltip = page.getByTestId('funnel-tooltip')
         this.taxonomicFilter = new TaxonomicFilter(page)
-        this.conversionWindowSection = page
-            .locator('div')
-            .filter({ hasText: /^Conversion window limit/ })
-            .last()
-        this.conversionWindowInput = this.conversionWindowSection.locator('input[type="number"]')
+        this.conversionWindowSection = page.getByTestId('funnel-conversion-window-filter')
+        this.conversionWindowInput = this.conversionWindowSection.getByRole('spinbutton')
     }
 
     async waitForChart(): Promise<void> {
@@ -53,11 +50,7 @@ export class FunnelsInsight {
     }
 
     async selectVizType(name: string): Promise<void> {
-        const container = this.page
-            .locator('div')
-            .filter({ hasText: /^Graph type/ })
-            .first()
-        await container.locator('.LemonSelect').click()
+        await this.page.getByTestId('funnel-viz-type-select').click()
         await this.page.getByRole('menuitem', { name }).click()
     }
 
@@ -91,22 +84,18 @@ export class FunnelsInsight {
     }
 
     async setConversionWindowInterval(value: string): Promise<void> {
-        const input = this.conversionWindowSection.locator('input[type="number"]')
+        const input = this.conversionWindowSection.getByRole('spinbutton')
         await input.fill(value)
         await input.press('Enter')
     }
 
     async selectConversionWindowUnit(unit: string): Promise<void> {
-        await this.conversionWindowSection.locator('.LemonSelect').click()
+        await this.conversionWindowSection.getByTestId('funnel-conversion-window-unit').click()
         await this.page.getByRole('menuitem', { name: unit }).click()
     }
 
     async selectAggregation(label: string): Promise<void> {
-        const section = this.page
-            .locator('div')
-            .filter({ hasText: /^Aggregating by/ })
-            .last()
-        await section.locator('.LemonSelect').click()
+        await this.page.getByTestId('funnel-aggregation-filter').getByTestId('retention-aggregation-selector').click()
         await this.page.getByRole('menuitem', { name: label }).click()
     }
 

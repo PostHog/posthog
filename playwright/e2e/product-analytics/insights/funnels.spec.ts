@@ -119,7 +119,7 @@ test.describe('Funnel insights', () => {
         })
 
         await test.step('hover funnel bar to show tooltip', async () => {
-            const stepBar = insight.funnels.verticalChart.locator('.StepBar').first()
+            const stepBar = insight.funnels.verticalChart.getByTestId('funnel-step-bar').first()
             await stepBar.hover()
             await expect(insight.funnels.tooltip.first()).toBeVisible()
         })
@@ -208,20 +208,18 @@ test.describe('Funnel insights', () => {
         })
 
         await test.step('clicking dropped-off count opens persons modal with correct users', async () => {
-            // Person buttons only render in view mode, so save first
             await insight.save()
             await insight.funnels.waitForChart()
 
             const step2 = insight.funnels.stepLegend(1)
-            // First funnel-inspect-button is converted count, second is dropped-off count
-            const droppedOffButton = step2.locator('.funnel-inspect-button').nth(1)
+            const droppedOffButton = step2.getByTestId('funnel-inspect-dropped-off')
             await droppedOffButton.click()
 
-            const modal = page.locator('[data-attr="persons-modal"]')
+            const modal = page.getByTestId('persons-modal')
             await expect(modal).toBeVisible({ timeout: 10000 })
             await expect(modal).toContainText('firefox-user-1')
 
-            await modal.locator('[aria-label="close"]').click()
+            await modal.getByRole('button', { name: 'close' }).click()
             await expect(modal).not.toBeVisible()
         })
 
@@ -234,8 +232,9 @@ test.describe('Funnel insights', () => {
 
             const step2 = insight.funnels.stepLegend(1)
             await expect(step2).toBeVisible()
-            // Under session aggregation, counts render as spans, not clickable links
-            await expect(step2.locator('a.funnel-inspect-button')).toHaveCount(0)
+
+            await expect(step2.getByTestId('funnel-inspect-converted')).toHaveCount(0)
+            await expect(step2.getByTestId('funnel-inspect-dropped-off')).toHaveCount(0)
         })
 
         await test.step('revert seeded insight to unique users', async () => {
@@ -282,19 +281,21 @@ test.describe('Funnel insights', () => {
         })
 
         await test.step('verify breakdown table shows Chrome and Firefox', async () => {
-            const table = page.locator('.LemonTable')
+            const table = page.getByTestId('funnel-breakdown-table')
             await expect(table).toBeVisible()
             await expect(table.getByText('Chrome')).toBeVisible()
             await expect(table.getByText('Firefox')).toBeVisible()
         })
 
         await test.step('verify Chrome: 50% total conversion (5/10)', async () => {
-            const chromeRow = page.locator('.LemonTable tr').filter({ hasText: 'Chrome' })
+            const table = page.getByTestId('funnel-breakdown-table')
+            const chromeRow = table.getByRole('row').filter({ hasText: 'Chrome' })
             await expect(chromeRow).toContainText('50')
         })
 
         await test.step('verify Firefox: 0% total conversion (0/10)', async () => {
-            const firefoxRow = page.locator('.LemonTable tr').filter({ hasText: 'Firefox' })
+            const table = page.getByTestId('funnel-breakdown-table')
+            const firefoxRow = table.getByRole('row').filter({ hasText: 'Firefox' })
             await expect(firefoxRow).toContainText('0%')
         })
     })
@@ -391,7 +392,6 @@ test.describe('Funnel insights', () => {
             await expect(insight.saveButton).toContainText('No changes')
 
             await insight.funnels.setConversionWindowInterval('3')
-            await insight.funnels.waitForChart()
             await expect(insight.saveButton).toBeEnabled()
             await expect(insight.saveButton).toContainText('Save')
         })
@@ -399,7 +399,6 @@ test.describe('Funnel insights', () => {
         await test.step('cancel restores original state after discard flow', async () => {
             await insight.cancelButton.click()
             await expect(insight.editButton).toBeVisible()
-            await insight.funnels.waitForChart()
 
             await insight.edit()
             await expect(insight.funnels.conversionWindowInput).not.toHaveValue('3')

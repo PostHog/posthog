@@ -37,8 +37,8 @@ export class InsightPage {
         this.saveButton = page.getByTestId('insight-save-button')
         this.editButton = page.getByTestId('insight-edit-button')
         this.cancelButton = page.getByTestId('insight-cancel-edit-button')
-        this.topBarName = page.locator('.scene-name')
-        this.activeTab = page.locator('.LemonTabs__tab--active')
+        this.topBarName = page.getByTestId('scene-name')
+        this.activeTab = page.getByRole('tab', { selected: true })
 
         this.trends = new TrendsInsight(page)
         this.funnels = new FunnelsInsight(page)
@@ -56,7 +56,7 @@ export class InsightPage {
 
     async goToNewInsight(type: InsightType): Promise<InsightPage> {
         await this.page.goto(urls.insightNew({ type }), { waitUntil: 'domcontentloaded' })
-        await this.page.waitForSelector('.LemonTabs__tab--active')
+        await this.page.getByRole('tab', { selected: true }).waitFor({ state: 'visible' })
         return this
     }
 

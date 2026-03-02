@@ -1,4 +1,4 @@
-import { Locator, Page, expect } from '@playwright/test'
+import { Locator, Page } from '@playwright/test'
 
 function escapeRegExp(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -11,8 +11,8 @@ export class TaxonomicFilter {
 
     constructor(private readonly page: Page) {
         this.searchField = page.getByTestId('taxonomic-filter-searchfield')
-        this.rows = page.locator('.taxonomic-list-row')
-        this.expandRow = page.locator('.taxonomic-list-row.expand-row').first()
+        this.rows = page.getByRole('option')
+        this.expandRow = page.getByRole('button', { name: 'Show more items' }).first()
     }
 
     async selectItem(name: string): Promise<void> {
@@ -33,7 +33,8 @@ export class TaxonomicFilter {
 
     /** The row may be behind a "show N unseen properties" expand-row — click it if needed. */
     private async revealIfHidden(row: Locator): Promise<void> {
-        await expect(row.or(this.expandRow)).toBeVisible()
+        // Wait for either the target row or the expand row to appear (first in DOM order)
+        await row.or(this.expandRow).first().waitFor({ state: 'visible' })
 
         const isVisible = await row.isVisible()
 
