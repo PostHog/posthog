@@ -30,6 +30,31 @@ export const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
 
+function classifyQueryError(error: unknown): { error_type: string; status_code: number | null } {
+    const errorStr = String(error).toLowerCase()
+    const statusCode =
+        typeof error === 'object' && error !== null && 'status' in error ? (error.status as number) : null
+
+    if (statusCode === 504 || errorStr.includes('timed out') || errorStr.includes('timeout')) {
+        return { error_type: 'timeout', status_code: statusCode }
+    }
+    if (errorStr.includes('memory limit') || errorStr.includes('out of memory')) {
+        return { error_type: 'out_of_memory', status_code: statusCode }
+    }
+    if (statusCode === 429) {
+        return { error_type: 'rate_limited', status_code: statusCode }
+    }
+    if (statusCode !== null && statusCode >= 500) {
+        return { error_type: 'server_error', status_code: statusCode }
+    }
+    return { error_type: 'unknown', status_code: statusCode }
+}
+
+function isUserInitiatedError(error: unknown): boolean {
+    const errorStr = String(error).toLowerCase()
+    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
+}
+
 const stringifyLogAttributes = (attributes: Record<string, any>): Record<string, string> => {
     const result: Record<string, string> = {}
     for (const attributeKey of Object.keys(attributes)) {
@@ -416,17 +441,43 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         setSparklineBreakdownBy: () => {
             actions.fetchSparkline()
         },
-        fetchLogsFailure: ({ error }) => {
-            const errorStr = String(error).toLowerCase()
-            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE && !errorStr.includes('abort')) {
-                lemonToast.error(`Failed to load logs: ${error}`)
+        fetchLogsFailure: ({ error, errorObject }) => {
+            if (isUserInitiatedError(error)) {
+                return
             }
+            lemonToast.error(`Failed to load logs: ${error}`)
+            const { error_type, status_code } = classifyQueryError(errorObject ?? error)
+            posthog.capture('logs query failed', {
+                query_type: 'logs',
+                error_type,
+                status_code,
+                error_message: String(error),
+            })
         },
-        fetchNextLogsPageFailure: ({ error }) => {
-            const errorStr = String(error).toLowerCase()
-            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE && !errorStr.includes('abort')) {
-                lemonToast.error(`Failed to load more logs: ${error}`)
+        fetchNextLogsPageFailure: ({ error, errorObject }) => {
+            if (isUserInitiatedError(error)) {
+                return
             }
+            lemonToast.error(`Failed to load more logs: ${error}`)
+            const { error_type, status_code } = classifyQueryError(errorObject ?? error)
+            posthog.capture('logs query failed', {
+                query_type: 'logs_next_page',
+                error_type,
+                status_code,
+                error_message: String(error),
+            })
+        },
+        fetchSparklineFailure: ({ error, errorObject }) => {
+            if (isUserInitiatedError(error)) {
+                return
+            }
+            const { error_type, status_code } = classifyQueryError(errorObject ?? error)
+            posthog.capture('logs query failed', {
+                query_type: 'sparkline',
+                error_type,
+                status_code,
+                error_message: String(error),
+            })
         },
         fetchLogsSuccess: ({ logs }) => {
             if (logs.length === 0) {
@@ -551,6 +602,13 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     return
                 }
                 console.error('Live tail polling error:', error)
+                const { error_type, status_code } = classifyQueryError(error)
+                posthog.capture('logs query failed', {
+                    query_type: 'live_tail',
+                    error_type,
+                    status_code,
+                    error_message: String(error),
+                })
                 actions.setLiveTailRunning(false)
             } finally {
                 actions.setLiveTailAbortController(null)

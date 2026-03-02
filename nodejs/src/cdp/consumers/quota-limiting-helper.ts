@@ -11,10 +11,8 @@ const counterQuotaLimited = new Counter({
 })
 
 export interface QuotaLimitingContext {
-    hub: {
-        quotaLimiting: {
-            isTeamQuotaLimited: (teamId: number, resource: QuotaResource) => Promise<boolean>
-        }
+    quotaLimiting: {
+        isTeamQuotaLimited: (teamId: number, resource: QuotaResource) => Promise<boolean>
     }
     hogFunctionMonitoringService: HogFunctionMonitoringService
 }
@@ -27,7 +25,7 @@ export async function shouldBlockInvocationDueToQuota(
     item: CyclotronJobInvocationHogFunction,
     context: QuotaLimitingContext
 ): Promise<boolean> {
-    const isQuotaLimited = await context.hub.quotaLimiting.isTeamQuotaLimited(item.teamId, 'cdp_trigger_events')
+    const isQuotaLimited = await context.quotaLimiting.isTeamQuotaLimited(item.teamId, 'cdp_trigger_events')
 
     if (isQuotaLimited) {
         counterQuotaLimited.labels({ team_id: item.teamId }).inc()

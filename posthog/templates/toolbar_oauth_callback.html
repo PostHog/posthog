@@ -8,7 +8,7 @@
 <body>
     <p id="toolbar-oauth-callback-status">Finishing authorization...</p>
     {{ payload|json_script:"toolbar-oauth-payload" }}
-    <script>
+    <script nonce="{{ request.csp_nonce }}">
         (function () {
             const payloadElement = document.getElementById("toolbar-oauth-payload")
             const statusElement = document.getElementById("toolbar-oauth-callback-status")
