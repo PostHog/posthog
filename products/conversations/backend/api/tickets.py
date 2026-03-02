@@ -25,7 +25,6 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.comment import Comment
 from posthog.models.person.person import READ_DB_FOR_PERSONS, Person, PersonDistinctId
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
@@ -44,7 +43,7 @@ from products.conversations.backend.events import (
 )
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, Priority, Status
-from products.conversations.backend.services.ai_suggest import suggest_reply
+from products.conversations.backend.services.ai_suggest import NoMessagesError, suggest_reply
 
 from ee.models.rbac.role import Role
 
@@ -380,29 +379,16 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         ticket = self.get_object()
 
-        messages = list(
-            Comment.objects.filter(
-                team_id=self.team_id,
-                scope="conversations_ticket",
-                item_id=str(ticket.id),
-            )
-            .exclude(item_context__is_private=True)
-            .order_by("created_at")
-        )
-
-        if not messages:
+        try:
+            reply_text = suggest_reply(ticket, self.team, request.user.distinct_id)
+            return Response({"suggestion": reply_text})
+        except NoMessagesError:
             return Response(
                 {"detail": "No messages in this ticket"},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
-
-        try:
-            reply_text = suggest_reply(ticket, messages, self.team, request.user.distinct_id)
-            return Response({"suggestion": reply_text})
-        except ValueError as e:
-            # ValueError indicates parsing or empty response issues
-            error_msg = str(e)
-            logger.warning("AI suggest_reply validation error", extra={"ticket_id": str(ticket.id), "error": error_msg})
+        except ValueError:
+            logger.warning("AI suggest_reply validation error", extra={"ticket_id": str(ticket.id)})
             return Response(
                 {
                     "detail": "Failed to generate suggestion. Please try again.",
@@ -424,7 +410,9 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 error_msg = "Failed to generate suggestion. Please try again."
 
-            logger.exception("AI suggest_reply failed", extra={"ticket_id": str(ticket.id), "error": str(e)})
+            logger.exception(
+                "AI suggest_reply failed", extra={"ticket_id": str(ticket.id), "error_type": type(e).__name__}
+            )
             capture_exception(e, {"ticket_id": str(ticket.id)})
             return Response(
                 {"detail": error_msg, "error_type": error_type},

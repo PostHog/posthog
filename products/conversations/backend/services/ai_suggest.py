@@ -430,16 +430,21 @@ class AISuggestPipeline:
         return parsed
 
 
+class NoMessagesError(Exception):
+    """Raised when a ticket has no messages to generate a reply for."""
+
+    pass
+
+
 def suggest_reply(
     ticket: Ticket,
-    messages: list[Comment],
     team: Team,
     user_distinct_id: str,
 ) -> str:
     """
     Generate AI-suggested reply using the multi-phase RAG pipeline.
 
-    Pipeline:
+    Fetches non-private messages for the ticket, runs the pipeline:
     1. Refine query (safety + classification + optimization)
     2. Retrieve content (session events/exceptions + future sources)
     3. Generate response
@@ -447,8 +452,22 @@ def suggest_reply(
     5. Retry from step 1 if validation fails (max 3 attempts)
 
     Returns the generated reply text.
-    Raises exception on failure.
+    Raises NoMessagesError if ticket has no messages.
+    Raises other exceptions on failure.
     """
+    messages = list(
+        Comment.objects.filter(
+            team_id=team.id,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+        )
+        .exclude(item_context__is_private=True)
+        .order_by("created_at")
+    )
+
+    if not messages:
+        raise NoMessagesError("No messages in this ticket")
+
     pipeline = AISuggestPipeline(ticket, messages, team, user_distinct_id)
     reply_text = pipeline.run()
 
