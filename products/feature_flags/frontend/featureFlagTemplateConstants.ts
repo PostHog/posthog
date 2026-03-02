@@ -11,5 +11,5 @@ export const TEMPLATE_NAMES: Record<TemplateKey, string> = {
 
 export const INTENT_NAMES: Record<FlagIntent, string> = {
     'local-eval': 'Local evaluation',
-    'first-page-load': 'First page load',
+    'first-page-load': 'Prevent flicker',
 }

@@ -173,17 +173,17 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                                     warnings.push({
                                         type: 'cohort_filter',
                                         severity: 'info',
-                                        title: 'Cohort membership not available on first page load',
+                                        title: 'Cohort filter can cause flicker',
                                         description:
-                                            'Cohort membership is resolved server-side and may not be available when the flag is evaluated on the very first page load. Consider using bootstrapping to provide the flag value.',
+                                            'Cohort membership is resolved server-side, so the flag may briefly evaluate to false before the correct value loads. Use bootstrapping to provide the flag value immediately and prevent flicker.',
                                         docUrl: 'https://posthog.com/docs/feature-flags/bootstrapping',
                                     })
                                 } else if (property.key && !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key)) {
                                     warnings.push({
                                         type: 'non_instant_property',
                                         severity: 'info',
-                                        title: 'Property may not be available on first page load',
-                                        description: `The property "${property.key}" is not instantly available in the browser. On the very first page load, this property won't be set yet. Use bootstrapping to provide the correct flag value immediately.`,
+                                        title: 'This property can cause flicker',
+                                        description: `The property "${property.key}" isn't available in the browser until after the first network request. Until then, the flag evaluates to false, which can cause content to flicker. Use bootstrapping to provide the correct value immediately.`,
                                         docUrl: 'https://posthog.com/docs/feature-flags/bootstrapping',
                                     })
                                 }
