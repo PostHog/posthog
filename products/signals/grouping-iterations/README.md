@@ -5,7 +5,7 @@
 An offline test harness for iterating on signal grouping strategies without touching production databases or waiting for the full Temporal pipeline.
 
 The Signals product groups incoming signals (bug reports, feature requests, alerts) into **SignalReports** via embedding similarity + LLM matching.
-The current strategy suffers from **weak-chaining** — signal A matches B, B matches C, but A and C are unrelated — producing bloated reports that mix unrelated issues.
+The current production strategy is `pr_specificity_and_group_aware` — see [Strategies and results](#strategies-and-results) for how we got there.
 
 This harness lets you:
 
@@ -81,7 +81,7 @@ python products/signals/grouping-iterations/run.py --note "baseline before promp
 python products/signals/grouping-iterations/run.py --limit 5 --skip-eval
 
 # Use a specific strategy
-python products/signals/grouping-iterations/run.py --strategy current
+python products/signals/grouping-iterations/run.py --strategy my_new_strategy
 ```
 
 ### Output
@@ -126,25 +126,31 @@ Compare runs by looking at the Metrics table in each file — they're sorted chr
 
 ## Strategies and results
 
-| Strategy                                                          | Overall | Weighted coherence | Groups (multi/single) | Weak-chain | Misplaced | Under-grouping |
-| ----------------------------------------------------------------- | ------- | ------------------ | --------------------- | ---------- | --------- | -------------- |
-| `current` (production baseline)                                   | 2/5     | 1.97–2.65          | 15–18 (5–6 / 9–12)    | 2–3        | 13–18     | 1–4            |
-| `group_aware` (full report context)                               | 2–3/5   | 2.86–3.71          | 31–33 (4–6 / 25–28)   | 1–2        | 4–6       | 1–12           |
-| `verification_gate` (LLM verification)                            | 2/5     | 2.87–3.36          | 29–30 (10–11 / 18–20) | 3–5        | 6–10      | 1–2            |
-| `multilink` (transitive verification)                             | 2/5     | 2.53–2.87          | 16–18 (6–7 / 10–11)   | 3          | 13–18     | 0–1            |
-| `pr_specificity` v1 (PR-title gate, cold-start skip)              | 2/5     | 2.64–2.92          | 27–29 (9–11 / 16–20)  | 5–6        | 8–11      | 1              |
-| `pr_specificity` v2 (no cold-start, tighter prompt)               | 2–3/5   | 3.23–4.21          | 33–34 (5–6 / 27–29)   | 1–2        | 2–5       | 1–4            |
-| `pr_specificity_and_group_aware` (group context + title feedback) | 2–3/5   | 3.78–4.50          | 35–37 (4–6 / 29–33)   | 0–1        | 1–2       | 1–3            |
-| `pr_specificity_and_group_aware_v2` (softened specificity prompt) | 2–3/5   | 3.39–3.82          | 31–32 (7 / 24–25)     | 2          | 3–6       | 1–2            |
-| `pr_specificity_and_group_aware_v3` (surgical prompt adjustment)  | 2–3/5   | 3.13–4.08          | 33–35 (5–6 / 27–30)   | 1–2        | 3–5       | 1–2            |
+The current production strategy is **`pr_specificity_and_group_aware`** — the only strategy with code in this directory.
+All other strategies below are historical records documenting what was tested and why it didn't work as well.
+Do not re-implement these approaches without reviewing the notes.
 
-- **current**: Good at discovery, no filtering. Chains unrelated signals through shared keywords.
+| Strategy                                                              | Overall | Weighted coherence | Groups (multi/single) | Weak-chain | Misplaced | Under-grouping |
+| --------------------------------------------------------------------- | ------- | ------------------ | --------------------- | ---------- | --------- | -------------- |
+| `one_to_one_linking` (original baseline)                              | 2/5     | 1.97–2.65          | 15–18 (5–6 / 9–12)    | 2–3        | 13–18     | 1–4            |
+| `group_aware` (full report context)                                   | 2–3/5   | 2.86–3.71          | 31–33 (4–6 / 25–28)   | 1–2        | 4–6       | 1–12           |
+| `verification_gate` (LLM verification)                                | 2/5     | 2.87–3.36          | 29–30 (10–11 / 18–20) | 3–5        | 6–10      | 1–2            |
+| `multilink` (transitive verification)                                 | 2/5     | 2.53–2.87          | 16–18 (6–7 / 10–11)   | 3          | 13–18     | 0–1            |
+| `pr_specificity` v1 (PR-title gate, cold-start skip)                  | 2/5     | 2.64–2.92          | 27–29 (9–11 / 16–20)  | 5–6        | 8–11      | 1              |
+| `pr_specificity` v2 (no cold-start, tighter prompt)                   | 2–3/5   | 3.23–4.21          | 33–34 (5–6 / 27–29)   | 1–2        | 2–5       | 1–4            |
+| **`pr_specificity_and_group_aware`** (group context + title feedback) | 2–3/5   | 3.78–4.50          | 35–37 (4–6 / 29–33)   | 0–1        | 1–2       | 1–3            |
+| `pr_specificity_and_group_aware_v2` (softened specificity prompt)     | 2–3/5   | 3.39–3.82          | 31–32 (7 / 24–25)     | 2          | 3–6       | 1–2            |
+| `pr_specificity_and_group_aware_v3` (surgical prompt adjustment)      | 2–3/5   | 3.13–4.08          | 33–35 (5–6 / 27–30)   | 1–2        | 3–5       | 1–2            |
+
+### Strategy notes (code removed — kept for historical reference)
+
+- **one_to_one_linking** (original baseline): Signal-to-signal matching with no group context. Good at discovery, no filtering. Chains unrelated signals through shared keywords — the weak-chaining problem that motivated this iteration.
 - **group_aware**: Shows LLM full report context. Too conservative — over-splits into singletons.
 - **verification_gate**: Adds LLM "does this fit?" check. Subjective, doesn't reliably catch bridges.
-- **multilink**: Current discovery + embedding-based transitive verification. Fails because embeddings can't distinguish "same domain" from "same work item" — signals sharing product vocabulary pass the check.
-- **pr_specificity v1**: Current discovery + one LLM call asking "write a PR title for all signals; is it specific enough for one engineer?" Forces synthesis over judgment. Cold-start skip (only checks groups with 2+ signals) leaves initial weak pairings unchecked.
+- **multilink**: One-to-one linking + embedding-based transitive verification. Fails because embeddings can't distinguish "same domain" from "same work item" — signals sharing product vocabulary pass the check.
+- **pr_specificity v1**: One-to-one linking + one LLM call asking "write a PR title for all signals; is it specific enough for one engineer?" Forces synthesis over judgment. Cold-start skip (only checks groups with 2+ signals) leaves initial weak pairings unchecked.
 - **pr_specificity v2**: Same as v1 but runs the PR-specificity check on ALL matches (no cold-start skip) + tighter prompt with more red flags. Best results so far: 70–85% reduction in misplaced signals vs baseline. Trade-off: more singletons, but multi-signal groups are high quality.
-- **pr_specificity_and_group_aware**: Builds on pr_specificity v2 with three enhancements: (1) group-title context in matching prompt so LLM sees what group it's joining, (2) multi-query agreement summary so LLM knows which groups were found by multiple independent queries, (3) title feedback loop where confirmed PR titles become the group's updated title for future matching.
+- **pr_specificity_and_group_aware** (production): Builds on pr_specificity v2 with three enhancements: (1) group-title context in matching prompt so LLM sees what group it's joining, (2) multi-query agreement summary so LLM knows which groups were found by multiple independent queries, (3) title feedback loop where confirmed PR titles become the group's updated title for future matching.
 - **pr_specificity_and_group_aware_v2**: Softened specificity prompt — replaced "err on side of rejecting" + "different engineers" heuristic with explicit ACCEPT/REJECT criteria. Overcorrected: more multi-signal groups but re-introduced weak chaining (misplaced 3–6 vs 1–2 in v1).
 - **pr_specificity_and_group_aware_v3**: Surgical adjustment — kept v1's default-reject but removed "different engineers" heuristic and added narrow "same underlying issue" exception (duplicate bug reports, root cause + mitigation). Still worse than v1: the matching step proposes bad matches (keyword overlap) that any loosening of the specificity gate re-exposes. **Conclusion: the bottleneck is the matching step, not the specificity prompt.**
 
@@ -171,9 +177,9 @@ class MyStrategy:
 
 ```python
 def get_strategy(name: str):
-    if name == "current":
-        from current_strategy import CurrentStrategy
-        return CurrentStrategy()
+    if name == "pr_specificity_and_group_aware":
+        from pr_specificity_and_group_aware import PRSpecificityAndGroupAwareStrategy
+        return PRSpecificityAndGroupAwareStrategy()
     elif name == "my_strategy":
         from my_strategy import MyStrategy
         return MyStrategy()

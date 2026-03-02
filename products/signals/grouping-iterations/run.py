@@ -26,42 +26,12 @@ RUNS_DIR = Path(__file__).resolve().parent / "runs"
 
 
 def get_strategy(name: str):
-    if name == "current":
-        from current_strategy import CurrentStrategy
-
-        return CurrentStrategy()
-    elif name == "group_aware":
-        from group_aware_strategy import GroupAwareStrategy
-
-        return GroupAwareStrategy()
-    elif name == "verification_gate":
-        from verification_gate_strategy import VerificationGateStrategy
-
-        return VerificationGateStrategy()
-    elif name == "multilink":
-        from multilink_strategy import MultiLinkStrategy
-
-        return MultiLinkStrategy()
-    elif name == "pr_specificity":
-        from pr_specificity_strategy import PRSpecificityStrategy
-
-        return PRSpecificityStrategy()
-    elif name == "pr_specificity_and_group_aware":
+    if name == "pr_specificity_and_group_aware":
         from pr_specificity_and_group_aware import PRSpecificityAndGroupAwareStrategy
 
         return PRSpecificityAndGroupAwareStrategy()
-    elif name == "pr_specificity_and_group_aware_v2":
-        from pr_specificity_and_group_aware_v2 import PRSpecificityAndGroupAwareV2Strategy
-
-        return PRSpecificityAndGroupAwareV2Strategy()
-    elif name == "pr_specificity_and_group_aware_v3":
-        from pr_specificity_and_group_aware_v3 import PRSpecificityAndGroupAwareV3Strategy
-
-        return PRSpecificityAndGroupAwareV3Strategy()
     else:
-        raise ValueError(
-            f"Unknown strategy: {name}. Available: current, group_aware, verification_gate, multilink, pr_specificity, pr_specificity_and_group_aware, pr_specificity_and_group_aware_v2, pr_specificity_and_group_aware_v3"
-        )
+        raise ValueError(f"Unknown strategy: {name}. Available: pr_specificity_and_group_aware")
 
 
 def save_run(
@@ -146,7 +116,11 @@ def save_run(
 
 async def main():
     parser = argparse.ArgumentParser(description="Run signal grouping strategies")
-    parser.add_argument("--strategy", default="current", help="Strategy to use (default: current)")
+    parser.add_argument(
+        "--strategy",
+        default="pr_specificity_and_group_aware",
+        help="Strategy to use (default: pr_specificity_and_group_aware)",
+    )
     parser.add_argument("--limit", type=int, default=None, help="Limit number of signals to process")
     parser.add_argument("--skip-eval", action="store_true", help="Skip LLM evaluation")
     parser.add_argument(
