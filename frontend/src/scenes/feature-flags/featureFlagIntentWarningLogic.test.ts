@@ -264,19 +264,27 @@ describe('featureFlagIntentWarningLogic', () => {
         })
     })
 
-    describe('first page load intent', () => {
+    describe('prevent flicker intent', () => {
         it.each([
             {
-                name: 'non-instant property triggers info',
+                name: 'non-instant property triggers consolidated flicker warning',
                 properties: [
                     { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.Exact, value: 'test' },
                 ],
-                expectedWarningTypes: ['non_instant_property'],
+                expectedWarningTypes: ['flicker_risk'],
             },
             {
-                name: 'cohort filter triggers info',
+                name: 'cohort filter triggers consolidated flicker warning',
                 properties: [{ type: PropertyFilterType.Cohort, value: 1, key: 'id' }],
-                expectedWarningTypes: ['cohort_filter'],
+                expectedWarningTypes: ['flicker_risk'],
+            },
+            {
+                name: 'cohort and non-instant property produce single flicker warning',
+                properties: [
+                    { type: PropertyFilterType.Cohort, value: 1, key: 'id' },
+                    { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.Exact, value: 'test' },
+                ],
+                expectedWarningTypes: ['flicker_risk'],
             },
             {
                 name: 'instant property does not trigger warning',

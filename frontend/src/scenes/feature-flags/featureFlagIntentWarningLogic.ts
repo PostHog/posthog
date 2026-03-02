@@ -18,8 +18,7 @@ export interface ConditionWarning {
         | 'non_static_cohort'
         | 'is_not_set'
         | 'regex_unsupported'
-        | 'non_instant_property'
-        | 'cohort_filter'
+        | 'flicker_risk'
         | 'unreachable_condition'
     severity: 'warning' | 'info'
     title: string
@@ -111,40 +110,24 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                         const properties = group.properties || []
 
                         if (flagIntent === 'local-eval') {
+                            let hasStaticCohort = false
+                            let hasNonStaticCohort = false
+                            const isNotSetKeys: string[] = []
+                            const unsupportedRegexKeys: string[] = []
+
                             properties.forEach((property: AnyPropertyFilter) => {
                                 if (property.type === PropertyFilterType.Cohort) {
                                     const cohortId = property.value
                                     const cohort = cohortsById[cohortId] ?? cohortsById[String(cohortId)]
                                     if (cohort?.is_static) {
-                                        warnings.push({
-                                            type: 'static_cohort',
-                                            severity: 'warning',
-                                            title: 'Static cohort not supported for local evaluation',
-                                            description:
-                                                'Static cohorts cannot be evaluated locally because the full membership list is not sent to SDKs. Use a dynamic cohort with property filters instead.',
-                                            docUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
-                                        })
+                                        hasStaticCohort = true
                                     } else {
-                                        warnings.push({
-                                            type: 'non_static_cohort',
-                                            severity: 'warning',
-                                            title: 'Behavioral cohort may prevent local evaluation',
-                                            description:
-                                                'Cohorts using behavioral filters (events, sequences) cannot be evaluated locally. Only cohorts with person/group property filters support local evaluation.',
-                                            docUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
-                                        })
+                                        hasNonStaticCohort = true
                                     }
                                 }
 
                                 if (isPropertyFilterWithOperator(property) && property.operator === 'is_not_set') {
-                                    warnings.push({
-                                        type: 'is_not_set',
-                                        severity: 'warning',
-                                        title: '"is not set" operator not supported for local evaluation',
-                                        description:
-                                            'The "is not set" operator requires knowledge of all person properties, which may not be available during local evaluation. Consider using explicit property values instead.',
-                                        docUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
-                                    })
+                                    isNotSetKeys.push(property.key)
                                 }
 
                                 if (isPropertyFilterWithOperator(property) && property.operator === 'regex') {
@@ -154,40 +137,80 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                                         REGEX_LOOKBEHIND.test(pattern) ||
                                         REGEX_BACKREFERENCE.test(pattern)
                                     ) {
-                                        warnings.push({
-                                            type: 'regex_unsupported',
-                                            severity: 'warning',
-                                            title: 'Regex feature not supported for local evaluation',
-                                            description:
-                                                'Lookaheads, lookbehinds, and backreferences are not supported by all SDK regex engines. Use simpler regex patterns for reliable local evaluation.',
-                                            docUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
-                                        })
+                                        unsupportedRegexKeys.push(property.key)
                                     }
                                 }
                             })
+
+                            if (hasStaticCohort) {
+                                warnings.push({
+                                    type: 'static_cohort',
+                                    severity: 'warning',
+                                    title: 'Static cohort not supported for local evaluation',
+                                    description:
+                                        'Static cohorts cannot be evaluated locally because the full membership list is not sent to SDKs. Use a dynamic cohort with property filters instead.',
+                                    docUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
+                                })
+                            }
+
+                            if (hasNonStaticCohort) {
+                                warnings.push({
+                                    type: 'non_static_cohort',
+                                    severity: 'warning',
+                                    title: 'Behavioral cohort may prevent local evaluation',
+                                    description:
+                                        'Cohorts using behavioral filters (events, sequences) cannot be evaluated locally. Only cohorts with person/group property filters support local evaluation.',
+                                    docUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
+                                })
+                            }
+
+                            if (isNotSetKeys.length > 0) {
+                                warnings.push({
+                                    type: 'is_not_set',
+                                    severity: 'warning',
+                                    title: '"is not set" operator not supported for local evaluation',
+                                    description:
+                                        'The "is not set" operator requires knowledge of all person properties, which may not be available during local evaluation. Consider using explicit property values instead.',
+                                    docUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
+                                })
+                            }
+
+                            if (unsupportedRegexKeys.length > 0) {
+                                warnings.push({
+                                    type: 'regex_unsupported',
+                                    severity: 'warning',
+                                    title: 'Regex feature not supported for local evaluation',
+                                    description:
+                                        'Lookaheads, lookbehinds, and backreferences are not supported by all SDK regex engines. Use simpler regex patterns for reliable local evaluation.',
+                                    docUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
+                                })
+                            }
                         }
 
                         if (flagIntent === 'first-page-load') {
+                            const flickerIssues: string[] = []
+
                             properties.forEach((property: AnyPropertyFilter) => {
                                 if (property.type === PropertyFilterType.Cohort) {
-                                    warnings.push({
-                                        type: 'cohort_filter',
-                                        severity: 'info',
-                                        title: 'Cohort filter can cause flicker',
-                                        description:
-                                            'Cohort membership is resolved server-side, so the flag may briefly evaluate to false before the correct value loads. Use bootstrapping to provide the flag value immediately and prevent flicker.',
-                                        docUrl: 'https://posthog.com/docs/feature-flags/bootstrapping',
-                                    })
+                                    flickerIssues.push('Cohort filters are resolved server-side')
                                 } else if (property.key && !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key)) {
-                                    warnings.push({
-                                        type: 'non_instant_property',
-                                        severity: 'info',
-                                        title: 'This property can cause flicker',
-                                        description: `The property "${property.key}" isn't available in the browser until after the first network request. Until then, the flag evaluates to false, which can cause content to flicker. Use bootstrapping to provide the correct value immediately.`,
-                                        docUrl: 'https://posthog.com/docs/feature-flags/bootstrapping',
-                                    })
+                                    flickerIssues.push(
+                                        `"${property.key}" isn't available until after the first network request`
+                                    )
                                 }
                             })
+
+                            if (flickerIssues.length > 0) {
+                                warnings.push({
+                                    type: 'flicker_risk',
+                                    severity: 'info',
+                                    title: 'These conditions can cause flicker',
+                                    description:
+                                        flickerIssues.join('. ') +
+                                        '. Until the data loads, the flag evaluates to false, which can cause content to flicker. Use bootstrapping to provide the correct flag value immediately.',
+                                    docUrl: 'https://posthog.com/docs/feature-flags/bootstrapping',
+                                })
+                            }
                         }
                     }
 
