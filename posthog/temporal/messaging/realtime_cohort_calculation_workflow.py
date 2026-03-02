@@ -351,12 +351,6 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 await update_cohort_duration()
 
                 logger.info(
-                    f"Stored cohort processing duration for cohort {cohort.pk}",
-                    cohort_id=cohort.pk,
-                    duration_ms=duration_ms,
-                )
-
-                logger.info(
                     f"Cohort {cohort.pk} processing completed",
                     cohort_id=cohort.pk,
                     duration_ms=duration_ms,

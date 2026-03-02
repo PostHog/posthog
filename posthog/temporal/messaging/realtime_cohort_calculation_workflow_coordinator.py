@@ -77,6 +77,55 @@ class QueryPercentileThresholds:
 
 
 @dataclasses.dataclass
+class CachedQuantiles:
+    """Cached quantiles array for deriving specific percentile thresholds."""
+
+    quantiles: list[int]  # Duration quantiles in milliseconds (p1 to p99)
+    max_value: int  # Actual maximum value for p100 handling
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for caching."""
+        return {
+            "quantiles": self.quantiles,
+            "max_value": self.max_value,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CachedQuantiles":
+        """Create from dictionary for caching."""
+        return cls(
+            quantiles=data["quantiles"],
+            max_value=data["max_value"],
+        )
+
+    def get_thresholds(
+        self, min_percentile: Optional[float], max_percentile: Optional[float]
+    ) -> QueryPercentileThresholds:
+        """Derive specific percentile thresholds from cached quantiles."""
+        # Special handling for p0: use 0 instead of calculating from data
+        if min_percentile is None or min_percentile <= 0.0:
+            min_threshold = 0
+        else:
+            # For p1-p99: use quantiles array (1-based percentile maps to 0-based index)
+            min_index = max(0, min(int(min_percentile) - 1, len(self.quantiles) - 1))
+            min_threshold = self.quantiles[min_index]
+
+        # Calculate max threshold - fix p100 handling
+        if max_percentile is None or max_percentile >= 100.0:
+            # p100 case - use actual maximum from data, not p99
+            max_threshold = self.max_value
+        else:
+            # For p1-p99: use quantiles array (1-based percentile maps to 0-based index)
+            max_index = max(0, min(int(max_percentile) - 1, len(self.quantiles) - 1))
+            max_threshold = self.quantiles[max_index]
+
+        return QueryPercentileThresholds(
+            min_threshold_ms=min_threshold,
+            max_threshold_ms=max_threshold,
+        )
+
+
+@dataclasses.dataclass
 class CohortSelectionActivityInput:
     """Combined input for get_realtime_cohort_selection_activity."""
 
@@ -184,36 +233,37 @@ class RealtimeCohortSelectionResult:
     cohort_ids: list[int]
 
 
-def get_percentile_cache_key() -> str:
-    """Generate cache key for percentile thresholds (daily key to allow fresh calculations)."""
+def get_quantiles_cache_key() -> str:
+    """Generate cache key for quantiles array (daily key to allow fresh calculations)."""
     today = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d")
-    return f"cohort_percentile_thresholds:{today}"
+    return f"cohort_quantiles:{today}"
 
 
-def get_percentile_lock_key() -> str:
-    """Generate cache key for percentile calculation lock."""
-    return f"{get_percentile_cache_key()}:lock"
+def get_quantiles_lock_key() -> str:
+    """Generate cache key for quantiles calculation lock."""
+    return f"{get_quantiles_cache_key()}:lock"
 
 
 async def get_cached_percentile_thresholds(
     inputs: QueryPercentileThresholdsInput,
 ) -> QueryPercentileThresholds | None:
-    """Get percentile thresholds from cache, calculating if needed.
+    """Get percentile thresholds from cached quantiles, calculating quantiles if needed.
 
-    This ensures all schedules use consistent thresholds to avoid overlap/gaps.
-    Uses a distributed lock pattern to prevent multiple calculations.
+    This ensures all schedules use consistent quantiles to derive their specific thresholds,
+    avoiding overlap/gaps between percentile ranges. Uses a distributed lock pattern.
     """
-    cache_key = get_percentile_cache_key()
-    lock_key = get_percentile_lock_key()
+    cache_key = get_quantiles_cache_key()
+    lock_key = get_quantiles_lock_key()
 
-    # Try to get from cache first
+    # Try to get quantiles from cache first
     try:
         cached_data = cache.get(cache_key)
         if cached_data:
-            LOGGER.info(f"Using cached percentile thresholds from {cache_key}")
-            return QueryPercentileThresholds.from_dict(json.loads(cached_data))
+            LOGGER.info(f"Using cached quantiles from {cache_key}")
+            quantiles = CachedQuantiles.from_dict(json.loads(cached_data))
+            return quantiles.get_thresholds(inputs.min_percentile, inputs.max_percentile)
     except (json.JSONDecodeError, KeyError, TypeError) as e:
-        LOGGER.warning(f"Failed to deserialize cached thresholds: {e}")
+        LOGGER.warning(f"Failed to deserialize cached quantiles: {e}")
         # Continue to calculation if cache is corrupted
     except Exception as e:
         LOGGER.warning(f"Cache unavailable, falling back to direct calculation: {e}")
@@ -223,7 +273,8 @@ async def get_cached_percentile_thresholds(
     # Cache miss - need to calculate
     # Use distributed lock to prevent multiple schedules from calculating simultaneously
     try:
-        lock_acquired = cache.set(lock_key, "calculating", nx=True, timeout=PERCENTILE_CACHE_LOCK_TTL_SECONDS)
+        # Use cache.add() which only sets if key doesn't exist (like Redis SET ... NX)
+        lock_acquired = cache.add(lock_key, "calculating", timeout=PERCENTILE_CACHE_LOCK_TTL_SECONDS)
     except Exception as e:
         LOGGER.warning(f"Cache locking unavailable, calculating directly: {e}")
         # Cache service is down - calculate directly without locking
@@ -231,17 +282,21 @@ async def get_cached_percentile_thresholds(
 
     if lock_acquired:
         try:
-            LOGGER.info(f"Calculating fresh percentile thresholds (lock acquired)")
-            # Calculate new thresholds
-            thresholds = await calculate_percentile_thresholds(inputs)
-            if thresholds:
-                # Store in cache for other schedules to use
-                try:
-                    cache.set(cache_key, json.dumps(thresholds.to_dict()), timeout=PERCENTILE_CACHE_TTL_SECONDS)
-                    LOGGER.info(f"Cached fresh percentile thresholds for {PERCENTILE_CACHE_TTL_SECONDS}s")
-                except Exception as e:
-                    LOGGER.warning(f"Failed to cache thresholds, continuing anyway: {e}")
-            return thresholds
+            LOGGER.info(f"Calculating fresh quantiles (lock acquired)")
+            # Calculate new quantiles
+            calculated_quantiles = await calculate_quantiles()
+            if calculated_quantiles is None:
+                # No quantiles available - fall back to direct calculation
+                return await calculate_percentile_thresholds(inputs)
+
+            # Store quantiles in cache for other schedules to use
+            try:
+                cache.set(cache_key, json.dumps(calculated_quantiles.to_dict()), timeout=PERCENTILE_CACHE_TTL_SECONDS)
+                LOGGER.info(f"Cached fresh quantiles for {PERCENTILE_CACHE_TTL_SECONDS}s")
+            except Exception as e:
+                LOGGER.warning(f"Failed to cache quantiles, continuing anyway: {e}")
+            # Derive specific thresholds for this request
+            return calculated_quantiles.get_thresholds(inputs.min_percentile, inputs.max_percentile)
         finally:
             # Always release the lock (ignore failures)
             try:
@@ -250,7 +305,7 @@ async def get_cached_percentile_thresholds(
                 LOGGER.warning(f"Failed to release cache lock (continuing): {e}")
     else:
         # Another schedule is calculating, wait briefly and retry cache
-        LOGGER.info("Another schedule is calculating thresholds, waiting...")
+        LOGGER.info("Another schedule is calculating quantiles, waiting...")
         await asyncio.sleep(2)  # Brief wait to avoid thundering herd
 
         # Try cache one more time
@@ -258,7 +313,8 @@ async def get_cached_percentile_thresholds(
             cached_data = cache.get(cache_key)
             if cached_data:
                 try:
-                    return QueryPercentileThresholds.from_dict(json.loads(cached_data))
+                    quantiles = CachedQuantiles.from_dict(json.loads(cached_data))
+                    return quantiles.get_thresholds(inputs.min_percentile, inputs.max_percentile)
                 except (json.JSONDecodeError, KeyError, TypeError):
                     pass
         except Exception as e:
@@ -267,6 +323,46 @@ async def get_cached_percentile_thresholds(
         # If still no cache after waiting, fall back to direct calculation
         LOGGER.info("Cache still empty after waiting, calculating directly")
         return await calculate_percentile_thresholds(inputs)
+
+
+async def calculate_quantiles() -> CachedQuantiles | None:
+    """Calculate quantiles array from database for caching."""
+
+    @database_sync_to_async
+    def get_quantiles():
+        # Calculate quantiles directly from cohort last_calculation_duration_ms field
+
+        # Get cohorts with recent duration data (past 24 hours)
+        recent_cohorts = Cohort.objects.filter(
+            last_calculation__gte=timezone.now() - dt.timedelta(hours=24),
+            last_calculation_duration_ms__isnull=False,
+            last_calculation_duration_ms__gt=0,
+            deleted=False,
+        ).values_list("last_calculation_duration_ms", flat=True)
+
+        if not recent_cohorts:
+            return None
+
+        # Calculate percentiles using Python statistics module
+        import statistics
+
+        durations_list = list(recent_cohorts)
+
+        if len(durations_list) < 2:
+            return None
+
+        # Convert percentiles to quantiles (keep in milliseconds)
+        try:
+            quantiles = statistics.quantiles(durations_list, n=100, method="inclusive")
+            # Return quantiles as integers and store the maximum for p100 handling
+            return CachedQuantiles(
+                quantiles=[int(q) for q in quantiles],
+                max_value=int(max(durations_list)),  # Store actual maximum for p100
+            )
+        except statistics.StatisticsError:
+            return None
+
+    return await get_quantiles()
 
 
 async def calculate_percentile_thresholds(
@@ -282,7 +378,6 @@ async def calculate_percentile_thresholds(
 
         # Calculate percentiles directly from cohort last_calculation_duration_ms field
         # This uses the same metric that we store during cohort calculation (Python timing)
-        from posthog.models.cohort.cohort import Cohort
 
         # Get cohorts with recent duration data (past 24 hours)
         # NOTE: This queries ALL teams, not just the teams we're about to process.
