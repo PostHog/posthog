@@ -17,6 +17,7 @@ import type {
     OAuthCallbackRequestApi,
     OAuthRedirectResponseApi,
     PaginatedMCPServerInstallationListApi,
+    PaginatedRecommendedServerListApi,
     PatchedMCPServerInstallationUpdateApi,
 } from './api.schemas'
 
@@ -255,8 +256,8 @@ export const mcpServersList = async (
     projectId: string,
     params?: McpServersListParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getMcpServersListUrl(projectId, params), {
+): Promise<PaginatedRecommendedServerListApi> => {
+    return apiMutator<PaginatedRecommendedServerListApi>(getMcpServersListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

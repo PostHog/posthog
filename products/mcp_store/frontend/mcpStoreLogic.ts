@@ -8,30 +8,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
 
+import type {
+    RecommendedServerApi as MCPServerInstallation,
+    MCPServerInstallationApi as RecommendedServer,
+} from './generated/api.schemas'
 import type { mcpStoreLogicType } from './mcpStoreLogicType'
-
-export interface RecommendedServer {
-    name: string
-    url: string
-    description: string
-    icon_url: string
-    auth_type: 'api_key' | 'oauth'
-    oauth_provider_kind?: string
-}
-
-export interface MCPServerInstallation {
-    id: string
-    server_id: string | null
-    name: string
-    display_name: string
-    url: string
-    description: string
-    auth_type: 'api_key' | 'oauth'
-    needs_reauth: boolean
-    pending_oauth: boolean
-    created_at: string
-    updated_at: string
-}
 
 export interface CustomServerFormValues {
     name: string
@@ -181,7 +162,8 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         ],
         installedServerUrls: [
             (s) => [s.installations],
-            (installations: MCPServerInstallation[]): Set<string> => new Set(installations.map((i) => i.url)),
+            (installations: MCPServerInstallation[]): Set<string> =>
+                new Set(installations.map((i) => i.url).filter((url): url is string => !!url)),
         ],
         recommendedServers: [(s) => [s.servers], (servers: RecommendedServer[]): RecommendedServer[] => servers],
     }),

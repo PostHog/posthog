@@ -85,6 +85,38 @@ export interface OAuthCallbackRequestApi {
     state_token: string
 }
 
+/**
+ * * `none` - none
+ * `api_key` - api_key
+ * `oauth` - oauth
+ */
+export type RecommendedServerAuthTypeEnumApi =
+    (typeof RecommendedServerAuthTypeEnumApi)[keyof typeof RecommendedServerAuthTypeEnumApi]
+
+export const RecommendedServerAuthTypeEnumApi = {
+    None: 'none',
+    ApiKey: 'api_key',
+    Oauth: 'oauth',
+} as const
+
+export interface RecommendedServerApi {
+    name: string
+    url: string
+    description: string
+    icon_url: string
+    auth_type: RecommendedServerAuthTypeEnumApi
+    oauth_provider_kind?: string
+}
+
+export interface PaginatedRecommendedServerListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: RecommendedServerApi[]
+}
+
 export type McpServerInstallationsListParams = {
     /**
      * Number of results to return per page.

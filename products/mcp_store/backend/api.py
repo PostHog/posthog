@@ -57,14 +57,27 @@ def _is_https(url: str) -> bool:
     return urlparse(url).scheme == "https"
 
 
+class RecommendedServerSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    url = serializers.URLField()
+    description = serializers.CharField()
+    icon_url = serializers.CharField()
+    auth_type = serializers.ChoiceField(choices=["none", "api_key", "oauth"])
+    oauth_provider_kind = serializers.CharField(required=False, default="")
+
+
 @extend_schema(tags=["mcp_store"])
 class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     scope_object = "project"
-    serializer_class = serializers.Serializer
+    serializer_class = RecommendedServerSerializer
     permission_classes = [IsAuthenticated]
 
+    @validated_request(
+        responses={200: OpenApiResponse(response=RecommendedServerSerializer(many=True))},
+    )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return Response({"results": RECOMMENDED_SERVERS})
+        serializer = RecommendedServerSerializer(RECOMMENDED_SERVERS, many=True)
+        return Response({"results": serializer.data})
 
 
 class MCPServerInstallationSerializer(serializers.ModelSerializer):
@@ -154,6 +167,7 @@ class OAuthRedirectResponseSerializer(serializers.Serializer):
     redirect_url = serializers.URLField()
 
 
+@extend_schema(tags=["mcp_store"])
 class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     scope_object_read_actions = ["list", "retrieve", "authorize"]

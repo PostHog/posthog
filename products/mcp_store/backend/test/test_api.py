@@ -22,6 +22,12 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "Notion" in names
         assert "GitHub" in names
 
+    def test_list_servers_entries_match_serializer_schema(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
+        expected_keys = {"name", "url", "description", "icon_url", "auth_type", "oauth_provider_kind"}
+        for entry in response.json()["results"]:
+            assert set(entry.keys()) == expected_keys
+
     def test_create_not_allowed(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_servers/",

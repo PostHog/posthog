@@ -15,7 +15,11 @@ import IconLinearService from 'public/services/linear.svg'
 import IconNotionService from 'public/services/notion.svg'
 
 import { AddCustomServerModal } from './AddCustomServerModal'
-import { MCPServerInstallation, RecommendedServer, mcpStoreLogic } from './mcpStoreLogic'
+import type {
+    MCPServerInstallationApi as MCPServerInstallation,
+    RecommendedServerApi as RecommendedServer,
+} from './generated/api.schemas'
+import { mcpStoreLogic } from './mcpStoreLogic'
 
 const SERVER_ICONS: Record<string, string> = {
     'PostHog MCP': IconPostHogService,
@@ -121,8 +125,8 @@ export function McpStoreSettings(): JSX.Element {
                                 {installation.pending_oauth ? (
                                     <ConnectOAuthButton
                                         name={installation.display_name || installation.name}
-                                        url={installation.url}
-                                        description={installation.description}
+                                        url={installation.url ?? ''}
+                                        description={installation.description ?? ''}
                                     />
                                 ) : installation.needs_reauth && installation.server_id ? (
                                     <LemonButton
