@@ -35,14 +35,12 @@ export class GroupsManagerServiceV2 {
         this.groupTypesLoader = new LazyLoader({
             name: 'groups_manager_types',
             refreshAgeMs: 10 * 60 * 1000, // 10 minutes - group types rarely change
-            bufferMs: 0,
             loader: async (teamIds) => this.fetchGroupTypes(teamIds),
         })
 
         this.groupPropertiesLoader = new LazyLoader({
             name: 'groups_manager_properties',
             refreshAgeMs: 60 * 1000, // 1 minute
-            bufferMs: 0,
             loader: async (keys) => this.fetchGroupPropertiesBatch(keys),
         })
     }
