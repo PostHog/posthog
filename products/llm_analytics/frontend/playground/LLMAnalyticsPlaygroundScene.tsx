@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import React, { useState } from 'react'
+import React from 'react'
 
 import {
     IconChevronRight,
@@ -18,7 +18,6 @@ import {
     LemonDropdown,
     LemonInput,
     LemonModal,
-    LemonSearchableSelect,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
@@ -28,24 +27,56 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
-import { ByokModelPicker } from './ByokModelPicker'
-import { JSONEditor } from './components/JSONEditor'
-import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
+
+import { JSONEditor } from '../components/JSONEditor'
+import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
+import { getModelPickerFooterLink, ModelPicker, parseTrialProviderKeyId } from '../ModelPicker'
+import { modelPickerLogic } from '../modelPickerLogic'
+import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
-    ComparisonItem,
-    Message,
-    MessageRole,
-    PromptConfig,
-    llmAnalyticsPlaygroundLogic,
-} from './llmAnalyticsPlaygroundLogic'
+    llmPlaygroundPromptsLogic,
+    type Message,
+    type MessageRole,
+    type PromptConfig,
+} from './llmPlaygroundPromptsLogic'
+import { llmPlaygroundRunLogic, type ComparisonItem } from './llmPlaygroundRunLogic'
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460
+const EXAMPLE_TOOL = [
+    {
+        type: 'function',
+        function: {
+            name: 'get_weather',
+            description: 'Get the current weather for a location',
+            parameters: {
+                type: 'object',
+                properties: {
+                    location: {
+                        type: 'string',
+                        description: 'City and state, e.g. San Francisco, CA',
+                    },
+                    unit: {
+                        type: 'string',
+                        enum: ['celsius', 'fahrenheit'],
+                    },
+                },
+                required: ['location'],
+            },
+        },
+    },
+]
 
 function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element {
     return (
@@ -60,27 +91,75 @@ function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element 
 
 export const scene: SceneExport = {
     component: LLMAnalyticsPlaygroundScene,
-    logic: llmAnalyticsPlaygroundLogic,
+    logic: llmPlaygroundRunLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
 }
 
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
-    useMountedLogic(llmAnalyticsPlaygroundLogic)
+    useMountedLogic(llmPlaygroundRunLogic)
 
-    // 300px accounts for the top nav bar, scene title section, tab bar, and surrounding padding
     return (
-        <div className="flex flex-col h-[calc(100vh-300px)] min-h-[520px]">
-            <PlaygroundLayout />
-        </div>
+        <SceneContent className="h-full">
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.LLMAnalyticsPlayground].name}
+                description="Test and experiment with LLM prompts in a sandbox environment."
+                resourceType={{ type: sceneConfigurations[Scene.LLMAnalyticsPlayground].iconType || 'llm_analytics' }}
+                actions={<PlaygroundHeaderActions />}
+            />
+            <div className="flex h-full flex-1 flex-col min-h-0">
+                <PlaygroundLayout />
+            </div>
+        </SceneContent>
+    )
+}
+
+function PlaygroundHeaderActions(): JSX.Element {
+    const { hasRunnablePrompts, activePromptId } = useValues(llmPlaygroundPromptsLogic)
+    const { addPromptConfig } = useActions(llmPlaygroundPromptsLogic)
+    const { submitting: playgroundSubmitting } = useValues(llmPlaygroundRunLogic)
+    const { submitPrompt } = useActions(llmPlaygroundRunLogic)
+
+    return (
+        <>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                onClick={() => addPromptConfig(activePromptId ?? undefined)}
+                disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                data-attr="playground-add-prompt"
+            >
+                Add prompt
+            </LemonButton>
+            <LemonButton
+                type="primary"
+                size="small"
+                icon={<IconPlay />}
+                onClick={() => submitPrompt()}
+                loading={playgroundSubmitting}
+                disabledReason={
+                    playgroundSubmitting
+                        ? 'Generating...'
+                        : !hasRunnablePrompts
+                          ? 'Add messages to at least one prompt'
+                          : undefined
+                }
+                data-attr="playground-run"
+            >
+                Run
+            </LemonButton>
+        </>
     )
 }
 
 function usePromptConfig(promptId: string): PromptConfig | null {
-    const { promptConfigs } = useValues(llmAnalyticsPlaygroundLogic)
+    const { promptConfigs } = useValues(llmPlaygroundPromptsLogic)
     return promptConfigs.find((prompt) => prompt.id === promptId) ?? null
 }
 
 function RateLimitBanner(): JSX.Element | null {
-    const { rateLimitedUntil } = useValues(llmAnalyticsPlaygroundLogic)
+    const { rateLimitedUntil } = useValues(llmPlaygroundRunLogic)
+    const { hasByokKeys } = useValues(modelPickerLogic)
 
     if (rateLimitedUntil === null || Date.now() >= rateLimitedUntil) {
         return null
@@ -91,12 +170,21 @@ function RateLimitBanner(): JSX.Element | null {
             You've hit the playground request limit for shared keys. You can make another request in{' '}
             <strong>{humanFriendlyDuration(Math.ceil((rateLimitedUntil - Date.now()) / 1000), { maxUnits: 1 })}</strong>
             .
+            {!hasByokKeys && (
+                <>
+                    {' '}
+                    <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
+                        Add your own API key
+                    </Link>{' '}
+                    to get higher rate limits.
+                </>
+            )}
         </LemonBanner>
     )
 }
 
 function SubscriptionRequiredBanner(): JSX.Element | null {
-    const { subscriptionRequired } = useValues(llmAnalyticsPlaygroundLogic)
+    const { subscriptionRequired } = useValues(llmPlaygroundRunLogic)
 
     if (!subscriptionRequired) {
         return null
@@ -129,8 +217,9 @@ function PlaygroundLayout(): JSX.Element {
 }
 
 function PromptConfigsSection(): JSX.Element {
-    const { promptConfigs, activePromptId, comparisonItems } = useValues(llmAnalyticsPlaygroundLogic)
-    const { removePromptConfig, setActivePromptId } = useActions(llmAnalyticsPlaygroundLogic)
+    const { promptConfigs, activePromptId } = useValues(llmPlaygroundPromptsLogic)
+    const { removePromptConfig, setActivePromptId } = useActions(llmPlaygroundPromptsLogic)
+    const { comparisonItems } = useValues(llmPlaygroundRunLogic)
 
     const promptCount = promptConfigs.length
     const gridMinWidth = `calc(${promptCount} * 500px + ${Math.max(promptCount - 1, 0)} * 1rem)`
@@ -189,7 +278,7 @@ function PromptCard({
     onActivate: () => void
     onRemove: () => void
 }): JSX.Element {
-    const { submitting } = useValues(llmAnalyticsPlaygroundLogic)
+    const { submitting } = useValues(llmPlaygroundRunLogic)
 
     return (
         <div
@@ -234,7 +323,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     const isStreaming = !!item && item.latencyMs == null && !item.error
 
     return (
-        <div className="border rounded p-4 bg-transparent h-[300px] min-w-0 flex flex-col">
+        <div className="mb-4 border rounded p-4 bg-transparent h-[30vh] min-w-0 flex flex-col">
             <div className="flex items-center justify-between gap-2 mb-3">
                 <LemonTag type="default" size="small">
                     Result
@@ -255,7 +344,9 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                         style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
                     >
                         {item.response ? (
-                            <div className="whitespace-pre-wrap break-words">{item.response}</div>
+                            <LemonMarkdown className="whitespace-pre-wrap break-words [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded [&_img]:my-2">
+                                {item.response}
+                            </LemonMarkdown>
                         ) : isStreaming ? (
                             <div className="h-full flex items-center justify-center text-xs text-muted">
                                 <div className="inline-flex items-center gap-2">
@@ -273,6 +364,8 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                             isError={item.error}
                             inputTokens={item.usage?.prompt_tokens ?? undefined}
                             outputTokens={item.usage?.completion_tokens ?? undefined}
+                            cacheReadTokens={item.usage?.cache_read_tokens ?? undefined}
+                            cacheWriteTokens={item.usage?.cache_write_tokens ?? undefined}
                             latency={typeof item.latencyMs === 'number' ? item.latencyMs / 1000 : undefined}
                             timeToFirstToken={typeof item.ttftMs === 'number' ? item.ttftMs / 1000 : undefined}
                             isStreaming={isStreaming}
@@ -284,7 +377,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     )
 }
 
-function getModelOptionsErrorMessage(errorStatus: number | null): string | null {
+function getTrialModelsErrorMessage(errorStatus: number | null): string | null {
     if (errorStatus === null) {
         return null
     }
@@ -294,71 +387,52 @@ function getModelOptionsErrorMessage(errorStatus: number | null): string | null 
     return 'Failed to load models. Please refresh the page or try again later.'
 }
 
-function ModelPicker({ promptId }: { promptId: string }): JSX.Element {
+function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
+    const { effectiveModelOptions, trialModelsErrorStatus } = useValues(llmPlaygroundModelLogic)
     const {
-        effectiveModelOptions,
         hasByokKeys,
-        modelOptions,
-        modelOptionsLoading,
-        modelOptionsErrorStatus,
-        groupedModelOptions,
-    } = useValues(llmAnalyticsPlaygroundLogic)
-    const { setModel, loadModelOptions } = useActions(llmAnalyticsPlaygroundLogic)
+        providerModelGroups,
+        trialProviderModelGroups,
+        byokModelsLoading,
+        trialModelsLoading,
+        providerKeysLoading,
+    } = useValues(modelPickerLogic)
+    const { loadTrialModels } = useActions(modelPickerLogic)
+    const { setModel } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-10" />
     }
 
-    if (hasByokKeys) {
-        const options = Array.isArray(effectiveModelOptions) ? effectiveModelOptions : []
-        const selectedModel = options.find((m) => m.id === prompt.model)
-
-        return (
-            <ByokModelPicker
-                model={prompt.model}
-                selectedProviderKeyId={prompt.selectedProviderKeyId}
-                onSelect={(modelId, providerKeyId) => setModel(modelId, providerKeyId, promptId)}
-                selectedModelName={selectedModel?.name}
-                data-attr={`playground-model-selector-${promptId}`}
-            />
-        )
-    }
-
-    const options = Array.isArray(modelOptions) ? modelOptions : []
-    const errorMessage = getModelOptionsErrorMessage(modelOptionsErrorStatus)
+    const selectedModel = effectiveModelOptions.find((m) => m.id === prompt.model)
+    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
+    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
+    const errorMessage = !hasByokKeys ? getTrialModelsErrorMessage(trialModelsErrorStatus) : null
+    const showError = !hasByokKeys && effectiveModelOptions.length === 0 && !trialModelsLoading
 
     return (
         <>
-            {modelOptionsLoading && !options.length ? (
-                <LemonSkeleton className="h-10" />
-            ) : (
-                <LemonSearchableSelect
-                    className="w-full"
-                    placeholder="Select model"
-                    value={prompt.model}
-                    onChange={(value) => value && setModel(value, undefined, promptId)}
-                    options={groupedModelOptions}
-                    searchPlaceholder="Search models..."
-                    searchKeys={['label', 'value', 'tooltip']}
-                    loading={modelOptionsLoading}
-                    disabledReason={
-                        modelOptionsLoading
-                            ? 'Loading models...'
-                            : options.length === 0
-                              ? 'No models available'
-                              : undefined
-                    }
-                    data-attr={`playground-model-selector-${promptId}`}
-                />
-            )}
-            {options.length === 0 && !modelOptionsLoading && (
+            <ModelPicker
+                model={prompt.model}
+                selectedProviderKeyId={prompt.selectedProviderKeyId}
+                onSelect={(modelId, providerKeyId) => {
+                    const trialProvider = parseTrialProviderKeyId(providerKeyId)
+                    setModel(modelId, trialProvider ? undefined : providerKeyId, promptId)
+                }}
+                groups={groups}
+                loading={loading}
+                footerLink={getModelPickerFooterLink(hasByokKeys)}
+                selectedModelName={selectedModel?.name}
+                data-attr={`playground-model-selector-${promptId}`}
+            />
+            {showError && (
                 <div className="mt-1">
                     <p className="text-xs text-danger">{errorMessage || 'No models available.'}</p>
                     <button
                         type="button"
                         className="text-xs text-link mt-1 underline"
-                        onClick={() => loadModelOptions()}
+                        onClick={() => loadTrialModels()}
                     >
                         Retry
                     </button>
@@ -370,7 +444,7 @@ function ModelPicker({ promptId }: { promptId: string }): JSX.Element {
 
 function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { setMaxTokens, setThinking, setReasoningLevel } = useActions(llmAnalyticsPlaygroundLogic)
+    const { setMaxTokens, setThinking, setReasoningLevel } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <div className="p-3 text-xs text-muted">Prompt not found</div>
@@ -435,7 +509,7 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-3">
             <div className="flex-1 min-w-[260px] max-w-lg">
-                <ModelPicker promptId={promptId} />
+                <PlaygroundModelPicker promptId={promptId} />
             </div>
 
             <LemonDropdown
@@ -459,8 +533,8 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
 
 function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { submitting } = useValues(llmAnalyticsPlaygroundLogic)
-    const { addMessage } = useActions(llmAnalyticsPlaygroundLogic)
+    const { submitting } = useValues(llmPlaygroundRunLogic)
+    const { addMessage } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-16" />
@@ -490,15 +564,16 @@ function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
 
 function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { submitting, localToolsJsonByPromptId } = useValues(llmAnalyticsPlaygroundLogic)
-    const { setTools, setLocalToolsJson } = useActions(llmAnalyticsPlaygroundLogic)
-    const [showEditModal, setShowEditModal] = useState(false)
-    const [jsonError, setJsonError] = useState<string | null>(null)
+    const { submitting } = useValues(llmPlaygroundRunLogic)
+    const { editModal, localToolsJsonByPromptId, toolsJsonErrorByPromptId } = useValues(llmPlaygroundPromptsLogic)
+    const { setTools, setLocalToolsJson, setEditModal, setToolsJsonError } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-7 w-20" />
     }
 
+    const showEditModal = editModal?.type === 'tools' && editModal.promptId === promptId
+    const jsonError = toolsJsonErrorByPromptId[promptId] ?? null
     const localToolsJson = localToolsJsonByPromptId[promptId] ?? null
     const toolsJsonString = localToolsJson ?? JSON.stringify(prompt.tools ?? [], null, 2)
     const toolCount = Array.isArray(prompt.tools) ? prompt.tools.length : 0
@@ -512,9 +587,9 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
         try {
             const parsedTools = JSON.parse(value)
             setTools(parsedTools, promptId)
-            setJsonError(null)
+            setToolsJsonError(promptId, null)
         } catch (e) {
-            setJsonError(e instanceof SyntaxError ? e.message : 'Invalid JSON')
+            setToolsJsonError(promptId, e instanceof SyntaxError ? e.message : 'Invalid JSON')
         }
     }
 
@@ -525,7 +600,7 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                 size="small"
                 icon={<IconWrench />}
                 active={hasTools}
-                onClick={() => setShowEditModal(true)}
+                onClick={() => setEditModal({ type: 'tools', promptId })}
                 disabledReason={submitting ? 'Generating...' : undefined}
                 tooltip={hasTools ? `${toolCount} tool${toolCount === 1 ? '' : 's'} attached` : 'No tools attached'}
             >
@@ -534,10 +609,11 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
 
             <LemonModal
                 isOpen={showEditModal}
-                onClose={() => setShowEditModal(false)}
-                title="Edit tools"
+                onClose={() => setEditModal(null)}
+                title="Tools"
+                description="Define functions the model can call during generation. Tools use the OpenAI function calling format."
                 width="90vw"
-                maxWidth="1200px"
+                maxWidth={640}
                 footer={
                     <div className="flex justify-end gap-2">
                         <LemonButton
@@ -551,14 +627,29 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                         >
                             Clear tools
                         </LemonButton>
-                        <LemonButton type="secondary" onClick={() => setShowEditModal(false)}>
+                        <LemonButton type="secondary" onClick={() => setEditModal(null)}>
                             Close
                         </LemonButton>
                     </div>
                 }
             >
                 <div className="space-y-2">
-                    <label className="font-semibold block text-sm">Tools (JSON)</label>
+                    <div className="flex items-center justify-between">
+                        <label className="font-semibold block text-sm">Tools (JSON)</label>
+                        {!hasTools && (
+                            <button
+                                type="button"
+                                className="text-xs text-link"
+                                onClick={() => {
+                                    const exampleJson = JSON.stringify(EXAMPLE_TOOL, null, 2)
+                                    handleToolsChange(exampleJson)
+                                    setLocalToolsJson(exampleJson, promptId)
+                                }}
+                            >
+                                Insert example
+                            </button>
+                        )}
+                    </div>
                     <CodeEditorResizeable
                         className="border rounded"
                         language="json"
@@ -587,9 +678,24 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                             contextmenu: false,
                         }}
                     />
-                    <div className={`text-xs ${jsonError ? 'text-danger' : 'text-muted'}`}>
-                        {jsonError ?? 'Paste or edit valid JSON tool definitions.'}
-                    </div>
+                    {jsonError ? (
+                        <div className="text-xs text-danger">{jsonError}</div>
+                    ) : (
+                        <div className="text-xs text-muted">
+                            A JSON array of tool definitions following the{' '}
+                            <Link
+                                to="https://developers.openai.com/api/docs/guides/function-calling"
+                                target="_blank"
+                                className="text-xs"
+                            >
+                                OpenAI function calling format
+                            </Link>
+                            . Each tool needs a <code className="text-xs">type</code>,{' '}
+                            <code className="text-xs">function.name</code>,{' '}
+                            <code className="text-xs">function.description</code>, and{' '}
+                            <code className="text-xs">function.parameters</code>.
+                        </div>
+                    )}
                 </div>
             </LemonModal>
         </>
@@ -598,15 +704,16 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
 
 function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { promptConfigs } = useValues(llmAnalyticsPlaygroundLogic)
-    const { setSystemPrompt, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
-    const [showEditModal, setShowEditModal] = useState(false)
-    const [collapsed, setCollapsed] = useState(false)
+    const { promptConfigs, editModal, collapsedSections } = useValues(llmPlaygroundPromptsLogic)
+    const { setSystemPrompt, setEditModal, toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
+    const { submitPrompt } = useActions(llmPlaygroundRunLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-12" />
     }
 
+    const showEditModal = editModal?.type === 'system' && editModal.promptId === promptId
+    const collapsed = !!collapsedSections[`system:${promptId}`]
     const hasOtherPrompts = promptConfigs.length > 1
     const copySystemPromptToOtherPrompts = (): void => {
         if (!hasOtherPrompts) {
@@ -647,14 +754,14 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                         icon={<IconPencil />}
                         tooltip="Edit system prompt in modal"
                         noPadding
-                        onClick={() => setShowEditModal(true)}
+                        onClick={() => setEditModal({ type: 'system', promptId })}
                         data-attr="playground-edit-system-prompt"
                     />
                 </div>
 
                 <div
                     className={`flex items-center gap-2 cursor-pointer ${collapsed ? 'mb-0' : 'mb-2'}`}
-                    onClick={() => setCollapsed(!collapsed)}
+                    onClick={() => toggleCollapsed(`system:${promptId}`)}
                 >
                     <CollapsibleChevron collapsed={collapsed} />
                     <LemonTag type="completion" size="small">
@@ -684,13 +791,13 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
 
             <LemonModal
                 isOpen={showEditModal}
-                onClose={() => setShowEditModal(false)}
+                onClose={() => setEditModal(null)}
                 title="Edit system prompt"
                 width="90vw"
                 maxWidth="1200px"
                 footer={
                     <div className="flex justify-end gap-2">
-                        <LemonButton type="secondary" onClick={() => setShowEditModal(false)}>
+                        <LemonButton type="secondary" onClick={() => setEditModal(null)}>
                             Close
                         </LemonButton>
                     </div>
@@ -722,9 +829,14 @@ function MessageDisplay({
     message: Message
     index: number
 }): JSX.Element {
-    const { updateMessage, deleteMessage, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
-    const [collapsed, setCollapsed] = useState(false)
-    const [showEditModal, setShowEditModal] = useState(false)
+    const { editModal, collapsedSections } = useValues(llmPlaygroundPromptsLogic)
+    const { updateMessage, deleteMessage, setEditModal, toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
+    const { submitPrompt } = useActions(llmPlaygroundRunLogic)
+
+    const messageKey = `message:${promptId}:${index}`
+    const collapsed = !!collapsedSections[messageKey]
+    const showEditModal =
+        editModal?.type === 'message' && editModal.promptId === promptId && editModal.messageIndex === index
 
     const handleRoleChange = (newRole: MessageRole): void => {
         updateMessage(index, { role: newRole }, promptId)
@@ -784,7 +896,7 @@ function MessageDisplay({
                         icon={<IconPencil />}
                         tooltip="Edit message in modal"
                         noPadding
-                        onClick={() => setShowEditModal(true)}
+                        onClick={() => setEditModal({ type: 'message', promptId, messageIndex: index })}
                     />
                     <LemonButton
                         size="small"
@@ -798,7 +910,7 @@ function MessageDisplay({
 
                 <div
                     className={`flex items-center gap-2 cursor-pointer ${collapsed ? 'mb-0' : 'mb-2'}`}
-                    onClick={() => setCollapsed(!collapsed)}
+                    onClick={() => toggleCollapsed(messageKey)}
                 >
                     <CollapsibleChevron collapsed={collapsed} />
                     <span className={`w-2 h-2 rounded-full shrink-0 ${getRoleDotClass(message.role)}`} />
@@ -846,13 +958,13 @@ function MessageDisplay({
 
             <LemonModal
                 isOpen={showEditModal}
-                onClose={() => setShowEditModal(false)}
+                onClose={() => setEditModal(null)}
                 title="Edit message"
                 width="90vw"
                 maxWidth="1200px"
                 footer={
                     <div className="flex justify-end gap-2">
-                        <LemonButton type="secondary" onClick={() => setShowEditModal(false)}>
+                        <LemonButton type="secondary" onClick={() => setEditModal(null)}>
                             Close
                         </LemonButton>
                     </div>
