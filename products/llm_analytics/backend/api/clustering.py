@@ -29,7 +29,7 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     MIN_CLUSTER_SIZE_FRACTION_MIN,
     WORKFLOW_NAME,
 )
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringWorkflowInputs
+from posthog.temporal.llm_analytics.trace_clustering.models import AnalysisLevel, ClusteringWorkflowInputs
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
 
@@ -200,7 +200,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         clustering_job_id = serializer.validated_data.get("clustering_job_id")
         job_id = 0
         job_name = ""
-        analysis_level = "trace"
+        analysis_level: AnalysisLevel = "trace"
         if clustering_job_id:
             from products.llm_analytics.backend.models.clustering_job import ClusteringJob
 
@@ -214,7 +214,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
             event_filters = job.event_filters
             job_id = job.id
             job_name = job.name
-            analysis_level = job.analysis_level
+            analysis_level = cast(AnalysisLevel, job.analysis_level)
 
         # Build method-specific params dict
         clustering_method_params: dict = {}
