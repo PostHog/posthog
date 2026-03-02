@@ -79,9 +79,9 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         allTables: [
-            (s) => [s.database],
-            (database): DatabaseSchemaTable[] => {
-                if (!database || !database.tables) {
+            (s) => [s.database, s.databaseLoading],
+            (database, databaseLoading): DatabaseSchemaTable[] => {
+                if (databaseLoading || !database || !database.tables) {
                     return []
                 }
 

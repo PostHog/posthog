@@ -1,16 +1,20 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useMemo } from 'react'
 
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
+import { urls } from 'scenes/urls'
 
 import { sqlEditorLogic } from './sqlEditorLogic'
 
 const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
+const LOADING_CONNECTIONS = '__loading_connections__'
+const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
 
 export function ConnectionSelector(): JSX.Element {
-    const { dataWarehouseSources } = useValues(externalDataSourcesLogic)
+    const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(externalDataSourcesLogic)
     const { loadSources } = useActions(externalDataSourcesLogic)
     const { sourceQuery } = useValues(sqlEditorLogic)
     const { setSourceQuery } = useActions(sqlEditorLogic)
@@ -30,16 +34,20 @@ export function ConnectionSelector(): JSX.Element {
         [dataWarehouseSources]
     )
 
-    const options = useMemo(
-        () => [
+    const options = useMemo(() => {
+        const sourceOptions = dataWarehouseSourcesLoading
+            ? [{ value: LOADING_CONNECTIONS, label: 'Loading...', disabled: true }]
+            : directPostgresSources.map((source) => ({
+                  value: source.connection_id,
+                  label: source.prefix || source.source_id,
+              }))
+
+        return [
             { value: POSTHOG_WAREHOUSE, label: 'PostHog Data Warehouse' },
-            ...directPostgresSources.map((source) => ({
-                value: source.id,
-                label: source.prefix || source.source_id,
-            })),
-        ],
-        [directPostgresSources]
-    )
+            ...sourceOptions,
+            { value: ADD_POSTGRES_DIRECT_CONNECTION, label: '+ Add postgres direct connection' },
+        ]
+    }, [dataWarehouseSourcesLoading, directPostgresSources])
 
     const selectedValue =
         sourceQuery.source.connectionId && options.some((option) => option.value === sourceQuery.source.connectionId)
@@ -63,6 +71,11 @@ export function ConnectionSelector(): JSX.Element {
                     })
                     setConnection(null, null)
                     loadDatabase()
+                    return
+                }
+
+                if (nextValue === ADD_POSTGRES_DIRECT_CONNECTION) {
+                    router.actions.push(urls.dataWarehouseSourceNew())
                     return
                 }
 
