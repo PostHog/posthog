@@ -49,9 +49,11 @@ export function ConnectionSelector(): JSX.Element {
         ]
     }, [dataWarehouseSourcesLoading, directPostgresSources])
 
+    const sourceQueryWithConnection = sourceQuery as typeof sourceQuery & { connectionId?: string }
+    const selectedConnectionId = sourceQuery.source.connectionId ?? sourceQueryWithConnection.connectionId
     const selectedValue =
-        sourceQuery.source.connectionId && options.some((option) => option.value === sourceQuery.source.connectionId)
-            ? sourceQuery.source.connectionId
+        selectedConnectionId && options.some((option) => option.value === selectedConnectionId)
+            ? selectedConnectionId
             : POSTHOG_WAREHOUSE
 
     return (
@@ -63,12 +65,13 @@ export function ConnectionSelector(): JSX.Element {
             onChange={(nextValue) => {
                 if (!nextValue || nextValue === POSTHOG_WAREHOUSE) {
                     setSourceQuery({
-                        ...sourceQuery,
+                        ...sourceQueryWithConnection,
+                        connectionId: undefined,
                         source: {
                             ...sourceQuery.source,
                             connectionId: undefined,
                         },
-                    })
+                    } as typeof sourceQuery)
                     setConnection(null, null)
                     loadDatabase()
                     return
@@ -85,12 +88,13 @@ export function ConnectionSelector(): JSX.Element {
                 )
 
                 setSourceQuery({
-                    ...sourceQuery,
+                    ...sourceQueryWithConnection,
+                    connectionId: selectedConnectionId ?? undefined,
                     source: {
                         ...sourceQuery.source,
                         connectionId: selectedConnectionId ?? undefined,
                     },
-                })
+                } as typeof sourceQuery)
                 setConnection(selectedConnectionId, selectedSource?.source_id ?? null)
                 loadDatabase()
             }}
