@@ -17,7 +17,7 @@ def backfill_endpoints_to_dags(apps, _):
     endpoint_saved_queries = DataWarehouseSavedQuery.objects.filter(
         deleted=False, origin=DataWarehouseSavedQuery.Origin.ENDPOINT
     ).exclude(id__in=existing_saved_query_ids)
-    total_to_backfill = len(endpoint_saved_queries)
+    total_to_backfill = endpoint_saved_queries.count()
     logger.info("Starting endpoint saved_query -> node and edge model backfill...")
 
     for i, saved_query in enumerate(endpoint_saved_queries.iterator(chunk_size=BATCH_SIZE)):
