@@ -20,7 +20,9 @@ class TestOpenRouterValidateKey:
         mock_response = MagicMock()
         mock_response.status_code = status_code
 
-        with patch("products.llm_analytics.backend.llm.providers.openrouter.httpx.get", return_value=mock_response):
+        with patch(
+            "products.llm_analytics.backend.llm.providers.openrouter.external_httpx.get", return_value=mock_response
+        ):
             state, message = OpenRouterAdapter.validate_key("sk-or-test-key")
 
         assert state == expected_state
@@ -28,7 +30,7 @@ class TestOpenRouterValidateKey:
 
     def test_validate_key_timeout_returns_error(self):
         with patch(
-            "products.llm_analytics.backend.llm.providers.openrouter.httpx.get",
+            "products.llm_analytics.backend.llm.providers.openrouter.external_httpx.get",
             side_effect=httpx.TimeoutException("timeout"),
         ):
             state, message = OpenRouterAdapter.validate_key("sk-or-test-key")
@@ -38,7 +40,7 @@ class TestOpenRouterValidateKey:
 
     def test_validate_key_connection_error_returns_error(self):
         with patch(
-            "products.llm_analytics.backend.llm.providers.openrouter.httpx.get",
+            "products.llm_analytics.backend.llm.providers.openrouter.external_httpx.get",
             side_effect=httpx.ConnectError("connection refused"),
         ):
             state, message = OpenRouterAdapter.validate_key("sk-or-test-key")

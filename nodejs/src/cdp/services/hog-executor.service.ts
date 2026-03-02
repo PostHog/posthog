@@ -27,8 +27,7 @@ import {
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
-import { destinationE2eLagMsSummary } from '../utils'
-import { createAddLogFunction, sanitizeLogMessage } from '../utils'
+import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
@@ -251,7 +250,7 @@ export class HogExecutorService {
                     ...triggerGlobals,
                     source: {
                         name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                        url: `${triggerGlobals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+                        url: `${triggerGlobals.project.url}/functions/${hogFunction.id}/configuration/`,
                     },
                 }
 

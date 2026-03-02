@@ -9,6 +9,7 @@ import {
     IconMemory,
     IconNotebook,
     IconNotification,
+    IconPlug,
     IconSearch,
     IconShuffle,
 } from '@posthog/icons'
@@ -125,6 +126,17 @@ export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
 ]
 
 export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
+    call_mcp_server: {
+        name: 'Call an MCP server',
+        description: 'Call an MCP server',
+        icon: <IconPlug />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Called an MCP server'
+            }
+            return 'Calling an MCP server...'
+        },
+    },
     todo_write: {
         name: 'Write a todo',
         description: 'Write a todo to remember a task',

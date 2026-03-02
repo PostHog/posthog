@@ -11,7 +11,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { IconLink, IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -20,7 +20,6 @@ import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
@@ -573,10 +572,6 @@ const WebAnalyticsTabs = (): JSX.Element => {
         }
     }, [productTab])
 
-    const handleShare = (): void => {
-        void copyToClipboard(window.location.href, 'link')
-    }
-
     return (
         <LemonTabs<ProductTab>
             activeKey={productTab}
@@ -601,20 +596,6 @@ const WebAnalyticsTabs = (): JSX.Element => {
             ]}
             sceneInset
             className="-mt-4"
-            rightSlot={
-                !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] &&
-                !featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR] && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconLink fontSize="16" />}
-                        tooltip="Share"
-                        tooltipPlacement="top"
-                        onClick={handleShare}
-                        data-attr="web-analytics-share-button"
-                    />
-                )
-            }
         />
     )
 }

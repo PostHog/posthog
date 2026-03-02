@@ -43,11 +43,13 @@
         "cost": {
             "default": {
                 "prompt_token": 8e-7,
-                "completion_token": 0.0000016
+                "completion_token": 0.0000016,
+                "cache_read_token": 2e-7
             },
             "aion-labs": {
                 "prompt_token": 8e-7,
-                "completion_token": 0.0000016
+                "completion_token": 0.0000016,
+                "cache_read_token": 2e-7
             }
         }
     },
@@ -2920,12 +2922,12 @@
         "model": "minimax/minimax-m2.5",
         "cost": {
             "default": {
-                "prompt_token": 3e-7,
-                "completion_token": 0.0000011,
-                "cache_read_token": 1.5e-7
+                "prompt_token": 2.95e-7,
+                "completion_token": 0.0000012,
+                "cache_read_token": 3e-8
             },
             "atlas-cloud-fp8": {
-                "prompt_token": 3e-7,
+                "prompt_token": 2.95e-7,
                 "completion_token": 0.0000012,
                 "cache_read_token": 3e-8
             },
@@ -3389,11 +3391,6 @@
                 "prompt_token": 5.5e-7,
                 "completion_token": 0.0000022
             },
-            "atlas-cloud-fp8": {
-                "prompt_token": 7e-7,
-                "completion_token": 0.0000025,
-                "cache_read_token": 7e-7
-            },
             "deepinfra-fp4": {
                 "prompt_token": 5.5e-7,
                 "completion_token": 0.0000022
@@ -3589,6 +3586,11 @@
                 "prompt_token": 5e-7,
                 "completion_token": 0.0000025
             },
+            "nextbit-fp4": {
+                "prompt_token": 7.5e-7,
+                "completion_token": 0.0000035,
+                "cache_read_token": 1.25e-7
+            },
             "novita": {
                 "prompt_token": 5.7e-7,
                 "completion_token": 0.00000285,
@@ -3597,6 +3599,10 @@
             "parasail-int4": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000028
+            },
+            "phala": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.000003
             },
             "siliconflow-int4": {
                 "prompt_token": 4.5e-7,

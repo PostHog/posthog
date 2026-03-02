@@ -426,7 +426,9 @@ export function LemonInputSelect<T = string>({
     }
 
     const _addItem = (item: string, atIndex?: number | null, currentValues: T[] = values): void => {
-        setInputValue('')
+        if (mode === 'single') {
+            setInputValue('')
+        }
         // Convert string key back to typed value
         const actualTypedValue = getTypedValue(item)
         if (mode === 'single') {

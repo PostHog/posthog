@@ -796,7 +796,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     await logger.adebug(f"Running count query: {printed}")
 
-    async with get_client() as client:
+    async with get_client(allow_experimental_analyzer=1) as client:
         result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
         return count
@@ -857,7 +857,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     # Query for types first, check for any types ArrowStream doesn't support
     # and rewrite the query wrapping those columns in a `toString(..)`
-    async with get_client() as client:
+    async with get_client(allow_experimental_analyzer=1) as client:
         query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
         has_type_to_convert = False
 
@@ -950,7 +950,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
     # Set max block size to 50,000 rows
-    async with get_client(max_block_size=50_000) as client:
+    async with get_client(max_block_size=50_000, allow_experimental_analyzer=1) as client:
         batches = []
         batches_size = 0
         batch_count = 0

@@ -703,6 +703,7 @@ rules:
                               |FileSystemViewLog
                               |InsightViewed
                               |KernelRuntime
+                              |MCPServerInstallation
                               |PersistedFolder
                               |SessionRecordingViewed
                               |UserHomeSettings

@@ -6,7 +6,13 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import EmptyPropertyFilter, HogQLPropertyFilter, RetentionEntity
+from posthog.schema import (
+    EmptyPropertyFilter,
+    FlagPropertyFilter,
+    HogQLPropertyFilter,
+    PropertyOperator,
+    RetentionEntity,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
@@ -1412,6 +1418,43 @@ class TestProperty(BaseTest):
                 "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3.0') AND sortableSemver(person.properties.app_version) < sortableSemver('1.2.4.0'))"
             ),
         )
+
+    # -- Operator coverage: every PropertyOperator must be handled by property_to_expr --
+
+    # Test values appropriate for each operator type
+    OPERATOR_TEST_VALUES: dict[PropertyOperator, Any] = {
+        PropertyOperator.IS_SET: "",
+        PropertyOperator.IS_NOT_SET: "",
+        PropertyOperator.BETWEEN: [1, 10],
+        PropertyOperator.NOT_BETWEEN: [1, 10],
+        PropertyOperator.IN_: ["a", "b"],
+        PropertyOperator.NOT_IN: ["a", "b"],
+        PropertyOperator.SEMVER_EQ: "1.2.3",
+        PropertyOperator.SEMVER_NEQ: "1.2.3",
+        PropertyOperator.SEMVER_GT: "1.2.3",
+        PropertyOperator.SEMVER_GTE: "1.2.3",
+        PropertyOperator.SEMVER_LT: "1.2.3",
+        PropertyOperator.SEMVER_LTE: "1.2.3",
+        PropertyOperator.SEMVER_TILDE: "1.2.3",
+        PropertyOperator.SEMVER_CARET: "1.2.3",
+        PropertyOperator.SEMVER_WILDCARD: "1.*",
+        PropertyOperator.ICONTAINS_MULTI: ["a", "b"],
+        PropertyOperator.NOT_ICONTAINS_MULTI: ["a", "b"],
+    }
+
+    # FLAG_EVALUATES_TO is dispatched via FlagPropertyFilter, not _expr_to_compare_op
+    @parameterized.expand([(op.value,) for op in PropertyOperator if op not in {PropertyOperator.FLAG_EVALUATES_TO}])
+    def test_operator_coverage(self, operator_value: str):
+        value = self.OPERATOR_TEST_VALUES.get(PropertyOperator(operator_value), "test_value")
+        result = self._property_to_expr(
+            {"type": "event", "key": "test_prop", "value": value, "operator": operator_value}
+        )
+        self.assertIsInstance(result, ast.Expr)
+
+    def test_flag_evaluates_to_produces_neutral_expr(self):
+        prop = FlagPropertyFilter(type="flag", key="my-flag", value="true", operator="flag_evaluates_to")
+        result = property_to_expr([prop], self.team)
+        self.assertEqual(result, ast.Constant(value=1))
 
 
 class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
