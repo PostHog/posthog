@@ -578,3 +578,35 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._assert_heatmap_no_result_count(
             {"date_from": "2023-03-08", "aggregation": choice}, expected_status_code=expected_status_code
         )
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_hide_zero_coordinates_filters_out_zero_zero_events(self) -> None:
+        self._create_heatmap_event("session_1", "click", x=0, y=0)
+        self._create_heatmap_event("session_2", "click", x=10, y=20)
+
+        response = self._get_heatmap({"date_from": "2023-03-08", "hide_zero_coordinates": "true"})
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["pointer_relative_x"] != 0
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_hide_zero_coordinates_default_true(self) -> None:
+        self._create_heatmap_event("session_1", "click", x=0, y=0)
+        self._create_heatmap_event("session_2", "click", x=10, y=20)
+
+        response = self._get_heatmap({"date_from": "2023-03-08"})
+        assert len(response.json()["results"]) == 1
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_hide_zero_coordinates_false_includes_zero_zero(self) -> None:
+        self._create_heatmap_event("session_1", "click", x=0, y=0)
+        self._create_heatmap_event("session_2", "click", x=10, y=20)
+
+        response = self._get_heatmap({"date_from": "2023-03-08", "hide_zero_coordinates": "false"})
+        assert len(response.json()["results"]) == 2
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_hide_zero_coordinates_not_applied_to_scrolldepth(self) -> None:
+        self._create_heatmap_event("session_1", "scrolldepth", x=0, y=0)
+
+        response = self._get_heatmap({"date_from": "2023-03-08", "type": "scrolldepth"})
+        assert len(response.json()["results"]) == 1

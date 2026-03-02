@@ -22,6 +22,7 @@ export type HeatmapFilters = {
     type?: string
     viewportAccuracy?: number
     aggregation?: HeatmapRequestType['aggregation']
+    hideZeroCoordinates?: boolean
 }
 
 export type HeatmapJsDataPoint = {
