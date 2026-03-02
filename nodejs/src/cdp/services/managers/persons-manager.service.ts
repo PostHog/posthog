@@ -63,7 +63,6 @@ export class PersonsManagerService {
         return await this.lazyLoader.getMany(keys)
     }
 
-    // NOTE: Currently this essentially loads the "latest" template each time. We may need to swap this to using a specific version
     private async fetchPersonsByDistinctIds(
         ids: string[]
     ): Promise<Record<string, PersonManagerPersonWithDistinctId | undefined>> {
