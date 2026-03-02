@@ -710,6 +710,7 @@ def get_teams_with_recording_count_in_period(
             WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
             GROUP BY session_id
             HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
+            AND max(is_deleted) = 0
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -751,6 +752,7 @@ def get_teams_with_zero_duration_recording_count_in_period(begin: datetime, end:
             WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
             GROUP BY session_id
             HAVING dateDiff('milliseconds', min(min_first_timestamp), max(max_last_timestamp)) = 0
+            AND max(is_deleted) = 0
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -788,6 +790,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
             GROUP BY session_id
             HAVING (ifNull(argMinMerge(snapshot_source), '') == 'mobile'
             AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'))
+            AND max(is_deleted) = 0
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -1501,6 +1504,7 @@ def get_teams_with_recording_bytes_in_period(
             WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
             GROUP BY session_id
             HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
+            AND max(is_deleted) = 0
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -1872,10 +1876,13 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             .order_by("team_id")
         ),
         "teams_with_ff_count": list(
-            FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
+            FeatureFlag.objects.filter(deleted=False).values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
         "teams_with_ff_active_count": list(
-            FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
+            FeatureFlag.objects.filter(active=True, deleted=False)
+            .values("team_id")
+            .annotate(total=Count("id"))
+            .order_by("team_id")
         ),
         "teams_with_issues_created_total": list(
             ErrorTrackingIssue.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")

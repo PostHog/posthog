@@ -17,13 +17,14 @@ interface InsightRowProps {
     insight: QueryBasedInsightModel
     isExpanded: boolean
     onToggle: () => void
+    dataAttr?: string
 }
 
-export function InsightRow({ insight, isExpanded, onToggle }: InsightRowProps): JSX.Element {
+export function InsightRow({ insight, isExpanded, onToggle, dataAttr }: InsightRowProps): JSX.Element {
     const { reportInsightOpenedFromRecentInsightList } = useActions(eventUsageLogic)
 
     return (
-        <div className="border border-border rounded bg-surface-primary mb-2 last:mb-0">
+        <div className="border border-border rounded bg-surface-primary mb-2 last:mb-0" data-attr={dataAttr}>
             <div
                 className="flex items-center gap-3 p-3 cursor-pointer hover:bg-surface-secondary rounded-t"
                 onClick={onToggle}
@@ -75,7 +76,7 @@ export function InsightRow({ insight, isExpanded, onToggle }: InsightRowProps): 
             </div>
             {isExpanded && (
                 <div className="border-t border-border bg-surface-primary">
-                    <div className="p-4 h-60 relative">
+                    <div className="p-4 h-60 relative flex flex-col">
                         <Query
                             query={insight.query}
                             readOnly

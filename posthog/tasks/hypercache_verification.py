@@ -25,7 +25,7 @@ from posthog.models.feature_flag.local_evaluation import (
 )
 from posthog.models.team.team import Team
 from posthog.storage.hypercache_verifier import _run_verification_for_cache
-from posthog.tasks.utils import CeleryQueue
+from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 logger = structlog.get_logger(__name__)
 
@@ -160,12 +160,14 @@ def _run_cache_verification(cache_type: CacheType, chunk_size: int) -> None:
 
 
 @shared_task(
+    bind=True,
+    base=PushGatewayTask,
     ignore_result=True,
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     soft_time_limit=20 * 60,  # 20 min soft limit
     time_limit=25 * 60,  # 25 min hard limit (matches LOCK_TIMEOUT_SECONDS)
 )
-def verify_and_fix_flags_cache_task() -> None:
+def verify_and_fix_flags_cache_task(self: PushGatewayTask) -> None:
     """
     Periodic task to verify the flags HyperCache and fix issues.
 
@@ -181,12 +183,14 @@ def verify_and_fix_flags_cache_task() -> None:
 
 
 @shared_task(
+    bind=True,
+    base=PushGatewayTask,
     ignore_result=True,
     queue=CeleryQueue.DEFAULT.value,
     soft_time_limit=20 * 60,  # 20 min soft limit
     time_limit=25 * 60,  # 25 min hard limit (matches LOCK_TIMEOUT_SECONDS)
 )
-def verify_and_fix_team_metadata_cache_task() -> None:
+def verify_and_fix_team_metadata_cache_task(self: PushGatewayTask) -> None:
     """
     Periodic task to verify the team metadata HyperCache and fix issues.
 
@@ -202,12 +206,14 @@ def verify_and_fix_team_metadata_cache_task() -> None:
 
 
 @shared_task(
+    bind=True,
+    base=PushGatewayTask,
     ignore_result=True,
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     soft_time_limit=50 * 60,  # 50 min soft limit
     time_limit=60 * 60,  # 1 hour hard limit (distributed lock prevents overlap)
 )
-def verify_and_fix_flag_definitions_cache_task() -> None:
+def verify_and_fix_flag_definitions_cache_task(self: PushGatewayTask) -> None:
     """
     Periodic task to verify the flag definitions HyperCache and fix issues.
 

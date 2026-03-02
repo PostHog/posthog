@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconDocument, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
@@ -9,7 +10,6 @@ import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { WarningHog } from 'lib/components/hedgehogs'
 import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
-import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -44,10 +44,16 @@ function Header(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
-    const newPlaylistHandler = useAsyncHandler(async () => {
-        await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
-        reportRecordingPlaylistCreated('new')
-    })
+    const [loading, setLoading] = useState(false)
+    const handleNewPlaylist = async (): Promise<void> => {
+        setLoading(true)
+        try {
+            await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
+            reportRecordingPlaylistCreated('new')
+        } finally {
+            setLoading(false)
+        }
+    }
 
     return (
         <div className="flex items-center gap-2">
@@ -91,9 +97,9 @@ function Header(): JSX.Element {
                     >
                         <LemonButton
                             type="primary"
-                            onClick={(e) => newPlaylistHandler.onEvent?.(e)}
+                            onClick={handleNewPlaylist}
                             data-attr="save-recordings-playlist-button"
-                            loading={newPlaylistHandler.loading}
+                            loading={loading}
                             size="small"
                             tooltip="New collection"
                         >

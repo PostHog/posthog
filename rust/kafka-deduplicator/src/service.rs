@@ -102,6 +102,43 @@ impl KafkaDeduplicatorService {
             rebalance_tracker.clone(),
         ));
 
+        // In fail-open mode, skip store cleanup and checkpoint infrastructure
+        let (cleanup_task_handle, checkpoint_manager, importer) = if config.fail_open {
+            info!("Fail-open mode enabled — skipping cleanup task, checkpoint export/import");
+            let checkpoint_config = CheckpointConfig::default();
+            let checkpoint_manager =
+                CheckpointManager::new(checkpoint_config, store_manager.clone(), None);
+            (None, checkpoint_manager, None)
+        } else {
+            Self::create_store_infrastructure(&config, &store_config, &store_manager).await?
+        };
+
+        Ok(Self {
+            config,
+            consumer: None,
+            store_manager,
+            checkpoint_manager: Some(checkpoint_manager),
+            checkpoint_importer: importer,
+            cleanup_task_handle,
+            shutdown_tx: None,
+            liveness,
+            service_health: None,
+            health_task_cancellation: CancellationToken::new(),
+            health_task_handles: Vec::new(),
+        })
+    }
+
+    /// Create cleanup task, checkpoint exporter, and checkpoint importer.
+    /// Skipped entirely when fail-open mode is active.
+    async fn create_store_infrastructure(
+        config: &Config,
+        store_config: &DeduplicationStoreConfig,
+        store_manager: &Arc<StoreManager>,
+    ) -> Result<(
+        Option<CleanupTaskHandle>,
+        CheckpointManager,
+        Option<Arc<CheckpointImporter>>,
+    )> {
         // Start periodic cleanup task if max_capacity is configured
         let cleanup_task_handle = if store_config.max_capacity > 0 {
             let cleanup_interval = config.cleanup_interval();
@@ -194,19 +231,7 @@ impl KafkaDeduplicatorService {
         let checkpoint_manager =
             CheckpointManager::new(checkpoint_config, store_manager.clone(), exporter);
 
-        Ok(Self {
-            config,
-            consumer: None,
-            store_manager,
-            checkpoint_manager: Some(checkpoint_manager),
-            checkpoint_importer: importer,
-            cleanup_task_handle,
-            shutdown_tx: None,
-            liveness,
-            service_health: None,
-            health_task_cancellation: CancellationToken::new(),
-            health_task_handles: Vec::new(),
-        })
+        Ok((cleanup_task_handle, checkpoint_manager, importer))
     }
 
     /// Initialize the Kafka consumer and prepare for running
@@ -279,6 +304,7 @@ impl KafkaDeduplicatorService {
             self.config.commit_interval(),
             self.config.kafka_consumer_seek_timeout(),
             self.config.rebalance_cleanup_parallelism,
+            self.config.fail_open,
         )
         .with_checkpoint_importer(self.checkpoint_importer.clone());
 
@@ -309,6 +335,7 @@ impl KafkaDeduplicatorService {
                 store_config: self.store_manager.config().clone(),
                 producer_send_timeout: self.config.producer_send_timeout(),
                 flush_interval: self.config.flush_interval(),
+                fail_open: self.config.fail_open,
             };
 
             builder =
