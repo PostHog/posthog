@@ -22,9 +22,17 @@ import {
 
 export const NODE_HEIGHT = 160
 export const NODE_WIDTH = 300
+export const FIT_VIEW_OPTIONS = {
+    padding: 0.2,
+    maxZoom: 1,
+}
 
 export const PROFILE_NODE_HEIGHT = 80
 export const PROFILE_NODE_WIDTH = 180
+export const PROFILE_FIT_VIEW_OPTIONS = {
+    padding: 0.1,
+    maxZoom: 2,
+}
 
 export const ELK_OPTIONS = {
     'elk.algorithm': 'layered',
@@ -136,10 +144,23 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
         ],
     }),
 
-    selectors(({ props }) => ({
-        nodeType: [() => [], (): string => (props.isProfileMode ? 'profile' : 'journey')],
-        nodeWidth: [() => [], (): number => (props.isProfileMode ? PROFILE_NODE_WIDTH : NODE_WIDTH)],
-        nodeHeight: [() => [], (): number => (props.isProfileMode ? PROFILE_NODE_HEIGHT : NODE_HEIGHT)],
+    selectors({
+        nodeType: [
+            () => [(_, props) => props.isProfileMode],
+            (isProfileMode): string => (isProfileMode ? 'profile' : 'journey'),
+        ],
+        nodeWidth: [
+            () => [(_, props) => props.isProfileMode],
+            (isProfileMode): number => (isProfileMode ? PROFILE_NODE_WIDTH : NODE_WIDTH),
+        ],
+        nodeHeight: [
+            () => [(_, props) => props.isProfileMode],
+            (isProfileMode): number => (isProfileMode ? PROFILE_NODE_HEIGHT : NODE_HEIGHT),
+        ],
+        fitViewOptions: [
+            () => [(_, props) => props.isProfileMode],
+            (isProfileMode) => (isProfileMode ? PROFILE_FIT_VIEW_OPTIONS : FIT_VIEW_OPTIONS),
+        ],
 
         funnelNodes: [
             (s) => [s.visibleStepsWithConversionMetrics, s.stepNames, s.isStepOptional, s.nodeType, s.nodeWidth, s.nodeHeight],
@@ -258,7 +279,7 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                 return [...visibleFunnelEdges, ...expandedPathElements.edges]
             },
         ],
-    })),
+    }),
 
     subscriptions(({ actions, values, props }) => ({
         nodes: async () => {

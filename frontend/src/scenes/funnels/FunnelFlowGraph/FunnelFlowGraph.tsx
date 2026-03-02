@@ -36,16 +36,6 @@ const EDGE_TYPES = {
     pathFlow: PathFlowEdge,
 } as EdgeTypes
 
-const JOURNEY_FIT_VIEW_OPTIONS = {
-    padding: 0.2,
-    maxZoom: 1,
-}
-
-const PROFILE_FIT_VIEW_OPTIONS = {
-    padding: 0.1,
-    maxZoom: 2,
-}
-
 const PROFILE_GRAPH_HEIGHT = 140
 
 function FunnelFlowGraphContent(): JSX.Element {
@@ -53,9 +43,8 @@ function FunnelFlowGraphContent(): JSX.Element {
     const { fitView: fitViewImperative } = useReactFlow()
     const { isDarkModeOn } = useValues(themeLogic)
     const { insightProps } = useValues(insightLogic)
-    const { laidOutNodes, edges, nodeType } = useValues(funnelFlowGraphLogic(insightProps))
+    const { laidOutNodes, edges, nodeType, fitViewOptions } = useValues(funnelFlowGraphLogic(insightProps))
     const isProfileMode = nodeType === 'profile'
-    const fitViewOptions = isProfileMode ? PROFILE_FIT_VIEW_OPTIONS : JOURNEY_FIT_VIEW_OPTIONS
 
     const onInit = useCallback(
         (instance: ReactFlowInstance<AnyFlowNode>) => {
