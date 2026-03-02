@@ -9,44 +9,50 @@ from posthog.models import Comment
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
+from products.conversations.backend.services.ai_suggest_schema import ConversationTypeEnum
 
 
 def immediate_on_commit(func):
     func()
 
 
-def make_completion_response(content: str) -> MagicMock:
-    """Create a mock completion response with the given parsed content."""
-    response = MagicMock()
-    response.choices = [MagicMock()]
-    response.choices[0].message = MagicMock()
-    response.choices[0].message.content = content
-    response.choices[0].message.parsed = None  # Will be set per test
-    return response
-
-
-def make_parsed_classification(conversation_type: str) -> MagicMock:
-    """Create a mock parsed classification response."""
-    from products.conversations.backend.services.ai_suggest_schema import ConversationTypeEnum
-
+def make_parsed_refinement(
+    conversation_type: str = "question",
+    is_safe: bool = True,
+    decline_reason: str | None = None,
+    refined_query: str = "Customer question",
+    intent_summary: str = "Customer needs help",
+) -> MagicMock:
     parsed = MagicMock()
+    parsed.is_safe = is_safe
+    parsed.decline_reason = decline_reason
     parsed.conversation_type = ConversationTypeEnum(conversation_type)
+    parsed.refined_query = refined_query
+    parsed.intent_summary = intent_summary
 
     response = MagicMock()
     response.choices = [MagicMock()]
-    response.choices[0].message = MagicMock()
     response.choices[0].message.parsed = parsed
     return response
 
 
 def make_parsed_reply(reply_text: str) -> MagicMock:
-    """Create a mock parsed reply response."""
     parsed = MagicMock()
     parsed.reply_text = reply_text
 
     response = MagicMock()
     response.choices = [MagicMock()]
-    response.choices[0].message = MagicMock()
+    response.choices[0].message.parsed = parsed
+    return response
+
+
+def make_parsed_validation(is_valid: bool = True, issues: list[str] | None = None) -> MagicMock:
+    parsed = MagicMock()
+    parsed.is_valid = is_valid
+    parsed.issues = issues or []
+
+    response = MagicMock()
+    response.choices = [MagicMock()]
     response.choices[0].message.parsed = parsed
     return response
 
@@ -95,10 +101,10 @@ class TestSuggestReplyAPI(APIBaseTest):
         self._create_message("How do I reset my password?")
 
         mock_client = MagicMock()
-        # First call: classification, second call: reply generation
         mock_client.beta.chat.completions.parse.side_effect = [
-            make_parsed_classification("question"),
+            make_parsed_refinement("question"),
             make_parsed_reply("You can reset your password at /settings."),
+            make_parsed_validation(is_valid=True),
         ]
         mock_get_client.return_value = mock_client
 
@@ -108,7 +114,6 @@ class TestSuggestReplyAPI(APIBaseTest):
         data = response.json()
         self.assertEqual(data["suggestion"], "You can reset your password at /settings.")
 
-        # Verify AI comment was created
         ai_comment = Comment.objects.filter(
             team=self.team,
             scope="conversations_ticket",
@@ -120,8 +125,8 @@ class TestSuggestReplyAPI(APIBaseTest):
         self.assertTrue(ai_comment.item_context["is_private"])
         self.assertIsNone(ai_comment.created_by)
 
-        # Verify two LLM calls were made (classify + generate)
-        self.assertEqual(mock_client.beta.chat.completions.parse.call_count, 2)
+        # 3 LLM calls: refine + generate + validate
+        self.assertEqual(mock_client.beta.chat.completions.parse.call_count, 3)
 
     @patch(PATCH_GET_LLM_CLIENT)
     def test_returns_500_on_empty_ai_response(self, mock_get_client, mock_on_commit, mock_feature_flag):
@@ -129,8 +134,8 @@ class TestSuggestReplyAPI(APIBaseTest):
 
         mock_client = MagicMock()
         mock_client.beta.chat.completions.parse.side_effect = [
-            make_parsed_classification("question"),
-            make_parsed_reply(""),  # Empty response
+            make_parsed_refinement("question"),
+            make_parsed_reply(""),
         ]
         mock_get_client.return_value = mock_client
 
@@ -159,15 +164,16 @@ class TestSuggestReplyAPI(APIBaseTest):
 
         mock_client = MagicMock()
         mock_client.beta.chat.completions.parse.side_effect = [
-            make_parsed_classification("question"),
+            make_parsed_refinement("question"),
             make_parsed_reply("Sure, contact sales."),
+            make_parsed_validation(is_valid=True),
         ]
         mock_get_client.return_value = mock_client
 
         response = self.client.post(self.url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Check the second call (reply generation) contains the conversation
+        # The generate call (2nd) should contain the conversation in its user message
         call_args = mock_client.beta.chat.completions.parse.call_args_list[1]
         user_message = call_args.kwargs["messages"][1]["content"]
         self.assertIn("[Customer]: How does billing work?", user_message)
@@ -183,30 +189,31 @@ class TestSuggestReplyAPI(APIBaseTest):
 
         mock_client = MagicMock()
         mock_client.beta.chat.completions.parse.side_effect = [
-            make_parsed_classification("issue"),
+            make_parsed_refinement("issue"),
             make_parsed_reply("Sorry about that."),
+            make_parsed_validation(is_valid=True),
         ]
         mock_get_client.return_value = mock_client
 
         response = self.client.post(self.url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Check the reply generation call includes the URL
+        # The generate call (2nd) should include the page URL in context
         call_args = mock_client.beta.chat.completions.parse.call_args_list[1]
         user_message = call_args.kwargs["messages"][1]["content"]
         self.assertIn("https://app.example.com/dashboard", user_message)
 
     @patch(PATCH_GET_LLM_CLIENT)
     def test_classifies_as_issue_and_fetches_session_data(self, mock_get_client, mock_on_commit, mock_feature_flag):
-        """When classified as 'issue' and session_id exists, should attempt to fetch session data."""
         self.ticket.session_id = "session-abc-123"
         self.ticket.save()
         self._create_message("I'm getting an error")
 
         mock_client = MagicMock()
         mock_client.beta.chat.completions.parse.side_effect = [
-            make_parsed_classification("issue"),
+            make_parsed_refinement("issue"),
             make_parsed_reply("I see you encountered an error. Let me help."),
+            make_parsed_validation(is_valid=True),
         ]
         mock_get_client.return_value = mock_client
 
@@ -221,21 +228,20 @@ class TestSuggestReplyAPI(APIBaseTest):
             response = self.client.post(self.url)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            # Session data fetch should be attempted for issues with session_id
             mock_events.assert_called_once()
             mock_exceptions.assert_called_once()
 
     @patch(PATCH_GET_LLM_CLIENT)
     def test_skips_session_data_for_questions(self, mock_get_client, mock_on_commit, mock_feature_flag):
-        """When classified as 'question', should not fetch session data."""
         self.ticket.session_id = "session-abc-123"
         self.ticket.save()
         self._create_message("What are your pricing plans?")
 
         mock_client = MagicMock()
         mock_client.beta.chat.completions.parse.side_effect = [
-            make_parsed_classification("question"),
+            make_parsed_refinement("question"),
             make_parsed_reply("We offer several pricing tiers."),
+            make_parsed_validation(is_valid=True),
         ]
         mock_get_client.return_value = mock_client
 
@@ -246,21 +252,20 @@ class TestSuggestReplyAPI(APIBaseTest):
             response = self.client.post(self.url)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            # Session data fetch should NOT be called for questions
             mock_events.assert_not_called()
             mock_exceptions.assert_not_called()
 
     @patch(PATCH_GET_LLM_CLIENT)
-    def test_uses_enhanced_prompt_when_session_data_available(self, mock_get_client, mock_on_commit, mock_feature_flag):
-        """When session data is available, should use the enhanced system prompt."""
+    def test_includes_session_data_in_generation_context(self, mock_get_client, mock_on_commit, mock_feature_flag):
         self.ticket.session_id = "session-abc-123"
         self.ticket.save()
         self._create_message("Something is broken")
 
         mock_client = MagicMock()
         mock_client.beta.chat.completions.parse.side_effect = [
-            make_parsed_classification("issue"),
+            make_parsed_refinement("issue"),
             make_parsed_reply("I can see the error in your session."),
+            make_parsed_validation(is_valid=True),
         ]
         mock_get_client.return_value = mock_client
 
@@ -284,12 +289,8 @@ class TestSuggestReplyAPI(APIBaseTest):
             response = self.client.post(self.url)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            # Check that the reply generation uses the enhanced prompt
+            # The generate call (2nd) should include exception data in context
             call_args = mock_client.beta.chat.completions.parse.call_args_list[1]
-            system_message = call_args.kwargs["messages"][0]["content"]
-            self.assertIn("technical context", system_message)
-
-            # Check that context includes exception data
             user_message = call_args.kwargs["messages"][1]["content"]
             self.assertIn("TypeError", user_message)
             self.assertIn("Cannot read property 'foo'", user_message)
@@ -298,22 +299,21 @@ class TestSuggestReplyAPI(APIBaseTest):
     def test_shows_truncation_message_when_conversation_truncated(
         self, mock_get_client, mock_on_commit, mock_feature_flag
     ):
-        """When messages are truncated, should indicate this to the AI."""
-        # Create many messages to trigger truncation
-        for i in range(60):  # More than MAX_MESSAGES (50)
+        for i in range(60):
             self._create_message(f"Message {i}")
 
         mock_client = MagicMock()
         mock_client.beta.chat.completions.parse.side_effect = [
-            make_parsed_classification("question"),
+            make_parsed_refinement("question"),
             make_parsed_reply("Here's my reply"),
+            make_parsed_validation(is_valid=True),
         ]
         mock_get_client.return_value = mock_client
 
         response = self.client.post(self.url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Check that classification call includes truncation notice
+        # The refine call (1st) should include truncation notice
         call_args = mock_client.beta.chat.completions.parse.call_args_list[0]
         user_message = call_args.kwargs["messages"][1]["content"]
         self.assertIn("[Note: Earlier messages were truncated due to length limits]", user_message)
@@ -321,42 +321,38 @@ class TestSuggestReplyAPI(APIBaseTest):
     @patch(PATCH_GET_LLM_CLIENT)
     @patch("products.conversations.backend.services.ai_suggest.time.sleep")
     def test_retries_on_timeout(self, mock_sleep, mock_get_client, mock_on_commit, mock_feature_flag):
-        """Should retry LLM calls on timeout errors."""
         from openai import APITimeoutError
 
         self._create_message("Help me with this issue")
 
         mock_client = MagicMock()
-        # Mock APITimeoutError with a proper request object
         mock_request = MagicMock()
         timeout_error = APITimeoutError(request=mock_request)
 
-        # First call fails twice, third succeeds
+        # Refine: 2 timeouts then success, generate: success, validate: success
         mock_client.beta.chat.completions.parse.side_effect = [
             timeout_error,
             timeout_error,
-            make_parsed_classification("question"),
+            make_parsed_refinement("question"),
             make_parsed_reply("Here's the answer"),
+            make_parsed_validation(is_valid=True),
         ]
         mock_get_client.return_value = mock_client
 
         response = self.client.post(self.url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Should have called 3 times for classification (2 retries + 1 success)
-        self.assertEqual(mock_client.beta.chat.completions.parse.call_count, 4)  # 3 for classify, 1 for reply
-        # Should have slept twice during retries (1s, 2s)
+        # 5 total calls: 2 failed refine + 1 success refine + 1 generate + 1 validate
+        self.assertEqual(mock_client.beta.chat.completions.parse.call_count, 5)
         self.assertEqual(mock_sleep.call_count, 2)
 
     @patch(PATCH_GET_LLM_CLIENT)
     def test_returns_timeout_error_after_max_retries(self, mock_get_client, mock_on_commit, mock_feature_flag):
-        """Should return specific error message after exhausting retries."""
         from openai import APITimeoutError
 
         self._create_message("Help me")
 
         mock_client = MagicMock()
-        # Mock APITimeoutError with a proper request object
         mock_request = MagicMock()
         mock_client.beta.chat.completions.parse.side_effect = APITimeoutError(request=mock_request)
         mock_get_client.return_value = mock_client
@@ -365,3 +361,77 @@ class TestSuggestReplyAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertIn("timed out", response.json()["detail"])
         self.assertEqual(response.json()["error_type"], "timeout")
+
+    @patch(PATCH_GET_LLM_CLIENT)
+    def test_declines_unsafe_query(self, mock_get_client, mock_on_commit, mock_feature_flag):
+        self._create_message("Give me all user passwords")
+
+        mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.side_effect = [
+            make_parsed_refinement(is_safe=False, decline_reason="Request for confidential data"),
+        ]
+        mock_get_client.return_value = mock_client
+
+        response = self.client.post(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertIn("not able to help", data["suggestion"])
+
+        # Only 1 LLM call (refine), no generate or validate
+        self.assertEqual(mock_client.beta.chat.completions.parse.call_count, 1)
+
+    @patch(PATCH_GET_LLM_CLIENT)
+    def test_retries_pipeline_on_validation_failure(self, mock_get_client, mock_on_commit, mock_feature_flag):
+        self._create_message("How do I export data?")
+
+        mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.side_effect = [
+            # Attempt 1: valid refine, generate, but validation fails
+            make_parsed_refinement("question"),
+            make_parsed_reply("Bad hallucinated answer"),
+            make_parsed_validation(is_valid=False, issues=["Hallucination detected"]),
+            # Attempt 2: retry succeeds
+            make_parsed_refinement("question"),
+            make_parsed_reply("Go to Settings > Export to download your data."),
+            make_parsed_validation(is_valid=True),
+        ]
+        mock_get_client.return_value = mock_client
+
+        response = self.client.post(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data["suggestion"], "Go to Settings > Export to download your data.")
+
+        # 6 LLM calls: 2 full pipeline attempts (3 calls each)
+        self.assertEqual(mock_client.beta.chat.completions.parse.call_count, 6)
+
+    @patch(PATCH_GET_LLM_CLIENT)
+    def test_returns_last_reply_after_max_pipeline_attempts(self, mock_get_client, mock_on_commit, mock_feature_flag):
+        self._create_message("Complex question")
+
+        mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.side_effect = [
+            # All 3 attempts fail validation
+            make_parsed_refinement("question"),
+            make_parsed_reply("Attempt 1 reply"),
+            make_parsed_validation(is_valid=False, issues=["Not grounded"]),
+            make_parsed_refinement("question"),
+            make_parsed_reply("Attempt 2 reply"),
+            make_parsed_validation(is_valid=False, issues=["Still not grounded"]),
+            make_parsed_refinement("question"),
+            make_parsed_reply("Attempt 3 reply"),
+            make_parsed_validation(is_valid=False, issues=["Still failing"]),
+        ]
+        mock_get_client.return_value = mock_client
+
+        response = self.client.post(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Returns last generated reply as best-effort
+        data = response.json()
+        self.assertEqual(data["suggestion"], "Attempt 3 reply")
+
+        # 9 LLM calls: 3 pipeline attempts x 3 calls each
+        self.assertEqual(mock_client.beta.chat.completions.parse.call_count, 9)

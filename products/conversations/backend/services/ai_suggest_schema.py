@@ -8,8 +8,12 @@ class ConversationTypeEnum(str, Enum):
     question = "question"
 
 
-class ConversationClassificationSchema(BaseModel):
+class RefinedQuerySchema(BaseModel):
+    is_safe: bool
+    decline_reason: str | None = None
     conversation_type: ConversationTypeEnum
+    refined_query: str
+    intent_summary: str
 
     class Config:
         extra = "forbid"
@@ -17,6 +21,14 @@ class ConversationClassificationSchema(BaseModel):
 
 class SuggestedReplySchema(BaseModel):
     reply_text: str
+
+    class Config:
+        extra = "forbid"
+
+
+class ResponseValidationSchema(BaseModel):
+    is_valid: bool
+    issues: list[str] = []
 
     class Config:
         extra = "forbid"
