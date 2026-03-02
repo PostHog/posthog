@@ -80,7 +80,7 @@ jobs:
 
             - name: Validate PostHog eval config
               env:
-                  POSTHOG_EVALS_HOST: ${{ vars.POSTHOG_EVALS_HOST }}
+                  POSTHOG_EVALS_HOST: https://us.posthog.com
                   POSTHOG_EVALS_PROJECT_API_KEY: ${{ secrets.POSTHOG_EVALS_PROJECT_API_KEY }}
               run: |
                   test -n "$POSTHOG_EVALS_HOST" || { echo "POSTHOG_EVALS_HOST is required"; exit 1; }
@@ -92,7 +92,7 @@ jobs:
                   EXPORT_EVAL_RESULTS: true
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-                  POSTHOG_EVALS_HOST: ${{ vars.POSTHOG_EVALS_HOST }}
+                  POSTHOG_EVALS_HOST: https://us.posthog.com
                   POSTHOG_EVALS_PROJECT_API_KEY: ${{ secrets.POSTHOG_EVALS_PROJECT_API_KEY }}
 
             - name: Upload eval artifacts
