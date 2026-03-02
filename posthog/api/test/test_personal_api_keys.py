@@ -388,7 +388,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {self.value}"})
         assert response.status_code == status.HTTP_200_OK
 
-    def test_does_not_interfere_with_temporary_token_auth(self):
+    def test_does_not_interfere_with_other_auth_methods(self):
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer {self.value}"}
         )

@@ -146,31 +146,6 @@ describe('toolbar toolbarConfigLogic', () => {
         })
     })
 
-    describe('temporaryToken migration', () => {
-        it('logs out when launched with temporaryToken but no accessToken', () => {
-            const logic = toolbarConfigLogic.build({
-                apiURL: 'http://localhost',
-                temporaryToken: 'old-temp-token',
-            } as any)
-            logic.mount()
-
-            expectLogic(logic).toMatchValues({ isAuthenticated: false, accessToken: null })
-        })
-
-        it('does not log out when accessToken is present alongside temporaryToken', () => {
-            const logic = toolbarConfigLogic.build({
-                apiURL: 'http://localhost',
-                temporaryToken: 'old-temp-token',
-                accessToken: 'pha_oauth',
-                refreshToken: 'phr_refresh',
-                clientId: 'client-id',
-            } as any)
-            logic.mount()
-
-            expectLogic(logic).toMatchValues({ isAuthenticated: true, accessToken: 'pha_oauth' })
-        })
-    })
-
     describe('token refresh on 401', () => {
         it('retries request with new token after successful refresh', async () => {
             const logic = toolbarConfigLogic.build({

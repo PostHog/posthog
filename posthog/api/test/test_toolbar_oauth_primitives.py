@@ -5,13 +5,11 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import RequestFactory, override_settings
+from django.test import override_settings
 
 import requests
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.exceptions import AuthenticationFailed
-from rest_framework.request import Request
 
 from posthog.api.oauth.toolbar_service import (
     CALLBACK_PATH,
@@ -20,7 +18,6 @@ from posthog.api.oauth.toolbar_service import (
     get_or_create_toolbar_oauth_application,
     toolbar_oauth_state_cache,
 )
-from posthog.auth import TemporaryTokenAuthentication
 from posthog.models import Organization, Team, User
 
 
@@ -496,37 +493,6 @@ class TestToolbarOAuthStateCache(APIBaseTest):
         with self.assertRaises(ToolbarOAuthError) as cm:
             toolbar_oauth_state_cache.claim_or_raise("nonce-a")
         assert cm.exception.code == "state_replay"
-
-
-class TestTemporaryTokenBearerPassthrough(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.factory = RequestFactory()
-        self.auth = TemporaryTokenAuthentication()
-
-    def _make_cross_origin_request(self, **extra) -> Request:
-        wsgi_request = self.factory.get("/api/some-endpoint/", **extra)
-        wsgi_request.META["HTTP_ORIGIN"] = "https://customer-site.example.com"
-        return Request(wsgi_request)
-
-    def test_cross_origin_without_temp_token_or_bearer_raises(self):
-        request = self._make_cross_origin_request()
-        with self.assertRaises(AuthenticationFailed):
-            self.auth.authenticate(request)
-
-    def test_cross_origin_with_bearer_header_returns_none(self):
-        request = self._make_cross_origin_request(HTTP_AUTHORIZATION="Bearer pha_test123")
-        result = self.auth.authenticate(request)
-        assert result is None
-
-    def test_cross_origin_with_temp_token_authenticates(self):
-        self.user.temporary_token = "test-temp-token-123"
-        self.user.save(update_fields=["temporary_token"])
-
-        request = self._make_cross_origin_request(data={"temporary_token": "test-temp-token-123"})
-        result = self.auth.authenticate(request)
-        assert result is not None
-        assert result[0] == self.user
 
 
 class TestToolbarOAuthRefresh(APIBaseTest):

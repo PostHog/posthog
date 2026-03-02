@@ -235,7 +235,6 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     "User": [
         "email",
         "password",
-        "temporary_token",
         "pending_email",
     ],
 }

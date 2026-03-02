@@ -186,11 +186,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             }
         }
 
-        // Migrate users from the old temporaryToken flow to OAuth.
-        if (!values.accessToken && props.temporaryToken) {
-            actions.tokenExpired()
-        }
-
         if (props.instrument) {
             const distinctId = props.distinctId
 
