@@ -5,6 +5,11 @@ import { useEffect, useRef, useState } from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
+import { organizationLogic } from 'scenes/organizationLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { NotificationSettings, TeamBasicType } from '~/types'
+
 enum NotificationBlock {
     Security = 'security',
     WeeklyDigest = 'weekly-digest',
@@ -17,11 +22,6 @@ enum NotificationBlock {
 }
 
 const NOTIFICATION_BLOCK_ORDER = Object.values(NotificationBlock)
-
-import { organizationLogic } from 'scenes/organizationLogic'
-import { userLogic } from 'scenes/userLogic'
-
-import { NotificationSettings, TeamBasicType } from '~/types'
 
 type BooleanNotificationSettings = Omit<
     NotificationSettings,
@@ -132,8 +132,10 @@ export function UpdateEmailPreferences(): JSX.Element {
         updateETWeeklyDigestForAllTeams,
         updateDataPipelineErrorThreshold,
     } = useActions(userLogic)
+    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { searchParams } = useValues(router)
     const highlight = searchParams.highlight as NotificationBlock | undefined
+    const dataLoaded = !userLoading && !currentOrganizationLoading && !!user && !!currentOrganization
 
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
     const etDigestEnabled = user?.notification_settings?.error_tracking_weekly_digest !== false
@@ -308,10 +310,10 @@ export function UpdateEmailPreferences(): JSX.Element {
     const highlightRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
-        if (highlightRef.current) {
+        if (dataLoaded && highlightRef.current) {
             highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }
-    }, [highlightedBlock])
+    }, [dataLoaded, highlightedBlock])
 
     return (
         <div className="space-y-3">
