@@ -98,7 +98,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     ? await this.groupsManager.getGroupsForEvent(
                           hogFlow.team_id,
                           hogFlowInvocationState.event.properties,
-                          `${this.hub.SITE_URL}/project/${hogFlow.team_id}`
+                          `${this.config.SITE_URL}/project/${hogFlow.team_id}`
                       )
                     : {}
 
