@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
@@ -305,15 +305,20 @@ export function UpdateEmailPreferences(): JSX.Element {
     }
 
     const highlightedBlock = highlight && NOTIFICATION_BLOCK_ORDER.includes(highlight) ? highlight : null
-    const orderedKeys = highlightedBlock
-        ? [highlightedBlock, ...NOTIFICATION_BLOCK_ORDER.filter((k) => k !== highlightedBlock)]
-        : NOTIFICATION_BLOCK_ORDER
+    const highlightRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (highlightRef.current) {
+            highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+    }, [highlightedBlock])
 
     return (
         <div className="space-y-3">
-            {orderedKeys.map((key) => (
+            {NOTIFICATION_BLOCK_ORDER.map((key) => (
                 <div
                     key={key}
+                    ref={key === highlightedBlock ? highlightRef : undefined}
                     className={key === highlightedBlock ? 'ring-2 ring-accent-primary rounded-lg' : undefined}
                 >
                     {blocks[key]}
