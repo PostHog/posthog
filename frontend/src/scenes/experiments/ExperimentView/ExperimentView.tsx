@@ -86,6 +86,7 @@ const MetricsTab = (): JSX.Element => {
         usesNewQueryRunner,
         orderedPrimaryMetricsWithResults,
         orderedSecondaryMetricsWithResults,
+        isExperimentLaunched,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -211,13 +212,7 @@ const MetricsTab = (): JSX.Element => {
                     <MetricsViewLegacy isSecondary={true} />
                 </>
             ) : orderedPrimaryMetricsWithResults.length === 0 && orderedSecondaryMetricsWithResults.length === 0 ? (
-                <EmptyMetricsPanel
-                    helpText={
-                        experiment.start_date
-                            ? 'Add metrics to measure experiment results. You can always add or remove metrics later.'
-                            : undefined
-                    }
-                />
+                <EmptyMetricsPanel isLaunched={isExperimentLaunched} />
             ) : (
                 <>
                     <Metrics isSecondary={false} />

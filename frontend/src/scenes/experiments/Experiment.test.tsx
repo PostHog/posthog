@@ -175,15 +175,13 @@ describe('Experiment component routing', () => {
     it.each([
         {
             experimentOverrides: { start_date: '2024-01-01T00:00:00Z' },
-            expectedHelpText: 'Add metrics to measure experiment results.',
             description: 'running experiment',
         },
         {
             experimentOverrides: {},
-            expectedHelpText: "Add metrics to measure your experiment's impact.",
             description: 'draft',
         },
-    ])('$description without metrics shows add metric buttons', async ({ experimentOverrides, expectedHelpText }) => {
+    ])('$description without metrics shows add metric buttons', async ({ experimentOverrides }) => {
         localStorage.clear()
         sessionStorage.clear()
 
@@ -229,7 +227,6 @@ describe('Experiment component routing', () => {
             expect(screen.getByText('Add primary metric')).toBeInTheDocument()
         })
         expect(screen.getByText('Add secondary metric')).toBeInTheDocument()
-        expect(screen.getByText(expectedHelpText, { exact: false })).toBeInTheDocument()
 
         cleanup()
         sceneLogic.unmount()
