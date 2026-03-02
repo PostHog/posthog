@@ -83,7 +83,7 @@ from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
-from posthog.security.outbound_proxy import make_proxied_requests_session
+from posthog.security.outbound_proxy import external_requests, external_requests_session
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
@@ -287,21 +287,19 @@ class UserSerializer(serializers.ModelSerializer):
 
             expected_type = Notifications.__annotations__[key]
 
-            if key == "project_weekly_digest_disabled":
+            if key in ("project_weekly_digest_disabled", "error_tracking_weekly_digest_project_enabled"):
                 if not isinstance(value, dict):
                     raise serializers.ValidationError(
-                        f"project_weekly_digest_disabled must be a dictionary mapping project IDs to boolean values",
+                        f"{key} must be a dictionary mapping project IDs to boolean values",
                         code="invalid_input",
                     )
-                # Validate each project setting is a boolean
                 for _, disabled in value.items():
                     if not isinstance(disabled, bool):
                         raise serializers.ValidationError(
                             f"Project notification setting values must be boolean, got {type(disabled)} instead",
                             code="invalid_input",
                         )
-                # Merge with existing settings
-                current_settings[key] = {**current_settings.get("project_weekly_digest_disabled", {}), **value}
+                current_settings[key] = {**current_settings.get(key, {}), **value}
             elif key == "data_pipeline_error_threshold":
                 if not isinstance(value, (int, float)):
                     raise serializers.ValidationError(
@@ -969,6 +967,7 @@ def toolbar_oauth_authorize(request):
         return HttpResponse(exc.detail, status=exc.status_code)
 
     request.session["toolbar_oauth_code_verifier"] = code_verifier
+    request.session["toolbar_oauth_code_verifier_ts"] = time.time()
 
     return redirect(authorization_url)
 
@@ -1006,6 +1005,9 @@ def toolbar_oauth_callback(request):
         code_verifier = None
     else:
         code_verifier = request.session.pop("toolbar_oauth_code_verifier", None)
+        verifier_ts = request.session.pop("toolbar_oauth_code_verifier_ts", None)
+        if code_verifier and (not verifier_ts or time.time() - verifier_ts > settings.TOOLBAR_OAUTH_STATE_TTL_SECONDS):
+            code_verifier = None
 
     if code_verifier and code and state:
         # Toolbar flow: exchange code for tokens on the server
@@ -1266,7 +1268,7 @@ def redirect_to_website(request):
 
     # check if a strapi id is attached
     if request.user.strapi_id is None:
-        response = requests.request(
+        response = external_requests.request(
             "POST",
             "https://squeak.posthog.cc/api/auth/local/register",
             json={
@@ -1322,7 +1324,7 @@ def test_slack_webhook(request):
         return JsonResponse({"error": "no webhook URL"})
     message = {"text": "_Greetings_ from PostHog!"}
     try:
-        session = make_proxied_requests_session()
+        session = external_requests_session()
 
         if not settings.DEBUG:
             raise_if_user_provided_url_unsafe(webhook)

@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -10,11 +10,17 @@ import toolsQueryTemplate from '../../backend/queries/tools.sql?raw'
 import { SortDirection, SortState, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { llmAnalyticsToolsLogicType } from './llmAnalyticsToolsLogicType'
 
+export interface LLMAnalyticsToolsLogicProps {
+    tabId?: string
+}
+
 export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsToolsLogic']),
-    connect(() => ({
+    key((props: LLMAnalyticsToolsLogicProps) => props.tabId || 'default'),
+    props({} as LLMAnalyticsToolsLogicProps),
+    connect((props: LLMAnalyticsToolsLogicProps) => ({
         values: [
-            llmAnalyticsSharedLogic,
+            llmAnalyticsSharedLogic({ tabId: props.tabId }),
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],

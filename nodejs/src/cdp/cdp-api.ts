@@ -23,6 +23,7 @@ import {
     HogTransformerServiceDeps,
     createHogTransformerService,
 } from './hog-transformations/hog-transformer.service'
+import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
@@ -80,6 +81,7 @@ export class CdpApi {
     private recipientPreferencesService: RecipientPreferencesService
     private recipientTokensService: RecipientTokensService
     private cdpWarehouseKafkaProducer?: KafkaProducerWrapper
+    private batchExportHogFunctionService: BatchExportHogFunctionService
 
     constructor(private hub: CdpApiHub) {
         const services = createCdpCoreServices(hub, 'cdp-api-redis')
@@ -106,6 +108,14 @@ export class CdpApi {
             this.hogFlowManager,
             this.hogFunctionMonitoringService
         )
+        this.batchExportHogFunctionService = new BatchExportHogFunctionService(
+            hub.SITE_URL,
+            hub.teamManager,
+            this.hogFunctionManager,
+            this.hogExecutor,
+            this.hogWatcher,
+            this.hogFunctionMonitoringService
+        )
     }
 
     public get service(): PluginServerService {
@@ -125,7 +135,11 @@ export class CdpApi {
     }
 
     async stop(): Promise<void> {
-        await Promise.all([this.cdpWarehouseKafkaProducer?.disconnect(), this.cdpSourceWebhooksConsumer.stop()])
+        await Promise.all([
+            this.cdpWarehouseKafkaProducer?.disconnect(),
+            this.cdpSourceWebhooksConsumer.stop(),
+            this.batchExportHogFunctionService.stop(),
+        ])
     }
 
     isHealthy(): HealthCheckResult {
@@ -154,6 +168,10 @@ export class CdpApi {
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
         router.post('/api/messaging/generate_preferences_token', asyncHandler(this.generatePreferencesToken()))
         router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
+        router.post(
+            '/api/projects/:team_id/hog_functions/:hog_function_id/batch_export_invocations',
+            asyncHandler(this.handleBatchExportHogFunction())
+        )
 
         const publicBodySizeLimit = (req: ModifiedRequest, res: express.Response, next: express.NextFunction): void => {
             if (req.rawBody && req.rawBody.length > 512_000) {
@@ -711,6 +729,35 @@ export class CdpApi {
             } catch (error) {
                 logger.error('[CdpApi] Error validating preferences token', error)
                 return res.status(500).json({ error: 'Failed to validate token' })
+            }
+        }
+
+    private handleBatchExportHogFunction =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            try {
+                const result = await this.batchExportHogFunctionService.execute(
+                    {
+                        team_id: req.params.team_id,
+                        hog_function_id: req.params.hog_function_id,
+                    },
+                    req.body
+                )
+
+                return res.json({
+                    status: result.error ? 'error' : 'success',
+                    errors: result.error ? [String(result.error)] : [],
+                    logs: result.logs,
+                })
+            } catch (e) {
+                if (e instanceof NotFoundError) {
+                    return res.status(404).json({ errors: [e.message] })
+                } else if (e instanceof ParseError) {
+                    return res.status(400).json({ errors: [e.message] })
+                } else {
+                    console.error(e)
+                    return res.status(500).json({ errors: [e.message] })
+                }
             }
         }
 }

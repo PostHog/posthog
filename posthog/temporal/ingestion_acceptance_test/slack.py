@@ -5,6 +5,8 @@ from typing import Any
 import requests
 import structlog
 
+from posthog.security.outbound_proxy import external_requests
+
 from .config import Config
 from .results import TestSuiteResult
 
@@ -36,7 +38,7 @@ def send_slack_notification(config: Config, result: TestSuiteResult) -> bool:
     payload = {"blocks": blocks}
 
     try:
-        response = requests.post(
+        response = external_requests.post(
             config.slack_webhook_url,
             json=payload,
             timeout=10,

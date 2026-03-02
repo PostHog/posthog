@@ -112,7 +112,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         type: 'early_access_feature',
         ref: earlyAccessFeatureId,
         enabled: Boolean(currentTeamId && earlyAccessFeatureId && !earlyAccessFeatureLoading),
-        deps: [currentTeamId, earlyAccessFeatureId, earlyAccessFeatureLoading],
     })
 
     if (earlyAccessFeatureMissing) {
@@ -704,7 +703,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
         <div className="relative">
             {/*
             NOTE: This is a bit of a placement hack - ideally we would be able to add it to the Query
-            UPDATE: Absolute postion was overlapping with filters, so we put a bit on top. Still need to find a better solution.       
+            UPDATE: Absolute postion was overlapping with filters, so we put a bit on top. Still need to find a better solution.
              */}
             <div className="flex justify-end mb-2">
                 <LemonButton

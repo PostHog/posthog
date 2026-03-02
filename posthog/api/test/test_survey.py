@@ -1570,6 +1570,290 @@ class TestSurvey(APIBaseTest):
         )
         assert FeatureFlag.objects.filter(id=survey.internal_targeting_flag.id).get().active is True
 
+    def test_archiving_stopped_survey_disables_targeting_flag(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+
+        survey = Survey.objects.get(id=survey_with_targeting["id"])
+        targeting_flag_id = survey_with_targeting["targeting_flag"]["id"]
+        assert survey.internal_targeting_flag is not None
+        internal_flag_id = survey.internal_targeting_flag.id
+
+        # launch survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"start_date": datetime.now() - timedelta(days=1)},
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is True
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is True
+
+        # stop survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": datetime.now() + timedelta(days=1)},
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is False
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is False
+
+        # archive the already-stopped survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"archived": True},
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is False
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is False
+
+    def test_unrelated_patch_to_stopped_survey_keeps_flags_inactive(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+
+        survey = Survey.objects.get(id=survey_with_targeting["id"])
+        targeting_flag_id = survey_with_targeting["targeting_flag"]["id"]
+        assert survey.internal_targeting_flag is not None
+        internal_flag_id = survey.internal_targeting_flag.id
+
+        # launch survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"start_date": datetime.now() - timedelta(days=1)},
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is True
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is True
+
+        # stop survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": datetime.now() + timedelta(days=1)},
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is False
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is False
+
+        # unrelated update — just rename the survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"name": "renamed survey"},
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is False
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is False
+
+    def test_archiving_running_survey_disables_targeting_flag(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+
+        survey = Survey.objects.get(id=survey_with_targeting["id"])
+        targeting_flag_id = survey_with_targeting["targeting_flag"]["id"]
+        assert survey.internal_targeting_flag is not None
+        internal_flag_id = survey.internal_targeting_flag.id
+
+        # launch survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"start_date": datetime.now() - timedelta(days=1)},
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is True
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is True
+
+        # archive while still running (frontend sends end_date + archived together)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "archived": True,
+                "end_date": datetime.now().isoformat(),
+            },
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is False
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is False
+
+    def test_unarchiving_stopped_survey_keeps_flags_inactive(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+
+        survey = Survey.objects.get(id=survey_with_targeting["id"])
+        targeting_flag_id = survey_with_targeting["targeting_flag"]["id"]
+        assert survey.internal_targeting_flag is not None
+        internal_flag_id = survey.internal_targeting_flag.id
+
+        # launch survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"start_date": datetime.now() - timedelta(days=1)},
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is True
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is True
+
+        # stop survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": datetime.now() + timedelta(days=1)},
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is False
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is False
+
+        # archive the stopped survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"archived": True},
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is False
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is False
+
+        # unarchive the survey — flags stay inactive because the survey
+        # is still stopped (end_date is set)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"archived": False},
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is False
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is False
+
+    def test_resuming_stopped_survey_reactivates_both_flags(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+
+        survey = Survey.objects.get(id=survey_with_targeting["id"])
+        targeting_flag_id = survey_with_targeting["targeting_flag"]["id"]
+        assert survey.internal_targeting_flag is not None
+        internal_flag_id = survey.internal_targeting_flag.id
+
+        # launch survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"start_date": datetime.now() - timedelta(days=1)},
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is True
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is True
+
+        # stop survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": datetime.now() + timedelta(days=1)},
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is False
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is False
+
+        # resume survey by clearing end_date
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": None},
+        )
+        assert FeatureFlag.objects.get(id=targeting_flag_id).active is True
+        assert FeatureFlag.objects.get(id=internal_flag_id).active is True
+
     def test_survey_with_wait_period_creates_targeting_flag_with_last_seen_date_check(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",

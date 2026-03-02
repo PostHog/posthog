@@ -15,6 +15,7 @@ export enum SignalReportStatus {
     POTENTIAL = 'potential',
     CANDIDATE = 'candidate',
     IN_PROGRESS = 'in_progress',
+    PENDING_INPUT = 'pending_input',
     READY = 'ready',
     FAILED = 'failed',
 }

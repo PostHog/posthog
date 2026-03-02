@@ -69,7 +69,7 @@ def failing_result() -> TestSuiteResult:
 
 
 class TestSendSlackNotification:
-    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.external_requests.post")
     def test_skips_notification_on_success(
         self, mock_post: MagicMock, config: Config, passing_result: TestSuiteResult
     ) -> None:
@@ -78,7 +78,7 @@ class TestSendSlackNotification:
         assert result is True
         mock_post.assert_not_called()
 
-    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.external_requests.post")
     def test_posts_to_webhook_url_on_failure(
         self, mock_post: MagicMock, config: Config, failing_result: TestSuiteResult
     ) -> None:
@@ -90,7 +90,7 @@ class TestSendSlackNotification:
         url = mock_post.call_args[0][0]
         assert url == "https://hooks.slack.com/services/T00/B00/XXX"
 
-    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.external_requests.post")
     def test_sends_json_payload(self, mock_post: MagicMock, config: Config, failing_result: TestSuiteResult) -> None:
         mock_post.return_value.raise_for_status = MagicMock()
 
@@ -100,7 +100,7 @@ class TestSendSlackNotification:
         assert "json" in call_kwargs
         assert "blocks" in call_kwargs["json"]
 
-    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.external_requests.post")
     def test_failing_payload_contains_failure_header(
         self, mock_post: MagicMock, config: Config, failing_result: TestSuiteResult
     ) -> None:
@@ -116,7 +116,7 @@ class TestSendSlackNotification:
         header_text = header_block["text"]["text"]
         assert "Unsuccessful" in header_text
 
-    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.external_requests.post")
     def test_payload_contains_summary_with_counts(
         self, mock_post: MagicMock, config: Config, failing_result: TestSuiteResult
     ) -> None:
@@ -134,7 +134,7 @@ class TestSendSlackNotification:
         assert "Passed: 1" in summary_text
         assert "Failed" in summary_text
 
-    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.external_requests.post")
     def test_payload_contains_environment_info(
         self, mock_post: MagicMock, config: Config, failing_result: TestSuiteResult
     ) -> None:
@@ -152,7 +152,7 @@ class TestSendSlackNotification:
         assert "test.posthog.com" in env_text
         assert "12345" in env_text
 
-    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.external_requests.post")
     def test_failing_payload_contains_error_message(
         self, mock_post: MagicMock, config: Config, failing_result: TestSuiteResult
     ) -> None:
@@ -169,7 +169,7 @@ class TestSendSlackNotification:
         assert "test_failing" in all_text
         assert "AssertionError" in all_text
 
-    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.external_requests.post")
     def test_does_nothing_when_no_webhook_url(self, mock_post: MagicMock, failing_result: TestSuiteResult) -> None:
         config_no_webhook = Config(
             api_host="https://test.posthog.com",
