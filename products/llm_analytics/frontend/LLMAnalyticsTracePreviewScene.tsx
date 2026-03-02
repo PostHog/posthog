@@ -11,11 +11,11 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
-import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { NoTopLevelTraceEmptyState } from './components/NoTopLevelTraceEmptyState'
 import { EventTypeTag, TraceSidebarBase } from './components/TraceSidebarBase'
+import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
+import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { EnrichedTraceTreeNode, SpanAggregation } from './llmAnalyticsTraceDataLogic'
 import { TraceViewMode } from './llmAnalyticsTraceLogic'
 import { llmAnalyticsTracePreviewLogic } from './llmAnalyticsTracePreviewLogic'

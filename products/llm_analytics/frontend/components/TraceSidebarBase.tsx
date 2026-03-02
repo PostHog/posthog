@@ -10,8 +10,8 @@ import { pluralize } from 'lib/utils'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { SearchHighlight } from '../SearchHighlight'
 import { EnrichedTraceTreeNode } from '../llmAnalyticsTraceDataLogic'
+import { SearchHighlight } from '../SearchHighlight'
 import {
     formatLLMCost,
     formatLLMEventTitle,

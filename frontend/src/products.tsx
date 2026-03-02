@@ -1454,6 +1454,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalyticsPrompt',
             'LLMAnalyticsClusters',
             'LLMAnalyticsCluster',
+            'LLMAnalyticsTracePreview',
         ],
     },
     {
