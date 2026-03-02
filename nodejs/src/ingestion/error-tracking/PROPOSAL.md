@@ -96,11 +96,11 @@ From my attempt to understand everything that Cymbal currently does (with much h
 
 ### New Steps (Wrap Existing Services)
 
-| Component                              | Description                                                      | Effort |
-| -------------------------------------- | ---------------------------------------------------------------- | ------ |
-| `createPersonPropertiesReadOnlyStep()` | Fetch person by distinct_id, attach to event. No updates/merges. | Small  |
-| `createGroupTypeMappingStep()`         | Wrap `GroupTypeManager` as pipeline step                         | Small  |
-| `createErrorTrackingPrepareEventStep()`| Convert PluginEvent to PreIngestionEvent for emission            | Small  |
+| Component                               | Description                                                      | Effort |
+| --------------------------------------- | ---------------------------------------------------------------- | ------ |
+| `createPersonPropertiesReadOnlyStep()`  | Fetch person by distinct_id, attach to event. No updates/merges. | Small  |
+| `createGroupTypeMappingStep()`          | Wrap `GroupTypeManager` as pipeline step                         | Small  |
+| `createErrorTrackingPrepareEventStep()` | Convert PluginEvent to PreIngestionEvent for emission            | Small  |
 
 Note: No filtering step needed - the `error_tracking_ingestion` topic only contains `$exception` events (routed by capture service).
 
