@@ -1,4 +1,3 @@
-import { isEqual } from 'lodash'
 import { Counter } from 'prom-client'
 
 import { sanitizeString } from '~/utils/db/utils'
@@ -13,6 +12,7 @@ import { GroupType, HogFunctionInvocationGlobals } from '../../types'
 
 export type GroupsMap = Record<string, GroupType>
 export type GroupsCache = Record<Team['id'], GroupsMap>
+type GroupsCompareResult = { v1: string[]; v2: string[] }
 
 const groupsCompareCounter = new Counter({
     name: 'groups_compare_count',
@@ -191,40 +191,41 @@ export class GroupsManagerServiceV2 {
         return result
     }
 
-    public async temporaryCompareGroups(globalsList: HogFunctionInvocationGlobals[]): Promise<void> {
-        // This is to safelty test the rollout. We load the groups again via this manager and compare the results to the old manager
-
+    public async temporaryCompareGroups(
+        globalsList: HogFunctionInvocationGlobals[]
+    ): Promise<(GroupsCompareResult | undefined)[]> {
         try {
-            await Promise.all(
+            return await Promise.all(
                 globalsList.map(async (globals) => {
-                    // Load the groups fresh
-                    const groups = await this.getGroupsForEvent(
+                    const v2Groups = await this.getGroupsForEvent(
                         globals.project.id,
                         globals.event.properties,
                         globals.project.url
                     )
 
-                    // Compare the results
+                    const v1Groups = globals.groups ?? {}
+                    const v1Keys = Object.keys(v1Groups).sort()
+                    const v2Keys = Object.keys(v2Groups).sort()
 
-                    const match = isEqual(groups, globals.groups)
+                    const keysMatch = v1Keys.length === v2Keys.length && v1Keys.every((key, i) => key === v2Keys[i])
+                    const idsMatch = keysMatch && v1Keys.every((key) => v1Groups[key].id === v2Groups[key].id)
 
-                    groupsCompareCounter.labels({ result: match ? 'match' : 'different' }).inc()
-
-                    if (!match) {
-                        // Log out just the groups and keys
-
-                        const minimalGroupsV1 = Object.entries(globals.groups ?? {}).map(
-                            ([type, data]) => `${type}:${data.id}`
-                        )
-                        const minimalGroupsV2 = Object.entries(groups).map(([type, data]) => `${type}:${data.id}`)
-
-                        logger.error('Groups differ', { minimalGroupsV1, minimalGroupsV2 })
+                    if (keysMatch && idsMatch) {
+                        groupsCompareCounter.labels({ result: 'match' }).inc()
+                        return undefined
                     }
+
+                    groupsCompareCounter.labels({ result: 'different' }).inc()
+                    const minimalV1 = Object.entries(v1Groups).map(([type, data]) => `${type}:${data.id}`)
+                    const minimalV2 = Object.entries(v2Groups).map(([type, data]) => `${type}:${data.id}`)
+                    logger.error('Groups differ', { minimalGroupsV1: minimalV1, minimalGroupsV2: minimalV2 })
+                    return { v1: minimalV1, v2: minimalV2 }
                 })
             )
         } catch (error) {
             logger.error('Error comparing groups', { error })
             captureException(error)
+            return []
         }
     }
 }
