@@ -840,7 +840,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             promoted = False
 
             if isinstance(match_result, ExistingReportMatch):
-                report = SignalReport.objects.select_for_update().get(id=match_result.report_id)
+                report = SignalReport.objects.select_for_update().get(id=match_result.report_id, team_id=input.team_id)
                 report.total_weight += input.weight
                 report.signal_count += 1
                 update_fields = ["total_weight", "signal_count", "updated_at"]
