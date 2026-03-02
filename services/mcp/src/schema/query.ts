@@ -163,6 +163,81 @@ const HogQLQuerySchema = z.object({
     filters: HogQLFilters.optional(),
 })
 
+// Chart settings for DataVisualizationNode
+const DataVizDisplayType = z.enum(['auto', 'line', 'bar'])
+
+const YAxisPosition = z.enum(['left', 'right'])
+
+const ChartSettingsDisplay = z.object({
+    color: z.string().nullable().optional(),
+    displayType: DataVizDisplayType.nullable().optional(),
+    label: z.string().nullable().optional(),
+    trendLine: z.boolean().nullable().optional(),
+    yAxisPosition: YAxisPosition.nullable().optional(),
+})
+
+const FormattingStyle = z.enum(['none', 'number', 'percent'])
+
+const ChartSettingsFormatting = z.object({
+    decimalPlaces: z.number().nullable().optional(),
+    prefix: z.string().nullable().optional(),
+    style: FormattingStyle.nullable().optional(),
+    suffix: z.string().nullable().optional(),
+})
+
+const ChartAxisSettings = z.object({
+    display: ChartSettingsDisplay.nullable().optional(),
+    formatting: ChartSettingsFormatting.nullable().optional(),
+})
+
+const ChartAxis = z.object({
+    column: z.string(),
+    settings: ChartAxisSettings.nullable().optional(),
+})
+
+const AxisScale = z.enum(['linear', 'logarithmic'])
+
+const YAxisSettings = z.object({
+    scale: AxisScale.nullable().optional(),
+    showGridLines: z.boolean().nullable().optional(),
+    showTicks: z.boolean().nullable().optional(),
+    startAtZero: z.boolean().nullable().optional(),
+})
+
+const GoalLine = z.object({
+    label: z.string().optional(),
+    value: z.number().optional(),
+})
+
+const DataVizChartSettings = z.object({
+    goalLines: z.array(GoalLine).nullable().optional(),
+    leftYAxisSettings: YAxisSettings.nullable().optional(),
+    rightYAxisSettings: YAxisSettings.nullable().optional(),
+    seriesBreakdownColumn: z.string().nullable().optional(),
+    showLegend: z.boolean().nullable().optional(),
+    showTotalRow: z.boolean().nullable().optional(),
+    showXAxisBorder: z.boolean().nullable().optional(),
+    showXAxisTicks: z.boolean().nullable().optional(),
+    showYAxisBorder: z.boolean().nullable().optional(),
+    stackBars100: z.boolean().nullable().optional(),
+    xAxis: ChartAxis.nullable().optional(),
+    yAxis: z.array(ChartAxis).nullable().optional(),
+    yAxisAtZero: z.boolean().nullable().optional(),
+})
+
+const ConditionalFormattingRule = z.object({
+    bytecode: z.array(z.any()).optional(),
+    color: z.string().optional(),
+    colorMode: z.enum(['single', 'range']).optional(),
+    columnName: z.string().optional(),
+    input: z.string().optional(),
+})
+
+const DataVizTableSettings = z.object({
+    columns: z.array(ChartAxis).nullable().optional(),
+    conditionalFormatting: z.array(ConditionalFormattingRule).nullable().optional(),
+})
+
 // Funnels filter
 const FunnelsFilter = z.object({
     layout: FunnelLayout.optional(),
@@ -195,6 +270,12 @@ const InsightVizNodeSchema = z.object({
 const DataVisualizationNodeSchema = z.object({
     kind: z.literal('DataVisualizationNode'),
     source: HogQLQuerySchema,
+    chartSettings: DataVizChartSettings.optional().describe(
+        'Chart visualization settings including axis configuration. Use xAxis to set X-axis column, yAxis array to set Y-axis columns with optional display type (line/bar/auto).'
+    ),
+    tableSettings: DataVizTableSettings.optional().describe(
+        'Table display settings including column configuration and conditional formatting.'
+    ),
 })
 
 // Any insight query
@@ -233,6 +314,10 @@ export {
     // HogQL types
     HogQLVariable,
     HogQLFilters,
+    // Chart settings for DataVisualizationNode
+    DataVizChartSettings,
+    DataVizTableSettings,
+    ChartAxis,
     // Queries
     TrendsQuerySchema,
     FunnelsQuerySchema,
