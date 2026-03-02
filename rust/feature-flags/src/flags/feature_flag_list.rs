@@ -302,8 +302,8 @@ mod tests {
             .await
             .expect("Failed to insert team");
 
-        let random_id_1 = rand::thread_rng().gen_range(1_000_000..100_000_000);
-        let random_id_2 = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        let random_id_1 = rand::thread_rng().gen_range(1_000_000..i32::MAX);
+        let random_id_2 = rand::thread_rng().gen_range(1_000_000..i32::MAX);
 
         let flag1 = FeatureFlagRow {
             id: random_id_1,
@@ -414,7 +414,7 @@ mod tests {
             .expect("Failed to get connection");
 
         // Insert a regular feature flag via raw SQL (is_remote_configuration = false)
-        let regular_flag_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        let regular_flag_id = rand::thread_rng().gen_range(1_000_000..i32::MAX);
         sqlx::query(
             r#"INSERT INTO posthog_featureflag
             (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
@@ -431,7 +431,7 @@ mod tests {
         .expect("Failed to insert regular flag");
 
         // Insert an unencrypted remote config flag via raw SQL
-        let unencrypted_remote_config_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        let unencrypted_remote_config_id = rand::thread_rng().gen_range(1_000_000..i32::MAX);
         sqlx::query(
             r#"INSERT INTO posthog_featureflag
             (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
@@ -448,7 +448,7 @@ mod tests {
         .expect("Failed to insert unencrypted remote config flag");
 
         // Insert an encrypted remote config flag via raw SQL
-        let encrypted_remote_config_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        let encrypted_remote_config_id = rand::thread_rng().gen_range(1_000_000..i32::MAX);
         sqlx::query(
             r#"INSERT INTO posthog_featureflag
             (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
@@ -497,7 +497,7 @@ mod tests {
             .expect("Failed to get connection");
 
         // Insert flag with is_remote_configuration = NULL, has_encrypted_payloads = false
-        let null_remote_config_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        let null_remote_config_id = rand::thread_rng().gen_range(1_000_000..i32::MAX);
         sqlx::query(
             r#"INSERT INTO posthog_featureflag
             (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
@@ -514,7 +514,7 @@ mod tests {
         .expect("Failed to insert null remote config flag");
 
         // Insert flag with is_remote_configuration = true, has_encrypted_payloads = NULL
-        let null_encrypted_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        let null_encrypted_id = rand::thread_rng().gen_range(1_000_000..i32::MAX);
         sqlx::query(
             r#"INSERT INTO posthog_featureflag
             (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
@@ -531,7 +531,7 @@ mod tests {
         .expect("Failed to insert null encrypted flag");
 
         // Insert legacy flag with both fields NULL
-        let legacy_flag_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        let legacy_flag_id = rand::thread_rng().gen_range(1_000_000..i32::MAX);
         sqlx::query(
             r#"INSERT INTO posthog_featureflag
             (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
@@ -549,7 +549,7 @@ mod tests {
 
         // Insert flag with is_remote_configuration = NULL, has_encrypted_payloads = true
         // This should still be included because is_remote_configuration is not TRUE
-        let null_remote_encrypted_true_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        let null_remote_encrypted_true_id = rand::thread_rng().gen_range(1_000_000..i32::MAX);
         sqlx::query(
             r#"INSERT INTO posthog_featureflag
             (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
