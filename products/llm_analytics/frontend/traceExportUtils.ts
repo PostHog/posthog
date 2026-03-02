@@ -2,15 +2,16 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { EnrichedTraceTreeNode } from './llmAnalyticsTraceDataLogic'
+import { TraceTreeNode, restoreTree } from './llmAnalyticsTraceDataLogic'
 import { EventMetrics, MinimalEventExport, MinimalTraceExport } from './traceImportUtils'
 import { CompatMessage } from './types'
 import { formatLLMEventTitle, normalizeMessages } from './utils'
 
-function buildEventExport(event: LLMTraceEvent, children?: EnrichedTraceTreeNode[]): MinimalEventExport {
+function buildEventExport(event: LLMTraceEvent, children?: TraceTreeNode[]): MinimalEventExport {
     const isGeneration = event.event === '$ai_generation'
     const isEmbedding = event.event === '$ai_embedding'
-    const type = isGeneration ? 'generation' : isEmbedding ? 'embedding' : 'span'
+    const isTraceEvent = event.event === '$ai_trace'
+    const type = isGeneration ? 'generation' : isEmbedding ? 'embedding' : isTraceEvent ? 'trace' : 'span'
 
     const result: MinimalEventExport = {
         type,
@@ -81,19 +82,22 @@ function buildEventExport(event: LLMTraceEvent, children?: EnrichedTraceTreeNode
 
     // Add metrics
     const metrics: EventMetrics = {}
-    if (event.properties.$ai_latency) {
+    if (typeof event.properties.$ai_latency === 'number') {
         metrics.latency = event.properties.$ai_latency
     }
-    if (event.properties.$ai_time_to_first_token) {
+    if (typeof event.properties.$ai_time_to_first_token === 'number') {
         metrics.time_to_first_token = event.properties.$ai_time_to_first_token
     }
-    if (event.properties.$ai_input_tokens || event.properties.$ai_output_tokens) {
+    if (
+        typeof event.properties.$ai_input_tokens === 'number' ||
+        typeof event.properties.$ai_output_tokens === 'number'
+    ) {
         metrics.tokens = {
-            input: event.properties.$ai_input_tokens || 0,
-            output: event.properties.$ai_output_tokens || 0,
+            input: event.properties.$ai_input_tokens ?? 0,
+            output: event.properties.$ai_output_tokens ?? 0,
         }
     }
-    if (event.properties.$ai_total_cost_usd) {
+    if (typeof event.properties.$ai_total_cost_usd === 'number') {
         metrics.cost = event.properties.$ai_total_cost_usd
     }
 
@@ -109,7 +113,8 @@ function buildEventExport(event: LLMTraceEvent, children?: EnrichedTraceTreeNode
     return result
 }
 
-export function buildMinimalTraceJSON(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): MinimalTraceExport {
+export function buildMinimalTraceJSON(trace: LLMTrace): MinimalTraceExport {
+    const tree = restoreTree(trace.events, trace.id)
     const result: MinimalTraceExport = {
         trace_id: trace.id,
         timestamp: trace.createdAt,
@@ -125,16 +130,35 @@ export function buildMinimalTraceJSON(trace: LLMTrace, tree: EnrichedTraceTreeNo
         result.name = trace.traceName
     }
 
-    // Add total cost if available
-    if (trace.totalCost) {
+    if (trace.inputState !== undefined) {
+        result.input = trace.inputState
+    }
+
+    if (trace.outputState !== undefined) {
+        result.output = trace.outputState
+    }
+
+    if (typeof trace.inputCost === 'number') {
+        result.input_cost = trace.inputCost
+    }
+
+    if (typeof trace.outputCost === 'number') {
+        result.output_cost = trace.outputCost
+    }
+
+    if (typeof trace.totalCost === 'number') {
         result.total_cost = trace.totalCost
+    }
+
+    if (typeof trace.totalLatency === 'number') {
+        result.total_latency = trace.totalLatency
     }
 
     return result
 }
 
-export async function exportTraceToClipboard(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): Promise<void> {
-    const exportData = buildMinimalTraceJSON(trace, tree)
+export async function exportTraceToClipboard(trace: LLMTrace): Promise<void> {
+    const exportData = buildMinimalTraceJSON(trace)
     const jsonString = JSON.stringify(exportData, null, 2)
 
     await copyToClipboard(jsonString, 'trace data')

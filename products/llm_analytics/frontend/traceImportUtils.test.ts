@@ -122,10 +122,35 @@ describe('traceImportUtils', () => {
                     { trace_id: 'test-123', timestamp: '2024-01-01T12:00:00Z', events: [{ type: 'span', name: 123 }] },
                     'Event missing required name field',
                 ],
+                [
+                    {
+                        trace_id: 'test-123',
+                        timestamp: '2024-01-01T12:00:00Z',
+                        events: [{ type: 'unknown', name: 'test' }],
+                    },
+                    'Event missing required type field',
+                ],
             ])('returns error for invalid event: %p', (input, expectedError) => {
                 const result = validateTraceExport(input)
                 expect(result.valid).toBe(false)
                 expect(result.error).toBe(expectedError)
+            })
+
+            it('returns error for invalid nested child event', () => {
+                const result = validateTraceExport({
+                    trace_id: 'test-123',
+                    timestamp: '2024-01-01T12:00:00Z',
+                    events: [
+                        {
+                            type: 'span',
+                            name: 'parent',
+                            children: [{ type: 'unknown', name: 'bad child' }],
+                        },
+                    ],
+                })
+
+                expect(result.valid).toBe(false)
+                expect(result.error).toBe('Event missing required type field')
             })
         })
 
@@ -162,6 +187,18 @@ describe('traceImportUtils', () => {
                         { type: 'embedding', name: 'embed-text' },
                     ],
                 })
+                expect(result.valid).toBe(true)
+            })
+
+            it('accepts top-level trace content without child events', () => {
+                const result = validateTraceExport({
+                    trace_id: 'test-123',
+                    timestamp: '2024-01-01T12:00:00Z',
+                    input: { prompt: 'Hello' },
+                    output: { response: 'Hi' },
+                    events: [],
+                })
+
                 expect(result.valid).toBe(true)
             })
         })
@@ -259,6 +296,7 @@ describe('traceImportUtils', () => {
                             name: 'Metered Call',
                             metrics: {
                                 latency: 500,
+                                time_to_first_token: 120,
                                 tokens: { input: 100, output: 50 },
                                 cost: 0.002,
                             },
@@ -268,6 +306,7 @@ describe('traceImportUtils', () => {
                 const result = parseTraceExportJson(JSON.stringify(trace))
 
                 expect(result.trace.events[0].properties.$ai_latency).toBe(500)
+                expect(result.trace.events[0].properties.$ai_time_to_first_token).toBe(120)
                 expect(result.trace.events[0].properties.$ai_input_tokens).toBe(100)
                 expect(result.trace.events[0].properties.$ai_output_tokens).toBe(50)
                 expect(result.trace.events[0].properties.$ai_total_cost_usd).toBe(0.002)
@@ -333,13 +372,13 @@ describe('traceImportUtils', () => {
                 expect(result.trace.events[0].properties.$ai_output_state).toEqual({ result: 'test result' })
             })
 
-            it('converts trace type as span', () => {
+            it('converts trace type as trace', () => {
                 const trace = createMinimalTrace({
                     events: [{ type: 'trace', name: 'Root Trace' }],
                 })
                 const result = parseTraceExportJson(JSON.stringify(trace))
 
-                expect(result.trace.events[0].event).toBe('$ai_span')
+                expect(result.trace.events[0].event).toBe('$ai_trace')
             })
         })
 
@@ -556,6 +595,26 @@ describe('traceImportUtils', () => {
                 const result = parseTraceExportJson(JSON.stringify(trace))
 
                 expect(result.trace.traceName).toBe('My Custom Trace')
+            })
+
+            it('includes top-level trace content and metadata', () => {
+                const trace = createMinimalTrace({
+                    events: [],
+                    input: { prompt: 'Hello' },
+                    output: { response: 'Hi' },
+                    input_cost: 0.001,
+                    output_cost: 0.004,
+                    total_cost: 0.005,
+                    total_latency: 1.5,
+                })
+                const result = parseTraceExportJson(JSON.stringify(trace))
+
+                expect(result.trace.inputState).toEqual({ prompt: 'Hello' })
+                expect(result.trace.outputState).toEqual({ response: 'Hi' })
+                expect(result.trace.inputCost).toBe(0.001)
+                expect(result.trace.outputCost).toBe(0.004)
+                expect(result.trace.totalCost).toBe(0.005)
+                expect(result.trace.totalLatency).toBe(1.5)
             })
         })
 

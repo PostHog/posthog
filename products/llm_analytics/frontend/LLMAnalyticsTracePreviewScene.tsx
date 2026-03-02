@@ -27,8 +27,16 @@ export const scene: SceneExport = {
 }
 
 export function LLMAnalyticsTracePreviewScene(): JSX.Element {
-    const { hasTrace, trace, enrichedTree, event, searchQuery, validationError, effectiveEventId } =
+    const { hasTrace, trace, enrichedTree, event, validationError, effectiveEventId } =
         useValues(llmAnalyticsTracePreviewLogic)
+    const { setSelectedEventId } = useActions(llmAnalyticsTracePreviewLogic)
+    const [searchQuery, setSearchQuery] = useState('')
+    const [viewMode, setViewMode] = useState<TraceViewMode>(TraceViewMode.Conversation)
+
+    React.useEffect(() => {
+        setSearchQuery('')
+        setViewMode(TraceViewMode.Conversation)
+    }, [trace?.id])
 
     return (
         <div className="min-h-screen bg-bg-3000 p-4">
@@ -47,8 +55,21 @@ export function LLMAnalyticsTracePreviewScene(): JSX.Element {
                             <ClearTraceButton />
                         </div>
                         <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
-                            <PreviewTraceSidebar trace={trace} eventId={effectiveEventId} tree={enrichedTree} />
-                            <PreviewEventContent event={event} tree={enrichedTree} searchQuery={searchQuery} />
+                            <PreviewTraceSidebar
+                                trace={trace}
+                                eventId={effectiveEventId}
+                                tree={enrichedTree}
+                                searchQuery={searchQuery}
+                                onSearchChange={setSearchQuery}
+                                onSelectEvent={setSelectedEventId}
+                            />
+                            <PreviewEventContent
+                                event={event}
+                                tree={enrichedTree}
+                                searchQuery={searchQuery}
+                                viewMode={viewMode}
+                                onViewModeChange={setViewMode}
+                            />
                         </div>
                     </div>
                 ) : null}
@@ -205,23 +226,26 @@ function PreviewTraceSidebar({
     trace,
     eventId,
     tree,
+    searchQuery,
+    onSearchChange,
+    onSelectEvent,
 }: {
     trace: LLMTrace
     eventId?: string | null
     tree: EnrichedTraceTreeNode[]
+    searchQuery: string
+    onSearchChange: (searchQuery: string) => void
+    onSelectEvent: (eventId: string) => void
 }): JSX.Element {
-    const { searchQuery, eventTypeExpanded } = useValues(llmAnalyticsTracePreviewLogic)
-    const { setSearchQuery, setSelectedEventId } = useActions(llmAnalyticsTracePreviewLogic)
-
     return (
         <TraceSidebarBase
             trace={trace}
             tree={tree}
             selectedEventId={eventId}
             searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            onSelectEvent={setSelectedEventId}
-            eventTypeExpanded={eventTypeExpanded}
+            onSearchChange={onSearchChange}
+            onSelectEvent={onSelectEvent}
+            eventTypeExpanded={() => true}
         />
     )
 }
@@ -230,14 +254,15 @@ function PreviewEventContent({
     event,
     tree,
     searchQuery,
+    viewMode,
+    onViewModeChange,
 }: {
     event: LLMTrace | LLMTraceEvent | null
     tree: EnrichedTraceTreeNode[]
     searchQuery?: string
+    viewMode: TraceViewMode
+    onViewModeChange: (viewMode: TraceViewMode) => void
 }): JSX.Element {
-    const { viewMode } = useValues(llmAnalyticsTracePreviewLogic)
-    const { setViewMode } = useActions(llmAnalyticsTracePreviewLogic)
-
     if (!event) {
         return (
             <main className="flex-1 min-w-0 bg-surface-primary max-h-fit border border-primary rounded flex flex-col p-4 overflow-y-auto">
@@ -282,7 +307,7 @@ function PreviewEventContent({
             </header>
             <LemonTabs
                 activeKey={viewMode}
-                onChange={setViewMode}
+                onChange={onViewModeChange}
                 tabs={[
                     {
                         key: TraceViewMode.Conversation,
@@ -373,7 +398,7 @@ function ConversationTabContent({
     }
 
     // Check if this is a top-level trace without actual content (no $ai_trace event)
-    const isTopLevelTraceWithoutContent = !event.inputState && !event.outputState
+    const isTopLevelTraceWithoutContent = event.inputState === undefined && event.outputState === undefined
 
     if (isTopLevelTraceWithoutContent) {
         return <NoTopLevelTraceEmptyState />

@@ -258,7 +258,7 @@ function TraceSceneWrapper(): JSX.Element {
                                         Discussion
                                     </LemonButton>
                                 )}
-                                <ShareTraceButton trace={trace} tree={enrichedTree} />
+                                <ShareTraceButton trace={trace} />
                             </div>
                         </div>
                     </div>
@@ -928,7 +928,7 @@ function EventTypeFilters(): JSX.Element {
     )
 }
 
-function ShareTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTraceTreeNode[] }): JSX.Element {
+function ShareTraceButton({ trace }: { trace: LLMTrace }): JSX.Element {
     const [visible, setVisible] = useState(false)
 
     const currentUrl = window.location.href
@@ -943,11 +943,11 @@ function ShareTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrac
     }
 
     const handleCopyTraceJson = async (): Promise<void> => {
-        await exportTraceToClipboard(trace, tree)
+        await exportTraceToClipboard(trace)
     }
 
     const handleDownloadTraceJson = (): void => {
-        const exportData = buildMinimalTraceJSON(trace, tree)
+        const exportData = buildMinimalTraceJSON(trace)
         const jsonString = JSON.stringify(exportData, null, 2)
         const blob = new Blob([jsonString], { type: 'application/json' })
         const url = URL.createObjectURL(blob)

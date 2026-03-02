@@ -23,7 +23,12 @@ export interface MinimalTraceExport {
     trace_id: string
     name?: string
     timestamp: string
+    input?: unknown
+    output?: unknown
+    input_cost?: number
+    output_cost?: number
     total_cost?: number
+    total_latency?: number
     total_tokens?: TokenUsage
     events: MinimalEventExport[]
 }
@@ -52,6 +57,44 @@ interface ValidationResult {
     error?: string
 }
 
+const VALID_EVENT_TYPES = new Set<MinimalEventExport['type']>(['generation', 'span', 'trace', 'embedding'])
+
+function validateTraceEvent(event: unknown): ValidationResult {
+    if (!event || typeof event !== 'object') {
+        return { valid: false, error: 'Invalid event in events array' }
+    }
+
+    const eventObj = event as Record<string, unknown>
+
+    if (
+        !eventObj.type ||
+        typeof eventObj.type !== 'string' ||
+        !VALID_EVENT_TYPES.has(eventObj.type as MinimalEventExport['type'])
+    ) {
+        return { valid: false, error: 'Event missing required type field' }
+    }
+
+    if (!eventObj.name || typeof eventObj.name !== 'string') {
+        return { valid: false, error: 'Event missing required name field' }
+    }
+
+    if (eventObj.children !== undefined) {
+        if (!Array.isArray(eventObj.children)) {
+            return { valid: false, error: 'Event children must be an array' }
+        }
+
+        for (const child of eventObj.children) {
+            const childValidation = validateTraceEvent(child)
+
+            if (!childValidation.valid) {
+                return childValidation
+            }
+        }
+    }
+
+    return { valid: true }
+}
+
 export function validateTraceExport(data: unknown): ValidationResult {
     if (!data || typeof data !== 'object') {
         return { valid: false, error: 'Invalid JSON structure: expected an object' }
@@ -71,23 +114,16 @@ export function validateTraceExport(data: unknown): ValidationResult {
         return { valid: false, error: 'Missing or invalid events array' }
     }
 
-    if (trace.events.length === 0) {
+    const hasTopLevelContent = trace.input !== undefined || trace.output !== undefined
+
+    if (trace.events.length === 0 && !hasTopLevelContent) {
         return { valid: false, error: 'Events array is empty' }
     }
 
     for (const event of trace.events) {
-        if (!event || typeof event !== 'object') {
-            return { valid: false, error: 'Invalid event in events array' }
-        }
-
-        const eventObj = event as Record<string, unknown>
-
-        if (!eventObj.type || typeof eventObj.type !== 'string') {
-            return { valid: false, error: 'Event missing required type field' }
-        }
-
-        if (!eventObj.name || typeof eventObj.name !== 'string') {
-            return { valid: false, error: 'Event missing required name field' }
+        const eventValidation = validateTraceEvent(event)
+        if (!eventValidation.valid) {
+            return eventValidation
         }
     }
 
@@ -109,7 +145,14 @@ function convertEventToInternal(
     const eventId = generateEventId()
     const isGeneration = event.type === 'generation'
     const isEmbedding = event.type === 'embedding'
-    const eventType = isGeneration ? '$ai_generation' : isEmbedding ? '$ai_embedding' : '$ai_span'
+    const isTraceEvent = event.type === 'trace'
+    const eventType = isGeneration
+        ? '$ai_generation'
+        : isEmbedding
+          ? '$ai_embedding'
+          : isTraceEvent
+            ? '$ai_trace'
+            : '$ai_span'
 
     const properties: Record<string, unknown> = {
         $ai_trace_id: traceId,
@@ -162,6 +205,14 @@ function convertEventToInternal(
         if (event.input !== undefined) {
             properties.$ai_input = event.input
         }
+    } else if (isTraceEvent) {
+        if (event.input !== undefined) {
+            properties.$ai_input_state = event.input
+        }
+
+        if (event.output !== undefined) {
+            properties.$ai_output_state = event.output
+        }
     } else {
         properties.$ai_span_id = eventId
 
@@ -188,6 +239,10 @@ function convertEventToInternal(
     if (event.metrics) {
         if (event.metrics.latency !== undefined) {
             properties.$ai_latency = event.metrics.latency
+        }
+
+        if (event.metrics.time_to_first_token !== undefined) {
+            properties.$ai_time_to_first_token = event.metrics.time_to_first_token
         }
 
         if (event.metrics.tokens) {
@@ -268,9 +323,14 @@ export function parseTraceExportJson(json: string): ParseResult {
             properties: {},
             distinct_id: 'Preview User',
         },
+        inputState: data.input,
+        outputState: data.output,
         inputTokens: data.total_tokens?.input ?? 0,
         outputTokens: data.total_tokens?.output ?? 0,
+        inputCost: data.input_cost,
+        outputCost: data.output_cost,
         totalCost: data.total_cost,
+        totalLatency: data.total_latency,
         traceName: data.name,
         events: allEvents,
     }

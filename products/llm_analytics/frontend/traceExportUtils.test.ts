@@ -69,16 +69,44 @@ describe('traceExportUtils', () => {
         createdAt: '2024-01-01T12:00:03Z',
     }
 
+    const buildTraceFromTree = (tree: EnrichedTraceTreeNode[], trace: LLMTrace = mockTrace): LLMTrace => {
+        const flattenTree = (nodes: EnrichedTraceTreeNode[], parentId?: string): LLMTraceEvent[] =>
+            nodes.flatMap((node) => {
+                const eventId =
+                    node.event.properties.$ai_generation_id ??
+                    node.event.properties.$ai_embedding_id ??
+                    node.event.properties.$ai_span_id ??
+                    node.event.id
+
+                const event: LLMTraceEvent = {
+                    ...node.event,
+                    properties: {
+                        ...node.event.properties,
+                        $ai_trace_id: trace.id,
+                        ...(parentId ? { $ai_parent_id: parentId } : {}),
+                    },
+                }
+
+                return [event, ...(node.children ? flattenTree(node.children, eventId) : [])]
+            })
+
+        return {
+            ...trace,
+            events: flattenTree(tree),
+        }
+    }
+
     describe('buildMinimalTraceJSON', () => {
         it('should build minimal trace with basic information', () => {
             const tree: EnrichedTraceTreeNode[] = []
-            const result = buildMinimalTraceJSON(mockTrace, tree)
+            const result = buildMinimalTraceJSON(buildTraceFromTree(tree))
 
             expect(result).toEqual({
                 trace_id: 'trace-123',
                 name: 'Test Trace',
                 timestamp: '2024-01-01T12:00:00Z',
                 total_cost: 0.005,
+                total_latency: 1500,
                 total_tokens: {
                     input: 100,
                     output: 50,
@@ -87,16 +115,39 @@ describe('traceExportUtils', () => {
             })
         })
 
+        it('should preserve top-level trace content and split costs', () => {
+            const trace = buildTraceFromTree([], {
+                ...mockTrace,
+                inputState: { prompt: 'Hello' },
+                outputState: { response: 'Hi' },
+                inputCost: 0.001,
+                outputCost: 0.004,
+            })
+            const result = buildMinimalTraceJSON(trace)
+
+            expect(result).toMatchObject({
+                input: { prompt: 'Hello' },
+                output: { response: 'Hi' },
+                input_cost: 0.001,
+                output_cost: 0.004,
+                total_cost: 0.005,
+                total_latency: 1500,
+            })
+        })
+
         it('should handle trace without optional fields', () => {
             const minimalTrace: LLMTrace = {
                 ...mockTrace,
                 traceName: undefined,
                 totalCost: undefined,
+                totalLatency: undefined,
+                inputCost: undefined,
+                outputCost: undefined,
                 inputTokens: undefined,
                 outputTokens: undefined,
             }
             const tree: EnrichedTraceTreeNode[] = []
-            const result = buildMinimalTraceJSON(minimalTrace, tree)
+            const result = buildMinimalTraceJSON(buildTraceFromTree(tree, minimalTrace))
 
             expect(result).toEqual({
                 trace_id: 'trace-123',
@@ -120,7 +171,7 @@ describe('traceExportUtils', () => {
                     displayUsage: '5 → 7 tokens',
                 },
             ]
-            const result = buildMinimalTraceJSON(mockTrace, tree)
+            const result = buildMinimalTraceJSON(buildTraceFromTree(tree))
 
             expect(result.events).toHaveLength(1)
 
@@ -171,7 +222,7 @@ describe('traceExportUtils', () => {
                     displayUsage: null,
                 },
             ]
-            const result = buildMinimalTraceJSON(mockTrace, tree)
+            const result = buildMinimalTraceJSON(buildTraceFromTree(tree))
 
             expect(result.events).toHaveLength(1)
             expect(result.events[0]).toEqual({
@@ -185,6 +236,34 @@ describe('traceExportUtils', () => {
             })
         })
 
+        it('should preserve trace events as trace exports', () => {
+            const traceEvent: LLMTraceEvent = {
+                id: 'event-trace',
+                event: '$ai_trace',
+                properties: {
+                    $ai_span_name: 'Root trace event',
+                    $ai_input_state: { prompt: 'Hello' },
+                    $ai_output_state: { response: 'Hi' },
+                },
+                createdAt: '2024-01-01T12:00:02Z',
+            }
+            const tree: EnrichedTraceTreeNode[] = [
+                {
+                    event: traceEvent,
+                    displayTotalCost: 0,
+                    displayLatency: 0,
+                    displayUsage: null,
+                },
+            ]
+            const result = buildMinimalTraceJSON(buildTraceFromTree(tree))
+
+            expect(result.events[0]).toMatchObject({
+                type: 'trace',
+                input: { prompt: 'Hello' },
+                output: { response: 'Hi' },
+            })
+        })
+
         it('should handle error events', () => {
             const tree: EnrichedTraceTreeNode[] = [
                 {
@@ -194,7 +273,7 @@ describe('traceExportUtils', () => {
                     displayUsage: null,
                 },
             ]
-            const result = buildMinimalTraceJSON(mockTrace, tree)
+            const result = buildMinimalTraceJSON(buildTraceFromTree(tree))
 
             expect(result.events).toHaveLength(1)
             expect(result.events[0]).toMatchObject({
@@ -230,7 +309,7 @@ describe('traceExportUtils', () => {
                     displayUsage: null,
                 },
             ]
-            const result = buildMinimalTraceJSON(mockTrace, tree)
+            const result = buildMinimalTraceJSON(buildTraceFromTree(tree))
 
             expect(result.events[0].error).toBe('Error occurred (details not available)')
         })
@@ -252,7 +331,7 @@ describe('traceExportUtils', () => {
                     ],
                 },
             ]
-            const result = buildMinimalTraceJSON(mockTrace, tree)
+            const result = buildMinimalTraceJSON(buildTraceFromTree(tree))
 
             expect(result.events).toHaveLength(1)
             expect(result.events[0].children).toHaveLength(1)
@@ -281,7 +360,7 @@ describe('traceExportUtils', () => {
                     displayUsage: null,
                 },
             ]
-            const result = buildMinimalTraceJSON(mockTrace, tree)
+            const result = buildMinimalTraceJSON(buildTraceFromTree(tree))
 
             expect(result.events[0].metrics).toEqual({
                 latency: 300,
@@ -303,7 +382,7 @@ describe('traceExportUtils', () => {
                     displayUsage: null,
                 },
             ]
-            const result = buildMinimalTraceJSON(mockTrace, tree)
+            const result = buildMinimalTraceJSON(buildTraceFromTree(tree))
 
             expect(result.events[0].metrics).toBeUndefined()
         })
@@ -330,7 +409,7 @@ describe('traceExportUtils', () => {
                     displayUsage: null,
                 },
             ]
-            const result = buildMinimalTraceJSON(mockTrace, tree)
+            const result = buildMinimalTraceJSON(buildTraceFromTree(tree))
 
             expect(result.events[0].messages).not.toBeUndefined()
             // The normalizeMessages function should handle the output_choices
@@ -377,7 +456,7 @@ describe('traceExportUtils', () => {
                 },
             ]
 
-            const result = buildMinimalTraceJSON(mockTrace, deepTree)
+            const result = buildMinimalTraceJSON(buildTraceFromTree(deepTree))
 
             expect(result.events).toHaveLength(1)
             expect(result.events[0].children).toHaveLength(2)
@@ -420,7 +499,7 @@ describe('traceExportUtils', () => {
                 },
             ]
 
-            const result = buildMinimalTraceJSON(mockTrace, tree)
+            const result = buildMinimalTraceJSON(buildTraceFromTree(tree))
 
             expect(result.events[0].messages).not.toBeUndefined()
             expect(result.events[0].type).toBe('generation')
@@ -461,7 +540,7 @@ describe('traceExportUtils', () => {
                 },
             ]
 
-            const result = buildMinimalTraceJSON(mockTrace, tree)
+            const result = buildMinimalTraceJSON(buildTraceFromTree(tree))
 
             // Messages should be in exact order: input messages followed by output messages
             expect(result.events[0].messages).toEqual([
