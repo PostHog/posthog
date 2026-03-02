@@ -66,7 +66,6 @@ export const scene: SceneExport = {
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     useMountedLogic(llmAnalyticsPlaygroundLogic)
 
-    // 300px accounts for the top nav bar, scene title section, tab bar, and surrounding padding
     return (
         <div className="flex flex-col h-[calc(100vh-300px)] min-h-[520px]">
             <PlaygroundLayout />
