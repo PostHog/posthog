@@ -92,7 +92,7 @@ const latestOffsetTimestampGauge = new Gauge({
 export class ErrorTrackingConsumer {
     protected name = 'error-tracking-consumer'
     protected kafkaConsumer: KafkaConsumer
-    protected pipeline?: BatchPipelineUnwrapper<{ message: Message }, ErrorTrackingPipelineOutput, { message: Message }>
+    protected pipeline!: BatchPipelineUnwrapper<{ message: Message }, ErrorTrackingPipelineOutput, { message: Message }>
     protected cymbalClient: CymbalClient
     protected promiseScheduler: PromiseScheduler
     protected eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -257,12 +257,6 @@ export class ErrorTrackingConsumer {
                     .labels({ partition: message.partition, topic: message.topic, groupId: this.config.groupId })
                     .set(message.timestamp)
             }
-        }
-
-        if (!this.pipeline) {
-            logger.error('❌', `${this.name} - pipeline not initialized`)
-            batchProcessedCounter.inc({ status: 'error' })
-            return
         }
 
         try {
