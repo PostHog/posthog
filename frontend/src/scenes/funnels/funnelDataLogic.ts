@@ -314,26 +314,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     return results.sort((a, b) => a.order - b.order)
                 }
 
-                // Profile mode: synthesize placeholder steps so the flow graph renders all-gray "Not reached"
-                // nodes instead of the generic empty state. hasFunnelResults checks steps[0].count > -1,
-                // so count: 0 satisfies it while ProfileFlowNode treats count <= 0 as not reached.
-                if (props.isProfileMode && querySource?.series?.length) {
-                    return querySource.series.map((node, index) => ({
-                        action_id: node.kind === NodeKind.ActionsNode ? String(node.id) : (node.event ?? ''),
-                        name:
-                            node.custom_name ||
-                            (node.kind === NodeKind.ActionsNode ? `Action ${node.id}` : (node.event ?? '')),
-                        custom_name: node.custom_name ?? null,
-                        order: index,
-                        count: 0,
-                        type: (node.kind === NodeKind.ActionsNode ? 'actions' : 'events') as EntityType,
-                        average_conversion_time: null,
-                        median_conversion_time: null,
-                        converted_people_url: '',
-                        dropped_people_url: null,
-                    }))
-                }
-
                 return []
             },
         ],

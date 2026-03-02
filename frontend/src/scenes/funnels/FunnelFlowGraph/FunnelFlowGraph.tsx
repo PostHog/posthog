@@ -43,8 +43,9 @@ function FunnelFlowGraphContent(): JSX.Element {
     const { fitView: fitViewImperative } = useReactFlow()
     const { isDarkModeOn } = useValues(themeLogic)
     const { insightProps } = useValues(insightLogic)
-    const { laidOutNodes, edges, nodeType, fitViewOptions } = useValues(funnelFlowGraphLogic(insightProps))
-    const isProfileMode = nodeType === 'profile'
+    // Property filters are only set when in person/group profile, so we can use that as a proxy
+    const isProfileMode = insightProps.query?.source?.properties?.length > 0
+    const { laidOutNodes, edges, fitViewOptions } = useValues(funnelFlowGraphLogic({ ...insightProps, isProfileMode }))
 
     const onInit = useCallback(
         (instance: ReactFlowInstance<AnyFlowNode>) => {
