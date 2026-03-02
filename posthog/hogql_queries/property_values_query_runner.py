@@ -1,7 +1,7 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from posthog.schema import (
     CachedPropertyValuesQueryResponse,
@@ -146,7 +146,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         )
 
     def _format_event_results(self, rows: list) -> list[PropertyValueItem]:
-        values = []
+        values: list[Any] = []
         for row in rows:
             raw = row[0]
             if isinstance(raw, float | int | bool | uuid.UUID):
