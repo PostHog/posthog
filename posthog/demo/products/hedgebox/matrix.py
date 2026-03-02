@@ -66,6 +66,7 @@ from posthog.storage import object_storage
 
 from products.data_warehouse.backend.models.credential import get_or_create_datawarehouse_credential
 from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.event_definitions.backend.models.schema import (
@@ -1236,6 +1237,137 @@ class HedgeboxMatrix(Matrix):
             )
 
         self._set_up_paid_bill_data_warehouse_table(team, user)
+
+        # Endpoints
+        try:
+            weekly_signups_endpoint = Endpoint.objects.create(
+                name="weekly-signups",
+                team=team,
+                created_by=user,
+                is_active=True,
+                current_version=1,
+            )
+            EndpointVersion.objects.create(
+                endpoint=weekly_signups_endpoint,
+                version=1,
+                query=TrendsQuery(
+                    series=[EventsNode(event=EVENT_SIGNED_UP, name=EVENT_SIGNED_UP)],
+                    trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                    interval=IntervalType.WEEK,
+                    dateRange=DateRange(date_from="-8w"),
+                ).model_dump(),
+                description="Weekly signup count over the last 8 weeks",
+                created_by=user,
+            )
+
+            monthly_revenue_endpoint = Endpoint.objects.create(
+                name="monthly-revenue",
+                team=team,
+                created_by=user,
+                is_active=True,
+                current_version=1,
+            )
+            EndpointVersion.objects.create(
+                endpoint=monthly_revenue_endpoint,
+                version=1,
+                query=TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event=EVENT_PAID_BILL,
+                            name=EVENT_PAID_BILL,
+                            math=PropertyMathType.SUM,
+                            math_property="amount_usd",
+                        )
+                    ],
+                    trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                    interval=IntervalType.MONTH,
+                    dateRange=DateRange(date_from="-6m"),
+                ).model_dump(),
+                description="Monthly revenue from paid bills over the last 6 months",
+                created_by=user,
+            )
+
+            signups_by_country_endpoint = Endpoint.objects.create(
+                name="signups-by-country",
+                team=team,
+                created_by=user,
+                is_active=True,
+                current_version=1,
+            )
+            EndpointVersion.objects.create(
+                endpoint=signups_by_country_endpoint,
+                version=1,
+                query=TrendsQuery(
+                    series=[EventsNode(event=EVENT_SIGNED_UP, name=EVENT_SIGNED_UP)],
+                    trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_TABLE),
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$geoip_country_code",
+                        breakdown_type=BreakdownType.EVENT,
+                    ),
+                    dateRange=DateRange(date_from="-30d"),
+                ).model_dump(),
+                description="Signups broken down by country over the last 30 days",
+                created_by=user,
+            )
+
+            daily_active_users_endpoint = Endpoint.objects.create(
+                name="daily-active-users",
+                team=team,
+                created_by=user,
+                is_active=True,
+                current_version=1,
+            )
+            EndpointVersion.objects.create(
+                endpoint=daily_active_users_endpoint,
+                version=1,
+                query={
+                    "kind": "HogQLQuery",
+                    "query": (
+                        "SELECT toDate(timestamp) AS day, count(DISTINCT person_id) AS unique_users "
+                        "FROM events WHERE event = '$pageview' AND timestamp >= now() - interval 30 day "
+                        "GROUP BY day ORDER BY day"
+                    ),
+                },
+                description="Daily active users (unique pageview persons) over the last 30 days",
+                created_by=user,
+            )
+
+            activation_funnel_endpoint = Endpoint.objects.create(
+                name="activation-funnel",
+                team=team,
+                created_by=user,
+                is_active=True,
+                current_version=1,
+            )
+            EndpointVersion.objects.create(
+                endpoint=activation_funnel_endpoint,
+                version=1,
+                query=FunnelsQuery(
+                    series=[
+                        EventsNode(
+                            event=EVENT_SIGNED_UP,
+                            name=EVENT_SIGNED_UP,
+                            custom_name="Signed up",
+                        ),
+                        EventsNode(
+                            event=EVENT_UPLOADED_FILE,
+                            name=EVENT_UPLOADED_FILE,
+                            custom_name="Uploaded file",
+                        ),
+                        EventsNode(
+                            event=EVENT_UPGRADED_PLAN,
+                            name=EVENT_UPGRADED_PLAN,
+                            custom_name="Upgraded plan",
+                        ),
+                    ],
+                    funnelsFilter=FunnelsFilter(funnelVizType=FunnelVizType.STEPS),
+                    dateRange=DateRange(date_from="-30d"),
+                ).model_dump(),
+                description="Activation funnel from signup through file upload to plan upgrade",
+                created_by=user,
+            )
+        except IntegrityError:
+            pass
 
         # Create File Stats property group
         try:
