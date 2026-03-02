@@ -13,11 +13,6 @@ from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 from ee.models.assistant import CoreMemory
 
-pytest_plugins = (
-    "ee.hogai.eval.posthog_poc.suites.ticket_summary",
-    "ee.hogai.eval.posthog_poc.suites.memory",
-)
-
 EVAL_USER_FULL_NAME = "Karen Smith"
 
 

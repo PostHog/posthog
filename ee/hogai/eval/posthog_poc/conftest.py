@@ -8,7 +8,11 @@ from ee.hogai.eval.conftest import set_up_evals  # noqa: F401
 
 from .client import PostHogEvalClient
 
-pytest_plugins = ("posthog.conftest",)
+pytest_plugins = (
+    "posthog.conftest",
+    "ee.hogai.eval.posthog_poc.suites.ticket_summary",
+    "ee.hogai.eval.posthog_poc.suites.memory",
+)
 
 
 @pytest.fixture
