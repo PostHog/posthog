@@ -79,6 +79,7 @@ export const LemonFileInput = ({
             setFiles(localFiles)
             onChange?.(localFiles)
         }
+        e.target.value = ''
     }
 
     const handleDrag = (e: DragEvent): void => {

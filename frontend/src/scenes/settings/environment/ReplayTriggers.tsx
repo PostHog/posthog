@@ -7,8 +7,8 @@ import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summa
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { isNumeric } from 'lib/utils'
-import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { ReplayPlatform, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
+import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
@@ -180,7 +180,8 @@ function Sampling(): JSX.Element {
         <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
             <div className="flex flex-row justify-between mt-2">
                 <LemonLabel className="text-base">
-                    <IngestionControls.MatchTypeTag /> Sampling <Since web={{ version: '1.85.0' }} />
+                    <IngestionControls.MatchTypeTag /> Sampling{' '}
+                    <Since web={{ version: '1.85.0' }} android={{ version: '3.34.0' }} ios={{ version: '3.42.0' }} />
                 </LemonLabel>
                 <IngestionControls.SamplingTrigger
                     initialSampleRate={

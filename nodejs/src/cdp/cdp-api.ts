@@ -1,25 +1,29 @@
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
 import { ModifiedRequest } from '~/api/router'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS, KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/kafka/producer'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
 import './async-functions'
+import { createCdpCoreServices } from './cdp-services'
 import {
     CdpSourceWebhooksConsumer,
     CdpSourceWebhooksConsumerHub,
     HogFunctionWebhookResult,
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
-import { HogTransformerHub, HogTransformerService } from './hog-transformations/hog-transformer.service'
+import {
+    HogTransformerService,
+    HogTransformerServiceDeps,
+    createHogTransformerService,
+} from './hog-transformations/hog-transformer.service'
+import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
@@ -44,7 +48,7 @@ import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering
  * Combines all hub types needed by CdpApi and its dependencies.
  */
 export type CdpApiHub = CdpSourceWebhooksConsumerHub &
-    HogTransformerHub &
+    HogTransformerServiceDeps &
     Pick<
         Hub,
         | 'teamManager'
@@ -77,47 +81,39 @@ export class CdpApi {
     private recipientPreferencesService: RecipientPreferencesService
     private recipientTokensService: RecipientTokensService
     private cdpWarehouseKafkaProducer?: KafkaProducerWrapper
+    private batchExportHogFunctionService: BatchExportHogFunctionService
 
     constructor(private hub: CdpApiHub) {
-        this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
-        this.hogFlowManager = new HogFlowManagerService(hub.postgres, hub.pubSub)
-        this.recipientsManager = new RecipientsManagerService(hub.postgres)
-        this.hogExecutor = new HogExecutorService(hub)
-        this.hogFlowFunctionsService = new HogFlowFunctionsService(
-            hub.SITE_URL,
-            this.hogFunctionTemplateManager,
-            this.hogExecutor
-        )
-        this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
-        this.recipientTokensService = new RecipientTokensService(hub)
-        this.hogFlowExecutor = new HogFlowExecutorService(
-            this.hogFlowFunctionsService,
-            this.recipientPreferencesService
-        )
-        this.nativeDestinationExecutorService = new NativeDestinationExecutorService(hub)
-        this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(hub)
-        // CDP uses its own Redis instance with fallback to default
-        this.hogWatcher = new HogWatcherService(
-            hub,
-            createRedisV2PoolFromConfig({
-                connection: hub.CDP_REDIS_HOST
-                    ? {
-                          url: hub.CDP_REDIS_HOST,
-                          options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                          name: 'cdp-api-redis',
-                      }
-                    : { url: hub.REDIS_URL, name: 'cdp-api-redis-fallback' },
-                poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-            })
-        )
-        this.hogTransformer = new HogTransformerService(hub)
-        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
+        const services = createCdpCoreServices(hub, 'cdp-api-redis')
+
+        this.hogFunctionManager = services.hogFunctionManager
+        this.hogFunctionTemplateManager = services.hogFunctionTemplateManager
+        this.hogFlowManager = services.hogFlowManager
+        this.recipientsManager = services.recipientsManager
+        this.recipientTokensService = services.recipientTokensService
+        this.hogExecutor = services.hogExecutor
+        this.hogFlowFunctionsService = services.hogFlowFunctionsService
+        this.recipientPreferencesService = services.recipientPreferencesService
+        this.hogFlowExecutor = services.hogFlowExecutor
+        this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
+        this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
+        this.hogWatcher = services.hogWatcher
+        this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
+
+        // API-only services
+        this.hogTransformer = createHogTransformerService(hub)
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
+            this.hogFunctionMonitoringService
+        )
+        this.batchExportHogFunctionService = new BatchExportHogFunctionService(
+            hub.SITE_URL,
+            hub.teamManager,
+            this.hogFunctionManager,
+            this.hogExecutor,
+            this.hogWatcher,
             this.hogFunctionMonitoringService
         )
     }
@@ -139,7 +135,11 @@ export class CdpApi {
     }
 
     async stop(): Promise<void> {
-        await Promise.all([this.cdpWarehouseKafkaProducer?.disconnect(), this.cdpSourceWebhooksConsumer.stop()])
+        await Promise.all([
+            this.cdpWarehouseKafkaProducer?.disconnect(),
+            this.cdpSourceWebhooksConsumer.stop(),
+            this.batchExportHogFunctionService.stop(),
+        ])
     }
 
     isHealthy(): HealthCheckResult {
@@ -168,6 +168,10 @@ export class CdpApi {
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
         router.post('/api/messaging/generate_preferences_token', asyncHandler(this.generatePreferencesToken()))
         router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
+        router.post(
+            '/api/projects/:team_id/hog_functions/:hog_function_id/batch_export_invocations',
+            asyncHandler(this.handleBatchExportHogFunction())
+        )
 
         const publicBodySizeLimit = (req: ModifiedRequest, res: express.Response, next: express.NextFunction): void => {
             if (req.rawBody && req.rawBody.length > 512_000) {
@@ -725,6 +729,35 @@ export class CdpApi {
             } catch (error) {
                 logger.error('[CdpApi] Error validating preferences token', error)
                 return res.status(500).json({ error: 'Failed to validate token' })
+            }
+        }
+
+    private handleBatchExportHogFunction =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            try {
+                const result = await this.batchExportHogFunctionService.execute(
+                    {
+                        team_id: req.params.team_id,
+                        hog_function_id: req.params.hog_function_id,
+                    },
+                    req.body
+                )
+
+                return res.json({
+                    status: result.error ? 'error' : 'success',
+                    errors: result.error ? [String(result.error)] : [],
+                    logs: result.logs,
+                })
+            } catch (e) {
+                if (e instanceof NotFoundError) {
+                    return res.status(404).json({ errors: [e.message] })
+                } else if (e instanceof ParseError) {
+                    return res.status(400).json({ errors: [e.message] })
+                } else {
+                    console.error(e)
+                    return res.status(500).json({ errors: [e.message] })
+                }
             }
         }
 }

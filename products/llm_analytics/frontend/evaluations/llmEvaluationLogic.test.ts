@@ -290,6 +290,55 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
+        describe('evaluationProviderKeyIssue', () => {
+            beforeEach(() => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+            })
+
+            it.each([
+                ['invalid' as const, 'Authentication failed'],
+                ['error' as const, 'Quota exceeded'],
+            ])('returns the provider key when state is %s', async (state, errorMessage) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                keysLogic.actions.loadProviderKeysSuccess(
+                    mockProviderKeys.map((key) =>
+                        key.id === 'key-1' ? { ...key, state, error_message: errorMessage } : key
+                    )
+                )
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationProviderKeyIssue: expect.objectContaining({
+                        id: 'key-1',
+                        state,
+                        error_message: errorMessage,
+                    }),
+                })
+            })
+
+            it('returns null when evaluation uses the PostHog default key', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    model_configuration: null,
+                })
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationProviderKeyIssue: null,
+                })
+            })
+
+            it('returns null when provider key state is healthy', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationProviderKeyIssue: null,
+                })
+            })
+        })
+
         describe('runsSummary', () => {
             beforeEach(() => {
                 logic = llmEvaluationLogic({ evaluationId: 'eval-123' })

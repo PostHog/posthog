@@ -77,8 +77,12 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             offset_value = self.paginator.offset
             pagination_limit = limit_value + offset_value + 1
 
-            # Determine ordering based on randomOrder parameter
-            order_clause = "rand()" if self.query.randomOrder else "max(timestamp) DESC"
+            # The subquery ordering must match the main query's ORDER BY first_timestamp DESC
+            # (where first_timestamp = min(timestamp)). Using a different ordering here (e.g.
+            # max(timestamp)) causes pagination bugs: the subquery selects trace IDs in one
+            # order but the main query re-sorts them differently, so OFFSET-based slicing
+            # produces overlapping or missing traces across pages.
+            order_clause = "rand()" if self.query.randomOrder else "min(timestamp) DESC"
 
             trace_ids_query = parse_select(
                 f"""
@@ -192,7 +196,10 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 properties.$ai_trace_id AS id,
                 any(properties.$ai_session_id) AS ai_session_id,
                 min(timestamp) AS first_timestamp,
-                argMin(distinct_id, timestamp) AS first_distinct_id,
+                ifNull(
+                    nullIf(argMinIf(distinct_id, timestamp, event = '$ai_trace'), ''),
+                    argMin(distinct_id, timestamp)
+                ) AS first_distinct_id,
                 round(
                     CASE
                         -- If all events with latency are generations, sum them all
@@ -257,7 +264,23 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 countIf(
                     isNotNull(properties.$ai_error) OR properties.$ai_is_error = 'true'
                 ) AS error_count,
-                any(properties.ai_support_impersonated) AS is_support_trace
+                any(properties.ai_support_impersonated) AS is_support_trace,
+                arrayFilter(
+                    x -> x != '',
+                    arrayDistinct(
+                        splitByChar(',',
+                            arrayStringConcat(
+                                groupArrayIf(
+                                    toString(properties.$ai_tools_called),
+                                    event = '$ai_generation'
+                                    AND isNotNull(properties.$ai_tools_called)
+                                    AND toString(properties.$ai_tools_called) != ''
+                                ),
+                                ','
+                            )
+                        )
+                    )
+                ) AS tools
             FROM events
             WHERE event IN (
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
@@ -288,7 +311,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 4,
+            "schema_version": 5,
         }
 
     @cached_property
@@ -350,6 +373,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "trace_name": "traceName",
             "error_count": "errorCount",
             "is_support_trace": "isSupportTrace",
+            "tools": "tools",
         }
 
         generations = []

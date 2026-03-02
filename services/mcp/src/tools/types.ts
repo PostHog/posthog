@@ -1,9 +1,9 @@
 import type { z } from 'zod'
 
 import type { ApiClient } from '@/api/client'
+import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import type { SessionManager } from '@/lib/SessionManager'
 import type { StateManager } from '@/lib/StateManager'
-import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import type { PrefixedString } from '@/lib/types'
 import type { ApiRedactedPersonalApiKey } from '@/schema/api'
 
@@ -45,6 +45,11 @@ export type Env = {
      * PostHog API token for MCP Apps analytics (used for CSP and analytics ingestion).
      */
     POSTHOG_UI_APPS_TOKEN: string | undefined
+    /**
+     * When 'true', generated MCP tools (from definitions/*.yaml) override
+     * hand-written equivalents. Default: undefined (off).
+     */
+    USE_GENERATED_TOOLS?: string
 }
 
 export type Context = {

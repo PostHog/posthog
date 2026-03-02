@@ -163,6 +163,57 @@ class TestAuthCache:
         assert hit is True
         assert cached_user == user
 
+    def test_per_entry_ttl_overrides_default(self) -> None:
+        cache = AuthCache(max_size=100, ttl=900)
+        user = AuthenticatedUser(
+            user_id=1, team_id=2, auth_method="test", distinct_id="test-distinct-id", scopes=["read"]
+        )
+
+        cache.set("key1", user, ttl=1)
+        hit, _ = cache.get("key1")
+        assert hit is True
+
+        time.sleep(1.1)
+
+        hit, cached_user = cache.get("key1")
+        assert hit is False
+        assert cached_user is None
+
+    def test_ttl_clamped_to_token_remaining_lifetime(self) -> None:
+        cache = AuthCache(max_size=100, ttl=900)
+        user = AuthenticatedUser(
+            user_id=1,
+            team_id=2,
+            auth_method="oauth_access_token",
+            distinct_id="test-distinct-id",
+            scopes=["llm_gateway:read"],
+            token_expires_at=datetime.now(UTC) + timedelta(seconds=1),
+        )
+
+        cache.set("short_lived", user, ttl=900)
+        hit, _ = cache.get("short_lived")
+        assert hit is True
+
+        time.sleep(1.1)
+
+        hit, cached_user = cache.get("short_lived")
+        assert hit is False
+        assert cached_user is None
+
+    def test_already_expired_token_not_cached(self) -> None:
+        cache = AuthCache(max_size=100, ttl=60)
+        user = AuthenticatedUser(
+            user_id=1,
+            team_id=2,
+            auth_method="oauth_access_token",
+            distinct_id="test-distinct-id",
+            scopes=["llm_gateway:read"],
+            token_expires_at=datetime.now(UTC) - timedelta(seconds=1),
+        )
+
+        cache.set("already_expired", user, ttl=60)
+        assert cache.size == 0
+
 
 class TestAuthServiceCaching:
     @pytest.fixture

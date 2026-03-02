@@ -18,9 +18,9 @@ import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId, ItemMode } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { InsightsNav } from './InsightNav/InsightsNav'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
+import { InsightsNav } from './InsightNav/InsightsNav'
 
 export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'
@@ -54,7 +54,6 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
         type: 'insight',
         ref: insight?.short_id,
         enabled: Boolean(currentTeamId && insight?.short_id && insight?.saved && !accessDeniedToInsight),
-        deps: [currentTeamId, insight?.short_id, insight?.saved, accessDeniedToInsight],
     })
 
     // other logics

@@ -11,6 +11,7 @@ import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import {
+    DefinitionPopoverRenderer,
     TaxonomicFilterGroupType,
     isQuickFilterItem,
     quickFilterToPropertyFilters,
@@ -21,8 +22,8 @@ import {
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { teamLogic } from 'scenes/teamLogic'
 import { MathCategory, mathsLogic } from 'scenes/trends/mathsLogic'
 
@@ -58,6 +59,7 @@ interface ActionFilterGroupProps {
     groupTitle?: string
     trendsDisplayCategory?: any
     insightType?: InsightType
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 export function ActionFilterGroup({
@@ -79,6 +81,7 @@ export function ActionFilterGroup({
     groupTitle,
     trendsDisplayCategory,
     insightType,
+    definitionPopoverRenderer,
 }: ActionFilterGroupProps): JSX.Element {
     const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
     const effectiveActionsTaxonomicGroupTypes = (
@@ -317,6 +320,7 @@ export function ActionFilterGroup({
                                     showNumericalPropsOnly={showNumericalPropsOnly}
                                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                                     excludedProperties={excludedProperties}
+                                    definitionPopoverRenderer={definitionPopoverRenderer}
                                 />
                                 {eventIndex < nestedFilters.length - 1 && (
                                     <div className="flex items-center gap-3 mx-0.5 my-2.5">

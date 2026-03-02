@@ -7,6 +7,8 @@ from dlt.common.configuration import configspec
 from dlt.common.pendulum import pendulum
 from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
 
+from posthog.security.outbound_proxy import external_requests
+
 
 @configspec
 class SalesforceAuth(BearerTokenAuth):
@@ -83,7 +85,7 @@ class SalesforceAuthRequestError(Exception):
 
 
 def salesforce_refresh_access_token(refresh_token: str, instance_url: str) -> str:
-    res = requests.post(
+    res = external_requests.post(
         f"{instance_url}/services/oauth2/token",
         data={
             "grant_type": "refresh_token",
@@ -99,7 +101,7 @@ def salesforce_refresh_access_token(refresh_token: str, instance_url: str) -> st
 
 
 def get_salesforce_access_token_from_code(code: str, redirect_uri: str, instance_url: str) -> tuple[str, str]:
-    res = requests.post(
+    res = external_requests.post(
         f"{instance_url}/services/oauth2/token",
         data={
             "grant_type": "authorization_code",

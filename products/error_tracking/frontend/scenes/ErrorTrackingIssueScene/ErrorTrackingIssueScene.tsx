@@ -42,9 +42,6 @@ import { IssueTasks } from '../../components/IssueTasks'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
-import { ErrorTrackingIssueScenePanel } from './ScenePanel'
-import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
-import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 import {
     ErrorTrackingIssueSceneCategory,
     errorTrackingIssueSceneConfigurationLogic,
@@ -54,6 +51,9 @@ import {
     ErrorTrackingIssueSceneLogicProps,
     errorTrackingIssueSceneLogic,
 } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingIssueScenePanel } from './ScenePanel'
+import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
+import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 
 export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
@@ -66,7 +66,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { updateAssignee, updateStatus, updateName } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
-        posthog.capture('error_tracking_issue_viewed', { issue_id: issueId })
+        const utmSource = new URLSearchParams(window.location.search).get('utm_source')
+        posthog.capture('error_tracking_issue_viewed', {
+            issue_id: issueId,
+            ...(utmSource ? { utm_source: utmSource } : {}),
+        })
     }, [issueId])
 
     return (
@@ -82,7 +86,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     onNameChange={updateName}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
-                                    className="px-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0"
+                                    className="px-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0 mb-0"
                                     actions={
                                         <div className="flex items-center gap-1">
                                             <StatusIndicator status={issue.status} withTooltip />
@@ -169,6 +173,7 @@ const LeftHandColumn = (): JSX.Element => {
         logicKey: 'error-tracking-issue',
         persistent: true,
         placement: 'right',
+        persistPrefix: 'error-tracking-issue-view-columns-ratio',
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
     const hasTasks = useFeatureFlag('TASKS')
@@ -179,7 +184,7 @@ const LeftHandColumn = (): JSX.Element => {
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: desiredSize ?? '30%',
+                width: desiredSize ?? '40%',
                 minWidth: 320,
             }}
             className="flex flex-col h-full relative bg-surface-primary"
@@ -241,7 +246,8 @@ const LeftHandColumn = (): JSX.Element => {
 }
 
 const ExceptionsTab = (): JSX.Element => {
-    const { eventsQuery, eventsQueryKey, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
+    const { eventsQuery, eventsQueryKey, selectedEvent, issueFingerprints, issueFingerprintsLoading } =
+        useValues(errorTrackingIssueSceneLogic)
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
 
     return (
@@ -257,16 +263,22 @@ const ExceptionsTab = (): JSX.Element => {
             </div>
             <LemonDivider className="my-0 shrink-0" />
             <Metadata className="flex flex-col flex-1 min-h-0 overflow-y-auto">
-                <EventsTable
-                    query={eventsQuery}
-                    queryKey={eventsQueryKey}
-                    selectedEvent={selectedEvent}
-                    onEventSelect={(selectedEvent) => {
-                        if (selectedEvent) {
-                            selectEvent(selectedEvent)
-                        }
-                    }}
-                />
+                {issueFingerprintsLoading ? (
+                    <div className="text-muted text-sm px-2 py-3">Loading exceptions...</div>
+                ) : issueFingerprints.length === 0 ? (
+                    <div className="text-muted text-sm px-2 py-3">No exceptions found for this issue.</div>
+                ) : (
+                    <EventsTable
+                        query={eventsQuery}
+                        queryKey={eventsQueryKey}
+                        selectedEvent={selectedEvent}
+                        onEventSelect={(selectedEvent) => {
+                            if (selectedEvent) {
+                                selectEvent(selectedEvent)
+                            }
+                        }}
+                    />
+                )}
             </Metadata>
         </div>
     )

@@ -318,7 +318,7 @@ export const ExperimentCreatePayloadSchema = ToolExperimentCreateSchema.transfor
         name: input.name,
         description: input.description || null,
         feature_flag_key: input.feature_flag_key, // Maps to get_feature_flag_key in serializer
-        type: input.type || 'product',
+        type: 'product',
 
         // Metrics - ensure arrays are never null, always empty arrays when no metrics
         metrics: primaryMetrics,
