@@ -851,6 +851,19 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         else:
             assert alert_check.calculated_value == 0
 
+    def test_ch_cannot_schedule_task_raises_for_retry(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
+            mock_calculate.side_effect = CHQueryErrorCannotScheduleTask("cannot schedule")
+
+            with pytest.raises(CHQueryErrorCannotScheduleTask):
+                check_alert(self.alert["id"])
+
+        assert mock_send_errors.call_count == 0
+
 
 @freeze_time("2024-06-02T08:55:00.000Z")
 class TestAlertSubscriptionOrgMembership(APIBaseTest):
@@ -921,19 +934,6 @@ class TestAlertSubscriptionOrgMembership(APIBaseTest):
         email = mocked_email_messages[0]
         assert len(email.to) == 1
         assert email.to[0]["recipient"] == "user1@posthog.com"
-
-    def test_ch_cannot_schedule_task_raises_for_retry(
-        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
-    ) -> None:
-        self.set_thresholds(lower=1)
-
-        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
-            mock_calculate.side_effect = CHQueryErrorCannotScheduleTask("cannot schedule")
-
-            with pytest.raises(CHQueryErrorCannotScheduleTask):
-                check_alert(self.alert["id"])
-
-        assert mock_send_errors.call_count == 0
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
