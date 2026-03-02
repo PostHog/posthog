@@ -1,4 +1,5 @@
 import { StoryFn } from '@storybook/react'
+import { useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -52,6 +53,7 @@ export function createInsightStory(
     const count = shortCounter++
     return function InsightStory() {
         document.body.classList.add('storybook-test-runner')
+        useMountedLogic(sceneLayoutLogic)
 
         useStorybookMocks({
             get: {
