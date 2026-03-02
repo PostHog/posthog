@@ -11,8 +11,8 @@ class Migration(migrations.Migration):
             state_operations=[],
             database_operations=[
                 migrations.RunSQL(
-                    sql='ALTER TABLE "posthog_team" DROP COLUMN IF EXISTS "session_recording_encryption"',
-                    reverse_sql='ALTER TABLE "posthog_team" ADD COLUMN "session_recording_encryption" boolean NULL DEFAULT false',
+                    sql="ALTER TABLE posthog_team DROP COLUMN IF EXISTS session_recording_encryption",
+                    reverse_sql="ALTER TABLE posthog_team ADD COLUMN session_recording_encryption boolean NULL DEFAULT false",
                 ),
             ],
         ),
