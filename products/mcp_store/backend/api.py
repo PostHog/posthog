@@ -515,7 +515,18 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except MCPServer.DoesNotExist:
             return Response({"detail": "Server not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        if server.oauth_provider_kind:
+        # Determine which exchange method to use based on how the authorization
+        # was initiated. The DCR path sets a ph_pkce_verifier cookie; the known
+        # provider path does not. Without this check, a server with
+        # oauth_provider_kind set (e.g. "linear") that was authorized via DCR
+        # would incorrectly try to exchange the code at the known provider's
+        # token endpoint, which fails because the code was issued by the MCP
+        # server, not the provider directly.
+        has_pkce = bool(request.COOKIES.get("ph_pkce_verifier"))
+
+        if has_pkce:
+            token_data = self._exchange_dcr_token(request, server, code)
+        elif server.oauth_provider_kind:
             try:
                 token_data = self._exchange_known_provider_token(server.oauth_provider_kind, code)
             except NotImplementedError:
