@@ -97,13 +97,18 @@ async function layoutNodes(
     }))
 }
 
+interface FunnelFlowLogicProps extends InsightLogicProps {
+    /**Whether the funnel is being displayed in a customer profile (person or group profile canvas) */
+    isProfileMode: boolean
+}
+
 export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
     path((key) => ['scenes', 'funnels', 'FunnelFlowGraph', 'funnelFlowGraphLogic', key]),
-    props({} as InsightLogicProps),
+    props({} as FunnelFlowLogicProps),
     key(keyForInsightLogicProps(DEFAULT_LOGIC_KEY)),
 
     connect((props: InsightLogicProps) => ({
-        values: [funnelDataLogic(props), ['visibleStepsWithConversionMetrics', 'isStepOptional']],
+        values: [funnelDataLogic(props), ['visibleStepsWithConversionMetrics', 'stepNames', 'isStepOptional']],
     })),
 
     actions({
@@ -138,9 +143,17 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
         ],
 
         nodes: [
-            (s) => [s.visibleStepsWithConversionMetrics, s.isStepOptional, s.nodeType, s.nodeWidth, s.nodeHeight],
-            (steps, isStepOptional, nodeType, nodeWidth, nodeHeight): Node<FunnelFlowNodeData>[] =>
-                steps.map((step, index) => {
+            (s) => [
+                s.visibleStepsWithConversionMetrics,
+                s.stepNames,
+                s.isStepOptional,
+                s.nodeType,
+                s.nodeWidth,
+                s.nodeHeight,
+            ],
+            (steps, stepNames, isStepOptional, nodeType, nodeWidth, nodeHeight): Node<FunnelFlowNodeData>[] => {
+                const stepsToMap = steps.length > 0 ? steps : stepNames
+                return stepsToMap.map((step, index) => {
                     const optional = isStepOptional(index + 1)
                     return {
                         id: `step-${index}`,
@@ -152,7 +165,8 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                         draggable: false,
                         connectable: false,
                     }
-                }),
+                })
+            },
         ],
         edges: [
             (s) => [s.nodes, s.nodeType],
