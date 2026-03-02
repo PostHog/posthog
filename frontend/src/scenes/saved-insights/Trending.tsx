@@ -26,6 +26,7 @@ export function Trending(): JSX.Element {
                 </div>
             }
             viewAllURL={urls.savedInsights(SavedInsightsTabs.All)}
+            viewAllDataAttr="insights-home-tab-trending-view-all"
             loading={trendingInsightsLoading}
             emptyMessage={{
                 title: 'No trending insights',

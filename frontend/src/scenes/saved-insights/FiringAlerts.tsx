@@ -51,6 +51,7 @@ export function FiringAlerts(): JSX.Element {
         <CompactList
             title="Firing alerts"
             viewAllURL={urls.savedInsights(SavedInsightsTabs.Alerts)}
+            viewAllDataAttr="insights-home-tab-firing-alerts-view-all"
             loading={alertsLoading}
             emptyMessage={{
                 title: 'All good!',

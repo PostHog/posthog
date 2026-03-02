@@ -47,6 +47,7 @@ export function NewEvents(): JSX.Element {
                 </div>
             }
             viewAllURL={urls.eventDefinitions()}
+            viewAllDataAttr="insights-home-tab-new-events-view-all"
             loading={newEventsLoading}
             emptyMessage={{
                 title: 'No events found',

@@ -52,6 +52,7 @@ export function ActiveUsers(): JSX.Element {
                 </div>
             }
             viewAllURL={urls.persons()}
+            viewAllDataAttr="insights-home-tab-active-users-view-all"
             loading={personsLoading}
             emptyMessage={{
                 title: 'No active people',
