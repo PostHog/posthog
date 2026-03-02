@@ -15,6 +15,7 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
@@ -287,13 +288,9 @@ export function SourceFormComponent({
                 </LemonField>
             )}
             {sourceConfig.name === 'Postgres' && featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && (
-                <LemonField
-                    name="access_method"
-                    label="How should PostHog query this source?"
-                    help="Choose direct query mode to run HogQL directly against your Postgres database, or warehouse sync mode to copy data into the PostHog data warehouse first."
-                >
+                <LemonField name="access_method" label="How should PostHog query this source?">
                     {({ value, onChange }) => (
-                        <LemonSelect
+                        <LemonRadio
                             data-attr="postgres-access-method"
                             value={value || 'warehouse'}
                             onChange={onChange}
