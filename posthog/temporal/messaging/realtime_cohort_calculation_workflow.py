@@ -206,6 +206,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
             heartbeater.details = (f"Processing cohort {idx}/{len(cohorts)} (cohort_id={cohort.pk})",)
             logger.info(f"Processing cohort {idx}/{len(cohorts)}", cohort_id=cohort.pk)
 
+            # Start timing the entire cohort processing (query + Kafka production + flushing)
             cohort_start_time = time.monotonic()
 
             try:
@@ -336,12 +337,13 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     if status_counts["left"] > 0:
                         get_membership_changed_metric("left").add(status_counts["left"])
 
-                # Calculate and store cohort processing duration
+                # Calculate full cohort processing duration (not just query time)
+                # Includes: query execution + Kafka message production + message flushing
                 cohort_end_time = time.monotonic()
-                cohort_duration_ms = int((cohort_end_time - cohort_start_time) * 1000)
+                duration_ms = int((cohort_end_time - cohort_start_time) * 1000)
 
                 @database_sync_to_async
-                def update_cohort_duration(cohort_id=cohort.pk, duration_ms=cohort_duration_ms):
+                def update_cohort_duration(cohort_id=cohort.pk, duration_ms=duration_ms):
                     Cohort.objects.filter(id=cohort_id).update(
                         last_calculation_duration_ms=duration_ms, last_calculation=dt.datetime.now(dt.UTC)
                     )
@@ -349,9 +351,15 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 await update_cohort_duration()
 
                 logger.info(
+                    f"Stored cohort processing duration for cohort {cohort.pk}",
+                    cohort_id=cohort.pk,
+                    duration_ms=duration_ms,
+                )
+
+                logger.info(
                     f"Cohort {cohort.pk} processing completed",
                     cohort_id=cohort.pk,
-                    duration_ms=cohort_duration_ms,
+                    duration_ms=duration_ms,
                 )
 
                 get_cohort_calculation_success_metric().add(1)
