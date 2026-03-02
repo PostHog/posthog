@@ -45,7 +45,7 @@ export const EmptyMetricsPanel = ({ helpText }: { helpText?: string } = {}): JSX
             <div className="max-w-md">
                 <p className="text-xs text-muted">
                     {helpText ??
-                        'Add at least one primary metric to launch an experiment. You can always add or remove metrics later.'}
+                        "Add metrics to measure your experiment's impact. You can add them before or after launching."}
                 </p>
             </div>
         </div>

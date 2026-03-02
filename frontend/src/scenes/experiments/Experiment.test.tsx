@@ -180,7 +180,7 @@ describe('Experiment component routing', () => {
         },
         {
             experimentOverrides: {},
-            expectedHelpText: 'Add at least one primary metric to launch an experiment.',
+            expectedHelpText: "Add metrics to measure your experiment's impact.",
             description: 'draft',
         },
     ])('$description without metrics shows add metric buttons', async ({ experimentOverrides, expectedHelpText }) => {
