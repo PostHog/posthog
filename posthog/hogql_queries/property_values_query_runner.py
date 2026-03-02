@@ -152,10 +152,13 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             if isinstance(raw, float | int | bool | uuid.UUID):
                 values.append(raw)
             else:
+                # ClickHouse strips outer quotes from string values but leaves inner \" escapes,
+                # so '["a","b"]' comes back as [\"a\",\"b\"] — unescape before parsing.
+                cleaned = raw.replace('\\"', '"') if isinstance(raw, str) else raw
                 try:
-                    values.append(json.loads(raw))
+                    values.append(json.loads(cleaned))
                 except (json.JSONDecodeError, TypeError):
-                    values.append(raw)
+                    values.append(cleaned)
         return [PropertyValueItem(name=convert_property_value(v)) for v in flatten(values)]
 
     def _format_person_results(self, rows: list) -> list[PropertyValueItem]:
