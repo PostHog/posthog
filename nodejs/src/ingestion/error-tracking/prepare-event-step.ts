@@ -43,13 +43,28 @@ export function createErrorTrackingPrepareEventStep<T extends ErrorTrackingPrepa
         const { event, team, person, headers } = input
 
         // Convert PluginEvent to PreIngestionEvent
+        const properties = { ...(event.properties ?? {}) }
+
+        // Remove $set and $set_once from properties.
+        //
+        // Error tracking events ($exception) are in NO_PERSON_UPDATE_EVENTS, meaning
+        // person updates are never written to the database. However, createEvent()
+        // merges properties.$set into person_properties when processPerson=true.
+        // This would cause person_properties to contain values that don't actually
+        // exist on the person (e.g., GeoIP data from the Hog transformer).
+        //
+        // By removing $set/$set_once here, we ensure person_properties only contains
+        // the actual person properties from the database, matching Cymbal's behavior.
+        delete properties.$set
+        delete properties.$set_once
+
         const preparedEvent: PreIngestionEvent = {
             eventUuid: event.uuid,
             event: event.event,
             teamId: team.id,
             projectId: team.project_id,
             distinctId: event.distinct_id,
-            properties: event.properties ?? {},
+            properties,
             timestamp: (event.timestamp ?? event.now) as ISOTimestamp,
         }
 

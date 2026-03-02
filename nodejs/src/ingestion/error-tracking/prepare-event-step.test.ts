@@ -152,6 +152,76 @@ describe('createErrorTrackingPrepareEventStep', () => {
         }
     })
 
+    it('removes $set from properties to prevent incorrect person_properties merging', async () => {
+        // Error tracking events ($exception) are in NO_PERSON_UPDATE_EVENTS, so person
+        // updates are never written. However, createEvent() merges $set into person_properties
+        // when processPerson=true. By removing $set here, we ensure person_properties only
+        // contains actual DB values, matching Cymbal's behavior.
+        const event = createTestPluginEvent({
+            event: '$exception',
+            properties: {
+                $exception_list: [{ type: 'Error', value: 'Test' }],
+                $set: { $geoip_country_name: 'Sweden', email: 'new@example.com' },
+                other_prop: 'preserved',
+            },
+        })
+
+        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (isOkResult(result)) {
+            expect(result.value.preparedEvent.properties).toEqual({
+                $exception_list: [{ type: 'Error', value: 'Test' }],
+                other_prop: 'preserved',
+            })
+            expect(result.value.preparedEvent.properties.$set).toBeUndefined()
+        }
+    })
+
+    it('removes $set_once from properties to prevent incorrect person_properties merging', async () => {
+        const event = createTestPluginEvent({
+            event: '$exception',
+            properties: {
+                $exception_list: [{ type: 'Error', value: 'Test' }],
+                $set_once: { first_seen: '2024-01-01' },
+                other_prop: 'preserved',
+            },
+        })
+
+        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (isOkResult(result)) {
+            expect(result.value.preparedEvent.properties).toEqual({
+                $exception_list: [{ type: 'Error', value: 'Test' }],
+                other_prop: 'preserved',
+            })
+            expect(result.value.preparedEvent.properties.$set_once).toBeUndefined()
+        }
+    })
+
+    it('removes both $set and $set_once when both are present', async () => {
+        const event = createTestPluginEvent({
+            event: '$exception',
+            properties: {
+                $exception_list: [{ type: 'Error', value: 'Test' }],
+                $set: { email: 'new@example.com' },
+                $set_once: { first_seen: '2024-01-01' },
+            },
+        })
+
+        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (isOkResult(result)) {
+            expect(result.value.preparedEvent.properties).toEqual({
+                $exception_list: [{ type: 'Error', value: 'Test' }],
+            })
+            expect(result.value.preparedEvent.properties.$set).toBeUndefined()
+            expect(result.value.preparedEvent.properties.$set_once).toBeUndefined()
+        }
+    })
+
     it('preserves additional fields from input via type inheritance', async () => {
         const event = createTestPluginEvent({ event: '$exception' })
 
