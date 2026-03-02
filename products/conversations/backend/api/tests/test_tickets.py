@@ -162,6 +162,45 @@ class TestTicketAPI(APIBaseTest):
         # Should be null because person is in different team
         self.assertIsNone(response.json()["person"])
 
+    def test_update_sla_due_at(self, mock_on_commit):
+        from django.utils import timezone
+
+        sla_time = timezone.now() + timezone.timedelta(hours=5)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"sla_due_at": sla_time.isoformat()},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.json()["sla_due_at"])
+
+        self.ticket.refresh_from_db()
+        self.assertIsNotNone(self.ticket.sla_due_at)
+
+    def test_update_sla_due_at_logs_activity(self, mock_on_commit):
+        from django.utils import timezone
+
+        sla_time = timezone.now() + timezone.timedelta(hours=5)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"sla_due_at": sla_time.isoformat()},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="Ticket",
+            item_id=str(self.ticket.id),
+            activity="updated",
+        ).first()
+
+        assert activity is not None
+        assert activity.detail is not None
+        changes = activity.detail.get("changes", [])
+        sla_change = next((c for c in changes if c["field"] == "sla_due_at"), None)
+        self.assertIsNotNone(sla_change)
+        self.assertIsNone(sla_change["before"])
+        self.assertIsNotNone(sla_change["after"])
+
     @parameterized.expand(
         [
             ("status", Status.RESOLVED, Status.RESOLVED),
@@ -381,6 +420,87 @@ class TestTicketAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?date_from=all")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
+
+    def test_filter_sla_breached(self, mock_on_commit):
+        """Test filtering tickets by breached SLA."""
+        from django.utils import timezone
+
+        self.ticket.sla_due_at = timezone.now() - timezone.timedelta(hours=1)
+        self.ticket.save()
+
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="on-track-session",
+            distinct_id="on-track-user",
+            sla_due_at=timezone.now() + timezone.timedelta(hours=5),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?sla=breached")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_filter_sla_at_risk(self, mock_on_commit):
+        """Test filtering tickets by at-risk SLA (within 1 hour)."""
+        from django.utils import timezone
+
+        self.ticket.sla_due_at = timezone.now() + timezone.timedelta(minutes=30)
+        self.ticket.save()
+
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="on-track-session",
+            distinct_id="on-track-user",
+            sla_due_at=timezone.now() + timezone.timedelta(hours=5),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?sla=at-risk")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_filter_sla_on_track(self, mock_on_commit):
+        """Test filtering tickets by on-track SLA (more than 1 hour remaining)."""
+        from django.utils import timezone
+
+        self.ticket.sla_due_at = timezone.now() + timezone.timedelta(hours=5)
+        self.ticket.save()
+
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="breached-session",
+            distinct_id="breached-user",
+            sla_due_at=timezone.now() - timezone.timedelta(hours=1),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?sla=on-track")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_order_by_sla_due_at(self, mock_on_commit):
+        """Test ordering tickets by SLA deadline."""
+        from django.utils import timezone
+
+        self.ticket.sla_due_at = timezone.now() + timezone.timedelta(hours=5)
+        self.ticket.save()
+
+        urgent_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="urgent-session",
+            distinct_id="urgent-user",
+            sla_due_at=timezone.now() + timezone.timedelta(hours=1),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?order_by=sla_due_at")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(results[0]["id"], str(urgent_ticket.id))
+        self.assertEqual(results[1]["id"], str(self.ticket.id))
 
     def test_filter_multiple_priorities_excludes_null(self, mock_on_commit):
         """Test that multiple priority filter excludes tickets with NULL priority."""
