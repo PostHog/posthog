@@ -1,1 +1,1 @@
-1024_remove_team_session_recording_encryption
+1025_drop_team_session_recording_encryption_column

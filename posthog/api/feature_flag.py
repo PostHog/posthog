@@ -87,6 +87,48 @@ BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 MAX_PROPERTY_VALUES = 1000
 
+# Operators the Rust feature-flag evaluation service supports (OperatorType in property_models.rs).
+# None means "no operator specified" which defaults to exact.
+FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
+    {
+        None,
+        "exact",
+        "is_not",
+        "icontains",
+        "not_icontains",
+        "icontains_multi",
+        "not_icontains_multi",
+        "regex",
+        "not_regex",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "semver_gt",
+        "semver_gte",
+        "semver_lt",
+        "semver_lte",
+        "semver_eq",
+        "semver_neq",
+        "semver_tilde",
+        "semver_caret",
+        "semver_wildcard",
+        "is_set",
+        "is_not_set",
+        "is_date_exact",
+        "is_date_after",
+        "is_date_before",
+        "in",
+        "not_in",
+        "flag_evaluates_to",
+    }
+)
+
+FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {
+    "min": "gte",
+    "max": "lte",
+}
+
 LOCAL_EVALUATION_REQUEST_COUNTER = Counter(
     "posthog_local_evaluation_request_total",
     "Local evaluation API requests",
@@ -779,12 +821,21 @@ class FeatureFlagSerializer(
                 raise serializers.ValidationError("Filters are not valid (variant override does not exist)")
 
             for property in condition.get("properties", []):
+                if property.get("operator") in FEATURE_FLAG_OPERATOR_ALIASES:
+                    property["operator"] = FEATURE_FLAG_OPERATOR_ALIASES[property["operator"]]
+
                 prop = Property(**property)
 
                 if prop.operator is not None and prop.operator not in PropertyOperator.__members__.values():
                     raise serializers.ValidationError(
                         detail=f"Invalid operator: {prop.operator}",
                         code="invalid_operator",
+                    )
+
+                if prop.operator not in FEATURE_FLAG_SUPPORTED_OPERATORS:
+                    raise serializers.ValidationError(
+                        detail=f"Unsupported operator for feature flags: {prop.operator}",
+                        code="unsupported_operator",
                     )
 
                 if isinstance(prop.value, list):
@@ -850,6 +901,8 @@ class FeatureFlagSerializer(
                         code="invalid_operator",
                     )
 
+                # Currently unreachable (between/not_between rejected by FEATURE_FLAG_SUPPORTED_OPERATORS),
+                # but kept so value validation is ready if Rust adds support for these operators.
                 if prop.operator in (PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN):
                     if not isinstance(prop.value, list) or len(prop.value) != 2:
                         raise serializers.ValidationError(
