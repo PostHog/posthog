@@ -6,9 +6,6 @@ import { IconArrowRight, IconWrench } from '@posthog/icons'
 import { LemonSelect, LemonSelectSection, LemonTag } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { identifierToHuman } from 'lib/utils'
-import { sceneConfigurations } from 'scenes/scenes'
-import { Scene } from 'scenes/sceneTypes'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { ConversationType } from '~/types'
@@ -17,7 +14,6 @@ import {
     MODE_DEFINITIONS,
     SPECIAL_MODES,
     SpecialMode,
-    TOOL_DEFINITIONS,
     ToolDefinition,
     getDefaultTools,
     getToolsForMode,
@@ -60,24 +56,13 @@ function buildModeTooltip(description: string, tools: ToolDefinition[]): JSX.Ele
 }
 
 function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]): JSX.Element {
-    // Group tools by their product (Scene), excluding some scenes
-    const excludedScenes = [Scene.Insight, Scene.SQLEditor, Scene.Replay]
-    const toolsByProduct = Object.values(TOOL_DEFINITIONS).reduce(
-        (acc, tool) => {
-            if (!tool.product || excludedScenes.includes(tool.product)) {
-                return acc
-            }
-            if (!acc[tool.product]) {
-                acc[tool.product] = []
-            }
-            acc[tool.product]!.push(tool)
-            return acc
-        },
-        {} as Partial<Record<Scene, ToolDefinition[]>>
-    )
+    const modeEntries = Object.entries(MODE_DEFINITIONS) as [
+        AgentMode,
+        (typeof MODE_DEFINITIONS)[keyof typeof MODE_DEFINITIONS],
+    ][]
 
     return (
-        <div className="max-h-[calc(100vh - (var(--spacing) * 5))] overflow-y-auto show-scrollbar-on-hover flex flex-col gap-1.5">
+        <div className="max-w-sm flex flex-col gap-1.5">
             <div>{description}</div>
             {defaultTools.length > 0 && (
                 <div>
@@ -88,51 +73,30 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
                                 <span className="flex text-base text-success shrink-0 ml-1 mr-2 h-[1.25em]">
                                     {tool.icon || <IconWrench />}
                                 </span>
-                                <span>
-                                    <strong className="italic">
-                                        {tool.name}
-                                        {tool.beta && (
-                                            <LemonTag size="small" type="warning" className="ml-1 not-italic">
-                                                BETA
-                                            </LemonTag>
-                                        )}
-                                    </strong>
-                                    {tool.description?.replace(tool.name, '')}
-                                </span>
+                                <span>{tool.name}</span>
                             </li>
                         ))}
                     </ul>
                 </div>
             )}
-            {Object.keys(toolsByProduct).length > 0 && (
+            {modeEntries.length > 0 && (
                 <div>
-                    <div className="font-semibold mb-0.5">Contextual tools:</div>
+                    <div className="font-semibold mb-0.5">Mode-specific tools:</div>
                     <ul className="space-y-0.5 text-sm *:flex *:items-start">
-                        {Object.entries(toolsByProduct).map(([product, tools]) => (
-                            <li key={product}>
-                                <IconArrowRight className="text-base text-secondary shrink-0 ml-1 mr-2 h-[1.25em]" />
-                                <span>
-                                    <em>
-                                        In {sceneConfigurations[product as Scene]?.name || identifierToHuman(product)}
-                                        :{' '}
-                                    </em>
-                                    {tools.map((tool, index) => (
-                                        <span key={tool.name}>
-                                            <strong className="italic">
-                                                {tool.name}
-                                                {tool.beta && (
-                                                    <LemonTag size="small" type="warning" className="ml-1 not-italic">
-                                                        BETA
-                                                    </LemonTag>
-                                                )}
-                                            </strong>
-                                            {tool.description?.replace(tool.name, '')}
-                                            {index < tools.length - 1 && <>; </>}
-                                        </span>
-                                    ))}
-                                </span>
-                            </li>
-                        ))}
+                        {modeEntries.map(([mode, def]) => {
+                            const tools = getToolsForMode(mode)
+                            if (tools.length === 0) {
+                                return null
+                            }
+                            return (
+                                <li key={mode}>
+                                    <IconArrowRight className="text-base text-secondary shrink-0 ml-1 mr-2 h-[1.25em]" />
+                                    <span>
+                                        <em>{def.name}:</em> {tools.map((tool) => tool.name).join(', ')}
+                                    </span>
+                                </li>
+                            )
+                        })}
                     </ul>
                 </div>
             )}
@@ -146,6 +110,7 @@ interface GetModeOptionsParams {
     webSearchEnabled: boolean
     errorTrackingModeEnabled: boolean
     surveyModeEnabled: boolean
+    llmAnalyticsModeEnabled: boolean
     hasExistingMessages: boolean
     flagsModeEnabled: boolean
 }
@@ -156,6 +121,7 @@ function getModeOptions({
     webSearchEnabled,
     errorTrackingModeEnabled,
     surveyModeEnabled,
+    llmAnalyticsModeEnabled,
     hasExistingMessages,
     flagsModeEnabled,
 }: GetModeOptionsParams): LemonSelectSection<ModeValue>[] {
@@ -213,6 +179,9 @@ function getModeOptions({
         if (mode === AgentMode.Flags && !flagsModeEnabled) {
             return false
         }
+        if (mode === AgentMode.LLMAnalytics && !llmAnalyticsModeEnabled) {
+            return false
+        }
         return true
     })
 
@@ -245,6 +214,7 @@ export function ModeSelector(): JSX.Element | null {
     const planModeEnabled = useFeatureFlag('PHAI_PLAN_MODE')
     const webSearchEnabled = useFeatureFlag('PHAI_WEB_SEARCH')
     const errorTrackingModeEnabled = useFeatureFlag('PHAI_ERROR_TRACKING_MODE')
+    const llmAnalyticsModeEnabled = useFeatureFlag('PHAI_LLM_ANALYTICS_MODE')
     const surveyModeEnabled = useFeatureFlag('PHAI_SURVEY_MODE')
     const flagsModeEnabled = useFeatureFlag('POSTHOG_AI_FLAGS_MODE')
 
@@ -257,6 +227,7 @@ export function ModeSelector(): JSX.Element | null {
                 webSearchEnabled,
                 errorTrackingModeEnabled,
                 flagsModeEnabled,
+                llmAnalyticsModeEnabled,
                 surveyModeEnabled,
                 hasExistingMessages,
             }),
@@ -266,9 +237,9 @@ export function ModeSelector(): JSX.Element | null {
             webSearchEnabled,
             errorTrackingModeEnabled,
             surveyModeEnabled,
+            llmAnalyticsModeEnabled,
             hasExistingMessages,
             flagsModeEnabled,
-            surveyModeEnabled,
         ]
     )
 

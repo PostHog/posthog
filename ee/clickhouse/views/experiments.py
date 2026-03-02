@@ -917,6 +917,15 @@ class EnterpriseExperimentsViewSet(
             else:
                 queryset = queryset.filter(archived=False)
 
+            # feature_flag_id
+            feature_flag_id = self.request.query_params.get("feature_flag_id")
+            if feature_flag_id:
+                try:
+                    feature_flag_id_int = int(feature_flag_id)
+                    queryset = queryset.filter(feature_flag_id=feature_flag_id_int)
+                except ValueError:
+                    raise ValidationError("feature_flag_id must be an integer")
+
         # search by name
         search = self.request.query_params.get("search")
         if search:
@@ -1023,6 +1032,7 @@ class EnterpriseExperimentsViewSet(
             "feature_flag_key": feature_flag_key,  # Use provided key or fall back to existing
             "primary_metrics_ordered_uuids": source_experiment.primary_metrics_ordered_uuids,
             "secondary_metrics_ordered_uuids": source_experiment.secondary_metrics_ordered_uuids,
+            "exposure_preaggregation_enabled": source_experiment.exposure_preaggregation_enabled,
             # Reset fields for new experiment
             "start_date": None,
             "end_date": None,

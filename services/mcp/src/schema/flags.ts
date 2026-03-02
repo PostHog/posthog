@@ -10,9 +10,9 @@ export interface PostHogFlagsResponse {
     results?: PostHogFeatureFlag[]
 }
 const base = ['exact', 'is_not', 'is_set', 'is_not_set'] as const
-const stringOpsForSchema = ['icontains', 'not_icontains', 'regex', 'not_regex', 'is_cleaned_path_exact']
+const stringOpsForSchema = ['icontains', 'not_icontains', 'regex', 'not_regex']
 const stringOps = [...base, ...stringOpsForSchema] as const
-const numberOpsForSchema = ['gt', 'gte', 'lt', 'lte', 'min', 'max']
+const numberOpsForSchema = ['gt', 'gte', 'lt', 'lte']
 const numberOps = [...base, ...numberOpsForSchema] as const
 const booleanOps = [...base] as const
 
