@@ -99,6 +99,21 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                 return anchorDate.format('MMMM YYYY')
             },
         ],
+        relativeDateLabel: [
+            (s) => [s.anchorDate, s.viewMode],
+            (anchorDate, viewMode): string => {
+                const now = dayjs()
+                const unit = viewMode === 'week' ? 'week' : 'month'
+                const currentPeriodStart = viewMode === 'week' ? now.startOf('isoWeek') : now.startOf('month')
+                const diffPeriods = currentPeriodStart.diff(anchorDate, unit)
+                if (diffPeriods === 0) {
+                    return viewMode === 'week' ? 'this week' : 'this month'
+                } else if (diffPeriods === 1) {
+                    return viewMode === 'week' ? 'last week' : 'last month'
+                }
+                return `${diffPeriods} ${unit}s ago`
+            },
+        ],
         canNavigateForward: [
             (s) => [s.anchorDate, s.viewMode],
             (anchorDate, viewMode): boolean => {

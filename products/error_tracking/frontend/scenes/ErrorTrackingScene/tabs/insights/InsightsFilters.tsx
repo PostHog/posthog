@@ -32,7 +32,7 @@ export function InsightsFilters(): JSX.Element {
 
     return (
         <div className="flex gap-2 items-start">
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
                 <UniversalFilters
                     rootKey={TAXONOMIC_FILTER_LOGIC_KEY}
                     group={filterGroup.values[0] as UniversalFiltersGroup}
@@ -42,11 +42,13 @@ export function InsightsFilters(): JSX.Element {
                     <FilterSearch />
                 </UniversalFilters>
             </div>
-            <TestAccountFilter
-                size="small"
-                filters={{ filter_test_accounts: filterTestAccounts }}
-                onChange={({ filter_test_accounts }) => setFilterTestAccounts(filter_test_accounts || false)}
-            />
+            <div className="shrink-0">
+                <TestAccountFilter
+                    size="small"
+                    filters={{ filter_test_accounts: filterTestAccounts }}
+                    onChange={({ filter_test_accounts }) => setFilterTestAccounts(filter_test_accounts || false)}
+                />
+            </div>
         </div>
     )
 }
