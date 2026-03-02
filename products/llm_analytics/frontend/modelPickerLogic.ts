@@ -5,11 +5,12 @@ import api from 'lib/api'
 
 import type { modelPickerLogicType } from './modelPickerLogicType'
 import {
-    LLMProvider,
+    type LLMProvider,
     LLMProviderKey,
     LLM_PROVIDER_LABELS,
     llmProviderKeysLogic,
     providerSortIndex,
+    toLLMProvider,
 } from './settings/llmProviderKeysLogic'
 import { isUnhealthyProviderKeyState, providerKeyStateSuffix } from './settings/providerKeyStateUtils'
 
@@ -41,12 +42,20 @@ export function buildTrialProviderModelGroups(models: ModelOption[]): ProviderMo
     }
     return Object.entries(byProvider)
         .sort(([a], [b]) => providerSortIndex(a) - providerSortIndex(b))
-        .map(([provider, providerModels]) => ({
-            provider: provider.toLowerCase() as LLMProvider,
-            providerKeyId: `trial:${provider.toLowerCase()}`,
-            label: LLM_PROVIDER_LABELS[provider.toLowerCase() as LLMProvider] ?? provider,
-            models: providerModels,
-        }))
+        .flatMap(([provider, providerModels]) => {
+            const llmProvider = toLLMProvider(provider)
+            if (!llmProvider) {
+                return []
+            }
+            return [
+                {
+                    provider: llmProvider,
+                    providerKeyId: `trial:${llmProvider}`,
+                    label: LLM_PROVIDER_LABELS[llmProvider] ?? provider,
+                    models: providerModels,
+                },
+            ]
+        })
 }
 
 export const modelPickerLogic = kea<modelPickerLogicType>([

@@ -9,7 +9,7 @@ import { urls } from '~/scenes/urls'
 
 import { LLMProviderIcon } from './LLMProviderIcon'
 import { type ModelOption, type ProviderModelGroup } from './modelPickerLogic'
-import { type LLMProvider } from './settings/llmProviderKeysLogic'
+import { type LLMProvider, toLLMProvider } from './settings/llmProviderKeysLogic'
 
 const PROVIDER_SETTINGS_URL = urls.settings('environment-llm-analytics', 'llm-analytics-byok')
 
@@ -21,7 +21,7 @@ export function getModelPickerFooterLink(hasByokKeys: boolean): { label: string;
 }
 
 export function parseTrialProviderKeyId(providerKeyId: string): LLMProvider | null {
-    return providerKeyId.startsWith('trial:') ? (providerKeyId.slice(6) as LLMProvider) || null : null
+    return providerKeyId.startsWith('trial:') ? toLLMProvider(providerKeyId.slice(6)) : null
 }
 
 export interface ModelPickerProps {
