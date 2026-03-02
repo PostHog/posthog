@@ -296,7 +296,7 @@ class Command(BaseCommand):
         # UPDATE not DELETE: after a merge, deletion marker and data are one row.
         # DELETE would remove all session metadata. UPDATE rewrites all parts safely.
         sync_execute(
-            # nosemgrep: clickhouse-fstring-param-audit — CLICKHOUSE_CLUSTER is from Django settings, not user input
+            # nosemgrep: semgrep.rules.clickhouse-fstring-param-audit — CLICKHOUSE_CLUSTER is from Django settings, not user input
             f"""
             ALTER TABLE sharded_session_replay_events
             ON CLUSTER '{CLICKHOUSE_CLUSTER}'
