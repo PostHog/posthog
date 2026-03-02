@@ -83,10 +83,6 @@ def _apply_duration_filtering(queryset, thresholds: QueryPercentileThresholds | 
     min_threshold_ms = thresholds.min_threshold_ms
     max_threshold_ms = thresholds.max_threshold_ms
 
-    LOGGER.info(
-        f"Applying duration filter: min_threshold_ms={min_threshold_ms}, max_threshold_ms={max_threshold_ms}, is_p100={is_p100}"
-    )
-
     # Special case: if this is p100 (no upper limit), only apply lower bound
     # and include cohorts without duration data (NULL values)
     if is_p100:
@@ -98,12 +94,10 @@ def _apply_duration_filtering(queryset, thresholds: QueryPercentileThresholds | 
         filter_condition = Q(last_calculation_duration_ms__gte=min_threshold_ms) | Q(
             last_calculation_duration_ms__isnull=True
         )
-        LOGGER.info(f"P100 filter: duration >= {min_threshold_ms} OR NULL")
         return queryset.filter(filter_condition)
     else:
         # Normal case: apply both upper and lower bounds
         # Only include cohorts with duration data in the specified range
-        LOGGER.info(f"Normal filter: {min_threshold_ms} <= duration < {max_threshold_ms}")
         return queryset.filter(
             last_calculation_duration_ms__gte=min_threshold_ms, last_calculation_duration_ms__lt=max_threshold_ms
         )
@@ -223,7 +217,6 @@ async def get_query_percentile_thresholds_activity(
         import statistics
 
         durations_list = list(recent_cohorts)
-        LOGGER.info(f"Calculating percentiles from {len(durations_list)} cohorts (all teams, last 24h)")
 
         if len(durations_list) < 2:
             # Need at least 2 data points for meaningful percentiles
@@ -282,13 +275,6 @@ async def get_realtime_cohort_selection_activity(
     def get_selected_cohort_ids():
         # Log duration percentile filtering status
         thresholds = query_percentile_thresholds
-        if thresholds and (inputs.duration_percentile_min is not None or inputs.duration_percentile_max is not None):
-            min_p = inputs.duration_percentile_min if inputs.duration_percentile_min is not None else 0.0
-            max_p = inputs.duration_percentile_max if inputs.duration_percentile_max is not None else 100.0
-            LOGGER.info(
-                f"Duration percentile filtering with thresholds: "
-                f"p{min_p}={thresholds.min_threshold_ms / 1000:.2f}s, p{max_p}={thresholds.max_threshold_ms / 1000:.2f}s"
-            )
 
         # If cohort_id is specified, just return that specific cohort ID if it exists
         # (No duration filtering when manually specifying cohort_id via Django command)
@@ -314,26 +300,10 @@ async def get_realtime_cohort_selection_activity(
                 if thresholds and (
                     inputs.duration_percentile_min is not None or inputs.duration_percentile_max is not None
                 ):
-                    # Log before filtering to see what we're starting with
-                    before_filter_cohorts = list(
-                        team_cohort_queryset.order_by("id").values("id", "last_calculation_duration_ms")
-                    )
-                    LOGGER.info(
-                        f"Before duration filtering (teams {list(valid_team_ids)}): {len(before_filter_cohorts)} cohorts with durations: {before_filter_cohorts}"
-                    )
-
                     team_cohort_queryset = _apply_duration_filtering(
                         team_cohort_queryset, thresholds, is_p100=(inputs.duration_percentile_max == 100.0)
                     )
                 team_cohort_ids = list(team_cohort_queryset.order_by("id").values_list("id", flat=True))
-
-                # Log which cohorts were selected after filtering
-                if thresholds and (
-                    inputs.duration_percentile_min is not None or inputs.duration_percentile_max is not None
-                ):
-                    min_p = inputs.duration_percentile_min if inputs.duration_percentile_min is not None else 0.0
-                    max_p = inputs.duration_percentile_max if inputs.duration_percentile_max is not None else 100.0
-                    LOGGER.info(f"After p{min_p}-p{max_p} filtering: {len(team_cohort_ids)} cohorts: {team_cohort_ids}")
 
                 selected_cohort_ids.extend(team_cohort_ids)
 
