@@ -497,6 +497,24 @@ Output: {output_data}"""
     return result_dict
 
 
+def extract_event_io(event_type: str, properties: dict[str, Any]) -> tuple[Any, Any]:
+    """Extract raw input and output values from event properties.
+
+    Returns (input_raw, output_raw) for use in Hog eval globals and preview display.
+    """
+    if event_type == "$ai_generation":
+        input_raw = properties.get("$ai_input") or properties.get("$ai_input_state", "")
+        output_raw = (
+            properties.get("$ai_output_choices")
+            or properties.get("$ai_output")
+            or properties.get("$ai_output_state", "")
+        )
+    else:
+        input_raw = properties.get("$ai_input_state", "")
+        output_raw = properties.get("$ai_output_state", "")
+    return input_raw, output_raw
+
+
 def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = False) -> dict[str, Any]:
     """Run compiled Hog bytecode against a single event.
 
@@ -509,17 +527,7 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
         properties = json.loads(properties)
 
     event_type = event_data["event"]
-
-    if event_type == "$ai_generation":
-        input_raw = properties.get("$ai_input") or properties.get("$ai_input_state", "")
-        output_raw = (
-            properties.get("$ai_output_choices")
-            or properties.get("$ai_output")
-            or properties.get("$ai_output_state", "")
-        )
-    else:
-        input_raw = properties.get("$ai_input_state", "")
-        output_raw = properties.get("$ai_output_state", "")
+    input_raw, output_raw = extract_event_io(event_type, properties)
 
     # Ensure input/output are always strings so string operations (ilike, length, etc.) work consistently.
     # Users can still parse structured data with jsonParse() when needed.

@@ -21,7 +21,7 @@ from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
-from posthog.temporal.llm_analytics.run_evaluation import run_hog_eval
+from posthog.temporal.llm_analytics.run_evaluation import extract_event_io, run_hog_eval
 
 from ..models.evaluation_configs import validate_evaluation_configs
 from ..models.evaluations import Evaluation
@@ -355,6 +355,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
         source = serializer.validated_data["source"]
         sample_count = serializer.validated_data["sample_count"]
+        allows_na = serializer.validated_data["allows_na"]
         conditions = serializer.validated_data.get("conditions", [])
 
         from posthog.hogql import ast
@@ -379,7 +380,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             ast.CompareOperation(
                 op=ast.CompareOperationOp.In,
                 left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=["$ai_generation", "$ai_metric"]),
+                right=ast.Constant(value=["$ai_generation"]),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Gt,
@@ -441,19 +442,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "distinct_id": distinct_id or "",
             }
 
-            result = run_hog_eval(bytecode, event_data)
+            result = run_hog_eval(bytecode, event_data, allows_na=allows_na)
 
-            if event_type == "$ai_generation":
-                input_raw = properties.get("$ai_input") or properties.get("$ai_input_state", "")
-                output_raw = (
-                    properties.get("$ai_output_choices")
-                    or properties.get("$ai_output")
-                    or properties.get("$ai_output_state", "")
-                )
-            else:
-                input_raw = properties.get("$ai_input_state", "")
-                output_raw = properties.get("$ai_output_state", "")
-
+            input_raw, output_raw = extract_event_io(event_type, properties)
             input_preview = extract_text_from_messages(input_raw)[:200]
             output_preview = extract_text_from_messages(output_raw)[:200]
 
@@ -475,4 +466,5 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 class TestHogRequestSerializer(serializers.Serializer):
     source = serializers.CharField(required=True, min_length=1)
     sample_count = serializers.IntegerField(required=False, default=5, min_value=1, max_value=10)
+    allows_na = serializers.BooleanField(required=False, default=False)
     conditions = serializers.ListField(child=serializers.DictField(), required=False, default=list)

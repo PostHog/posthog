@@ -134,6 +134,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         const response = await api.create(`/api/environments/${teamId}/evaluations/test_hog/`, {
                             source: evaluation.evaluation_config.source,
                             sample_count: 5,
+                            allows_na: evaluation.output_config?.allows_na ?? false,
                             conditions,
                         })
                         return response.results
