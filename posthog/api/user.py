@@ -15,6 +15,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
+from django.utils.html import escape
 from django.views.decorators.http import require_http_methods
 
 import jwt
@@ -995,7 +996,7 @@ def toolbar_oauth_callback(request):
 
     # Handle errors first regardless of flow type
     if is_redirect_flow and error:
-        description = request.GET.get("error_description", error)
+        description = escape(request.GET.get("error_description", error))
         return HttpResponse(description, status=400, content_type="text/plain")
 
     if error:
