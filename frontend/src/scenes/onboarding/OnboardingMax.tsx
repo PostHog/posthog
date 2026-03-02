@@ -6,7 +6,6 @@ import { IconArrowRight, IconCheck } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
-
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { ThreadAutoScroller } from 'scenes/max/components/ThreadAutoScroller'
 import { TOOL_DEFINITIONS, ToolRegistration } from 'scenes/max/max-constants'
