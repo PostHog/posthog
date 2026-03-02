@@ -22,6 +22,13 @@ CSRF_COOKIE_SECURE = secure_cookies
 SECURE_SSL_REDIRECT = secure_cookies
 SECURE_REDIRECT_EXEMPT = [r"^_health/?"]
 SECURE_REFERRER_POLICY = get_from_env("SECURE_REFERRER_POLICY", "same-origin")
+# Allow popups opened by PostHog pages to have a different COOP and still
+# maintain window.opener.  The toolbar OAuth popup needs unsafe-none so
+# cross-origin customer sites can receive the postMessage, but the default
+# same-origin on the opener severs the reference.  same-origin-allow-popups
+# keeps the same cross-origin isolation for the page itself while permitting
+# this popup flow.
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin-allow-popups"
 
 if get_from_env("DISABLE_SECURE_SSL_REDIRECT", False, type_cast=str_to_bool):
     SECURE_SSL_REDIRECT = False
