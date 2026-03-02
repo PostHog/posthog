@@ -93,6 +93,9 @@ pub struct Config {
     #[envconfig(default = "symbolsets")]
     pub ss_prefix: String,
 
+    #[envconfig(default = "600")]
+    pub issue_cache_ttl_seconds: u64,
+
     #[envconfig(default = "100000")]
     pub frame_cache_size: u64,
 

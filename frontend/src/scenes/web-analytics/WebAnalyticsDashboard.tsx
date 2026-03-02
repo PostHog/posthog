@@ -11,25 +11,21 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { IconLink, IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
-import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
-import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
-import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 import {
     ProductTab,
     QueryTile,
@@ -41,20 +37,23 @@ import {
     WebAnalyticsTile,
     tabSplitIndexMap,
 } from 'scenes/web-analytics/common'
+import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
+import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
+import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
-import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -69,7 +68,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     return (
         <div
             className={clsx(
-                'mt-4 grid grid-cols-1 @4xl/main-content:grid-cols-2 @7xl/main-content:grid-cols-3',
+                'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
                 compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-4'
             )}
             data-attr="web-analytics-dashboard"
@@ -136,9 +135,9 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
         <div
             className={clsx(
                 'col-span-1 row-span-1 flex flex-col',
-                layout.colSpanClassName ?? '@4xl/main-content:col-span-6',
-                layout.rowSpanClassName ?? '@4xl/main-content:row-span-1',
-                layout.orderWhenLargeClassName ?? '@7xl/main-content:order-12',
+                layout.colSpanClassName ?? 'md:col-span-6',
+                layout.rowSpanClassName ?? 'md:row-span-1',
+                layout.orderWhenLargeClassName ?? 'xxl:order-12',
                 layout.className
             )}
         >
@@ -175,9 +174,9 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
         <WebTabs
             className={clsx(
                 'col-span-1 row-span-1',
-                layout.colSpanClassName || '@4xl/main-content:col-span-1',
-                layout.rowSpanClassName || '@4xl/main-content:row-span-1',
-                layout.orderWhenLargeClassName || '@7xl/main-content:order-12',
+                layout.colSpanClassName || 'md:col-span-1',
+                layout.rowSpanClassName || 'md:row-span-1',
+                layout.orderWhenLargeClassName || 'xxl:order-12',
                 layout.className
             )}
             activeTabId={tile.activeTabId}
@@ -573,10 +572,6 @@ const WebAnalyticsTabs = (): JSX.Element => {
         }
     }, [productTab])
 
-    const handleShare = (): void => {
-        void copyToClipboard(window.location.href, 'link')
-    }
-
     return (
         <LemonTabs<ProductTab>
             activeKey={productTab}
@@ -601,20 +596,6 @@ const WebAnalyticsTabs = (): JSX.Element => {
             ]}
             sceneInset
             className="-mt-4"
-            rightSlot={
-                !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] &&
-                !featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR] && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconLink fontSize="16" />}
-                        tooltip="Share"
-                        tooltipPlacement="top"
-                        onClick={handleShare}
-                        data-attr="web-analytics-share-button"
-                    />
-                )
-            }
         />
     )
 }

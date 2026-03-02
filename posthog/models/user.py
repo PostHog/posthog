@@ -27,6 +27,9 @@ class Notifications(TypedDict, total=False):
     plugin_disabled: bool
     error_tracking_issue_assigned: bool
     error_tracking_weekly_digest: bool
+    error_tracking_weekly_digest_project_enabled: dict[
+        str, Any
+    ]  # Maps team_id (str) to enabled status (True = included). None/missing = not configured (auto-select on first digest).
     discussions_mentioned: bool
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
     all_weekly_digest_disabled: bool
@@ -45,7 +48,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
-    "project_api_key_exposed": True,  # Project API key exposure alerts enabled by default
+    "project_api_key_exposed": True,  # Private project API key (secure API key) exposure alerts enabled by default
     "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
 }
 

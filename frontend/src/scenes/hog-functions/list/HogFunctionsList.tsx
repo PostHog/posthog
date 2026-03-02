@@ -20,8 +20,8 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
@@ -104,11 +104,15 @@ export function HogFunctionList({
     extraControls,
     hideFeedback = false,
     emptyText,
+    onDeleteHogFunction,
+    onEditHogFunction,
     ...props
 }: HogFunctionListLogicProps & {
     extraControls?: JSX.Element
     hideFeedback?: boolean
     emptyText?: string
+    onDeleteHogFunction?: (hogFunction: HogFunctionType) => void
+    onEditHogFunction?: (hogFunction: HogFunctionType) => void
 }): JSX.Element {
     const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
         hogFunctionsListLogic(props)
@@ -148,6 +152,7 @@ export function HogFunctionList({
                     return (
                         <LemonTableLink
                             to={urlForHogFunction(hogFunction)}
+                            onClick={onEditHogFunction ? () => onEditHogFunction(hogFunction) : undefined}
                             title={
                                 <>
                                     <Tooltip title="Click to update configuration, view metrics, and more">
@@ -258,7 +263,10 @@ export function HogFunctionList({
                                                   {
                                                       label: 'Delete',
                                                       status: 'danger' as const, // for typechecker happiness
-                                                      onClick: () => deleteHogFunction(hogFunction),
+                                                      onClick: () => {
+                                                          onDeleteHogFunction?.(hogFunction)
+                                                          deleteHogFunction(hogFunction)
+                                                      },
                                                   },
                                               ]
                                     }
@@ -292,7 +300,15 @@ export function HogFunctionList({
         }
 
         return columns
-    }, [props.type, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [
+        props.type,
+        humanizedType,
+        toggleEnabled,
+        deleteHogFunction,
+        isManualFunction,
+        onDeleteHogFunction,
+        onEditHogFunction,
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex flex-col gap-4">
@@ -332,6 +348,7 @@ export function HogFunctionList({
                     size="small"
                     loading={loading}
                     columns={columns}
+                    pagination={{ pageSize: 30 }}
                     emptyState={
                         hogFunctions.length === 0 && !loading ? (
                             (emptyText ?? `No ${humanizedType}s found`)

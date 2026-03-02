@@ -16,6 +16,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
     ListStorage,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -37,6 +38,7 @@ import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
 
 export interface InfiniteListProps {
     popupAnchorElement: HTMLDivElement | null
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
@@ -234,8 +236,7 @@ interface InfiniteListRowProps {
     selectItem: (
         group: TaxonomicFilterGroup,
         value: string | number | null,
-        item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true },
-        originalQuery?: string
+        item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true }
     ) => void
     setHighlightedItemElement: (element: HTMLDivElement | null) => void
 }
@@ -260,7 +261,6 @@ const InfiniteListRow = ({
     expandedCount,
     isExpandable,
     isLoading,
-    items,
     showNonCapturedEventOption,
     trimmedSearchQuery,
     dataWarehousePopoverFields,
@@ -288,12 +288,7 @@ const InfiniteListRow = ({
 
     if (showNonCapturedEventOption && rowIndex === 0) {
         const selectNonCapturedEvent = (): void => {
-            selectItem(
-                itemGroup,
-                trimmedSearchQuery,
-                { name: trimmedSearchQuery, isNonCaptured: true },
-                trimmedSearchQuery
-            )
+            selectItem(itemGroup, trimmedSearchQuery, { name: trimmedSearchQuery, isNonCaptured: true })
         }
 
         return (
@@ -363,12 +358,7 @@ const InfiniteListRow = ({
                     }
                     return (
                         canSelectItem(listGroupType, dataWarehousePopoverFields) &&
-                        selectItem(
-                            itemGroup,
-                            itemValue ?? null,
-                            item,
-                            isExactMatchItem ? undefined : items.originalQuery
-                        )
+                        selectItem(itemGroup, itemValue ?? null, item)
                     )
                 }}
             >
@@ -424,20 +414,61 @@ const InfiniteListRow = ({
     )
 }
 
-export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Element {
+function InfiniteListEmptyState(): JSX.Element {
+    const { searchQuery, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
+
+    const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters } = useValues(infiniteListLogic)
+
+    const emptySearchQuery = searchQuery.trim().length === 0
+    const suggestedFiltersBeforeSearching = isSuggestedFilters && emptySearchQuery
+    return (
+        <div className="no-infinite-results flex flex-col gap-y-1 items-center">
+            {suggestedFiltersBeforeSearching ? (
+                <>
+                    <IconSearch className="text-5xl text-tertiary" />
+                    <span className="text-secondary text-center">Start searching and we'll suggest filters...</span>
+                    <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
+                </>
+            ) : needsMoreSearchCharacters ? (
+                <>
+                    <IconSearch className="text-5xl text-tertiary" />
+                    <span className="text-secondary text-center">
+                        Search for{' '}
+                        {group?.searchDescription || group?.searchPlaceholder || group?.name?.toLowerCase() || 'items'}
+                    </span>
+                    <span className="text-center text-secondary italic">
+                        Type at least {minSearchQueryLength} characters to search
+                    </span>
+                </>
+            ) : (
+                <>
+                    <IconArchive className="text-5xl text-tertiary" />
+                    <span>
+                        {emptySearchQuery ? (
+                            'Start typing to find results'
+                        ) : (
+                            <>
+                                No results for "<strong>{searchQuery}</strong>"
+                            </>
+                        )}
+                    </span>
+                </>
+            )}
+        </div>
+    )
+}
+
+export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: InfiniteListProps): JSX.Element {
     const {
         mouseInteractionsEnabled,
         activeTab,
         searchQuery,
         eventNames,
-        allowNonCapturedEvents,
         groupType,
         value,
         taxonomicGroups,
-        taxonomicGroupTypes,
         selectedProperties,
         dataWarehousePopoverFields,
-        anyGroupLoading,
     } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const {
@@ -454,39 +485,16 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         expandedCount,
         showPopover,
         items,
-        hasRemoteDataSource,
+        showNonCapturedEventOption,
+        showEmptyState,
+        showLoadingState,
+        isSuggestedFilters,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
     const isActiveTab = listGroupType === activeTab
     const listRef = useListRef(null)
-
     const trimmedSearchQuery = searchQuery.trim()
-
-    // Show "Add non-captured event" option for CustomEvents group when searching
-    const showNonCapturedEventOption =
-        allowNonCapturedEvents &&
-        (listGroupType === TaxonomicFilterGroupType.CustomEvents ||
-            listGroupType === TaxonomicFilterGroupType.Events) &&
-        trimmedSearchQuery.length > 0 &&
-        !isLoading &&
-        // Only show if no results found at all
-        results.length === 0
-
-    // Only show empty state if:
-    // 1. There are no results
-    // 2. We're not currently loading
-    // 3. We have a search query (otherwise if hasRemoteDataSource=true, we're just waiting for data)
-    // 4. We're not showing the non-captured event option
-    const isSuggestedFilters = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
-    const showEmptyState =
-        totalListCount === 0 &&
-        !isLoading &&
-        !(isSuggestedFilters && anyGroupLoading) &&
-        (!!searchQuery || !hasRemoteDataSource) &&
-        !showNonCapturedEventOption
-    const showLoadingState =
-        (isLoading || (isSuggestedFilters && anyGroupLoading)) && (!results || results.length === 0)
 
     useEffect(() => {
         if (index >= 0 && listRef.current) {
@@ -506,30 +514,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             )}
         >
             {showEmptyState ? (
-                <div className="no-infinite-results flex flex-col gap-y-1 items-center">
-                    {isSuggestedFilters ? (
-                        <>
-                            <IconSearch className="text-5xl text-tertiary" />
-                            <span className="text-secondary text-center">
-                                Start searching and we'll suggest filters...
-                            </span>
-                            <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
-                        </>
-                    ) : (
-                        <>
-                            <IconArchive className="text-5xl text-tertiary" />
-                            <span>
-                                {searchQuery ? (
-                                    <>
-                                        No results for "<strong>{searchQuery}</strong>"
-                                    </>
-                                ) : (
-                                    'No results'
-                                )}
-                            </span>
-                        </>
-                    )}
-                </div>
+                <InfiniteListEmptyState />
             ) : showLoadingState ? (
                 <div className="flex items-center justify-center h-full">
                     <Spinner className="text-3xl" />
@@ -605,6 +590,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         item={selectedItem}
                         group={selectedItemGroup}
                         highlightedItemElement={highlightedItemElement}
+                        definitionPopoverRenderer={definitionPopoverRenderer}
                     />
                 </BindLogic>
             ) : null}

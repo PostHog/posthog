@@ -1,9 +1,12 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router, urlToAction } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { signalSourcesLogic } from 'scenes/inbox/signalSourcesLogic'
+import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -33,16 +36,36 @@ export interface AvailableModel {
 export interface LLMEvaluationLogicProps {
     evaluationId: string
     templateKey?: EvaluationTemplateKey
+    tabId?: string
 }
 
 export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     path(['products', 'llm_analytics', 'evaluations', 'llmEvaluationLogic']),
     props({} as LLMEvaluationLogicProps),
-    key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
+    key(
+        (props) =>
+            `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}::${props.tabId ?? 'default'}`
+    ),
 
     connect(() => ({
-        values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
-        actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadProviderKeysSuccess']],
+        values: [
+            llmProviderKeysLogic,
+            ['providerKeys', 'providerKeysLoading'],
+            signalSourcesLogic,
+            ['sourceConfigs', 'sourceConfigsLoading'],
+        ],
+        actions: [
+            llmProviderKeysLogic,
+            ['loadProviderKeys', 'loadProviderKeysSuccess'],
+            signalSourcesLogic,
+            [
+                'loadSourceConfigs',
+                'loadSourceConfigsSuccess',
+                'toggleSignalSource',
+                'toggleSignalSourceSuccess',
+                'toggleSignalSourceFailure',
+            ],
+        ],
     })),
 
     actions({
@@ -54,6 +77,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
+
+        // Signal emission
+        setSignalEmission: (enabled: boolean) => ({ enabled }),
 
         // Evaluation management actions
         saveEvaluation: true,
@@ -69,6 +95,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setSelectedProvider: (provider: LLMProvider) => ({ provider }),
         setSelectedKeyId: (keyId: string | null) => ({ keyId }),
         setSelectedModel: (model: string) => ({ model }),
+        selectModelFromPicker: (modelId: string, providerKeyId: string) => ({ modelId, providerKeyId }),
 
         // Evaluation summary actions
         setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter, previousFilter: EvaluationSummaryFilter) => ({
@@ -194,7 +221,15 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             '' as string,
             {
                 setSelectedModel: (_, { model }) => model,
+                selectModelFromPicker: (_, { modelId }) => modelId,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.model || '',
+            },
+        ],
+        selectedPickerProviderKeyId: [
+            null as string | null,
+            {
+                selectModelFromPicker: (_, { providerKeyId }) => providerKeyId,
+                loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.provider_key_id || null,
             },
         ],
         isForceRefresh: [
@@ -217,6 +252,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 saveEvaluation: () => true,
                 saveEvaluationSuccess: () => false,
+            },
+        ],
+        signalEmissionOptimistic: [
+            null as boolean | null,
+            {
+                setSignalEmission: (_, { enabled }) => enabled,
+                loadSourceConfigsSuccess: () => null,
+                toggleSignalSourceFailure: () => null,
             },
         ],
         hasUnsavedChanges: [
@@ -417,6 +460,27 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
         },
 
+        setSignalEmission: ({ enabled }) => {
+            const configs: SignalSourceConfig[] = values.sourceConfigs ?? []
+            const existing = configs.find(
+                (c) =>
+                    c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
+                    c.source_type === SignalSourceType.EVALUATION
+            )
+
+            const currentIds: string[] = existing?.config?.evaluation_ids ?? []
+            const newIds = enabled
+                ? [...new Set([...currentIds, props.evaluationId])]
+                : currentIds.filter((id: string) => id !== props.evaluationId)
+
+            actions.toggleSignalSource({
+                sourceProduct: SignalSourceProduct.LLM_ANALYTICS,
+                sourceType: SignalSourceType.EVALUATION,
+                enabled: true,
+                config: { ...existing?.config, evaluation_ids: newIds },
+            })
+        },
+
         saveEvaluation: async () => {
             try {
                 const teamId = teamLogic.values.currentTeamId
@@ -471,6 +535,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
         },
 
+        selectModelFromPicker: ({ modelId, providerKeyId }) => {
+            const key = values.providerKeys.find((k: LLMProviderKey) => k.id === providerKeyId)
+            if (key && modelId) {
+                actions.setModelConfiguration({
+                    provider: key.provider,
+                    model: modelId,
+                    provider_key_id: providerKeyId,
+                })
+            }
+        },
+
         loadAvailableModelsSuccess: ({ availableModels }) => {
             // If the currently selected model is not in the available models, reset it
             if (values.selectedModel && !availableModels.some((m: AvailableModel) => m.id === values.selectedModel)) {
@@ -493,6 +568,25 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
     selectors({
         isNewEvaluation: [(_, props) => [props.evaluationId], (evaluationId: string) => evaluationId === 'new'],
+
+        signalEmissionEnabled: [
+            (s, props) => [s.signalEmissionOptimistic, s.sourceConfigs, props.evaluationId],
+            (optimistic: boolean | null, sourceConfigs: SignalSourceConfig[] | null, evaluationId: string): boolean => {
+                if (optimistic !== null) {
+                    return optimistic
+                }
+                if (!sourceConfigs) {
+                    return false
+                }
+                const llmEvalConfig = sourceConfigs.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
+                        c.source_type === SignalSourceType.EVALUATION
+                )
+                const ids: string[] = llmEvalConfig?.config?.evaluation_ids ?? []
+                return !!llmEvalConfig?.enabled && ids.includes(evaluationId)
+            },
+        ],
 
         formValid: [
             (s) => [s.evaluation],
@@ -634,7 +728,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
     }),
 
-    urlToAction(({ actions, props }) => ({
+    tabAwareUrlToAction(({ actions, props }) => ({
         '/llm-analytics/evaluations/:id': ({ id }, _, __, { method }) => {
             // Only reload when navigating to a different evaluation, not on search param changes (e.g., pagination)
             const newEvaluationId = id && id !== 'new' ? id : 'new'
@@ -649,6 +743,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
     afterMount(({ actions, props }) => {
         actions.loadProviderKeys()
+        actions.loadSourceConfigs()
         actions.loadEvaluation()
         if (props.evaluationId !== 'new') {
             actions.loadEvaluationRuns()
