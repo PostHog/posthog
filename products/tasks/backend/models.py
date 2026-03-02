@@ -176,9 +176,13 @@ class Task(DeletedMetaFields, models.Model):
             repository=repository,
         )
 
-        extra_state: dict | None = None
-        if slack_thread_url:
-            extra_state = {"slack_thread_url": slack_thread_url}
+        extra_state: dict[str, str] | None = None
+        if slack_thread_url or slack_thread_context:
+            extra_state = {}
+            if slack_thread_url:
+                extra_state["slack_thread_url"] = slack_thread_url
+            if slack_thread_context:
+                extra_state["interaction_origin"] = "slack"
 
         task_run = task.create_run(mode=mode, extra_state=extra_state)
 

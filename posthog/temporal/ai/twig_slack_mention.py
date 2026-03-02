@@ -858,7 +858,12 @@ def _resume_task_with_new_run(
         )
         return True
 
-    extra_state: dict[str, Any] = {"pending_user_message": user_text}
+    extra_state: dict[str, Any] = {
+        "pending_user_message": user_text,
+        "interaction_origin": "slack",
+    }
+    if user_message_ts:
+        extra_state["pending_user_message_ts"] = user_message_ts
 
     previous_state = previous_run.state or {}
     if previous_state.get("slack_thread_url"):
