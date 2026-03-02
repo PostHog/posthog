@@ -68,8 +68,52 @@ export function LLMAnalyticsPlaygroundScene(): JSX.Element {
 
     return (
         <div className="flex flex-col h-[calc(100vh-300px)] min-h-[520px]">
+            <div className="flex items-center justify-end gap-2 mb-2">
+                <PlaygroundHeaderActions />
+            </div>
             <PlaygroundLayout />
         </div>
+    )
+}
+
+function PlaygroundHeaderActions(): JSX.Element {
+    const {
+        submitting: playgroundSubmitting,
+        hasRunnablePrompts,
+        activePromptId,
+    } = useValues(llmAnalyticsPlaygroundLogic)
+    const { submitPrompt, addPromptConfig } = useActions(llmAnalyticsPlaygroundLogic)
+
+    return (
+        <>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                onClick={() => addPromptConfig(activePromptId ?? undefined)}
+                disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                data-attr="playground-add-prompt"
+            >
+                Add prompt
+            </LemonButton>
+            <LemonButton
+                type="primary"
+                size="small"
+                icon={<IconPlay />}
+                onClick={() => submitPrompt()}
+                loading={playgroundSubmitting}
+                disabledReason={
+                    playgroundSubmitting
+                        ? 'Generating...'
+                        : !hasRunnablePrompts
+                          ? 'Add messages to at least one prompt'
+                          : undefined
+                }
+                data-attr="playground-run"
+            >
+                Run
+            </LemonButton>
+        </>
     )
 }
 
