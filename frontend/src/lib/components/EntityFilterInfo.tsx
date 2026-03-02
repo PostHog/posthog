@@ -58,7 +58,7 @@ export function EntityFilterInfo({
             )}
             style={style}
         >
-            <div className="flex items-center gap-1">
+            <span className="inline-flex items-center gap-1">
                 {icon}
                 <span
                     className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
@@ -66,7 +66,7 @@ export function EntityFilterInfo({
                 >
                     {customName ?? name}
                 </span>
-            </div>
+            </span>
             {isOptional && (
                 <span className={clsx('text-xs font-normal text-secondary normal-case', !isColumn && 'ml-1')}>
                     (optional)
