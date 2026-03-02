@@ -1,3 +1,5 @@
+import statistics
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -748,7 +750,7 @@ class TestDurationFiltering:
     def test_apply_duration_filtering_p100_vs_normal(self):
         """Should behave differently for p100 vs normal ranges with same thresholds."""
         mock_queryset = Mock()
-        thresholds = QueryPercentileThresholds(min_threshold_ms=10.0, max_threshold_ms=50.0)
+        thresholds = QueryPercentileThresholds(min_threshold_ms=10, max_threshold_ms=50)
 
         # Normal range (p90-p95)
         _apply_duration_filtering(mock_queryset, thresholds, is_p100=False)
@@ -877,88 +879,93 @@ class TestQueryPercentileThresholdsActivity:
 
     @pytest.mark.asyncio
     async def test_get_percentile_thresholds_no_historical_data(self):
-        """Should return None when no historical query data exists."""
+        """Should return None when no historical cohort data exists."""
         inputs = QueryPercentileThresholdsInput(min_percentile=0.0, max_percentile=90.0)
 
-        # Empty result from ClickHouse
-        mock_result = []
-
-        with patch("posthog.clickhouse.client.sync_execute") as mock_execute:
-            mock_execute.return_value = mock_result
+        # Empty result from Cohort queryset (no historical durations)
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.values_list.return_value = []
+            mock_cohort.objects.filter.return_value = mock_queryset
 
             result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_percentile_thresholds_null_values(self):
-        """Should return None when ClickHouse returns NULL values."""
+    async def test_get_percentile_thresholds_insufficient_data(self):
+        """Should return None when Cohort data has insufficient data points."""
         inputs = QueryPercentileThresholdsInput(min_percentile=50.0, max_percentile=75.0)
 
-        # NULL values from ClickHouse (insufficient data)
-        mock_result = [(None, None)]
-
-        with patch("posthog.clickhouse.client.sync_execute") as mock_execute:
-            mock_execute.return_value = mock_result
+        # Only one data point (need at least 2 for meaningful percentiles)
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.values_list.return_value = [1000]
+            mock_cohort.objects.filter.return_value = mock_queryset
 
             result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_percentile_thresholds_partial_null_values(self):
-        """Should return None when some threshold values are NULL."""
+    async def test_get_percentile_thresholds_statistics_error(self):
+        """Should return None when statistics.quantiles raises an error."""
         inputs = QueryPercentileThresholdsInput(min_percentile=75.0, max_percentile=90.0)
 
-        # One NULL value
-        mock_result = [(25.0, None)]
+        # Mock data that will cause statistics error (too few points for percentile calculation)
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.values_list.return_value = [100, 200]  # Valid data
+            mock_cohort.objects.filter.return_value = mock_queryset
 
-        with patch("posthog.clickhouse.client.sync_execute") as mock_execute:
-            mock_execute.return_value = mock_result
-
-            result = await get_query_percentile_thresholds_activity(inputs)
+            # Mock statistics.quantiles to raise StatisticsError
+            with patch("statistics.quantiles", side_effect=statistics.StatisticsError("Insufficient data")):
+                result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_percentile_thresholds_invalid_result_format(self):
-        """Should return None when ClickHouse result has invalid format."""
+    async def test_get_percentile_thresholds_invalid_data_types(self):
+        """Should return None when Cohort duration data has invalid types."""
         inputs = QueryPercentileThresholdsInput(min_percentile=80.0, max_percentile=95.0)
 
-        # Invalid result format (missing second value)
-        mock_result = [(25.0,)]  # Only one value instead of two
-
-        with patch("posthog.clickhouse.client.sync_execute") as mock_execute:
-            mock_execute.return_value = mock_result
+        # Invalid duration data format (non-numeric values)
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.values_list.return_value = ["invalid-duration", "another-invalid"]
+            mock_cohort.objects.filter.return_value = mock_queryset
 
             result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_percentile_thresholds_clickhouse_error(self):
-        """Should return None when ClickHouse query fails."""
+    async def test_get_percentile_thresholds_database_error(self):
+        """Should return None when database query fails."""
         inputs = QueryPercentileThresholdsInput(min_percentile=60.0, max_percentile=80.0)
 
-        with patch("posthog.clickhouse.client.sync_execute") as mock_execute:
-            mock_execute.side_effect = Exception("ClickHouse connection failed")
+        # Mock database error
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_cohort.objects.filter.side_effect = Exception("Database connection failed")
 
             result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_percentile_thresholds_non_numeric_values(self):
-        """Should return None when ClickHouse returns non-numeric values."""
+    async def test_get_percentile_thresholds_value_error(self):
+        """Should return None when threshold values cause ValueError during validation."""
         inputs = QueryPercentileThresholdsInput(min_percentile=70.0, max_percentile=85.0)
 
-        # Non-numeric values that can't be converted to float
-        mock_result = [("invalid", "also_invalid")]
+        # Mock valid quantile calculation but invalid threshold values
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.values_list.return_value = [100, 200, 300, 400, 500]
+            mock_cohort.objects.filter.return_value = mock_queryset
 
-        with patch("posthog.clickhouse.client.sync_execute") as mock_execute:
-            mock_execute.return_value = mock_result
-
-            result = await get_query_percentile_thresholds_activity(inputs)
+            # Mock float() conversion to raise ValueError
+            with patch("builtins.float", side_effect=ValueError("Invalid float")):
+                result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
 
@@ -1072,7 +1079,7 @@ class TestDurationFilteringIntegration:
             # No duration_percentile_min or duration_percentile_max set
         )
 
-        thresholds = QueryPercentileThresholds(min_threshold_ms=15.0, max_threshold_ms=40.0)
+        thresholds = QueryPercentileThresholds(min_threshold_ms=15, max_threshold_ms=40)
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
             mock_queryset = Mock()
