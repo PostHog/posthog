@@ -9,6 +9,7 @@ import {
     IconGridMasonry,
     IconNotebook,
     IconPalette,
+    IconPencil,
     IconPlusSmall,
     IconScreen,
     IconShare,
@@ -108,6 +109,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
     const interProjectTransfersEnabled = useFeatureFlag('INTER_PROJECT_TRANSFERS')
+    const hasTileRedesign = useFeatureFlag('DASHBOARD_TILE_REDESIGN')
 
     const { tags } = useValues(tagsModel)
 
@@ -540,6 +542,22 @@ export function DashboardHeader(): JSX.Element | null {
                                             tooltip="Share"
                                             tooltipPlacement="top"
                                         />
+                                        {canEditDashboard && hasTileRedesign && (
+                                            <LemonButton
+                                                type="secondary"
+                                                data-attr="dashboard-edit-mode-button"
+                                                onClick={() =>
+                                                    setDashboardMode(
+                                                        DashboardMode.Edit,
+                                                        DashboardEventSource.SceneCommonButtons
+                                                    )
+                                                }
+                                                size="small"
+                                                icon={<IconPencil fontSize="16" />}
+                                                tooltip="Edit layout"
+                                                tooltipPlacement="top"
+                                            />
+                                        )}
                                     </>
                                 )}
                                 {dashboard ? (
