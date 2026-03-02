@@ -66,11 +66,11 @@ import { EventTypeTag, TraceSidebarBase } from './components/TraceSidebarBase'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
-import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { llmPlaygroundPromptsLogic } from './playground/llmPlaygroundPromptsLogic'
 import { flattenGenerationMessages } from './sentimentUtils'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
@@ -553,7 +553,7 @@ const EventContent = React.memo(
         showBillingInfo?: boolean
     }): JSX.Element => {
         const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
-        const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
+        const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const { displayOption, lineNumber, initialTab, viewMode } = useValues(traceLogic)
         const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(traceLogic)
