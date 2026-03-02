@@ -54,6 +54,29 @@ import { llmPlaygroundRunLogic, type ComparisonItem } from './llmPlaygroundRunLo
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460
+const EXAMPLE_TOOL = [
+    {
+        type: 'function',
+        function: {
+            name: 'get_weather',
+            description: 'Get the current weather for a location',
+            parameters: {
+                type: 'object',
+                properties: {
+                    location: {
+                        type: 'string',
+                        description: 'City and state, e.g. San Francisco, CA',
+                    },
+                    unit: {
+                        type: 'string',
+                        enum: ['celsius', 'fahrenheit'],
+                    },
+                },
+                required: ['location'],
+            },
+        },
+    },
+]
 
 function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element {
     return (
@@ -587,9 +610,10 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
             <LemonModal
                 isOpen={showEditModal}
                 onClose={() => setEditModal(null)}
-                title="Edit tools"
+                title="Tools"
+                description="Define functions the model can call during generation. Tools use the OpenAI function calling format."
                 width="90vw"
-                maxWidth="1200px"
+                maxWidth={640}
                 footer={
                     <div className="flex justify-end gap-2">
                         <LemonButton
@@ -610,7 +634,22 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                 }
             >
                 <div className="space-y-2">
-                    <label className="font-semibold block text-sm">Tools (JSON)</label>
+                    <div className="flex items-center justify-between">
+                        <label className="font-semibold block text-sm">Tools (JSON)</label>
+                        {!hasTools && (
+                            <button
+                                type="button"
+                                className="text-xs text-link"
+                                onClick={() => {
+                                    const exampleJson = JSON.stringify(EXAMPLE_TOOL, null, 2)
+                                    handleToolsChange(exampleJson)
+                                    setLocalToolsJson(exampleJson, promptId)
+                                }}
+                            >
+                                Insert example
+                            </button>
+                        )}
+                    </div>
                     <CodeEditorResizeable
                         className="border rounded"
                         language="json"
@@ -639,9 +678,24 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                             contextmenu: false,
                         }}
                     />
-                    <div className={`text-xs ${jsonError ? 'text-danger' : 'text-muted'}`}>
-                        {jsonError ?? 'Paste or edit valid JSON tool definitions.'}
-                    </div>
+                    {jsonError ? (
+                        <div className="text-xs text-danger">{jsonError}</div>
+                    ) : (
+                        <div className="text-xs text-muted">
+                            A JSON array of tool definitions following the{' '}
+                            <Link
+                                to="https://developers.openai.com/api/docs/guides/function-calling"
+                                target="_blank"
+                                className="text-xs"
+                            >
+                                OpenAI function calling format
+                            </Link>
+                            . Each tool needs a <code className="text-xs">type</code>,{' '}
+                            <code className="text-xs">function.name</code>,{' '}
+                            <code className="text-xs">function.description</code>, and{' '}
+                            <code className="text-xs">function.parameters</code>.
+                        </div>
+                    )}
                 </div>
             </LemonModal>
         </>
