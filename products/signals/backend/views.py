@@ -1,7 +1,7 @@
 import json
 import uuid
 import logging
-from datetime import datetime
+from typing import cast
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -22,12 +22,11 @@ from posthog.schema import EmbeddingModelName
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.embedding_worker import emit_embedding_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
 
-from products.signals.backend.api import emit_signal
+from products.signals.backend.api import emit_signal, soft_delete_report_signals
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
@@ -119,6 +118,9 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, view
         status_filter = self.request.query_params.get("status")
         if status_filter:
             qs = qs.filter(status__in=[s.strip() for s in status_filter.split(",") if s.strip()])
+        else:
+            # Exclude soft-deleted and suppressed reports from default listing
+            qs = qs.exclude(status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED])
         search = self.request.query_params.get("search")
         if search:
             qs = qs.filter(Q(title__icontains=search) | Q(summary__icontains=search))
@@ -130,8 +132,6 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, view
     @extend_schema(exclude=True)
     @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
     def artefacts(self, request, pk=None, **kwargs):
-        from typing import cast
-
         report = cast(SignalReport, self.get_object())
         artefacts = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.VIDEO_SEGMENT).order_by(
             "-created_at"
@@ -206,63 +206,50 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, view
         return Response({"report": report_data, "signals": signals_list})
 
     def destroy(self, request, *args, **kwargs):
-        report = self.get_object()
-        report_id = str(report.id)
+        report = cast(SignalReport, self.get_object())
 
-        # Fetch all signals for this report from ClickHouse (including already-deleted ones,
-        # so we don't miss any — the query intentionally omits the soft-delete filter)
-        query = """
-            SELECT
-                document_id,
-                content,
-                metadata,
-                toString(timestamp) as timestamp
-            FROM (
-                SELECT
-                    document_id,
-                    argMax(content, inserted_at) as content,
-                    argMax(metadata, inserted_at) as metadata,
-                    argMax(timestamp, inserted_at) as timestamp
-                FROM document_embeddings
-                WHERE model_name = {model_name}
-                  AND product = 'signals'
-                  AND document_type = 'signal'
-                GROUP BY document_id
-            )
-            WHERE JSONExtractString(metadata, 'report_id') = {report_id}
-            ORDER BY timestamp ASC
-        """
-
-        result = execute_hogql_query(
-            query_type="SignalsFetchForReportDelete",
-            query=query,
-            team=self.team,
-            placeholders={
-                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-                "report_id": ast.Constant(value=report_id),
-            },
-        )
-
-        # Emit a soft-delete version of each signal, preserving the original timestamp
-        # so the row lands in the same partition and replaces the original via ReplacingMergeTree
-        for row in result.results or []:
-            document_id, content, metadata_str, timestamp_str = row
-            metadata = json.loads(metadata_str)
-            metadata["deleted"] = True
-
-            emit_embedding_request(
-                content=content,
-                team_id=self.team.pk,
-                product="signals",
-                document_type="signal",
-                rendering="plain",
-                document_id=document_id,
-                models=[m.value for m in EmbeddingModelName],
-                timestamp=datetime.fromisoformat(timestamp_str),
-                metadata=metadata,
-            )
-
-        # Delete the Django model (cascades to artefacts)
-        report.delete()
+        # Soft-delete: mark as deleted in Postgres and hide signals from ClickHouse search
+        soft_delete_report_signals(str(report.id), self.team.pk, self.team)
+        report.status = SignalReport.Status.DELETED
+        report.save(update_fields=["status", "updated_at"])
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(exclude=True)
+    @action(detail=True, methods=["post"], url_path="snooze", required_scopes=["task:write"])
+    def snooze(self, request, pk=None, **kwargs):
+        """
+        Snooze a report for N more signals. The report re-enters the promotion pipeline
+        once signal_count reaches the snooze threshold.
+
+        Body: { "snooze_for": <int> }  (number of additional signals to wait for)
+        """
+        report = cast(SignalReport, self.get_object())
+
+        snooze_for = request.data.get("snooze_for")
+        if snooze_for is None or not isinstance(snooze_for, int) or snooze_for < 1:
+            return Response(
+                {"error": "snooze_for must be a positive integer"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        report.status = SignalReport.Status.POTENTIAL
+        report.signals_at_run = report.signal_count + snooze_for
+        report.promoted_at = None
+        report.save(update_fields=["status", "signals_at_run", "promoted_at", "updated_at"])
+
+        return Response(SignalReportSerializer(report, context=self.get_serializer_context()).data)
+
+    @extend_schema(exclude=True)
+    @action(detail=True, methods=["post"], url_path="suppress", required_scopes=["task:write"])
+    def suppress(self, request, pk=None, **kwargs):
+        """
+        Suppress a report. It will continue gathering signals but will never be promoted.
+        """
+        report = cast(SignalReport, self.get_object())
+
+        report.status = SignalReport.Status.SUPPRESSED
+        report.promoted_at = None
+        report.save(update_fields=["status", "promoted_at", "updated_at"])
+
+        return Response(SignalReportSerializer(report, context=self.get_serializer_context()).data)

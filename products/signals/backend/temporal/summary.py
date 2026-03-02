@@ -290,7 +290,12 @@ class MarkReportInProgressInput:
 
 @temporalio.activity.defn
 async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> None:
-    """Mark a report as in_progress and record the signal count snapshot."""
+    """Mark a report as in_progress and advance signals_at_run by 3.
+
+    Advancing signals_at_run ensures that if the report is reset to potential after this run,
+    it won't immediately re-promote — it must accumulate 3 new signals beyond the current count
+    before the promotion gate passes again.
+    """
     try:
 
         @transaction.atomic
@@ -298,7 +303,7 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             report.status = SignalReport.Status.IN_PROGRESS
             report.last_run_at = timezone.now()
-            report.signals_at_run = input.signal_count
+            report.signals_at_run = input.signal_count + 3
             report.save(update_fields=["status", "last_run_at", "signals_at_run", "updated_at"])
 
         await database_sync_to_async(do_update, thread_sensitive=False)()

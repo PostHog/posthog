@@ -40,6 +40,10 @@ class SignalReport(UUIDModel):
         PENDING_INPUT = "pending_input"
         READY = "ready"
         FAILED = "failed"
+        # User-initiated lifecycle stages
+        DELETED = "deleted"  # Soft-deleted; hidden from inbox but preserved in DB
+        SUPPRESSED = "suppressed"  # Gathering signals indefinitely; never exits this state
+        # Note: snoozing is implemented via status=POTENTIAL + signals_at_run threshold (no dedicated state)
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.POTENTIAL)
@@ -47,7 +51,9 @@ class SignalReport(UUIDModel):
     total_weight = models.FloatField(default=0.0)
     signal_count = models.IntegerField(default=0)
 
-    conversation = models.ForeignKey("ee.Conversation", null=True, blank=True, on_delete=models.SET_NULL)
+    # Forward-looking promotion threshold: a potential report only promotes when signal_count >= this.
+    # Incremented by SIGNALS_AT_RUN_INCREMENT each summary run to prevent re-promoting on every signal.
+    # The snooze action sets it to signal_count + N to delay re-promotion by N signals.
     signals_at_run = models.IntegerField(default=0)
 
     # LLM-generated during signal matching
@@ -59,7 +65,6 @@ class SignalReport(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
-    relevant_user_count = models.IntegerField(blank=True, null=True)
 
     # Video segment clustering fields
     cluster_centroid = deprecate_field(
@@ -71,6 +76,11 @@ class SignalReport(UUIDModel):
         )
     )
     cluster_centroid_updated_at = deprecate_field(models.DateTimeField(blank=True, null=True))
+    # Deprecated - unused
+    conversation = deprecate_field(
+        models.ForeignKey("ee.Conversation", null=True, blank=True, on_delete=models.SET_NULL)
+    )
+    relevant_user_count = deprecate_field(models.IntegerField(blank=True, null=True))
 
     class Meta:
         indexes = [

@@ -41,6 +41,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "status",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count
+            "signals_at_run",  # Snooze threshold: re-promote when signal_count >= this value
             "relevant_user_count",
             "created_at",
             "updated_at",
