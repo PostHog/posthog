@@ -61,7 +61,7 @@ class HealthIssue(UUIDModel):
 
     @staticmethod
     def compute_unique_hash(kind: str, payload: dict[str, Any], hash_keys: Optional[list[str]] = None) -> str:
-        if hash_keys:
+        if hash_keys is not None:
             hash_data = {k: payload.get(k) for k in sorted(hash_keys)}
         else:
             hash_data = payload
@@ -92,6 +92,107 @@ class HealthIssue(UUIDModel):
         )
 
         return issue, created
+
+    @classmethod
+    def bulk_upsert(
+        cls,
+        kind: str,
+        issues: list[dict[str, Any]],
+    ) -> int:
+        if not issues:
+            return 0
+
+        now = timezone.now()
+
+        incoming: dict[tuple[int, str], dict[str, Any]] = {}
+        for issue in issues:
+            key = (issue["team_id"], issue["unique_hash"])
+            incoming[key] = issue
+
+        existing_issues = {
+            (issue.team_id, issue.unique_hash): issue
+            for issue in cls.objects.filter(
+                kind=kind,
+                status=cls.Status.ACTIVE,
+                team_id__in={tid for tid, _ in incoming},
+                unique_hash__in={h for _, h in incoming},
+            )
+        }
+
+        to_create: list[HealthIssue] = []
+        to_update: list[HealthIssue] = []
+
+        for (team_id, unique_hash), data in incoming.items():
+            existing = existing_issues.get((team_id, unique_hash))
+            if existing is not None:
+                existing.severity = data["severity"]
+                existing.payload = data["payload"]
+                existing.updated_at = now
+                to_update.append(existing)
+            else:
+                to_create.append(
+                    cls(
+                        team_id=team_id,
+                        kind=kind,
+                        severity=data["severity"],
+                        payload=data["payload"],
+                        unique_hash=unique_hash,
+                        status=cls.Status.ACTIVE,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+
+        if to_create:
+            HealthIssue.objects.bulk_create(to_create)
+
+        if to_update:
+            HealthIssue.objects.bulk_update(to_update, fields=["severity", "payload", "updated_at"])
+
+        return len(to_create) + len(to_update)
+
+    @classmethod
+    def bulk_resolve(
+        cls,
+        kind: str,
+        team_ids: set[int],
+        keep_hashes: dict[int, set[str]] | None = None,
+    ) -> int:
+        if not team_ids:
+            return 0
+
+        now = timezone.now()
+
+        if not keep_hashes:
+            return cls.objects.filter(
+                kind=kind,
+                status=cls.Status.ACTIVE,
+                team_id__in=team_ids,
+            ).update(status=cls.Status.RESOLVED, resolved_at=now, updated_at=now)
+
+        keep_hashes_by_team = {team_id: hashes for team_id, hashes in keep_hashes.items() if team_id in team_ids}
+        team_ids_without_keep_hashes = team_ids - set(keep_hashes_by_team.keys())
+
+        resolved = 0
+
+        if team_ids_without_keep_hashes:
+            resolved += cls.objects.filter(
+                kind=kind,
+                status=cls.Status.ACTIVE,
+                team_id__in=team_ids_without_keep_hashes,
+            ).update(status=cls.Status.RESOLVED, resolved_at=now, updated_at=now)
+
+        for team_id, hashes in keep_hashes_by_team.items():
+            team_qs = cls.objects.filter(
+                kind=kind,
+                status=cls.Status.ACTIVE,
+                team_id=team_id,
+            )
+            if hashes:
+                team_qs = team_qs.exclude(unique_hash__in=hashes)
+            resolved += team_qs.update(status=cls.Status.RESOLVED, resolved_at=now, updated_at=now)
+
+        return resolved
 
     def resolve(self) -> None:
         if self.status != self.Status.ACTIVE:
