@@ -40,7 +40,8 @@ export type FetchFunction = (
 export interface CymbalClientConfig {
     baseUrl: string
     timeoutMs: number
-    maxRetries?: number
+    /** Maximum number of attempts (including the initial request). Defaults to 3. */
+    maxAttempts?: number
     /** Custom fetch implementation for testing. Defaults to internalFetch. */
     fetch?: FetchFunction
 }
@@ -69,13 +70,13 @@ class CymbalError extends Error {
 export class CymbalClient {
     private baseUrl: string
     private timeoutMs: number
-    private maxRetries: number
+    private maxAttempts: number
     private fetch: FetchFunction
 
     constructor(config: CymbalClientConfig) {
         this.baseUrl = config.baseUrl.replace(/\/$/, '') // Remove trailing slash
         this.timeoutMs = config.timeoutMs
-        this.maxRetries = config.maxRetries ?? 3
+        this.maxAttempts = config.maxAttempts ?? 3
         this.fetch = config.fetch ?? internalFetch
     }
 
@@ -96,7 +97,7 @@ export class CymbalClient {
 
         return retryIfRetriable(
             () => this.doProcessExceptions(requests),
-            this.maxRetries,
+            this.maxAttempts,
             100 // Start with 100ms backoff
         )
     }

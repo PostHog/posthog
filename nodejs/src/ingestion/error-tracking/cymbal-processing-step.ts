@@ -63,7 +63,9 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
             uuid: event.uuid,
             event: event.event,
             team_id: team.id,
-            timestamp: event.timestamp ?? event.now,
+            // event.now is required by PluginEvent type and always set by the parse step,
+            // but we add a fallback for defensive programming against malformed events
+            timestamp: event.timestamp ?? event.now ?? new Date().toISOString(),
             properties: event.properties ?? {},
         }))
 

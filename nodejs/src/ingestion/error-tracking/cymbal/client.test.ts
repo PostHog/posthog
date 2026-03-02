@@ -41,7 +41,7 @@ describe('CymbalClient', () => {
         return new CymbalClient({
             baseUrl: 'http://cymbal.example.com',
             timeoutMs: 5000,
-            maxRetries: 3,
+            maxAttempts: 3,
             fetch: fetchMock as FetchFunction,
         })
     }
@@ -215,7 +215,7 @@ describe('CymbalClient', () => {
                 text: () => Promise.resolve('Internal Server Error'),
             })
 
-            // maxRetries is 3, meaning 3 total attempts
+            // maxAttempts is 3, meaning 3 total attempts
             await expect(client.processExceptions(requests)).rejects.toThrow('Cymbal returned 500')
             expect(mockFetch).toHaveBeenCalledTimes(3)
         })
