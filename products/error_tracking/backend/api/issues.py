@@ -109,7 +109,7 @@ class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "error_tracking"
     queryset = ErrorTrackingIssue.objects.with_first_seen().all()
     serializer_class = ErrorTrackingIssueFullSerializer
 

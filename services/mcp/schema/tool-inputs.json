@@ -608,9 +608,26 @@
                 },
                 "status": {
                     "type": "string",
-                    "enum": ["active", "resolved", "all", "suppressed"]
+                    "enum": ["active", "resolved", "archived", "suppressed", "pending_release", "all"]
                 }
             },
+            "additionalProperties": false
+        },
+        "ErrorTrackingUpdateIssueStatusSchema": {
+            "type": "object",
+            "properties": {
+                "issueId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "The ID of the error tracking issue to update"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "resolved", "archived", "suppressed", "pending_release"],
+                    "description": "The new status for the issue: active, resolved, archived, suppressed, or pending_release"
+                }
+            },
+            "required": ["issueId", "status"],
             "additionalProperties": false
         },
         "EventDefinitionUpdateInputSchema": {
