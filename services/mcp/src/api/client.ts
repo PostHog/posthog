@@ -125,7 +125,7 @@ export type Result<T, E = Error> = { success: true; data: T } | { success: false
 export interface ApiConfig {
     apiToken: string
     baseUrl: string
-    clientIdentifier?: string | undefined
+    clientUserAgent?: string | undefined
 }
 
 type Endpoint = Record<string, any>
@@ -155,7 +155,8 @@ export class ApiClient {
         // TODO: should we move rate limiting from `fetchWithSchema` to here?
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
-            'User-Agent': getUserAgent(this.config.clientIdentifier),
+            'User-Agent': getUserAgent(this.config.clientUserAgent),
+            ...(this.config.clientUserAgent && { 'x-posthog-mcp-user-agent': this.config.clientUserAgent }),
         }
         if (options?.body) {
             defaultHeaders['Content-Type'] = 'application/json'

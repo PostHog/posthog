@@ -292,6 +292,7 @@ def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
         "$current_url": request.headers.get("Referer"),
         "$session_id": request.headers.get("X-Posthog-Session-Id"),
         "was_impersonated": is_impersonated_session(request),
+        "mcp_user_agent": request.headers.get("X-Posthog-Mcp-User-Agent"),
     }
 
 
