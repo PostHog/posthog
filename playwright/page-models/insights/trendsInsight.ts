@@ -1,8 +1,8 @@
 import { Locator, Page, expect } from '@playwright/test'
 
 import { TableHelper } from '../../utils/table-helper'
-import { ChartInsightBase } from './chartInsightBase'
 import { TaxonomicFilter } from '../taxonomicFilter'
+import { ChartInsightBase } from './chartInsightBase'
 
 export class TrendsInsight extends ChartInsightBase {
     readonly detailsTable: Locator
@@ -107,12 +107,7 @@ export class TrendsInsight extends ChartInsightBase {
     async selectMathProperty(property: string): Promise<void> {
         await this.page.keyboard.press('Escape')
         await this.mathPropertySelect().click()
-        const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
-        await searchField.waitFor({ state: 'visible' })
-        await searchField.fill(property)
-        const row = this.page.getByRole('button', { name: property }).first()
-        await row.waitFor({ state: 'visible' })
-        await row.click()
+        await this.taxonomicFilter.selectItem(property)
         await this.waitForChart()
     }
 
