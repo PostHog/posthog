@@ -6,16 +6,16 @@ import { IconChevronDown, IconExternal, IconTrending, IconWarning } from '@posth
 import { LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
+import { StarHog } from 'lib/components/hedgehogs'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
-import { StarHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { UnexpectedNeverError, humanFriendlyDuration, percentage, tryDecodeURIComponent } from 'lib/utils'
 import {
@@ -594,12 +594,13 @@ export const WebStatsTrendTile = ({
     insightProps,
     attachTo,
 }: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
-    const { togglePropertyFilter, setInterval } = useActions(webAnalyticsLogic)
+    const { togglePropertyFilter, setDateInterval } = useActions(webAnalyticsLogic)
     const {
         hasCountryFilter,
         dateFilter: { interval },
     } = useValues(webAnalyticsLogic)
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
+    const regionPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Region)?.key
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
@@ -611,6 +612,21 @@ export const WebStatsTrendTile = ({
             })
         },
         [togglePropertyFilter, worldMapPropertyName, hasCountryFilter]
+    )
+
+    const onRegionMapClick = useCallback(
+        (breakdownValue: string) => {
+            if (!regionPropertyName || !worldMapPropertyName) {
+                return
+            }
+
+            const [countryCode, subdivisionCode] = breakdownValue.split('::')
+            if (countryCode && subdivisionCode) {
+                togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, countryCode)
+                togglePropertyFilter(PropertyFilterType.Event, regionPropertyName, subdivisionCode)
+            }
+        },
+        [togglePropertyFilter, regionPropertyName, worldMapPropertyName]
     )
 
     const context = useMemo((): QueryContext => {
@@ -628,6 +644,26 @@ export const WebStatsTrendTile = ({
             query.source?.kind === NodeKind.TrendsQuery &&
             query.source.trendsFilter?.display === ChartDisplayType.WorldMap
 
+        const isRegionMap =
+            isWorldMap &&
+            query.source?.kind === NodeKind.TrendsQuery &&
+            query.source.breakdownFilter?.breakdowns &&
+            query.source.breakdownFilter.breakdowns.length >= 2 &&
+            query.source.breakdownFilter.breakdowns.some(
+                (b) => b.property === '$geoip_subdivision_1_code' || b.property === '$geoip_subdivision_1_name'
+            )
+
+        if (isRegionMap) {
+            return {
+                ...baseContext,
+                onDataPointClick({ breakdown }, data) {
+                    if (typeof breakdown === 'string' && data && (data.count > 0 || data.aggregated_value > 0)) {
+                        onRegionMapClick(breakdown)
+                    }
+                },
+            }
+        }
+
         if (isWorldMap) {
             return {
                 ...baseContext,
@@ -640,7 +676,7 @@ export const WebStatsTrendTile = ({
         }
 
         return baseContext
-    }, [onWorldMapClick, insightProps, query])
+    }, [onWorldMapClick, onRegionMapClick, insightProps, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -648,7 +684,7 @@ export const WebStatsTrendTile = ({
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">
                         <span className="mr-2">Group by</span>
-                        <IntervalFilterStandalone interval={interval} onIntervalChange={setInterval} />
+                        <IntervalFilterStandalone interval={interval} onIntervalChange={setDateInterval} />
                     </div>
                 </div>
             )}
@@ -662,7 +698,7 @@ export const AveragePageViewVisualizationTile = ({
     insightProps,
     attachTo,
 }: QueryWithInsightProps<DataVisualizationNode>): JSX.Element => {
-    const { setInterval } = useActions(webAnalyticsLogic)
+    const { setDateInterval } = useActions(webAnalyticsLogic)
     const {
         dateFilter: { interval },
     } = useValues(webAnalyticsLogic)
@@ -672,7 +708,7 @@ export const AveragePageViewVisualizationTile = ({
             <div className="flex flex-row items-center justify-end m-2 mr-4">
                 <div className="flex flex-row items-center">
                     <span className="mr-2">Group by</span>
-                    <IntervalFilterStandalone interval={interval} onIntervalChange={setInterval} />
+                    <IntervalFilterStandalone interval={interval} onIntervalChange={setDateInterval} />
                 </div>
             </div>
             <Query
@@ -691,7 +727,7 @@ export const MarketingAnalyticsTrendTile = ({
     insightProps,
     attachTo,
 }: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
-    const { setInterval, setChartDisplayType, setTileColumnSelection } = useActions(marketingAnalyticsLogic)
+    const { setDateInterval, setChartDisplayType, setTileColumnSelection } = useActions(marketingAnalyticsLogic)
     const { dateFilter, chartDisplayType, tileColumnSelection } = useValues(marketingAnalyticsLogic)
 
     const MARKETING_COLUMN_OPTIONS: { value: validColumnsForTiles; label: string }[] = [
@@ -704,6 +740,7 @@ export const MarketingAnalyticsTrendTile = ({
             label: 'Reported conversion value',
         },
         { value: 'roas', label: 'Reported ROAS' },
+        { value: 'cost_per_reported_conversion', label: 'Cost per reported conversion' },
     ]
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -718,7 +755,10 @@ export const MarketingAnalyticsTrendTile = ({
                     <div className="flex flex-row items-center">
                         <div className="flex flex-row items-center mr-4">
                             <span className="mr-2">Group by</span>
-                            <IntervalFilterStandalone interval={dateFilter.interval} onIntervalChange={setInterval} />
+                            <IntervalFilterStandalone
+                                interval={dateFilter.interval}
+                                onIntervalChange={setDateInterval}
+                            />
                         </div>
                         <LemonSegmentedButton
                             value={chartDisplayType}

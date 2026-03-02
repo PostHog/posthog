@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Sequence
 
 from django.db import transaction
@@ -12,6 +13,8 @@ from rest_framework.response import Response
 
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.person.person import READ_DB_FOR_PERSONS, Person, PersonDistinctId
@@ -23,6 +26,11 @@ from products.conversations.backend.cache import (
     get_cached_unread_count,
     invalidate_unread_count_cache,
     set_cached_unread_count,
+)
+from products.conversations.backend.events import (
+    capture_ticket_assigned,
+    capture_ticket_priority_changed,
+    capture_ticket_status_changed,
 )
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, Priority, Status
@@ -77,8 +85,12 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_at",
             "last_message_text",
             "unread_team_count",
+            "unread_customer_count",
             "session_id",
             "session_context",
+            "slack_channel_id",
+            "slack_thread_ts",
+            "slack_team_id",
             "person",
         ]
         read_only_fields = [
@@ -91,9 +103,13 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_at",
             "last_message_text",
             "unread_team_count",
+            "unread_customer_count",
             "assignee",
             "session_id",
             "session_context",
+            "slack_channel_id",
+            "slack_thread_ts",
+            "slack_team_id",
             "person",
         ]
 
@@ -248,6 +264,21 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Attach person data
         self._attach_persons_to_tickets([instance])
 
+        # Track internal analytics
+        try:
+            report_user_action(
+                request.user,
+                "support ticket viewed",
+                {
+                    "channel_source": instance.channel_source,
+                    "ticket_status": instance.status,
+                    "is_assigned": getattr(instance, "assignment", None) is not None,
+                },
+                self.team,
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
+
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
@@ -256,12 +287,14 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
         old_status = instance.status
+        old_priority = instance.priority
 
-        # Handle assignee separately since it's not a direct model field
-        assignee = request.data.pop("assignee", None) if "assignee" in request.data else ...
+        # Extract assignee without mutating request.data
+        assignee = request.data.get("assignee", ...) if "assignee" in request.data else ...
+        data = {k: v for k, v in request.data.items() if k != "assignee"}
 
         # Update other fields normally
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer = self.get_serializer(instance, data=data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
 
@@ -279,9 +312,40 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.refresh_from_db()
 
         # Invalidate unread count cache if status changed to/from resolved
-        new_status = request.data.get("status", old_status)
+        new_status = instance.status
         if old_status != new_status and (old_status == "resolved" or new_status == "resolved"):
             invalidate_unread_count_cache(self.team_id)
+
+        # Emit analytics events for workflow triggers
+        new_priority = instance.priority
+        status_changed = old_status != new_status
+        priority_changed = old_priority != new_priority
+        assignee_changed = assignee is not ...
+
+        try:
+            if status_changed:
+                capture_ticket_status_changed(instance, old_status, new_status)
+
+            if priority_changed:
+                capture_ticket_priority_changed(instance, old_priority, new_priority)
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
+
+        # Track internal analytics
+        if status_changed or priority_changed or assignee_changed:
+            try:
+                report_user_action(
+                    request.user,
+                    "support ticket updated",
+                    {
+                        "channel_source": instance.channel_source,
+                        "ticket_status": instance.status,
+                        "is_assigned": getattr(instance, "assignment", None) is not None,
+                    },
+                    self.team,
+                )
+            except Exception as e:
+                capture_exception(e, {"ticket_id": str(instance.id)})
 
         # Re-serialize to include updated assignee
         serializer = self.get_serializer(instance)
@@ -331,6 +395,15 @@ def validate_assignee(assignee) -> None:
         raise serializers.ValidationError({"assignee": "must have 'type' and 'id'"})
     if assignee["type"] not in ("user", "role"):
         raise serializers.ValidationError({"assignee": "type must be 'user' or 'role'"})
+
+    if assignee["type"] == "user":
+        if not isinstance(assignee["id"], int):
+            raise serializers.ValidationError({"assignee": "user id must be an integer"})
+    elif assignee["type"] == "role":
+        try:
+            uuid.UUID(str(assignee["id"]))
+        except (ValueError, AttributeError):
+            raise serializers.ValidationError({"assignee": "role id must be a valid UUID"})
 
 
 def validate_assignee_membership(assignee, organization) -> None:
@@ -402,3 +475,15 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
                 ],
             ),
         )
+
+        # Emit analytics event for workflow triggers
+        try:
+            if assignee:
+                assignee_type = assignee["type"]
+                assignee_id = str(assignee["id"])
+            else:
+                assignee_type = None
+                assignee_id = None
+            capture_ticket_assigned(ticket, assignee_type, assignee_id)
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})

@@ -33,8 +33,8 @@ from posthog.errors import (
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
-    QuerySizeExceeded,
 )
 
 # =============================================================================
@@ -100,7 +100,7 @@ USER_QUERY_ERRORS = (
     CHQueryErrorUnknownIdentifier,
     CHQueryErrorTooManyBytes,
     CHQueryErrorCannotParseUuid,
-    QuerySizeExceeded,
+    ClickHouseQuerySizeExceeded,
     CHQueryErrorUnsupportedMethod,
     ResolutionError,
     CHQueryErrorInvalidJoinOnExpression,

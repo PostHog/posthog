@@ -9,6 +9,8 @@ from posthog.temporal.llm_analytics.run_evaluation import (
     increment_trial_eval_count_activity,
     update_key_state_activity,
 )
+from posthog.temporal.llm_analytics.sentiment import ClassifySentimentWorkflow, classify_sentiment_activity
+from posthog.temporal.llm_analytics.shared_activities import fetch_all_clustering_filters_activity
 from posthog.temporal.llm_analytics.team_discovery import get_team_ids_for_llm_analytics
 from posthog.temporal.llm_analytics.trace_clustering import (
     DailyTraceClusteringWorkflow,
@@ -25,6 +27,8 @@ from posthog.temporal.llm_analytics.trace_summarization import (
     summarize_and_save_activity,
 )
 
+from products.signals.backend.temporal.emit_eval_signal import emit_eval_signal_activity
+
 EVAL_WORKFLOWS = [
     RunEvaluationWorkflow,
 ]
@@ -37,6 +41,15 @@ EVAL_ACTIVITIES = [
     execute_llm_judge_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
+    emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
+]
+
+SENTIMENT_WORKFLOWS = [
+    ClassifySentimentWorkflow,
+]
+
+SENTIMENT_ACTIVITIES = [
+    classify_sentiment_activity,
 ]
 
 WORKFLOWS = [
@@ -44,6 +57,8 @@ WORKFLOWS = [
     BatchTraceSummarizationCoordinatorWorkflow,
     DailyTraceClusteringWorkflow,
     TraceClusteringCoordinatorWorkflow,
+    # Keep sentiment workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
+    ClassifySentimentWorkflow,
     # Keep eval workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
     RunEvaluationWorkflow,
 ]
@@ -55,10 +70,14 @@ ACTIVITIES = [
     sample_items_in_window_activity,
     fetch_and_format_activity,
     summarize_and_save_activity,
+    # Shared activities
+    fetch_all_clustering_filters_activity,
     # Clustering activities
     perform_clustering_compute_activity,
     generate_cluster_labels_activity,
     emit_cluster_events_activity,
+    # Keep sentiment activity registered here temporarily so orphaned workflows on general-purpose queue can complete
+    classify_sentiment_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
@@ -67,4 +86,5 @@ ACTIVITIES = [
     execute_llm_judge_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
+    emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
 ]

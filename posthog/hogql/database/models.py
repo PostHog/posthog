@@ -6,7 +6,11 @@ from typing import TYPE_CHECKING, Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict
 
 from posthog.hogql.base import Expr
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.errors import NotImplementedError, ResolutionError
+
+# Import Workload at module level for Pydantic (needed at runtime)
+from posthog.clickhouse.workload import Workload
 
 if TYPE_CHECKING:
     from posthog.hogql.ast import LazyJoinType, SelectQuery
@@ -163,6 +167,8 @@ class FieldTraverser(FieldOrTable):
 
 class Table(FieldOrTable):
     fields: dict[str, FieldOrTable]
+    top_level_settings: Optional[HogQLQuerySettings] = None
+    workload: Optional[Workload] = None
     model_config = ConfigDict(extra="forbid")
 
     def has_field(self, name: str | int) -> bool:
@@ -238,7 +244,7 @@ class TableNode(BaseModel):
 
         first, *rest_of_path = path
         if first not in self.children:
-            raise ResolutionError(f"Unknown child `{first}` at `{self.name}`.")
+            raise ResolutionError(f"Unknown table `{first}`.")
 
         return self.children[first].get_child(rest_of_path)
 

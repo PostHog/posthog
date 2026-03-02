@@ -104,6 +104,7 @@ class FeatureFlagActionBase(BaseAction):
     @classmethod
     def apply(cls, validated_intent: dict[str, Any], user, context: Optional[dict[str, Any]] = None) -> FeatureFlag:
         with transaction.atomic():
+            # nosemgrep: idor-lookup-without-team (flag_id from validated change request intent, originally team-scoped)
             flag = FeatureFlag.objects.select_for_update().get(id=validated_intent["flag_id"])
 
             if flag.version != validated_intent["preconditions"]["version"]:
@@ -382,6 +383,7 @@ class UpdateFeatureFlagAction(BaseAction):
     @classmethod
     def apply(cls, validated_intent: dict[str, Any], user, context: Optional[dict[str, Any]] = None) -> FeatureFlag:
         with transaction.atomic():
+            # nosemgrep: idor-lookup-without-team (flag_id from validated change request intent, originally team-scoped)
             flag = FeatureFlag.objects.select_for_update().get(id=validated_intent["flag_id"])
 
             if flag.version != validated_intent["preconditions"]["version"]:

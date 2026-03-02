@@ -5,22 +5,31 @@ Identify sessions that need summarization (embedding priming).
 
 import structlog
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.schema import PropertyOperator, RecordingPropertyFilter, RecordingsQuery
 
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
+from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.video_segment_clustering.models import (
     GetSessionsToPrimeResult,
     PrimeSessionEmbeddingsActivityInputs,
 )
 
-from ee.hogai.session_summaries.constants import MIN_SESSION_DURATION_FOR_SUMMARY_MS
+from products.signals.backend.models import SignalSourceConfig
+
+from ee.hogai.session_summaries.constants import MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S
 from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
+
+
+MAX_SESSIONS_TO_PRIME_EMBEDDINGS = 200
 
 
 @activity.defn
@@ -75,6 +84,42 @@ async def get_sessions_to_prime_activity(
     )
 
 
+def _load_user_defined_recordings_query(team_id: int) -> RecordingsQuery | None:
+    try:
+        config = SignalSourceConfig.objects.get(
+            team_id=team_id,
+            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+            enabled=True,
+        )
+        recording_filters = config.config.get("recording_filters")
+        if recording_filters and isinstance(recording_filters, dict):
+            return convert_filters_to_recordings_query(recording_filters)
+        return None
+    except Exception as e:
+        # If no session analysis source is enabled, we should fail with no retry, as we shouldn't have gotten here
+        capture_exception(e)
+        raise ApplicationError(f"Error loading user defined recordings query") from e
+
+
+_BASELINE_HAVING_PREDICATES: list[RecordingPropertyFilter] = [
+    # Ignore sessions that are too short
+    RecordingPropertyFilter(
+        key="active_seconds",
+        operator=PropertyOperator.GTE,
+        value=MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
+    ),
+    # Only include finished sessions
+    RecordingPropertyFilter(
+        key="ongoing",
+        operator=PropertyOperator.EXACT,
+        value=0,  # The bool is represented as 0/1 in ClickHouse
+    ),
+]
+
+_DEFAULT_FILTER_TEST_ACCOUNTS = False  # Summarize all sessions (it's also faster to skip this filter)
+
+
 def _fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
     """Fetch session IDs of recordings that ended within the lookback period.
 
@@ -85,25 +130,36 @@ def _fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
     Returns:
         List of session IDs of finished recordings in the timeframe
     """
-    # RecordingsQuery for consistency with the session recordings API
-    query = RecordingsQuery(
-        filter_test_accounts=True,
-        date_from=f"-{lookback_hours}h",
-        having_predicates=[
-            RecordingPropertyFilter(
-                key="duration",  # Ignore sessions that are too short
-                operator=PropertyOperator.GTE,
-                value=MIN_SESSION_DURATION_FOR_SUMMARY_MS / 1000,
-            ),
-            RecordingPropertyFilter(
-                key="ongoing",  # Only include finished sessions
-                operator=PropertyOperator.EXACT,
-                value=0,  # The bool is represented as 0/1 in ClickiHouse
-            ),
-        ],
-    )
+
+    user_defined_query = _load_user_defined_recordings_query(team.id)
+    if user_defined_query:
+        # Running a RecordingsQuery for consistency with the session recordings API
+        query = RecordingsQuery(
+            filter_test_accounts=user_defined_query.filter_test_accounts
+            if user_defined_query.filter_test_accounts is not None
+            else _DEFAULT_FILTER_TEST_ACCOUNTS,
+            date_from=f"-{lookback_hours}h",
+            limit=MAX_SESSIONS_TO_PRIME_EMBEDDINGS,
+            having_predicates=_BASELINE_HAVING_PREDICATES + (user_defined_query.having_predicates or []),
+            properties=user_defined_query.properties,
+            events=user_defined_query.events,
+            actions=user_defined_query.actions,
+            console_log_filters=user_defined_query.console_log_filters,
+            operand=user_defined_query.operand,
+        )
+    else:
+        query = RecordingsQuery(
+            filter_test_accounts=_DEFAULT_FILTER_TEST_ACCOUNTS,
+            date_from=f"-{lookback_hours}h",
+            limit=MAX_SESSIONS_TO_PRIME_EMBEDDINGS,
+            having_predicates=_BASELINE_HAVING_PREDICATES,
+        )
 
     with tags_context(product=Product.SESSION_SUMMARY):
-        result = SessionRecordingListFromQuery(team=team, query=query).run()
+        result = SessionRecordingListFromQuery(
+            team=team,
+            query=query,
+            max_execution_time=HOGQL_INCREASED_MAX_EXECUTION_TIME,
+        ).run()
 
     return [recording["session_id"] for recording in result.results]

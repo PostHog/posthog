@@ -56,10 +56,10 @@ from dagster import (
     define_asset_job,
     sensor,
 )
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_fixed
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
-from posthog.clickhouse.cluster import get_cluster
+from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common.common import JobOwners, dagster_tags, settings_with_log_comment
@@ -78,6 +78,22 @@ logger = structlog.get_logger(__name__)
 # The Dagster pod has 16Gi total; we cap DuckDB at 4Gi to leave headroom
 # for Python, Dagster framework, and ClickHouse client overhead.
 DUCKDB_MEMORY_LIMIT = "4GB"
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(5),
+    retry=retry_if_exception_type((TimeoutError, OSError)),
+    reraise=True,
+)
+def _get_cluster() -> ClickhouseCluster:
+    """get_cluster() with retry for transient bootstrap timeouts.
+
+    Retries the cluster discovery query only — does not affect subsequent
+    per-host query execution, avoiding stacked retries with Tenacity
+    export retry decorators.
+    """
+    return get_cluster()
 
 
 def _connect_duckdb() -> duckdb.DuckDBPyConnection:
@@ -326,7 +342,7 @@ def get_earliest_event_date_for_team(team_id: int) -> datetime | None:
     Returns:
         The date of the earliest event, or None if no events exist for this team.
     """
-    cluster = get_cluster()
+    cluster = _get_cluster()
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
     def query_earliest(client: Client) -> datetime | None:
@@ -366,7 +382,7 @@ def get_earliest_person_date_for_team(team_id: int) -> datetime | None:
     Returns:
         The date of the earliest person modification, or None if no persons exist.
     """
-    cluster = get_cluster()
+    cluster = _get_cluster()
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
     def query_earliest(client: Client) -> datetime | None:
@@ -1456,7 +1472,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         merged_settings.update(config.clickhouse_settings)
         context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
 
-    cluster = get_cluster()
+    cluster = _get_cluster()
     tags = dagster_tags(context)
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
@@ -1592,7 +1608,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         merged_settings.update(config.clickhouse_settings)
         context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
 
-    cluster = get_cluster()
+    cluster = _get_cluster()
     tags = dagster_tags(context)
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
@@ -1812,6 +1828,9 @@ def duckling_events_daily_backfill_sensor(context: SensorEvaluationContext) -> S
 # Number of monthly partitions to create per sensor tick (to avoid timeout)
 BACKFILL_MONTHS_PER_TICK = 3
 
+# Ignore events before this date — pre-2015 data is typically junk timestamps
+EARLIEST_BACKFILL_DATE = datetime(2015, 1, 1)
+
 
 def get_months_in_range(start_date: date, end_date: date) -> list[str]:
     """Generate list of month strings (YYYY-MM) between start and end dates."""
@@ -1902,6 +1921,7 @@ def duckling_events_full_backfill_sensor(context: SensorEvaluationContext) -> Se
             if earliest_dt is None:
                 context.log.info(f"No events found for team_id={team_id}, skipping")
                 continue
+            earliest_dt = max(earliest_dt, EARLIEST_BACKFILL_DATE)
             earliest_month = earliest_dt.strftime("%Y-%m")
             current_month = earliest_month
 

@@ -3,6 +3,7 @@ import time
 import uuid
 import random
 import urllib
+import builtins
 import dataclasses
 from datetime import datetime
 from typing import Any, Iterator, List, Optional, Union  # noqa: UP035
@@ -15,6 +16,7 @@ from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from opentelemetry import trace
+from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
@@ -29,6 +31,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.client.limit import get_events_list_rate_limiter
 from posthog.exceptions_capture import capture_exception
@@ -39,11 +42,22 @@ from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    EventValuesBurstThrottle,
+    EventValuesSustainedThrottle,
+)
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.utils import convert_property_value, flatten, generate_short_id, relative_date_parse
 
 tracer = trace.get_tracer(__name__)
+
+EVENT_VALUES_COUNTER = Counter(
+    "posthog_event_values_request",
+    "Requests to the events/values endpoint",
+    labelnames=["has_event_name", "auth"],
+)
 
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
 
@@ -153,6 +167,11 @@ class EventViewSet(
     serializer_class = ClickhouseEventSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     pagination_class = UncountedLimitOffsetPagination
+
+    def get_throttles(self):
+        if self.action == "values":
+            return [EventValuesBurstThrottle(), EventValuesSustainedThrottle()]
+        return super().get_throttles()
 
     def _build_next_url(
         self,
@@ -430,8 +449,25 @@ class EventViewSet(
         if not key:
             raise serializers.ValidationError("You must provide a key")
 
+        event_names = request.GET.getlist("event_name", None)
+        has_event_name = bool(event_names and len(event_names) > 0)
+        is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+
+        # Reject personal API key requests without event_name filter
+        if is_personal_api_key and not has_event_name:
+            raise serializers.ValidationError(
+                "The event_name parameter is required when using a personal API key. "
+                "For queries without event filters, please use the Query endpoint instead: "
+                "https://posthog.com/docs/api/query"
+            )
+
+        EVENT_VALUES_COUNTER.labels(
+            has_event_name=str(has_event_name),
+            auth="personal_api_key" if is_personal_api_key else "app",
+        ).inc()
+
         query_params = EventValueQueryParams(
-            event_names=request.GET.getlist("event_name", None),
+            event_names=event_names,
             is_column=request.GET.get("is_column", "false").lower() == "true",
             key=key,
             team=team,
@@ -448,15 +484,64 @@ class EventViewSet(
 
             return self._event_property_values(query_params)
 
-    @tracer.start_as_current_span("events_api_event_property_values")
     def _event_property_values(
         self,
         query_params: EventValueQueryParams,
     ) -> response.Response:
+        from posthog.hogql_queries.property_values_query_runner import (
+            CachedPropertyValuesQueryResponse,
+            PropertyType,
+            PropertyValuesQuery,
+            PropertyValuesQueryResponse,
+            PropertyValuesQueryRunner,
+        )
+        from posthog.hogql_queries.query_runner import ExecutionMode
+
+        with tracer.start_as_current_span("events_api_event_property_values") as span:
+            span.set_attribute("team_id", query_params.team.pk)
+            span.set_attribute("property_key", query_params.key)
+            span.set_attribute("is_column", query_params.is_column)
+            span.set_attribute("has_value_filter", query_params.value is not None)
+            span.set_attribute("event_names_count", len(query_params.event_names) if query_params.event_names else 0)
+
+            property_filters = [
+                (param_key, param_value)
+                for param_key, param_value in query_params.items
+                if param_key.startswith("properties_") and isinstance(param_value, str)
+            ]
+            span.set_attribute("property_filter_count", len(property_filters))
+
+            if property_filters:
+                # Ad-hoc filtered queries are not cached — run directly
+                return self._event_property_values_filtered(query_params, property_filters)
+
+            runner = PropertyValuesQueryRunner(
+                team=query_params.team,
+                query=PropertyValuesQuery(
+                    property_type=PropertyType.EVENT,
+                    property_key=query_params.key,
+                    is_column=query_params.is_column,
+                    search_value=query_params.value,
+                    event_names=query_params.event_names or None,
+                ),
+            )
+            result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
+            span.set_attribute("result_count", len(result.results))
+            return self._return_with_short_cache([item.model_dump(exclude_none=True) for item in result.results])
+
+    def _event_property_values_filtered(
+        self,
+        query_params: EventValueQueryParams,
+        property_filters: builtins.list[tuple[str, str]],
+    ) -> response.Response:
+        # TODO: this duplicates most of PropertyValuesQueryRunner._event_query. We should prob extend
+        # PropertyValuesQuery with an optional property_filters field so the runner handles both paths
+        # in the future.
+        chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
         date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
         date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
 
-        chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
         conditions: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
@@ -474,32 +559,26 @@ class EventViewSet(
                 right=ast.Constant(value=None),
             ),
         ]
-        # Handle property filters from query parameters
-        for param_key, param_value in query_params.items:
-            if param_key.startswith("properties_"):
-                property_key = param_key.replace("properties_", "", 1)
-                try:
-                    # Expect properly encoded JSON from frontend
-                    property_values = (
-                        json.loads(param_value) if isinstance(param_value, str | bytes | bytearray) else param_value
-                    )
-                    conditions.append(create_property_conditions(property_key, property_values))
-                except json.JSONDecodeError:
-                    # If not JSON, treat as single value
-                    conditions.append(create_property_conditions(property_key, param_value))
-        if query_params.event_names and len(query_params.event_names) > 0:
+
+        for param_key, param_value in property_filters:
+            filter_key = param_key.replace("properties_", "", 1)
+            try:
+                filter_values = json.loads(param_value)
+                conditions.append(create_property_conditions(filter_key, filter_values))
+            except json.JSONDecodeError:
+                conditions.append(create_property_conditions(filter_key, param_value))
+
+        if query_params.event_names:
             event_conditions: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Field(chain=["event"]),
-                    right=ast.Constant(value=event_name),
+                    right=ast.Constant(value=name),
                 )
-                for event_name in query_params.event_names
+                for name in query_params.event_names
             ]
-            if len(event_conditions) > 1:
-                conditions.append(ast.Or(exprs=event_conditions))
-            else:
-                conditions.append(event_conditions[0])
+            conditions.append(ast.Or(exprs=event_conditions) if len(event_conditions) > 1 else event_conditions[0])
+
         if query_params.value:
             conditions.append(
                 ast.CompareOperation(
@@ -508,14 +587,18 @@ class EventViewSet(
                     right=ast.Constant(value=f"%{query_params.value}%"),
                 )
             )
-        order_by = []
-        if query_params.value:
-            order_by = [
+
+        order_by: list[ast.OrderExpr] = (
+            [
                 ast.OrderExpr(
                     expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
                     order="ASC",
                 )
             ]
+            if query_params.value
+            else []
+        )
+
         query = ast.SelectQuery(
             select=[ast.Field(chain=chain)],
             distinct=True,
@@ -528,16 +611,16 @@ class EventViewSet(
         result = execute_hogql_query(query, team=query_params.team)
 
         values = []
-        for value in result.results:
-            if isinstance(value[0], float | int | bool | uuid.UUID):
-                values.append(value[0])
+        for row in result.results:
+            if isinstance(row[0], float | int | bool | uuid.UUID):
+                values.append(row[0])
             else:
                 try:
-                    values.append(json.loads(value[0]))
+                    values.append(json.loads(row[0]))
                 except json.JSONDecodeError:
-                    values.append(value[0])
+                    values.append(row[0])
 
-        return self._return_with_short_cache([{"name": convert_property_value(value)} for value in flatten(values)])
+        return self._return_with_short_cache([{"name": convert_property_value(v)} for v in flatten(values)])
 
     @staticmethod
     def _return_with_short_cache(values) -> response.Response:

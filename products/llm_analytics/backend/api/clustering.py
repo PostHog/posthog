@@ -92,7 +92,7 @@ class ClusteringRunRequestSerializer(serializers.Serializer):
         default=DEFAULT_MIN_CLUSTER_SIZE_FRACTION,
         min_value=MIN_CLUSTER_SIZE_FRACTION_MIN,
         max_value=MIN_CLUSTER_SIZE_FRACTION_MAX,
-        help_text="Minimum cluster size as fraction of total samples (e.g., 0.05 = 5%)",
+        help_text="Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)",
     )
     hdbscan_min_samples = serializers.IntegerField(
         required=False,
@@ -136,7 +136,7 @@ class ClusteringRunRequestSerializer(serializers.Serializer):
     )
 
     # Trace filters
-    trace_filters = serializers.ListField(
+    event_filters = serializers.ListField(
         child=serializers.DictField(),
         required=False,
         default=list,
@@ -186,7 +186,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         run_label = serializer.validated_data["run_label"]
         clustering_method = serializer.validated_data["clustering_method"]
         visualization_method = serializer.validated_data["visualization_method"]
-        trace_filters = serializer.validated_data["trace_filters"]
+        event_filters = serializer.validated_data["event_filters"]
 
         # Build method-specific params dict
         clustering_method_params: dict = {}
@@ -213,7 +213,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
             clustering_method=clustering_method,
             clustering_method_params=clustering_method_params,
             visualization_method=visualization_method,
-            trace_filters=trace_filters,
+            event_filters=event_filters,
         )
 
         # Generate unique workflow ID (follows naming convention from trace_clustering constants)
@@ -253,7 +253,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
                 run_label=run_label,
                 clustering_method=clustering_method,
                 clustering_method_params=clustering_method_params,
-                trace_filters_count=len(trace_filters),
+                event_filters_count=len(event_filters),
             )
 
             # Track workflow triggered
@@ -270,7 +270,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
                     "run_label": run_label,
                     "clustering_method": clustering_method,
                     "clustering_method_params": clustering_method_params,
-                    "trace_filters_count": len(trace_filters),
+                    "event_filters_count": len(event_filters),
                     "trigger_type": "manual",
                 },
                 self.team,
@@ -290,7 +290,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
                         "clustering_method": clustering_method,
                         "clustering_method_params": clustering_method_params,
                         "run_label": run_label,
-                        "trace_filters": trace_filters,
+                        "event_filters": event_filters,
                     },
                 },
                 status=202,

@@ -318,6 +318,7 @@ export enum PathTab {
 
 export enum GeographyTab {
     MAP = 'MAP',
+    REGIONS_MAP = 'REGIONS_MAP',
     COUNTRIES = 'COUNTRIES',
     REGIONS = 'REGIONS',
     CITIES = 'CITIES',

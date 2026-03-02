@@ -16,14 +16,17 @@ const numberOpsForSchema = ['gt', 'gte', 'lt', 'lte', 'min', 'max']
 const numberOps = [...base, ...numberOpsForSchema] as const
 const booleanOps = [...base] as const
 
-const operatorValues = [...new Set([...stringOps, ...numberOps, ...booleanOps])] as [string, ...string[]]
+// Note: 'exact' and 'is_not' support arrays too (checks if value is contained in array)
+const arrayOps = ['exact', 'is_not'] as const
+
+const operatorValues = [...new Set([...stringOps, ...numberOps, ...booleanOps, ...arrayOps])] as [string, ...string[]]
 
 const operatorSchema = z.enum(operatorValues)
 
 export const PersonPropertyFilterSchema = z
     .object({
         key: z.string(),
-        value: z.union([z.string(), z.number(), z.boolean()]),
+        value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.array(z.number())]),
         operator: operatorSchema.optional(),
     })
     .superRefine((data, ctx) => {
@@ -31,16 +34,18 @@ export const PersonPropertyFilterSchema = z
         if (!operator) {
             return
         }
+        const isArray = Array.isArray(value)
 
         const valid =
             (typeof value === 'string' && stringOps.includes(operator as any)) ||
             (typeof value === 'number' && numberOps.includes(operator as any)) ||
-            (typeof value === 'boolean' && booleanOps.includes(operator as any))
+            (typeof value === 'boolean' && booleanOps.includes(operator as any)) ||
+            (isArray && arrayOps.includes(operator as any))
 
         if (!valid) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
-                message: `operator "${operator}" is not valid for value type "${typeof value}"`,
+                message: `operator "${operator}" is not valid for value type "${isArray ? 'array' : typeof value}"`,
             })
         }
     })

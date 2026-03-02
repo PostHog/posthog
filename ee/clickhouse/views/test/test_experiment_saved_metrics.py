@@ -363,3 +363,309 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Query is required to create a saved metric")
+
+    def test_create_experiment_with_saved_metric_breakdowns(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Test Experiment saved metric with breakdown",
+                "description": "Test description",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    },
+                },
+            },
+            format="json",
+        )
+
+        saved_metric_id = response.json()["id"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        ff_key = "a-b-test-breakdown"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment with Breakdown",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
+                    "properties": [],
+                },
+                "saved_metrics_ids": [
+                    {
+                        "id": saved_metric_id,
+                        "metadata": {
+                            "type": "primary",
+                            "breakdowns": [
+                                {"property": "$browser", "type": "event"},
+                                {"property": "$os", "type": "event"},
+                            ],
+                        },
+                    }
+                ],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        exp_id = response.json()["id"]
+
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
+        experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
+        assert experiment_to_saved_metric is not None
+        self.assertEqual(
+            experiment_to_saved_metric.metadata,
+            {
+                "type": "primary",
+                "breakdowns": [
+                    {"property": "$browser", "type": "event"},
+                    {"property": "$os", "type": "event"},
+                ],
+            },
+        )
+
+    def test_update_experiment_saved_metric_breakdowns(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Test Experiment saved metric",
+                "description": "Test description",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    },
+                },
+            },
+            format="json",
+        )
+
+        saved_metric_id = response.json()["id"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        ff_key = "a-b-test-update-breakdown"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                    ],
+                    "properties": [],
+                },
+                "saved_metrics_ids": [
+                    {
+                        "id": saved_metric_id,
+                        "metadata": {"type": "primary", "breakdowns": [{"property": "$browser", "type": "event"}]},
+                    }
+                ],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        exp_id = response.json()["id"]
+
+        experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
+        assert experiment_to_saved_metric is not None
+        self.assertEqual(
+            experiment_to_saved_metric.metadata,
+            {"type": "primary", "breakdowns": [{"property": "$browser", "type": "event"}]},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {
+                "saved_metrics_ids": [
+                    {
+                        "id": saved_metric_id,
+                        "metadata": {
+                            "type": "primary",
+                            "breakdowns": [
+                                {"property": "$browser", "type": "event"},
+                                {"property": "$device_type", "type": "event"},
+                            ],
+                        },
+                    }
+                ],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
+        assert experiment_to_saved_metric is not None
+        self.assertEqual(
+            experiment_to_saved_metric.metadata,
+            {
+                "type": "primary",
+                "breakdowns": [
+                    {"property": "$browser", "type": "event"},
+                    {"property": "$device_type", "type": "event"},
+                ],
+            },
+        )
+
+    def test_multiple_experiments_with_different_breakdowns_for_same_metric(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Shared Metric",
+                "description": "Test description",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    },
+                },
+            },
+            format="json",
+        )
+
+        saved_metric_id = response.json()["id"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        exp1_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Experiment 1",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": "exp-1-key",
+                "parameters": None,
+                "filters": {"events": [{"order": 0, "id": "$pageview"}], "properties": []},
+                "saved_metrics_ids": [
+                    {
+                        "id": saved_metric_id,
+                        "metadata": {"type": "primary", "breakdowns": [{"property": "$browser", "type": "event"}]},
+                    }
+                ],
+            },
+        )
+        self.assertEqual(exp1_response.status_code, status.HTTP_201_CREATED)
+        exp1_id = exp1_response.json()["id"]
+
+        exp2_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Experiment 2",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": "exp-2-key",
+                "parameters": None,
+                "filters": {"events": [{"order": 0, "id": "$pageview"}], "properties": []},
+                "saved_metrics_ids": [
+                    {
+                        "id": saved_metric_id,
+                        "metadata": {
+                            "type": "primary",
+                            "breakdowns": [
+                                {"property": "$os", "type": "event"},
+                                {"property": "$device_type", "type": "event"},
+                            ],
+                        },
+                    }
+                ],
+            },
+        )
+        self.assertEqual(exp2_response.status_code, status.HTTP_201_CREATED)
+        exp2_id = exp2_response.json()["id"]
+
+        exp1_to_saved_metric = Experiment.objects.get(pk=exp1_id).experimenttosavedmetric_set.first()
+        exp2_to_saved_metric = Experiment.objects.get(pk=exp2_id).experimenttosavedmetric_set.first()
+
+        assert exp1_to_saved_metric is not None
+        assert exp2_to_saved_metric is not None
+
+        self.assertEqual(
+            exp1_to_saved_metric.metadata,
+            {"type": "primary", "breakdowns": [{"property": "$browser", "type": "event"}]},
+        )
+        self.assertEqual(
+            exp2_to_saved_metric.metadata,
+            {
+                "type": "primary",
+                "breakdowns": [
+                    {"property": "$os", "type": "event"},
+                    {"property": "$device_type", "type": "event"},
+                ],
+            },
+        )
+
+    def test_api_response_includes_breakdowns_in_metadata(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Test Metric",
+                "description": "Test description",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    },
+                },
+            },
+            format="json",
+        )
+
+        saved_metric_id = response.json()["id"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        ff_key = "test-api-response"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment API Response",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {"events": [{"order": 0, "id": "$pageview"}], "properties": []},
+                "saved_metrics_ids": [
+                    {
+                        "id": saved_metric_id,
+                        "metadata": {
+                            "type": "primary",
+                            "breakdowns": [{"property": "$browser", "type": "event"}],
+                        },
+                    }
+                ],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        exp_id = response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        saved_metrics = response.json()["saved_metrics"]
+        self.assertEqual(len(saved_metrics), 1)
+        self.assertEqual(saved_metrics[0]["name"], "Test Metric")
+        self.assertEqual(
+            saved_metrics[0]["metadata"],
+            {
+                "type": "primary",
+                "breakdowns": [{"property": "$browser", "type": "event"}],
+            },
+        )
+        self.assertIn("query", saved_metrics[0])
+        self.assertEqual(saved_metrics[0]["query"]["kind"], "ExperimentTrendsQuery")

@@ -242,6 +242,7 @@ class AutoProjectMiddleware:
             if path_parts[0] == "dashboard":
                 dashboard_id = path_parts[1]
                 if dashboard_id.isnumeric():
+                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return Dashboard.objects.filter(deleted=False, id=dashboard_id)
             elif path_parts[0] == "insights":
                 insight_short_id = path_parts[1]
@@ -252,14 +253,17 @@ class AutoProjectMiddleware:
             elif path_parts[0] == "feature_flags":
                 feature_flag_id = path_parts[1]
                 if feature_flag_id.isnumeric():
+                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return FeatureFlag.objects.filter(deleted=False, id=feature_flag_id)
             elif path_parts[0] == "action":
                 action_id = path_parts[1]
                 if action_id.isnumeric():
+                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return Action.objects.filter(deleted=False, id=action_id)
             elif path_parts[0] == "cohorts":
                 cohort_id = path_parts[1]
                 if cohort_id.isnumeric():
+                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return Cohort.objects.filter(deleted=False, id=cohort_id)
         return None
 
@@ -669,6 +673,31 @@ class Fix204Middleware:
         return response
 
 
+class ToolbarOAuthCoopMiddleware:
+    """
+    Override Cross-Origin-Opener-Policy for toolbar OAuth popup pages.
+
+    Django's SecurityMiddleware sets COOP to "same-origin" by default. This severs
+    window.opener when a cross-origin popup navigates to our OAuth pages — breaking
+    the postMessage flow that sends tokens back to the toolbar.
+
+    We set COOP to "unsafe-none" on the specific paths involved in the toolbar
+    OAuth popup flow so the opener reference is preserved.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        is_toolbar_flow = request.path.startswith("/toolbar_oauth/") or (
+            request.path.startswith("/oauth/authorize") and request.session.get("toolbar_oauth_code_verifier")
+        )
+        if is_toolbar_flow:
+            response["Cross-Origin-Opener-Policy"] = "unsafe-none"
+        return response
+
+
 class ActivityLoggingMiddleware:
     """
     Middleware that sets the current user and impersonation status in activity storage
@@ -703,6 +732,12 @@ class CSPMiddleware:
 
         # nonce must be added to request (above) before generating response
         response = self.get_response(request)
+
+        content_type = response.get("Content-Type", "")
+        # csp headers only matter on html documents, so for defense in depth, add strong csp to all other requests
+        if "text/html" not in content_type:
+            response.headers["Content-Security-Policy"] = "default-src 'none'"
+            return response
 
         is_admin_view = request.path.startswith("/admin/")
         if is_admin_view:
@@ -747,7 +782,7 @@ class CSPMiddleware:
                 "media-src https://res.cloudinary.com",
                 f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
-                f"connect-src 'self' https://status.posthog.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # allow all sites for displaying heatmaps
                 "frame-src https:",
                 "manifest-src 'self'",

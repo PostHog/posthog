@@ -29,6 +29,7 @@ describe('Surveys', { concurrent: false }, () => {
         dashboards: [],
         surveys: [],
         actions: [],
+        cohorts: [],
     }
 
     beforeAll(async () => {
@@ -743,7 +744,7 @@ describe('Surveys', { concurrent: false }, () => {
                                 {
                                     type: 'person',
                                     key: 'plan',
-                                    value: 'premium',
+                                    value: ['premium', 'enterprise'],
                                     operator: 'exact' as const,
                                 },
                             ],
@@ -926,7 +927,7 @@ describe('Surveys', { concurrent: false }, () => {
                             properties: [
                                 {
                                     key: 'email',
-                                    value: 'test@example.com',
+                                    value: ['test@example.com'],
                                     operator: 'exact' as const,
                                     type: 'person',
                                 },

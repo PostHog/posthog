@@ -1,0 +1,5 @@
+# Stickiness (counted by pageviews from unique users, defined by at least one event for the interval, non-cumulative)
+
+```sql
+{{ render_hogql_example({"kind": "StickinessQuery", "filterTestAccounts": false, "series": [{"kind": "EventsNode", "event": "$pageview"}], "dateRange": {"date_from": "-7d"}, "interval": "day"}) }}
+```

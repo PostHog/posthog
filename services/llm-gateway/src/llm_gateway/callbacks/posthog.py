@@ -1,4 +1,5 @@
 import ast
+import json
 from typing import Any
 from uuid import uuid4
 
@@ -38,6 +39,30 @@ def _replace_binary_content(data: Any) -> Any:
             return data
 
 
+_MAX_CAPTURE_SIZE = 800 * 1024
+_MIN_FIELD_SIZE_TO_TRUNCATE = 10 * 1024
+_TRUNCATION_MARKER = "[truncated: content too large for capture]"
+_TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")
+
+
+def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
+    serialized = json.dumps(properties, default=str)
+    if len(serialized) <= _MAX_CAPTURE_SIZE:
+        return properties
+
+    result = dict(properties)
+    for field in _TRUNCATABLE_FIELDS:
+        if field not in result:
+            continue
+        field_size = len(json.dumps(result[field], default=str))
+        if field_size < _MIN_FIELD_SIZE_TO_TRUNCATE:
+            continue
+        result[field] = _TRUNCATION_MARKER
+        if len(json.dumps(result, default=str)) <= _MAX_CAPTURE_SIZE:
+            break
+    return result
+
+
 class PostHogCallback(InstrumentedCallback):
     """Custom PostHog callback for LLM analytics."""
 
@@ -61,7 +86,10 @@ class PostHogCallback(InstrumentedCallback):
         trace_id = (
             metadata.get("user_id") or str(uuid4())
         )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
-        distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+        if auth_user and auth_user.auth_method == "oauth_access_token":
+            distinct_id = auth_user.distinct_id
+        else:
+            distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(
@@ -104,6 +132,8 @@ class PostHogCallback(InstrumentedCallback):
         if time_to_first_token is not None:
             properties["$ai_time_to_first_token"] = time_to_first_token
 
+        properties = _truncate_for_capture(properties)
+
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,
             "event": "$ai_generation",
@@ -120,7 +150,6 @@ class PostHogCallback(InstrumentedCallback):
             groups=capture_kwargs.get("groups"),
         )
         posthoganalytics.capture(**capture_kwargs)
-        posthoganalytics.flush()
 
     async def _on_failure(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
@@ -133,7 +162,10 @@ class PostHogCallback(InstrumentedCallback):
         trace_id = (
             metadata.get("user_id") or str(uuid4())
         )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
-        distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+        if auth_user and auth_user.auth_method == "oauth_access_token":
+            distinct_id = auth_user.distinct_id
+        else:
+            distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(
@@ -172,7 +204,6 @@ class PostHogCallback(InstrumentedCallback):
             groups=capture_kwargs.get("groups"),
         )
         posthoganalytics.capture(**capture_kwargs)
-        posthoganalytics.flush()
 
     def _extract_metadata(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         litellm_params = kwargs.get("litellm_params", {}) or {}

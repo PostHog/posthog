@@ -13,6 +13,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, HttpBatchExportInputs
 from posthog.models import BatchExportRun
+from posthog.security.outbound_proxy import external_aiohttp_session
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -247,8 +248,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
         asyncio.create_task(worker_shutdown_handler())
 
-        rows_exported = get_rows_exported_metric()
-        bytes_exported = get_bytes_exported_metric()
+        rows_exported = get_rows_exported_metric(model="events")
+        bytes_exported = get_bytes_exported_metric(model="events")
 
         # The HTTP destination currently only supports the PostHog batch capture endpoint. In the
         # future we may support other endpoints, but we'll need a way to template the request body,
@@ -294,7 +295,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
                 activity.heartbeat(last_uploaded_timestamp)
 
-            async with aiohttp.ClientSession() as session:
+            async with external_aiohttp_session() as session:
                 for record_batch in record_iterator:
                     for row in record_batch.select(columns).to_pylist():
                         # Format result row as PostHog event, write JSON to the batch file.

@@ -1,7 +1,6 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
-import { PersonProfiles } from './_snippets/person-profiles'
 
 export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
@@ -46,7 +45,7 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
                                 )
 
                                 func main() {
-                                    client, _ := posthog.NewWithConfig("<ph_project_api_key>", posthog.Config{Endpoint: "<ph_client_api_host>"})
+                                    client, _ := posthog.NewWithConfig("<ph_project_token>", posthog.Config{Endpoint: "<ph_client_api_host>"})
                                     defer client.Close()
                                 }
                             `,
@@ -78,7 +77,6 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
                             },
                         ]}
                     />
-                    <PersonProfiles language="go" />
                 </>
             ),
         },

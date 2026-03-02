@@ -327,6 +327,71 @@ class TestVariableAnalysis(APIBaseTest):
         assert "HAVING" in reason or "having" in reason.lower()
         assert var_infos == []
 
+    def test_variable_wrapped_in_function_call(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count(*) FROM events WHERE event = {variables.event_name} AND toDate(timestamp) >= toDate({variables.from_date})",
+            "variables": {
+                "var-1": {"code_name": "event_name", "value": "$pageview"},
+                "var-2": {"code_name": "from_date", "value": "2024-01-01"},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is True
+        assert reason == "OK"
+        assert len(var_infos) == 2
+        by_name = {v.code_name: v for v in var_infos}
+        assert by_name["from_date"].operator == ast.CompareOperationOp.GtEq
+        assert by_name["from_date"].value_wrapper_fns == ["toDate"]
+        assert by_name["event_name"].value_wrapper_fns is None
+
+    def test_variable_wrapped_in_lower(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE lower(event) = lower({variables.event_name})",
+            "variables": {"var-1": {"code_name": "event_name", "value": "$PageView"}},
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is True
+        assert len(var_infos) == 1
+        assert var_infos[0].value_wrapper_fns == ["lower"]
+        assert var_infos[0].operator == ast.CompareOperationOp.Eq
+
+    def test_variable_wrapped_in_toStartOfMonth(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE toStartOfMonth(timestamp) >= toStartOfMonth({variables.from_date}) AND toStartOfMonth(timestamp) < toStartOfMonth({variables.to_date})",
+            "variables": {
+                "var-1": {"code_name": "from_date", "value": "2024-01-15"},
+                "var-2": {"code_name": "to_date", "value": "2024-06-15"},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is True
+        assert len(var_infos) == 2
+        by_name = {v.code_name: v for v in var_infos}
+        assert by_name["from_date"].value_wrapper_fns == ["toStartOfMonth"]
+        assert by_name["to_date"].value_wrapper_fns == ["toStartOfMonth"]
+
+    def test_nested_wrapper_functions(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE toDate(timestamp) >= toDate(toStartOfMonth({variables.from_date}))",
+            "variables": {"var-1": {"code_name": "from_date", "value": "2024-01-15"}},
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is True
+        assert len(var_infos) == 1
+        assert var_infos[0].value_wrapper_fns == ["toDate", "toStartOfMonth"]
+
     def test_range_operator_gte(self):
         query = {
             "kind": "HogQLQuery",
@@ -1191,3 +1256,84 @@ class TestTransformQuerySnapshots(APIBaseTest):
         assert select_alias_expr is not None, "from_date alias not found in SELECT"
         assert group_by_expr is not None, "toDate() not found in GROUP BY"
         assert select_alias_expr is not group_by_expr, "SELECT alias expr and GROUP BY expr are the same Python object"
+
+
+class TestMaterializedReadPath(APIBaseTest):
+    """Test that the read path applies value_wrapper_fns when filtering the materialized table."""
+
+    def _build_read_query(self, query_str: str, variables_meta: dict, variable_values: dict) -> str:
+        """Simulate the materialized read path: analyze variables, then build a SELECT with filters."""
+        from products.endpoints.backend.api import EndpointViewSet
+
+        hogql_query = {"kind": "HogQLQuery", "query": query_str, "variables": variables_meta}
+        _, _, var_infos = analyze_variables_for_materialization(hogql_query)
+
+        select_query = ast.SelectQuery(
+            select=[ast.Field(chain=["*"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["materialized_table"])),
+        )
+
+        viewset = EndpointViewSet()
+        for mat_var in var_infos:
+            var_value = variable_values.get(mat_var.code_name)
+            if var_value is not None:
+                viewset._apply_where_filter(
+                    select_query,
+                    mat_var.code_name,
+                    var_value,
+                    op=mat_var.operator,
+                    value_wrapper_fns=mat_var.value_wrapper_fns,
+                )
+
+        return select_query.to_hogql()
+
+    def test_bare_variable_no_wrapper(self):
+        result = self._build_read_query(
+            "SELECT count() FROM events WHERE event = {variables.event_name}",
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+        assert "event_name" in result
+        assert "'$pageview'" in result
+        assert "toDate" not in result
+
+    def test_toDate_wrapper_applied_to_value(self):
+        result = self._build_read_query(
+            "SELECT count() FROM events WHERE toDate(timestamp) >= toDate({variables.from_date})",
+            {"var-1": {"code_name": "from_date", "value": "2024-01-01"}},
+            {"from_date": "2024-01-15 14:30:00"},
+        )
+
+        assert "toDate('2024-01-15 14:30:00')" in result
+
+    def test_lower_wrapper_applied_to_value(self):
+        result = self._build_read_query(
+            "SELECT count() FROM events WHERE lower(event) = lower({variables.event_name})",
+            {"var-1": {"code_name": "event_name", "value": "$PageView"}},
+            {"event_name": "$PageView"},
+        )
+
+        assert "lower('$PageView')" in result
+
+    def test_range_with_wrapper_both_sides(self):
+        result = self._build_read_query(
+            "SELECT count() FROM events WHERE toStartOfMonth(timestamp) >= toStartOfMonth({variables.from_date}) AND toStartOfMonth(timestamp) < toStartOfMonth({variables.to_date})",
+            {
+                "var-1": {"code_name": "from_date", "value": "2024-01-15"},
+                "var-2": {"code_name": "to_date", "value": "2024-06-15"},
+            },
+            {"from_date": "2024-01-15", "to_date": "2024-06-15"},
+        )
+
+        assert "toStartOfMonth('2024-01-15')" in result
+        assert "toStartOfMonth('2024-06-15')" in result
+
+    def test_nested_wrapper_applied_to_value(self):
+        result = self._build_read_query(
+            "SELECT count() FROM events WHERE toDate(timestamp) >= toDate(toStartOfMonth({variables.from_date}))",
+            {"var-1": {"code_name": "from_date", "value": "2024-01-15"}},
+            {"from_date": "2024-01-15"},
+        )
+
+        assert "toDate(toStartOfMonth('2024-01-15'))" in result

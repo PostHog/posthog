@@ -6,11 +6,13 @@ import {
     IconBook,
     IconBug,
     IconCircleDashed,
+    IconClock,
     IconCode,
     IconCode2,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
+    IconDocument,
     IconDownload,
     IconExternal,
     IconFeatures,
@@ -23,8 +25,10 @@ import {
     IconHogQL,
     IconHome,
     IconLifecycle,
+    IconListCheck,
     IconLive,
     IconLlmAnalytics,
+    IconLlmPromptManagement,
     IconMegaphone,
     IconMessage,
     IconNotebook,
@@ -34,9 +38,11 @@ import {
     IconPiggyBank,
     IconPlay,
     IconPlug,
+    IconReceipt,
     IconRetention,
     IconRewindPlay,
     IconRocket,
+    IconScatter,
     IconSearch,
     IconServer,
     IconSpotlight,
@@ -117,6 +123,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconApp />,
         iconColor: ['var(--color-product-heatmaps-light)', 'var(--color-product-heatmaps-dark)'],
     },
+    session_profile: {
+        icon: <IconReceipt />,
+    },
     session_replay: {
         icon: <IconRewindPlay />,
         iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
@@ -189,6 +198,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     action: {
         icon: <IconPlay />,
+    },
+    activity: {
+        icon: <IconClock />,
     },
     comment: {
         icon: <IconNotification />,
@@ -283,6 +295,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     health: {
         icon: <IconStethoscope />,
     },
+    inbox: {
+        icon: <IconNotification />,
+    },
     sdk_doctor: {
         icon: <IconCode />,
     },
@@ -290,19 +305,19 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconDatabase />,
     },
     llm_evaluations: {
-        icon: <IconFlask />,
+        icon: <IconListCheck />,
         iconColor: ['var(--color-product-llm-evaluations-light)'],
     },
     llm_datasets: {
-        icon: <IconDatabase />,
+        icon: <IconDocument />,
         iconColor: ['var(--color-product-llm-datasets-light)'],
     },
     llm_prompts: {
-        icon: <IconBook />,
+        icon: <IconLlmPromptManagement />,
         iconColor: ['var(--color-product-llm-prompts-light)'],
     },
     llm_clusters: {
-        icon: <IconPeople />,
+        icon: <IconScatter />,
         iconColor: ['var(--color-product-llm-clusters-light)'],
     },
     exports: {

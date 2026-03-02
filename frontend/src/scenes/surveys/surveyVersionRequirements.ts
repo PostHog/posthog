@@ -1,6 +1,7 @@
 import { compareVersion } from 'lib/utils/semver'
 
 import {
+    BasicSurveyQuestion,
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
     Survey,
@@ -247,6 +248,49 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         check: (s) =>
             s.questions.some(
                 (q) => q.type === SurveyQuestionType.Rating && q.scale === SURVEY_RATING_SCALE.THUMB_2_POINT
+            ),
+    },
+    {
+        feature: 'Shuffle questions',
+        sdkVersions: { 'posthog-js': '1.131.5' },
+        unsupportedSdks: [
+            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3162' },
+            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/492' },
+            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/442' },
+            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/310' },
+        ],
+        check: (s) => s.appearance?.shuffleQuestions === true,
+    },
+    {
+        feature: 'Shuffle choice options',
+        sdkVersions: { 'posthog-js': '1.131.5' },
+        unsupportedSdks: [
+            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3162' },
+            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/492' },
+            { sdk: 'posthog-android', issue: false }, // delegate pattern - no built-in UI; flag exposed on display model
+            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/310' },
+        ],
+        check: (s) =>
+            s.questions.some(
+                (q) =>
+                    (q.type === SurveyQuestionType.SingleChoice || q.type === SurveyQuestionType.MultipleChoice) &&
+                    (q as MultipleSurveyQuestion).shuffleOptions === true
+            ),
+    },
+    {
+        feature: 'Response length validation',
+        sdkVersions: { 'posthog-js': '1.344.0', 'posthog-react-native': '4.31.0' },
+        unsupportedSdks: [
+            { sdk: 'posthog-ios', issue: false },
+            { sdk: 'posthog-android', issue: false },
+            { sdk: 'posthog_flutter', issue: false },
+        ],
+        check: (s) =>
+            s.questions.some(
+                (q) =>
+                    q.type === SurveyQuestionType.Open &&
+                    (q as BasicSurveyQuestion).validation &&
+                    (q as BasicSurveyQuestion).validation!.length > 0
             ),
     },
 ]

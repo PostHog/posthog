@@ -100,6 +100,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             hasMore=has_more,
             limit=requested_limit,
             offset=self.query.offset or 0,
+            error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
         )
 
     def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:
@@ -328,6 +329,16 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                 # Build default order by: Total Cost DESC
                 default_field = ast.Field(chain=[MarketingAnalyticsBaseColumns.COST.value])
                 order_by_exprs.append(ast.OrderExpr(expr=default_field, order="DESC"))
+
+        # Add ID as tiebreaker for deterministic ordering when rows share the same sort key
+        already_sorted_columns = {expr.expr.chain[0] for expr in order_by_exprs if isinstance(expr.expr, ast.Field)}
+        if (
+            MarketingAnalyticsBaseColumns.ID.value in select_columns
+            and MarketingAnalyticsBaseColumns.ID.value not in already_sorted_columns
+        ):
+            order_by_exprs.append(
+                ast.OrderExpr(expr=ast.Field(chain=[MarketingAnalyticsBaseColumns.ID.value]), order="ASC")
+            )
 
         return order_by_exprs
 

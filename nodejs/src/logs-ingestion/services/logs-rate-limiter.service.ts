@@ -1,5 +1,5 @@
 import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
-import { Hub } from '~/types'
+import { LogsIngestionConsumerConfig } from '~/types'
 
 import { LogsIngestionMessage } from '../types'
 
@@ -9,9 +9,8 @@ const msToSeconds = (ms: number): number => Math.round(ms / 1000)
 /** Convert bytes to kilobytes (rounded up) */
 const bytesToKb = (bytes: number): number => Math.ceil(bytes / 1000)
 
-/** Narrowed Hub type for LogsRateLimiterService */
-export type LogsRateLimiterServiceHub = Pick<
-    Hub,
+export type LogsRateLimiterConfig = Pick<
+    LogsIngestionConsumerConfig,
     | 'LOGS_LIMITER_TEAM_BUCKET_SIZE_KB'
     | 'LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND'
     | 'LOGS_LIMITER_DISABLED_FOR_TEAMS'
@@ -48,13 +47,13 @@ export class LogsRateLimiterService {
     private enabledTeamIds: Set<number> | '*' | null
 
     constructor(
-        private hub: LogsRateLimiterServiceHub,
+        private config: LogsRateLimiterConfig,
         private redis: RedisV2
     ) {
-        this.teamBucketSizes = this.parseTeamConfig(hub.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB)
-        this.teamRefillRates = this.parseTeamConfig(hub.LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND)
-        this.disabledTeamIds = this.parseTeamIdList(hub.LOGS_LIMITER_DISABLED_FOR_TEAMS)
-        this.enabledTeamIds = this.parseTeamIdList(hub.LOGS_LIMITER_ENABLED_TEAMS)
+        this.teamBucketSizes = this.parseTeamConfig(config.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB)
+        this.teamRefillRates = this.parseTeamConfig(config.LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND)
+        this.disabledTeamIds = this.parseTeamIdList(config.LOGS_LIMITER_DISABLED_FOR_TEAMS)
+        this.enabledTeamIds = this.parseTeamIdList(config.LOGS_LIMITER_ENABLED_TEAMS)
     }
 
     private parseTeamIdList(config: string): Set<number> | '*' | null {
@@ -99,9 +98,9 @@ export class LogsRateLimiterService {
             `${REDIS_KEY_TOKENS}/${id}`,
             nowSeconds,
             cost,
-            this.teamBucketSizes.get(teamId) ?? this.hub.LOGS_LIMITER_BUCKET_SIZE_KB,
-            this.teamRefillRates.get(teamId) ?? this.hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND,
-            this.hub.LOGS_LIMITER_TTL_SECONDS,
+            this.teamBucketSizes.get(teamId) ?? this.config.LOGS_LIMITER_BUCKET_SIZE_KB,
+            this.teamRefillRates.get(teamId) ?? this.config.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND,
+            this.config.LOGS_LIMITER_TTL_SECONDS,
         ]
     }
 
@@ -144,8 +143,8 @@ export class LogsRateLimiterService {
 
         return idCosts.map(([id, ,], index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
-            const tokensBefore = Number(tokenRes[1]?.[0] ?? this.hub.LOGS_LIMITER_BUCKET_SIZE_KB)
-            const tokensAfter = Number(tokenRes[1]?.[1] ?? this.hub.LOGS_LIMITER_BUCKET_SIZE_KB)
+            const tokensBefore = Number(tokenRes[1]?.[0] ?? this.config.LOGS_LIMITER_BUCKET_SIZE_KB)
+            const tokensAfter = Number(tokenRes[1]?.[1] ?? this.config.LOGS_LIMITER_BUCKET_SIZE_KB)
             return [
                 id,
                 {
