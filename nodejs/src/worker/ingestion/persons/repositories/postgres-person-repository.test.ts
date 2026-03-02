@@ -933,8 +933,8 @@ describe('PostgresPersonRepository', () => {
             const team2Person = await createTestPerson(team2Id, 'cross-team-2', { name: 'Team 2 Person' })
 
             const teamPersons = [
-                { teamId: team2Id, personId: team1Person.id },
-                { teamId: team1.id, personId: team2Person.id },
+                { teamId: team2Id, personId: team1Person.uuid },
+                { teamId: team1.id, personId: team2Person.uuid },
             ]
             const result = await repository.fetchPersonsByPersonIds(teamPersons)
 
@@ -948,7 +948,7 @@ describe('PostgresPersonRepository', () => {
             const nonExistentId = new UUIDT().toString()
 
             const result = await repository.fetchPersonsByPersonIds([
-                { teamId: team.id, personId: person.id },
+                { teamId: team.id, personId: person.uuid },
                 { teamId: team.id, personId: nonExistentId },
             ])
 
@@ -961,8 +961,8 @@ describe('PostgresPersonRepository', () => {
             const person = await createTestPerson(team.id, 'dedup-person', { name: 'Dedup' })
 
             const result = await repository.fetchPersonsByPersonIds([
-                { teamId: team.id, personId: person.id },
-                { teamId: team.id, personId: person.id },
+                { teamId: team.id, personId: person.uuid },
+                { teamId: team.id, personId: person.uuid },
             ])
 
             expect(result).toHaveLength(1)
