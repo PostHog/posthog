@@ -198,7 +198,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         batch_export_run = self.get_object()
 
         temporal = sync_connect()
-        backfill_workflow_id = backfill_export(
+        backfill_id = backfill_export(
             temporal,
             str(batch_export_run.batch_export.id),
             self.team_id,
@@ -206,7 +206,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
             batch_export_run.data_interval_end,
         )
 
-        return response.Response({"backfill_workflow_id": backfill_workflow_id})
+        return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:

@@ -8,7 +8,10 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
+from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import backfill_batch_export, create_batch_export_ok
+from posthog.api.test.test_team import create_team
+from posthog.api.test.test_user import create_user
 from posthog.models.person.util import create_person
 from posthog.models.team import Team
 
@@ -310,10 +313,6 @@ def test_batch_export_backfill_with_start_at_after_end_at(client: HttpClient, or
 
 
 def test_cannot_trigger_backfill_for_another_organization(client: HttpClient, temporal, organization, team, user):
-    from posthog.api.test.batch_exports.fixtures import create_organization
-    from posthog.api.test.test_team import create_team
-    from posthog.api.test.test_user import create_user
-
     other_organization = create_organization("Other Org")
     create_team(other_organization)
     other_user = create_user("other-test@user.com", "Other Test User", other_organization)

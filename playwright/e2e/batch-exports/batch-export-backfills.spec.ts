@@ -134,7 +134,7 @@ test.describe('Batch export backfills', () => {
 
         // Navigate to the backfills tab
         await page.goto(`/pipeline/batch-exports/${mockExportId}?tab=backfills`)
-        await expect(page.getByRole('button', { name: 'Start backfill', exact: true })).toBeVisible()
+        await expect(page.getByRole('button', { name: 'Start backfill', exact: true }).first()).toBeVisible()
 
         // Open the backfill modal and submit
         await page.getByRole('button', { name: 'Start backfill', exact: true }).first().click()
