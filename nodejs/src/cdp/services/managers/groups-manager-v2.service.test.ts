@@ -237,6 +237,23 @@ describe('Groups Manager V2', () => {
         expect(mockFetchGroupsByKeys).toHaveBeenCalledWith([1], [1], ['id-2'])
     })
 
+    it.each([
+        { $groups: undefined, desc: 'missing' },
+        { $groups: null, desc: 'null' },
+        { $groups: 'not-an-object', desc: 'a string' },
+        { $groups: {}, desc: 'an empty object' },
+    ])('skips group type loading when $groups is $desc', async ({ $groups }) => {
+        const globals = createHogExecutionGlobals({
+            groups: undefined,
+            event: { properties: { $groups } } as any,
+        })
+        await groupsManager.addGroupsToGlobals(globals)
+
+        expect(globals.groups).toEqual({})
+        expect(mockFetchGroupTypesByTeamIds).not.toHaveBeenCalled()
+        expect(mockFetchGroupsByKeys).not.toHaveBeenCalled()
+    })
+
     it('skips enrichment when groups already set', async () => {
         const existingGroups = { SomeGroup: { id: 'existing', index: 0, type: 'SomeGroup', url: '', properties: {} } }
         const globals = createHogExecutionGlobals({

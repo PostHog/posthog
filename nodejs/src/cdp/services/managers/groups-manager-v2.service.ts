@@ -61,14 +61,15 @@ export class GroupsManagerServiceV2 {
             return
         }
 
-        const typeMapping = await this.groupTypesLoader.get(String(globals.project.id))
-        if (!typeMapping) {
+        // Early return - if there are no $groups on the event then we don't need to do anything
+        const groupsProperty = globals.event.properties['$groups']
+        if (typeof groupsProperty !== 'object' || groupsProperty === null || Object.keys(groupsProperty).length === 0) {
             globals.groups = {}
             return
         }
 
-        const groupsProperty = globals.event.properties['$groups']
-        if (typeof groupsProperty !== 'object' || groupsProperty === null) {
+        const typeMapping = await this.groupTypesLoader.get(String(globals.project.id))
+        if (!typeMapping) {
             globals.groups = {}
             return
         }
