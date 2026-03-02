@@ -264,7 +264,7 @@ And lastly, clean up the old code.
 
 ## Infrastructure changes / requirements
 
-- New DLQ + overflow topics
+- New source, DLQ, + overflow topics
 
 ## Metrics & Observability
 
