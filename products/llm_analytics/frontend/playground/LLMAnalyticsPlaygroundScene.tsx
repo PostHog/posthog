@@ -30,7 +30,12 @@ import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
@@ -61,18 +66,24 @@ function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element 
 export const scene: SceneExport = {
     component: LLMAnalyticsPlaygroundScene,
     logic: llmAnalyticsPlaygroundLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
 }
 
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     useMountedLogic(llmAnalyticsPlaygroundLogic)
 
     return (
-        <div className="flex flex-col h-[calc(100vh-300px)] min-h-[520px]">
-            <div className="flex items-center justify-end gap-2 mb-2">
-                <PlaygroundHeaderActions />
+        <SceneContent className="h-full">
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.LLMAnalyticsPlayground].name}
+                description="Test and experiment with LLM prompts in a sandbox environment."
+                resourceType={{ type: sceneConfigurations[Scene.LLMAnalyticsPlayground].iconType || 'llm_analytics' }}
+                actions={<PlaygroundHeaderActions />}
+            />
+            <div className="flex h-full flex-1 flex-col min-h-0">
+                <PlaygroundLayout />
             </div>
-            <PlaygroundLayout />
-        </div>
+        </SceneContent>
     )
 }
 
