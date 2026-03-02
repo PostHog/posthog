@@ -42,7 +42,7 @@ describe('BatchExportHogFunctionService', () => {
         hub = await createHub({ SITE_URL: 'http://localhost:8000' })
         team = await getFirstTeam(hub)
 
-        api = new CdpApi(hub)
+        api = new CdpApi(hub, hub)
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
