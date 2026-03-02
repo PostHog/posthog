@@ -657,6 +657,7 @@ async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> Ma
 
 @dataclass
 class FetchReportContextsInput:
+    team_id: int
     report_ids: list[str]
 
 
@@ -672,7 +673,9 @@ async def fetch_report_contexts_activity(input: FetchReportContextsInput) -> Fet
         return FetchReportContextsOutput(contexts={})
 
     try:
-        reports = SignalReport.objects.filter(id__in=input.report_ids).values_list("id", "title", "signal_count")
+        reports = SignalReport.objects.filter(team_id=input.team_id, id__in=input.report_ids).values_list(
+            "id", "title", "signal_count"
+        )
         contexts: dict[str, ReportContext] = {}
         async for report_id, title, signal_count in reports:
             rid = str(report_id)
@@ -1047,7 +1050,7 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
 
     report_contexts_result: FetchReportContextsOutput = await workflow.execute_activity(
         fetch_report_contexts_activity,
-        FetchReportContextsInput(report_ids=unique_report_ids),
+        FetchReportContextsInput(team_id=inputs.team_id, report_ids=unique_report_ids),
         start_to_close_timeout=timedelta(minutes=2),
         retry_policy=RetryPolicy(maximum_attempts=3),
     )
