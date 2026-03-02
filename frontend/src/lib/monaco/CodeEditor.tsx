@@ -17,7 +17,6 @@ import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
-import { setupVimMode } from 'lib/monaco/vimMode'
 import { inStorybookTestRunner } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -250,10 +249,18 @@ export function CodeEditor({
             return
         }
 
+        let cancelled = false
+
         if (enableVimMode && vimStatusBarRef.current) {
-            vimModeRef.current = setupVimMode(editor, vimStatusBarRef.current, {
-                initialHistory: vimCommandHistory,
-                onCommandExecuted: appendVimCommand,
+            const statusBar = vimStatusBarRef.current
+            void import('lib/monaco/vimMode').then(({ setupVimMode }) => {
+                if (cancelled) {
+                    return
+                }
+                vimModeRef.current = setupVimMode(editor, statusBar, {
+                    initialHistory: vimCommandHistory,
+                    onCommandExecuted: appendVimCommand,
+                })
             })
         } else if (vimModeRef.current) {
             vimModeRef.current.dispose()
@@ -261,6 +268,7 @@ export function CodeEditor({
         }
 
         return () => {
+            cancelled = true
             if (vimModeRef.current) {
                 vimModeRef.current.dispose()
                 vimModeRef.current = null

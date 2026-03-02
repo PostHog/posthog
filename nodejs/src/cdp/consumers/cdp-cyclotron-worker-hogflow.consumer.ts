@@ -1,6 +1,6 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { PluginsServerConfig } from '~/types'
 
-import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { PersonManagerPerson, PersonsManagerService } from '../services/managers/persons-manager.service'
 import {
@@ -11,21 +11,16 @@ import {
 } from '../types'
 import { getPersonDisplayName } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
-import { CdpCyclotronWorker, CdpCyclotronWorkerHub } from './cdp-cyclotron-worker.consumer'
+import { CdpConsumerBaseDeps } from './cdp-base.consumer'
+import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
-/**
- * Hub type for CdpCyclotronWorkerHogFlow.
- * Extends CdpCyclotronWorkerHub with hogflow-specific fields.
- */
-export type CdpCyclotronWorkerHogFlowHub = CdpCyclotronWorkerHub & Pick<Hub, 'teamManager'>
-
-export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWorkerHogFlowHub> {
+export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerHogFlow'
     private personsByIdManager: PersonsManagerService
 
-    constructor(hub: CdpCyclotronWorkerHogFlowHub) {
-        super(hub, 'hogflow')
-        this.personsByIdManager = new PersonsManagerService(hub.personRepository, 'person_id')
+    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
+        super(config, deps, 'hogflow')
+        this.personsByIdManager = new PersonsManagerService(deps.personRepository, 'person_id')
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
@@ -42,7 +37,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
 
         await Promise.all(
             invocations.map(async (item) => {
-                const team = await this.hub.teamManager.getTeam(item.teamId)
+                const team = await this.deps.teamManager.getTeam(item.teamId)
                 const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId)
                 if (!hogFlow || !team) {
                     logger.error('⚠️', 'Error finding hog flow', {
@@ -106,7 +101,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
                           id: dbPerson.id,
                           properties: dbPerson.properties,
                           name: personDisplayName,
-                          url: `${this.hub.SITE_URL}/project/${hogFlow.team_id}/person/${encodeURIComponent(
+                          url: `${this.config.SITE_URL}/project/${hogFlow.team_id}/person/${encodeURIComponent(
                               hogFlowInvocationState.event?.distinct_id || hogFlowInvocationState.personId!
                           )}`,
                       }

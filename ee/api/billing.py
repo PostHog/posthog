@@ -5,7 +5,6 @@ from django.contrib.auth.models import AbstractUser
 from django.http import HttpResponse
 from django.shortcuts import redirect
 
-import requests
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
@@ -21,6 +20,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team
 from posthog.models.organization import OrganizationMembership
+from posthog.security.outbound_proxy import external_requests
 from posthog.utils import relative_date_parse
 
 from ee.billing.billing_manager import BillingManager
@@ -375,7 +375,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         license = License(key=serializer.validated_data["license"])
-        res = requests.get(
+        res = external_requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=BillingManager(license).get_auth_headers(organization),
         )

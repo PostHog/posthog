@@ -33,6 +33,7 @@
     flex: 1;
     flex-direction: column;
     width: 100%;
+    min-height: 0; // Allow flex item to shrink below content size (e.g. when description is toggled)
     overflow: auto;
     border-radius: 0 0 var(--radius) var(--radius);
 

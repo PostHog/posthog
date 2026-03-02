@@ -37,7 +37,7 @@ class TestRowTracking(BaseTest):
     def _setup_limits(self, limit: int):
         from ee.api.test.test_billing import create_billing_customer
 
-        with mock.patch("ee.api.billing.requests.get") as mock_billing_request:
+        with mock.patch("ee.api.billing.external_requests.get") as mock_billing_request:
             mock_res = create_billing_customer()
             usage_summary = mock_res.get("usage_summary") or {}
             mock_billing_request.return_value.status_code = 200

@@ -189,6 +189,10 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     }),
 
     selectors({
+        currentConversationId: [
+            () => [router.selectors.searchParams],
+            (searchParams): string | null => searchParams?.chat ?? null,
+        ],
         dataProcessingAccepted: [
             (s) => [s.currentOrganization],
             (currentOrganization): boolean => !!currentOrganization?.is_ai_data_processing_approved,

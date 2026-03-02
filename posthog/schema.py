@@ -48,6 +48,7 @@ class AgentMode(StrEnum):
     ONBOARDING = "onboarding"
     RESEARCH = "research"
     FLAGS = "flags"
+    LLM_ANALYTICS = "llm_analytics"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -370,8 +371,11 @@ class AssistantTool(StrEnum):
     MANAGE_MEMORIES = "manage_memories"
     CREATE_NOTEBOOK = "create_notebook"
     LIST_DATA = "list_data"
+    UPSERT_ALERT = "upsert_alert"
     FINALIZE_PLAN = "finalize_plan"
+    CALL_MCP_SERVER = "call_mcp_server"
     RECOMMEND_PRODUCTS = "recommend_products"
+    SEARCH_LLM_TRACES = "search_llm_traces"
 
 
 class AssistantToolCall(BaseModel):
@@ -1865,6 +1869,7 @@ class FileSystemIconType(StrEnum):
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_DATASETS = "llm_datasets"
+    LLM_PLAYGROUND = "llm_playground"
     LLM_PROMPTS = "llm_prompts"
     LLM_CLUSTERS = "llm_clusters"
     EXPORTS = "exports"
@@ -2110,6 +2115,12 @@ class InCohortVia(StrEnum):
     LEFTJOIN = "leftjoin"
     SUBQUERY = "subquery"
     LEFTJOIN_CONJOINED = "leftjoin_conjoined"
+
+
+class InlineCohortCalculation(StrEnum):
+    OFF = "off"
+    AUTO = "auto"
+    ALWAYS = "always"
 
 
 class MaterializationMode(StrEnum):
@@ -2847,7 +2858,6 @@ class NodeKind(StrEnum):
     PERSONS_NODE = "PersonsNode"
     HOG_QUERY = "HogQuery"
     HOG_QL_QUERY = "HogQLQuery"
-    HOG_QLAST_QUERY = "HogQLASTQuery"
     HOG_QL_METADATA = "HogQLMetadata"
     HOG_QL_AUTOCOMPLETE = "HogQLAutocomplete"
     ACTORS_QUERY = "ActorsQuery"
@@ -3444,6 +3454,11 @@ class RetentionDashboardDisplayType(StrEnum):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
+
+
+class AggregationPropertyType(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
 
 
 class AggregationType(StrEnum):
@@ -5478,6 +5493,7 @@ class HogQLQueryModifiers(BaseModel):
     )
     formatCsvAllowDoubleQuotes: bool | None = None
     inCohortVia: InCohortVia | None = None
+    inlineCohortCalculation: InlineCohortCalculation | None = None
     materializationMode: MaterializationMode | None = None
     materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
     optimizeJoinedFilters: bool | None = None
@@ -5545,6 +5561,7 @@ class LLMTrace(BaseModel):
     outputState: Any | None = None
     outputTokens: float | None = None
     person: LLMTracePerson | None = None
+    tools: list[str] | None = None
     totalCost: float | None = None
     totalLatency: float | None = None
     traceName: str | None = None
@@ -13997,6 +14014,10 @@ class RetentionFilter(BaseModel):
         default=None,
         description="The property to aggregate when aggregationType is sum or avg",
     )
+    aggregationPropertyType: AggregationPropertyType | None = Field(
+        default=AggregationPropertyType.EVENT,
+        description=("The type of property to aggregate on (event or person). Defaults to event."),
+    )
     aggregationType: AggregationType | None = Field(
         default=AggregationType.COUNT,
         description="The aggregation type to use for retention",
@@ -15721,28 +15742,6 @@ class GroupsQuery(BaseModel):
     search: str | None = None
     select: list[str] | None = None
     tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class HogQLASTQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    explain: bool | None = None
-    filters: HogQLFilters | None = None
-    kind: Literal["HogQLASTQuery"] = "HogQLASTQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    name: str | None = Field(default=None, description="Client provided name of the query")
-    query: dict[str, Any]
-    response: HogQLQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    values: dict[str, Any] | None = Field(
-        default=None,
-        description=("Constant values that can be referenced with the {placeholder} syntax in the query"),
-    )
-    variables: dict[str, HogQLVariable] | None = Field(
-        default=None, description="Variables to be substituted into the query"
-    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -18230,6 +18229,13 @@ class EndpointRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bucket_overrides: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Per-column bucket function overrides for range variable materialization."
+            " Keys are column names, values are bucket keys (hour, day, week, month)."
+        ),
+    )
     cache_age_seconds: float | None = None
     derived_from_insight: str | None = None
     description: str | None = None
@@ -18927,7 +18933,6 @@ class MaxInsightContext(BaseModel):
         | HogQLQuery
         | HogQLMetadata
         | HogQLAutocomplete
-        | HogQLASTQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -19037,7 +19042,6 @@ class QueryRequest(BaseModel):
         | HogQLQuery
         | HogQLMetadata
         | HogQLAutocomplete
-        | HogQLASTQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -19141,7 +19145,6 @@ class QuerySchemaRoot(
         | HogQLQuery
         | HogQLMetadata
         | HogQLAutocomplete
-        | HogQLASTQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -19215,7 +19218,6 @@ class QuerySchemaRoot(
         | HogQLQuery
         | HogQLMetadata
         | HogQLAutocomplete
-        | HogQLASTQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -19294,7 +19296,6 @@ class QueryUpgradeRequest(BaseModel):
         | HogQLQuery
         | HogQLMetadata
         | HogQLAutocomplete
-        | HogQLASTQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -19373,7 +19374,6 @@ class QueryUpgradeResponse(BaseModel):
         | HogQLQuery
         | HogQLMetadata
         | HogQLAutocomplete
-        | HogQLASTQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -19578,7 +19578,6 @@ class VisualizationArtifactContent(BaseModel):
         | HogQLQuery
         | HogQLMetadata
         | HogQLAutocomplete
-        | HogQLASTQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery

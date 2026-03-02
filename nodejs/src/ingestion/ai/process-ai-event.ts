@@ -4,8 +4,8 @@
  * This module coordinates all AI event enrichment:
  * - Trace property normalization (for all AI events)
  * - Error normalization (for AI events with errors)
- * - Cost calculation (for generation/embedding events)
- * - Model parameter extraction (for generation/embedding events)
+ * - Cost calculation (for generation/embedding/evaluation events)
+ * - Model parameter extraction (for generation/embedding/evaluation events)
  */
 import { PluginEvent } from '~/plugin-scaffold'
 
@@ -23,6 +23,7 @@ const isEventWithProperties = (event: PluginEvent): event is EventWithProperties
 export const AI_EVENT_TYPES = new Set([
     '$ai_generation',
     '$ai_embedding',
+    '$ai_evaluation',
     '$ai_span',
     '$ai_trace',
     '$ai_metric',
@@ -51,9 +52,11 @@ export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithPrope
     // Normalize error messages for all AI events with errors.
     const withErrorNormalization = processAiErrorNormalization(normalized)
 
-    // Only generation/embedding events get cost processing and model param extraction.
+    // Only generation/embedding/evaluation events get cost processing and model param extraction.
     const isCosted =
-        withErrorNormalization.event === '$ai_generation' || withErrorNormalization.event === '$ai_embedding'
+        withErrorNormalization.event === '$ai_generation' ||
+        withErrorNormalization.event === '$ai_embedding' ||
+        withErrorNormalization.event === '$ai_evaluation'
 
     if (!isCosted) {
         return withErrorNormalization
