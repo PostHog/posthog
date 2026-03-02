@@ -16,7 +16,7 @@ let action := inputs.action
 if (action == 'automatic') {
     if (event.event in ('$identify', '$set')) {
         action := 'identify'
-    } else if (event.event == '$group_identify') {
+    } else if (event.event == '$groupidentify') {
         action := 'group'
     } else {
         action := 'track'
