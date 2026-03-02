@@ -52,7 +52,6 @@ export function ActionsLineGraph({
         showMovingAverage,
         movingAverageIntervals,
         getTrendsColor,
-        weekendFilteredResults,
     } = useValues(trendsDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
@@ -63,8 +62,8 @@ export function ActionsLineGraph({
     const labels =
         (indexedResults.length === 2 &&
             indexedResults.every((x) => x.compare) &&
-            weekendFilteredResults.find((x) => x.compare_label === 'current')?.labels) ||
-        (weekendFilteredResults[0] && weekendFilteredResults[0].labels) ||
+            indexedResults.find((x) => x.compare_label === 'current')?.labels) ||
+        (indexedResults[0] && indexedResults[0].labels) ||
         []
 
     const shortenLifecycleLabels = (s: string | undefined): string => {
@@ -96,7 +95,7 @@ export function ActionsLineGraph({
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
-    const finalDatasets = weekendFilteredResults.flatMap((originalDataset, index) => {
+    const finalDatasets = indexedResults.flatMap((originalDataset, index) => {
         const yAxisID = showMultipleYAxes && index > 0 ? `y${index}` : 'y'
         const mainSeries = { ...originalDataset, yAxisID }
         const datasets = [mainSeries]

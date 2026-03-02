@@ -263,7 +263,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
-        rawIncompletenessOffsetFromEnd: [
+        incompletenessOffsetFromEnd: [
             (s) => [s.results, s.interval],
             (results, interval) => {
                 // Returns negative number of points to paint over starting from end of array
@@ -281,76 +281,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     return startIndex - results[0].days.length
                 }
                 return 0
-            },
-        ],
-
-        /**
-         * Which original data indices are weekdays (Mon–Fri). Null when hideWeekends is off
-         * or the day-granularity data is unavailable / no weekends are present.
-         */
-        weekdayIndices: [
-            (s) => [s.results, s.trendsFilter],
-            (results, trendsFilter): number[] | null => {
-                if (!trendsFilter?.hideWeekends) {
-                    return null
-                }
-                const days = results[0]?.days
-                if (!days || !Array.isArray(days)) {
-                    return null
-                }
-                const indices: number[] = []
-                for (let i = 0; i < days.length; i++) {
-                    const dow = dayjs(days[i]).day() // 0 = Sunday, 6 = Saturday
-                    if (dow !== 0 && dow !== 6) {
-                        indices.push(i)
-                    }
-                }
-                // If nothing was filtered out, skip the expensive re-mapping downstream
-                if (indices.length === days.length) {
-                    return null
-                }
-                return indices
-            },
-        ],
-
-        /**
-         * `incompletenessOffsetFromEnd` adjusted for weekend removal.
-         * When `weekdayIndices` is active the in-progress index shifts, so we
-         * remap it into the filtered coordinate space.
-         */
-        incompletenessOffsetFromEnd: [
-            (s) => [s.rawIncompletenessOffsetFromEnd, s.weekdayIndices, s.results],
-            (rawOffset, weekdayIndices, results): number => {
-                if (!weekdayIndices || rawOffset >= 0) {
-                    return rawOffset
-                }
-                const originalLen = results[0]?.days?.length ?? 0
-                const lastOriginalIndex = originalLen + rawOffset
-                const newIndex = weekdayIndices.indexOf(lastOriginalIndex)
-                if (newIndex >= 0) {
-                    return newIndex - weekdayIndices.length
-                }
-                return rawOffset
-            },
-        ],
-
-        /**
-         * `indexedResults` with weekend data points removed when `hideWeekends` is enabled.
-         * Each result's `data`, `days`, `labels`, `breakdownLabels`, and `compareLabels`
-         * arrays are filtered to weekday indices only.
-         */
-        weekendFilteredResults: [
-            (s) => [s.indexedResults, s.weekdayIndices],
-            (indexedResults, weekdayIndices): IndexedTrendResult[] => {
-                if (!weekdayIndices) {
-                    return indexedResults
-                }
-                return indexedResults.map((result) => ({
-                    ...result,
-                    data: Array.isArray(result.data) ? weekdayIndices.map((i) => result.data[i]) : result.data,
-                    days: Array.isArray(result.days) ? weekdayIndices.map((i) => result.days![i]) : result.days,
-                    labels: Array.isArray(result.labels) ? weekdayIndices.map((i) => result.labels![i]) : result.labels,
-                }))
             },
         ],
 

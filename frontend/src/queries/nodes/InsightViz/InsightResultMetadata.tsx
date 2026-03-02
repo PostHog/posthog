@@ -15,7 +15,7 @@ export const InsightResultMetadata = ({
     disableLastComputationRefresh,
 }: InsightResultMetadataProps): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
-    const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
+    const { samplingFactor, trendsFilter } = useValues(insightVizDataLogic(insightProps))
     return (
         <>
             {!disableLastComputation && <ComputationTimeWithRefresh disableRefresh={disableLastComputationRefresh} />}
@@ -23,6 +23,12 @@ export const InsightResultMetadata = ({
                 <span className="text-secondary">
                     {!disableLastComputation && <span className="mx-1">•</span>}
                     Results calculated from {samplingFactor * 100}% of users
+                </span>
+            ) : null}
+            {trendsFilter?.hideWeekends ? (
+                <span className="text-secondary">
+                    <span className="mx-1">•</span>
+                    ⚠️ Weekend data excluded
                 </span>
             ) : null}
         </>
