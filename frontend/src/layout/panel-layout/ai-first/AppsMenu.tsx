@@ -136,12 +136,12 @@ export function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element
                         iconOnly={isCollapsed}
                         tooltip={
                             <>
-                                <span>Apps</span> <RenderKeybind keybind={[keyBinds.allApps]} />
+                                <span>Apps menu</span> <RenderKeybind keybind={[keyBinds.allApps]} />
                             </>
                         }
                         tooltipPlacement="right"
-                        menuItem
-                        className="hidden lg:flex"
+                        menuItem={!isCollapsed}
+                        className={cn('flex', isCollapsed && 'items-center')}
                     >
                         <IconApps className="size-4 text-secondary" />
                         {!isCollapsed && (
@@ -158,7 +158,7 @@ export function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element
                     className="z-[var(--z-popover)]"
                     side="right"
                     align="start"
-                    sideOffset={6}
+                    sideOffset={2}
                     alignOffset={-4}
                 >
                     <Combobox.Popup className="primitive-menu-content min-w-[300px] flex flex-col p-1 h-(--available-height)">
@@ -196,11 +196,7 @@ export function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element
                                                             setOpen(false)
                                                         }}
                                                         render={
-                                                            <ButtonPrimitive
-                                                                iconOnly={isCollapsed}
-                                                                menuItem={!isCollapsed}
-                                                                className="hidden lg:flex"
-                                                            >
+                                                            <ButtonPrimitive menuItem className="hidden lg:flex">
                                                                 {iconForType(product.iconType)}
                                                                 <span className="flex-1">{product.path}</span>
                                                                 {product.tags?.includes('beta') && (

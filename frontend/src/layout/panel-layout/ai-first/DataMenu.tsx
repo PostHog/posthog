@@ -169,7 +169,7 @@ function useDataMenuGroups(): DataGroup[] {
 const menuItemStyles =
     'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-fill-button-tertiary-hover outline-none data-[highlighted]:bg-fill-button-tertiary-hover'
 
-export function DataMenu(): JSX.Element {
+export function DataMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element {
     const groups = useDataMenuGroups()
     const [open, setOpen] = useState(false)
 
@@ -184,10 +184,15 @@ export function DataMenu(): JSX.Element {
         >
             <Combobox.Trigger
                 render={
-                    <ButtonPrimitive menuItem>
+                    <ButtonPrimitive
+                        menuItem={!isCollapsed}
+                        iconOnly={isCollapsed}
+                        tooltip={isCollapsed ? 'Data menu' : undefined}
+                        tooltipPlacement="right"
+                    >
                         <IconDatabase className="size-4 text-secondary" />
-                        <span className="flex-1 text-left">Data</span>
-                        <IconChevronRight className="size-3 text-secondary" />
+                        {!isCollapsed && <span className="flex-1 text-left">Data</span>}
+                        {!isCollapsed && <IconChevronRight className="size-3 text-secondary" />}
                     </ButtonPrimitive>
                 }
             />

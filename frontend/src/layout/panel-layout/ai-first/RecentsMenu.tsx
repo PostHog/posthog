@@ -37,7 +37,7 @@ const getItemName = (item: FileSystemEntry): string => {
     return unescapePath(lastPart ?? item.path)
 }
 
-export function RecentsMenu(): JSX.Element {
+export function RecentsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element {
     const { recentItems, recentItemsLoading } = useValues(recentItemsMenuLogic)
     const { loadRecentItems } = useActions(recentItemsMenuLogic)
     const { conversationHistory, conversationHistoryLoading } = useValues(maxGlobalLogic)
@@ -88,10 +88,15 @@ export function RecentsMenu(): JSX.Element {
         >
             <Combobox.Trigger
                 render={
-                    <ButtonPrimitive menuItem>
+                    <ButtonPrimitive
+                        menuItem={!isCollapsed}
+                        iconOnly={isCollapsed}
+                        tooltip={isCollapsed ? 'Recent menu' : undefined}
+                        tooltipPlacement="right"
+                    >
                         <IconClock className="size-4 text-secondary" />
-                        <span className="flex-1 text-left">Recent</span>
-                        <IconChevronRight className="size-3 text-secondary" />
+                        {!isCollapsed && <span className="flex-1 text-left">Recents</span>}
+                        {!isCollapsed && <IconChevronRight className="size-3 text-secondary" />}
                     </ButtonPrimitive>
                 }
             />
@@ -105,7 +110,7 @@ export function RecentsMenu(): JSX.Element {
                 >
                     <Combobox.Popup className="primitive-menu-content min-w-[300px] flex flex-col p-1 h-(--available-height)">
                         <Combobox.Input
-                            placeholder="Search recent"
+                            placeholder="Search recents"
                             className="w-full px-2 py-1.5 text-sm rounded-sm border border-primary bg-surface-primary focus:outline-none focus:ring-1 focus:ring-primary mb-1"
                             autoFocus
                         />
