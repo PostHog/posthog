@@ -1,17 +1,10 @@
 import { Collapsible } from '@base-ui/react/collapsible'
+import { Menubar } from '@base-ui/react/menubar'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import {
-    IconChevronRight,
-    IconClock,
-    IconHome,
-    IconMessage,
-    IconNotification,
-    IconSearch,
-    IconSparkles,
-} from '@posthog/icons'
+import { IconChevronRight, IconClock, IconHome, IconNotification, IconSearch, IconSparkles } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
@@ -62,6 +55,33 @@ function SectionChevron({ open }: { open: boolean }): JSX.Element {
     )
 }
 
+function SectionTrigger({
+    label,
+    open,
+    isCollapsed,
+}: {
+    label: string
+    open: boolean
+    isCollapsed: boolean
+}): JSX.Element {
+    return (
+        <Collapsible.Trigger
+            className={cn('flex items-center w-full py-1 cursor-pointer group pl-2', isCollapsed && 'px-px')}
+        >
+            <Label
+                intent="menu"
+                className={cn(
+                    'text-xxs text-tertiary text-left group-hover:text-primary mr-1',
+                    isCollapsed && 'text-[7px] m-0 w-full text-center'
+                )}
+            >
+                {label}
+            </Label>
+            {!isCollapsed && <SectionChevron open={open} />}
+        </Collapsible.Trigger>
+    )
+}
+
 export function AiFirstNavBar(): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { toggleLayoutNavCollapsed, toggleNavSection } = useActions(panelLayoutLogic)
@@ -90,7 +110,7 @@ export function AiFirstNavBar(): JSX.Element {
                 >
                     <div
                         className={cn('flex gap-1 rounded-md w-full px-1', {
-                            'flex-col items-center pt-px': isLayoutNavCollapsed,
+                            'flex-col items-center pt-2': isLayoutNavCollapsed,
                         })}
                     >
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
@@ -129,21 +149,6 @@ export function AiFirstNavBar(): JSX.Element {
                                 <IconSparkles className="size-4 text-secondary" />
                                 {!isLayoutNavCollapsed && <span className="flex-1 text-left">PostHog AI</span>}
                             </Link>
-
-                            <Link
-                                tooltip={isLayoutNavCollapsed ? 'Conversations' : undefined}
-                                tooltipPlacement="right"
-                                to="#"
-                                buttonProps={{
-                                    menuItem: !isLayoutNavCollapsed,
-                                    iconOnly: isLayoutNavCollapsed,
-                                }}
-                            >
-                                <IconMessage className="size-4 text-secondary" />
-                                {!isLayoutNavCollapsed && <span className="flex-1 text-left">Conversations</span>}
-                            </Link>
-
-                            <AppsMenu isCollapsed={isLayoutNavCollapsed} />
                         </div>
 
                         <Collapsible.Root
@@ -151,23 +156,11 @@ export function AiFirstNavBar(): JSX.Element {
                             onOpenChange={() => toggleNavSection('project')}
                             className="px-1 mt-2"
                         >
-                            <Collapsible.Trigger
-                                className={cn(
-                                    'flex items-center w-full px-2 py-1 cursor-pointer group',
-                                    isLayoutNavCollapsed && 'px-px'
-                                )}
-                            >
-                                <Label
-                                    intent="menu"
-                                    className={cn(
-                                        'text-xxs text-tertiary flex-1 text-left',
-                                        isLayoutNavCollapsed && 'text-[7px]'
-                                    )}
-                                >
-                                    Project
-                                </Label>
-                                <SectionChevron open={expandedNavSections.project ?? true} />
-                            </Collapsible.Trigger>
+                            <SectionTrigger
+                                label="Project"
+                                open={expandedNavSections.project ?? true}
+                                isCollapsed={isLayoutNavCollapsed}
+                            />
                             <Collapsible.Panel
                                 className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}
                             >
@@ -210,35 +203,35 @@ export function AiFirstNavBar(): JSX.Element {
                                     {!isLayoutNavCollapsed && <span className="flex-1 text-left">Activity</span>}
                                 </Link>
 
-                                <DataMenu isCollapsed={isLayoutNavCollapsed} />
-                                <FilesMenu isCollapsed={isLayoutNavCollapsed} />
-                                <RecentsMenu isCollapsed={isLayoutNavCollapsed} />
+                                <Menubar
+                                    orientation="vertical"
+                                    modal={false}
+                                    className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}
+                                >
+                                    <AppsMenu isCollapsed={isLayoutNavCollapsed} />
+                                    <DataMenu isCollapsed={isLayoutNavCollapsed} />
+                                    <FilesMenu isCollapsed={isLayoutNavCollapsed} />
+                                    <RecentsMenu isCollapsed={isLayoutNavCollapsed} />
+                                </Menubar>
                             </Collapsible.Panel>
                         </Collapsible.Root>
 
                         <Collapsible.Root
                             open={expandedNavSections.favorites ?? true}
                             onOpenChange={() => toggleNavSection('favorites')}
-                            className="mt-2"
+                            className="px-1 mt-2"
                         >
-                            <Collapsible.Trigger
+                            <SectionTrigger
+                                label="Starred"
+                                open={expandedNavSections.favorites ?? true}
+                                isCollapsed={isLayoutNavCollapsed}
+                            />
+                            <Collapsible.Panel
                                 className={cn(
-                                    'flex items-center w-full px-3 py-1 cursor-pointer group',
-                                    isLayoutNavCollapsed && 'px-px'
+                                    '-ml-1 w-[calc(100%+(var(--spacing)*2))]',
+                                    isLayoutNavCollapsed ? 'items-center' : ''
                                 )}
                             >
-                                <Label
-                                    intent="menu"
-                                    className={cn(
-                                        'text-xxs text-tertiary flex-1 text-left',
-                                        isLayoutNavCollapsed && 'text-[7px] px-1'
-                                    )}
-                                >
-                                    Starred
-                                </Label>
-                                <SectionChevron open={expandedNavSections.favorites ?? true} />
-                            </Collapsible.Trigger>
-                            <Collapsible.Panel className={isLayoutNavCollapsed ? 'items-center ml-0.5' : ''}>
                                 <ProjectTree
                                     root="shortcuts://"
                                     onlyTree

@@ -1,6 +1,6 @@
-import { Popover } from '@base-ui/react/popover'
+import { Menu } from '@base-ui/react/menu'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import { IconChevronRight, IconFolder } from '@posthog/icons'
 
@@ -27,6 +27,8 @@ function FilesSearchInput(): JSX.Element {
                 if (e.key === 'Escape' && searchTerm) {
                     e.stopPropagation()
                     clearSearch()
+                } else if (e.key !== 'Escape' && e.key !== 'Tab') {
+                    e.stopPropagation()
                 }
             }}
             placeholder="Search files"
@@ -52,16 +54,14 @@ function FilesMenuContent(): JSX.Element {
 }
 
 export function FilesMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element {
-    const [open, setOpen] = useState(false)
-
     return (
-        <Popover.Root open={open} onOpenChange={setOpen}>
-            <Popover.Trigger
+        <Menu.Root>
+            <Menu.Trigger
                 render={
                     <ButtonPrimitive
                         menuItem={!isCollapsed}
                         iconOnly={isCollapsed}
-                        tooltip={isCollapsed ? 'Files' : undefined}
+                        tooltip={isCollapsed ? 'Files menu' : undefined}
                         tooltipPlacement="right"
                     >
                         <IconFolder className="size-4 text-secondary" />
@@ -74,19 +74,19 @@ export function FilesMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Elemen
                     </ButtonPrimitive>
                 }
             />
-            <Popover.Portal keepMounted>
-                <Popover.Positioner
+            <Menu.Portal keepMounted>
+                <Menu.Positioner
                     className="z-[var(--z-popover)]"
                     side="right"
                     align="start"
                     sideOffset={6}
                     alignOffset={-4}
                 >
-                    <Popover.Popup className="primitive-menu-content min-w-[300px] flex flex-col p-1 h-(--available-height)">
+                    <Menu.Popup className="primitive-menu-content min-w-[300px] flex flex-col p-1 h-(--available-height)">
                         <FilesMenuContent />
-                    </Popover.Popup>
-                </Popover.Positioner>
-            </Popover.Portal>
-        </Popover.Root>
+                    </Menu.Popup>
+                </Menu.Positioner>
+            </Menu.Portal>
+        </Menu.Root>
     )
 }
