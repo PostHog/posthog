@@ -18,12 +18,28 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     fireworks: 'Fireworks',
 }
 
+const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
+
+export function isLLMProvider(value: string): value is LLMProvider {
+    return LLM_PROVIDERS.has(value)
+}
+
+/** Normalize a raw provider string to an LLMProvider, or null if unrecognized. */
+export function toLLMProvider(raw: string): LLMProvider | null {
+    const normalized = raw.toLowerCase()
+    if (isLLMProvider(normalized)) {
+        return normalized
+    }
+    console.error(`[LLM Analytics] Unknown LLM provider: "${raw}"`)
+    return null
+}
+
 const PROVIDER_ORDER = Object.keys(LLM_PROVIDER_LABELS) as LLMProvider[]
 
 /** Sort index for a provider string. Unknown providers sort last. */
 export function providerSortIndex(provider: string): number {
-    const index = PROVIDER_ORDER.indexOf(provider.toLowerCase() as LLMProvider)
-    return index === -1 ? PROVIDER_ORDER.length : index
+    const normalized = toLLMProvider(provider)
+    return normalized ? PROVIDER_ORDER.indexOf(normalized) : PROVIDER_ORDER.length
 }
 
 export interface LLMProviderKey {
