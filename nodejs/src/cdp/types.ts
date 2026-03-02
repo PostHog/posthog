@@ -392,6 +392,7 @@ export type HogFunctionType = {
     created_at: string
     updated_at: string
     metadata?: Record<string, any>
+    batch_export_id?: string | null
 }
 
 export type HogFunctionMappingTemplate = HogFunctionMappingType & {

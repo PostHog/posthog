@@ -3,8 +3,8 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { DEFAULT_HEATMAP_WIDTH } from 'lib/components/IframedToolbarBrowser/utils'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { DEFAULT_HEATMAP_WIDTH } from 'lib/components/IframedToolbarBrowser/utils'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
@@ -57,6 +57,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         pollScreenshotStatus: (id: number, width?: number) => ({ id, width }),
         setHeatmapId: (id: number | null) => ({ id }),
         setScreenshotLoaded: (screenshotLoaded: boolean) => ({ screenshotLoaded }),
+        regenerateScreenshot: true,
         exportHeatmap: true,
         setContainerWidth: (containerWidth: number | null) => ({ containerWidth }),
     }),
@@ -161,7 +162,22 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
 
             if (attempts >= maxAttempts) {
+                actions.setGeneratingScreenshot(false)
                 actions.setScreenshotError('Screenshot generation timed out')
+            }
+        },
+        regenerateScreenshot: async () => {
+            if (!props.id || !values.heatmapId) {
+                return
+            }
+            actions.setScreenshotError(null)
+            actions.setScreenshotUrl(null)
+            actions.setScreenshotLoaded(false)
+            try {
+                await api.savedHeatmaps.regenerate(props.id)
+                actions.pollScreenshotStatus(values.heatmapId, values.widthOverride)
+            } catch (error: any) {
+                actions.setScreenshotError(error.detail || 'Failed to regenerate screenshot')
             }
         },
         createHeatmap: async () => {

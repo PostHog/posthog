@@ -15,6 +15,7 @@ import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
+import products.mcp_store.backend.api as mcp_store
 import products.signals.backend.views as signals
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
@@ -61,6 +62,7 @@ from products.llm_analytics.backend.api import (
     EvaluationRunViewSet,
     EvaluationViewSet,
     LLMAnalyticsClusteringRunViewSet,
+    LLMAnalyticsSentimentViewSet,
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
     LLMAnalyticsTranslateViewSet,
@@ -145,7 +147,7 @@ from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
-from .oauth import OAuthApplicationPublicMetadataViewSet
+from .oauth import OAuthApplicationPublicMetadataViewSet, OrganizationOAuthApplicationViewSet
 from .session import SessionViewSet
 from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
@@ -274,6 +276,9 @@ project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs"
 
 # Signal reports endpoints
 projects_router.register(r"signal_reports", signals.SignalReportViewSet, "project_signal_reports", ["team_id"])
+projects_router.register(
+    r"signal_source_configs", signals.SignalSourceConfigViewSet, "project_signal_source_configs", ["team_id"]
+)
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
@@ -559,6 +564,12 @@ organizations_router.register(
     r"integrations",
     organization_integration.OrganizationIntegrationViewSet,
     "organization_integrations",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"oauth_applications",
+    OrganizationOAuthApplicationViewSet,
+    "organization_oauth_applications",
     ["organization_id"],
 )
 organizations_router.register(
@@ -1245,6 +1256,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"llm_analytics/sentiment",
+    LLMAnalyticsSentimentViewSet,
+    "environment_llm_analytics_sentiment",
+    ["team_id"],
+)
+
+environments_router.register(
     r"change_requests",
     approval_api.ChangeRequestViewSet,
     "environment_change_requests",
@@ -1269,5 +1287,19 @@ environments_router.register(
     r"mcp_tools",
     MCPToolsViewSet,
     "environment_mcp_tools",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"mcp_servers",
+    mcp_store.MCPServerViewSet,
+    "environment_mcp_servers",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"mcp_server_installations",
+    mcp_store.MCPServerInstallationViewSet,
+    "environment_mcp_server_installations",
     ["team_id"],
 )

@@ -57,6 +57,20 @@ func main() {
 
 	stats := events.NewStatsKeeper()
 	sessionStats := events.NewSessionStatsKeeper(config.SessionRecording.MaxLRUEntries, 0)
+	statsRedis, err := events.NewStatsInRedis(config.Redis)
+
+	if err != nil || statsRedis == nil {
+		log.Printf("WARNING: Redis connection failed, continuing without Redis: %v", err)
+	} else {
+		defer func() {
+			if err := statsRedis.Close(); err != nil {
+				log.Printf("ERROR: Failed to close Redis store: %v", err)
+			}
+		}()
+		stats.RedisStore = statsRedis
+		sessionStats.RedisStore = statsRedis
+		log.Printf("Redis stats store enabled (address: %s:%s)", config.Redis.Address, config.Redis.Port)
+	}
 
 	phEventChan := make(chan events.PostHogEvent, 10000)
 	statsChan := make(chan events.CountEvent, 10000)
@@ -178,7 +192,7 @@ func main() {
 		promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true}),
 	)))
 
-	e.GET("/stats", handlers.StatsHandler(stats, sessionStats))
+	e.GET("/stats", handlers.StatsHandler(stats, sessionStats, statsRedis))
 
 	e.GET("/events", handlers.StreamEventsHandler(e.Logger, subChan, filter))
 

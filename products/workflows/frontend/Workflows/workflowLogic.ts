@@ -73,7 +73,7 @@ export const NEW_WORKFLOW: HogFlow = {
             type: 'continue',
         },
     ],
-    conversion: { window_minutes: 0, filters: [] },
+    conversion: { window_minutes: null, filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
     status: 'draft',

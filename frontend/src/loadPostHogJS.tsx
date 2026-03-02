@@ -16,8 +16,7 @@ const shouldDefer = (): boolean => {
 const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
     return (
         !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||
-        (!!loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_REACT_FRAMERATE) &&
-            sampleOnProperty(loadedInstance.get_session_id(), 0.5))
+        !!loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_REACT_FRAMERATE)
     )
 }
 

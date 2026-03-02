@@ -14,6 +14,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.security.outbound_proxy import external_requests
 
 from ee.api.authentication import VercelAuthentication
 
@@ -118,7 +119,7 @@ class VercelRegionProxyMixin:
         headers["Host"] = self.EU_DOMAIN
 
         try:
-            response = requests.request(
+            response = external_requests.request(
                 method=request.method or "GET",
                 url=target_url,
                 headers=headers,
@@ -133,6 +134,9 @@ class VercelRegionProxyMixin:
                 status_code=response.status_code,
                 integration="vercel",
             )
+
+            if response.status_code == 204:
+                return Response(status=204)
 
             content_type = response.headers.get("content-type", "")
             if not content_type.startswith(("application/json", "text/")):
@@ -193,6 +197,8 @@ class VercelRegionProxyMixin:
             )
             try:
                 drf_response = self._proxy_to_eu(request)
+                if drf_response.status_code == 204:
+                    return HttpResponse(status=204)
                 content = json.dumps(drf_response.data) if drf_response.data else "{}"
                 return HttpResponse(content=content, status=drf_response.status_code, content_type="application/json")
             except exceptions.APIException as e:

@@ -17,6 +17,8 @@ from products.llm_analytics.backend.models.evaluations import Evaluation
 from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
+    EmitEvaluationEventInputs,
+    ExecuteLLMJudgeInputs,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
     disable_evaluation_activity,
@@ -126,7 +128,9 @@ class TestRunEvaluationWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            result = await execute_llm_judge_activity(evaluation, event_data)
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
 
             assert result["verdict"] is True
             assert result["reasoning"] == "The answer is correct"
@@ -144,24 +148,43 @@ class TestRunEvaluationWorkflow:
             "name": "Test Evaluation",
         }
 
-        event_data = create_mock_event_data(
-            team.id,
-            properties={},
-            person_id=str(uuid.uuid4()),
-        )
+        event_data = create_mock_event_data(team.id, properties={})
 
-        result = {"verdict": True, "reasoning": "Test passed"}
+        result = {
+            "verdict": True,
+            "reasoning": "Test passed",
+            "model": "gpt-5-mini",
+            "provider": "openai",
+            "input_tokens": 42,
+            "output_tokens": 18,
+        }
 
         with patch("posthog.temporal.llm_analytics.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.llm_analytics.run_evaluation.create_event") as mock_create:
+            with patch("posthog.temporal.llm_analytics.run_evaluation.capture_internal") as mock_capture:
                 mock_team_get.return_value = team
+                mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
-                await emit_evaluation_event_activity(evaluation, event_data, result, start_time=datetime.now())
+                await emit_evaluation_event_activity(
+                    EmitEvaluationEventInputs(
+                        evaluation=evaluation,
+                        event_data=event_data,
+                        result=result,
+                        start_time=datetime(2024, 1, 1, 12, 0, 0),
+                    )
+                )
 
-                mock_create.assert_called_once()
-                call_kwargs = mock_create.call_args[1]
-                assert call_kwargs["event"] == "$ai_evaluation"
-                assert call_kwargs["properties"]["$ai_evaluation_result"] is True
+                mock_capture.assert_called_once()
+                call_kwargs = mock_capture.call_args[1]
+                assert call_kwargs["event_name"] == "$ai_evaluation"
+                assert call_kwargs["token"] == team.api_token
+                assert call_kwargs["process_person_profile"] is True
+                props = call_kwargs["properties"]
+                assert props["$ai_evaluation_result"] is True
+                assert props["$ai_model"] == "gpt-5-mini"
+                assert props["$ai_provider"] == "openai"
+                assert props["$ai_input_tokens"] == 42
+                assert props["$ai_output_tokens"] == 18
+                assert props["$ai_evaluation_type"] == "online"
 
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""
@@ -209,7 +232,9 @@ class TestRunEvaluationWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            result = await execute_llm_judge_activity(evaluation, event_data)
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
 
             assert result["verdict"] is True
             assert result["applicable"] is True
@@ -254,7 +279,9 @@ class TestRunEvaluationWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            result = await execute_llm_judge_activity(evaluation, event_data)
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
 
             assert result["verdict"] is None
             assert result["applicable"] is False
@@ -273,11 +300,7 @@ class TestRunEvaluationWorkflow:
             "name": "Test Evaluation",
         }
 
-        event_data = create_mock_event_data(
-            team.id,
-            properties={},
-            person_id=str(uuid.uuid4()),
-        )
+        event_data = create_mock_event_data(team.id, properties={})
 
         result = {
             "verdict": True,
@@ -287,17 +310,24 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.llm_analytics.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.llm_analytics.run_evaluation.create_event") as mock_create:
+            with patch("posthog.temporal.llm_analytics.run_evaluation.capture_internal") as mock_capture:
                 mock_team_get.return_value = team
+                mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
-                await emit_evaluation_event_activity(evaluation, event_data, result, start_time=datetime.now())
+                await emit_evaluation_event_activity(
+                    EmitEvaluationEventInputs(
+                        evaluation=evaluation,
+                        event_data=event_data,
+                        result=result,
+                        start_time=datetime(2024, 1, 1, 12, 0, 0),
+                    )
+                )
 
-                mock_create.assert_called_once()
-                call_kwargs = mock_create.call_args[1]
-                assert call_kwargs["event"] == "$ai_evaluation"
-                assert call_kwargs["properties"]["$ai_evaluation_result"] is True
-                assert call_kwargs["properties"]["$ai_evaluation_applicable"] is True
-                assert call_kwargs["properties"]["$ai_evaluation_allows_na"] is True
+                mock_capture.assert_called_once()
+                props = mock_capture.call_args[1]["properties"]
+                assert props["$ai_evaluation_result"] is True
+                assert props["$ai_evaluation_applicable"] is True
+                assert props["$ai_evaluation_allows_na"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -311,11 +341,7 @@ class TestRunEvaluationWorkflow:
             "name": "Test Evaluation",
         }
 
-        event_data = create_mock_event_data(
-            team.id,
-            properties={},
-            person_id=str(uuid.uuid4()),
-        )
+        event_data = create_mock_event_data(team.id, properties={})
 
         result = {
             "verdict": None,
@@ -325,18 +351,24 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.llm_analytics.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.llm_analytics.run_evaluation.create_event") as mock_create:
+            with patch("posthog.temporal.llm_analytics.run_evaluation.capture_internal") as mock_capture:
                 mock_team_get.return_value = team
+                mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
-                await emit_evaluation_event_activity(evaluation, event_data, result, start_time=datetime.now())
+                await emit_evaluation_event_activity(
+                    EmitEvaluationEventInputs(
+                        evaluation=evaluation,
+                        event_data=event_data,
+                        result=result,
+                        start_time=datetime(2024, 1, 1, 12, 0, 0),
+                    )
+                )
 
-                mock_create.assert_called_once()
-                call_kwargs = mock_create.call_args[1]
-                assert call_kwargs["event"] == "$ai_evaluation"
-                # Result should not be set when not applicable
-                assert "$ai_evaluation_result" not in call_kwargs["properties"]
-                assert call_kwargs["properties"]["$ai_evaluation_applicable"] is False
-                assert call_kwargs["properties"]["$ai_evaluation_allows_na"] is True
+                mock_capture.assert_called_once()
+                props = mock_capture.call_args[1]["properties"]
+                assert "$ai_evaluation_result" not in props
+                assert props["$ai_evaluation_applicable"] is False
+                assert props["$ai_evaluation_allows_na"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -384,7 +416,7 @@ class TestRunEvaluationWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            await execute_llm_judge_activity(evaluation_dict, event_data)
+            await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation_dict, event_data=event_data))
 
         await sync_to_async(evaluation.refresh_from_db)()
         assert evaluation.enabled is True
@@ -421,7 +453,7 @@ class TestRunEvaluationWorkflow:
             )
 
             with pytest.raises(ApplicationError, match="Failed to parse structured output") as exc_info:
-                await execute_llm_judge_activity(evaluation, event_data)
+                await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             assert exc_info.value.non_retryable is True
             assert exc_info.value.details[0] == {"error_type": "parse_error"}

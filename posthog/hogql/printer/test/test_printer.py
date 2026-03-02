@@ -55,11 +55,11 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
-from posthog.models.property_definition import PropertyType
 from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 from ee.clickhouse.materialized_columns.columns import (
     get_bloom_filter_index_name,
@@ -3420,6 +3420,22 @@ class TestPrinter(BaseTest):
             self._expr("event::unsupported_type")
         self.assertIn("Unsupported type cast", str(ctx.exception))
 
+    def test_cte_materialization_hint_not_supported(self):
+        with self.assertRaises(ImpossibleASTError) as ctx:
+            self._select(
+                """
+                WITH some_cte AS MATERIALIZED (SELECT event FROM events)
+                SELECT event FROM some_cte
+                """,
+            )
+        self.assertIn("not supported", str(ctx.exception))
+
+    def test_cte_column_name_list_not_supported(self):
+        with self.assertRaises(NotImplementedError):
+            self._select(
+                "WITH stats(a, b) AS (SELECT event, timestamp FROM events) SELECT a, b FROM stats",
+            )
+
 
 @snapshot_clickhouse_queries
 class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
@@ -4389,6 +4405,40 @@ class TestPostgresPrinter(BaseTest):
         )
         self.assertEqual(self._expr(node), f"CAST(123 AS {expected_escaped})")
 
+    @parameterized.expand(
+        [
+            (
+                "basic",
+                "WITH stats(a, b) AS (SELECT event, timestamp FROM events) SELECT a, b FROM stats",
+                "stats(a, b) AS",
+            ),
+            (
+                "single column",
+                "WITH single(x) AS (SELECT event FROM events) SELECT x FROM single",
+                "single(x) AS",
+            ),
+            (
+                "reserved word as column name",
+                "WITH stats(select, from) AS (SELECT event, timestamp FROM events) SELECT stats.select FROM stats",
+                'stats("select", "from") AS',
+            ),
+            (
+                "used in join",
+                """
+                WITH cte1(id, val) AS (SELECT event, timestamp FROM events),
+                     cte2(id, val) AS (SELECT event, timestamp FROM events)
+                SELECT c1.id, c2.val
+                FROM cte1 AS c1
+                JOIN cte2 AS c2 ON c1.id = c2.id
+                """,
+                "cte1(id, val) AS",
+            ),
+        ]
+    )
+    def test_cte_column_name_list(self, _name: str, query: str, expected_fragment: str):
+        result = self._select(query)
+        self.assertIn(expected_fragment, result)
+
     def test_with_recursive(self):
         query = "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte"
         self.assertEqual(
@@ -4402,4 +4452,18 @@ class TestPostgresPrinter(BaseTest):
             self._select(query),
             "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT (nums.n + 1) FROM nums WHERE (nums.n < 5)) "
             "SELECT nums.n FROM nums LIMIT 50000",
+        )
+
+    def test_cte_materialization_hint_materialized(self):
+        query = "WITH events_cte AS MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte"
+        self.assertEqual(
+            self._select(query),
+            "WITH events_cte AS MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        )
+
+    def test_cte_materialization_hint_not_materialized(self):
+        query = "WITH events_cte AS NOT MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte"
+        self.assertEqual(
+            self._select(query),
+            "WITH events_cte AS NOT MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
         )

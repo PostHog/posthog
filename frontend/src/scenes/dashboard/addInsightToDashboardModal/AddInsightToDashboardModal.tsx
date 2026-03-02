@@ -8,9 +8,9 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 import { AddSavedInsightsToDashboard } from 'scenes/saved-insights/AddSavedInsightsToDashboard'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 import { urls } from 'scenes/urls'
 
 import { InsightType } from '~/types'
@@ -72,7 +72,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                     <LemonButton
                                         key={type}
                                         type="primary"
-                                        size="xsmall"
+                                        size="small"
                                         icon={<Icon />}
                                         to={urls.insightNew({ type: type, dashboardId: dashboard?.id })}
                                         tooltip={INSIGHT_TYPES_METADATA[type]?.description}
@@ -111,7 +111,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                 >
                                     <LemonButton
                                         type="secondary"
-                                        size="xsmall"
+                                        size="small"
                                         onClick={() => toggleShowMoreInsightTypes()}
                                     >
                                         More

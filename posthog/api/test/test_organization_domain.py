@@ -418,6 +418,37 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response.json()["verified_at"], None)
         self.assertRegex(response.json()["verification_challenge"], r"[0-9A-Za-z_-]{32}")
 
+    def test_domain_cannot_be_changed_after_creation(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        original_domain = self.domain.domain
+
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"domain": "evil.com"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["domain"], original_domain)
+        self.domain.refresh_from_db()
+        self.assertEqual(self.domain.domain, original_domain)
+
+    def test_verified_domain_cannot_be_swapped(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.domain.verified_at = timezone.now()
+        self.domain.save()
+        original_domain = self.domain.domain
+
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"domain": "victim-corp.com"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["domain"], original_domain)
+        self.domain.refresh_from_db()
+        self.assertEqual(self.domain.domain, original_domain)
+        self.assertIsNotNone(self.domain.verified_at)
+
     def test_only_admin_can_update_domain(self):
         self.domain.verified_at = timezone.now()
         self.domain.save()

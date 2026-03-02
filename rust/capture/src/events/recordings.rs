@@ -166,11 +166,11 @@ impl HasEventName for RawRecording {
 /// - Serialize directly to final format using serde::Serialize
 ///
 #[instrument(skip_all, fields(events = events.len(), session_id, request_id))]
-pub async fn process_replay_events<'a>(
+pub async fn process_replay_events(
     sink: Arc<dyn sinks::Event + Send + Sync>,
     restriction_service: Option<EventRestrictionService>,
     events: Vec<RawRecording>,
-    context: &'a ProcessingContext,
+    context: &ProcessingContext,
 ) -> Result<(), CaptureError> {
     let chatty_debug_enabled = context.chatty_debug_enabled;
 

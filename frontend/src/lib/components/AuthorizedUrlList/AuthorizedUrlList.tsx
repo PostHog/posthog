@@ -3,17 +3,17 @@ import { useActions, useValues } from 'kea'
 
 import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconOpenInApp } from 'lib/lemon-ui/icons'
 
 import { ExperimentIdType, ToolbarUserIntent } from '~/types'
 
 import { AuthorizedUrlForm } from './AuthorizedUrlForm'
-import { EmptyState } from './EmptyState'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from './authorizedUrlListLogic'
+import { EmptyState } from './EmptyState'
 
 export interface AuthorizedUrlListProps {
     type: AuthorizedUrlListType
@@ -55,8 +55,7 @@ export function AuthorizedUrlList({
         allowWildCards,
     })
 
-    const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains, manualLaunchParamsLoading } =
-        useValues(logic)
+    const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains } = useValues(logic)
     const { addUrl, removeUrl, newUrl, setEditUrlIndex, copyLaunchCode } = useActions(logic)
 
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
@@ -185,9 +184,8 @@ export function AuthorizedUrlList({
                                                                 type="primary"
                                                                 data-attr="copy-manual-toolbar-launch-code"
                                                                 onClick={() => {
-                                                                    copyLaunchCode(keyedURL.url)
+                                                                    copyLaunchCode()
                                                                 }}
-                                                                loading={manualLaunchParamsLoading}
                                                             >
                                                                 Copy launch code
                                                             </LemonButton>
