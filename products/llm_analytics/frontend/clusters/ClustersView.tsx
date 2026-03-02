@@ -184,7 +184,7 @@ export function ClustersView(): JSX.Element {
                         onClick={openJobsPanel}
                         tooltip="Manage clustering jobs"
                         data-attr="clusters-jobs-button"
-                        status={jobs.length > 0 ? 'default' : 'muted'}
+                        status="default"
                     >
                         {jobs.length > 0 ? `Jobs (${jobs.length})` : 'Jobs'}
                     </LemonButton>
