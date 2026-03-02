@@ -4,7 +4,7 @@ from typing import Any
 import httpx
 import litellm
 import structlog
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import ANTHROPIC_CONFIG, handle_llm_request
@@ -25,6 +25,7 @@ POSTHOG_FLAG_PREFIX = "x-posthog-flag-"
 ANTHROPIC_COUNT_TOKENS_URL = "https://api.anthropic.com/v1/messages/count_tokens"
 ANTHROPIC_API_VERSION = "2023-06-01"
 COUNT_TOKENS_ENDPOINT_NAME = "anthropic_count_tokens"
+
 
 def _extract_headers_with_prefix(request: Request, prefix: str) -> dict[str, str]:
     """Extract headers whose name (lowercased) starts with prefix; key = remainder after prefix, lowercased."""
