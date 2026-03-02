@@ -8,6 +8,7 @@ from ee.hogai.chat_agent.toolkit import DEFAULT_TOOLS
 from ee.hogai.core.agent_modes.executables import AgentExecutable, AgentToolsExecutable
 from ee.hogai.core.plan_mode import PlanModeExecutable, PlanModeToolsExecutable
 from ee.hogai.tools.switch_mode import _get_default_tools_prompt, _get_modes_prompt
+from ee.hogai.utils.feature_flags import has_llm_gateway_feature_flag
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import CLEAR_SUPERMODE, AssistantState, PartialAssistantState
 
@@ -29,7 +30,15 @@ You have successfully switched to plan mode to help structure your task.
 """
 
 
-class ChatAgentExecutable(AgentExecutable):
+class ChatAgentLLMGatewayMixin:
+    def _should_use_llm_gateway(self) -> bool:
+        return has_llm_gateway_feature_flag(self._team, self._user)
+
+    def _get_llm_gateway_product(self) -> str:
+        return "wizard"
+
+
+class ChatAgentExecutable(ChatAgentLLMGatewayMixin, AgentExecutable):
     """
     Executable for the chat agent's non-plan mode (regular execution mode).
     """
@@ -68,7 +77,7 @@ class ChatAgentToolsExecutable(AgentToolsExecutable):
         return result
 
 
-class ChatAgentPlanExecutable(PlanModeExecutable):
+class ChatAgentPlanExecutable(ChatAgentLLMGatewayMixin, PlanModeExecutable):
     """
     Executable for the chat agent's plan mode.
     Inherits from PlanModeExecutable which sets supermode=PLAN on first turn or new human message.
