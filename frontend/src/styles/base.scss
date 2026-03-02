@@ -1702,6 +1702,38 @@
         gap: 1px;
     }
 
+    // Safe-triangle hover cone for vertical menubars.
+    // An invisible triangle tracks the cursor and extends toward the popup,
+    // preventing accidental sibling menu activation while traveling to the open popup.
+    // The vertex follows --cone-x / --cone-y set by JS on mousemove.
+    .menubar-hover-cone {
+        overflow: visible;
+
+        // Active trigger sits above the cone so it keeps its hover state
+        [data-popup-open] {
+            position: relative;
+            z-index: 20;
+        }
+    }
+
+    .menubar-hover-cone-overlay {
+        position: absolute;
+        inset: -3rem -8px -3rem 0;
+        z-index: 10;
+
+        // Offset --cone-y by 3rem to compensate for the element extending above the container
+        clip-path: polygon(var(--cone-x, 50%) calc(var(--cone-y, 50%) + 3rem), 100% 0%, 100% 100%);
+        pointer-events: none;
+    }
+
+    .menubar-hover-cone:has([data-popup-open]) > .menubar-hover-cone-overlay {
+        pointer-events: auto;
+
+        &.debug {
+            background-color: rgb(255 255 255 / 50%);
+        }
+    }
+
     .animate-mark {
         animation: animate-mark 2s ease-in-out forwards;
         animation-fill-mode: none;

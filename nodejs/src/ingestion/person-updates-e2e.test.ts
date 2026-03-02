@@ -220,7 +220,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         team = fetchedTeam
         currentToken = team.api_token
 
-        ingester = new IngestionConsumer(hub, { ...hub, hogTransformer: createHogTransformerService(hub) })
+        ingester = new IngestionConsumer(hub, { ...hub, hogTransformer: createHogTransformerService(hub, hub) })
         ingester['kafkaConsumer'] = {
             connect: jest.fn(),
             disconnect: jest.fn(),
