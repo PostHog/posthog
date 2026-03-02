@@ -6,7 +6,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { errorTrackingInsightsLogicType } from './errorTrackingInsightsLogicType'
 
@@ -163,6 +163,8 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                                 date_to: effectiveEnd.format('YYYY-MM-DD HH:mm:ss'),
                             },
                             filterTestAccounts: values.filterTestAccounts,
+                            properties: (values.filterGroup.values[0] as UniversalFiltersGroup)
+                                .values as AnyPropertyFilter[],
                         },
                     })
                     const row = response?.results?.[0]

@@ -22,7 +22,7 @@ export function TimeRangeControls(): JSX.Element {
             />
             <div className="flex items-center gap-1">
                 <LemonButton size="small" icon={<IconChevronLeft />} onClick={navigateBack} />
-                <span className="text-sm font-medium min-w-48 text-center select-none">
+                <span className="text-sm font-medium w-72 text-center select-none">
                     {dateLabel}
                     <span className="text-secondary font-normal ml-1">({relativeDateLabel})</span>
                 </span>
