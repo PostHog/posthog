@@ -1,8 +1,10 @@
 from django.conf import settings
 from django.db import models
 
+from posthog.models.utils import UUIDModel
 
-class RepoRoutingRule(models.Model):
+
+class RepoRoutingRule(UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="repo_routing_rules")
     rule_text = models.TextField()
     repository = models.CharField(max_length=255)

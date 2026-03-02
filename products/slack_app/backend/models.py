@@ -1,7 +1,9 @@
 from django.db import models
 
+from posthog.models.utils import UUIDModel
 
-class SlackThreadTaskMapping(models.Model):
+
+class SlackThreadTaskMapping(UUIDModel):
     """Maps Slack threads to task runs so follow-up messages can be forwarded to the running agent."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="slack_thread_task_mappings")
@@ -36,7 +38,7 @@ class SlackThreadTaskMapping(models.Model):
         ]
 
 
-class SlackUserProfileCache(models.Model):
+class SlackUserProfileCache(UUIDModel):
     integration = models.ForeignKey(
         "posthog.Integration",
         on_delete=models.CASCADE,

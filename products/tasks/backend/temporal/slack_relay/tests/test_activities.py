@@ -34,7 +34,7 @@ class TestRelaySlackMessage(TestCase):
             created_by=self.user,
             repository="org/repo",
         )
-        self.run = self.TaskRun.objects.create(
+        self.task_run = self.TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=self.TaskRun.Status.IN_PROGRESS,
@@ -53,7 +53,7 @@ class TestRelaySlackMessage(TestCase):
             channel="C123",
             thread_ts="1111.1",
             task=self.task,
-            task_run=self.run,
+            task_run=self.task_run,
             mentioning_slack_user_id="U123",
         )
 
@@ -63,7 +63,7 @@ class TestRelaySlackMessage(TestCase):
     def test_relay_posts_message_and_marks_sent(self, mock_delete_progress, mock_post, mock_update):
         relay_slack_message(
             RelaySlackMessageInput(
-                run_id=str(self.run.id),
+                run_id=str(self.task_run.id),
                 relay_id="relay-1",
                 text="Which license should I use?",
                 user_message_ts="1234.5",
@@ -74,8 +74,8 @@ class TestRelaySlackMessage(TestCase):
         mock_post.assert_called_once()
         assert "Which license should I use?" in mock_post.call_args.args[0]
         mock_update.assert_called_once_with("white_check_mark")
-        self.run.refresh_from_db()
-        assert "relay-1" in self.run.state.get("slack_sent_relay_ids", [])
+        self.task_run.refresh_from_db()
+        assert "relay-1" in self.task_run.state.get("slack_sent_relay_ids", [])
 
 
 class TestMarkdownToSlackMrkdwn(TestCase):

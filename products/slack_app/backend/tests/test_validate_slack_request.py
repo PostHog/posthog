@@ -4,6 +4,7 @@ import hashlib
 
 import pytest
 
+from django.core.handlers.wsgi import WSGIRequest
 from django.test import RequestFactory, TestCase
 
 from parameterized import parameterized
@@ -11,7 +12,7 @@ from parameterized import parameterized
 from posthog.models.integration import SlackIntegrationError, validate_slack_request
 
 
-def _make_signed_request(body: str, secret: str, timestamp: str | None = None) -> object:
+def _make_signed_request(body: str, secret: str, timestamp: str | None = None) -> WSGIRequest:
     factory = RequestFactory()
     ts = timestamp or str(int(time.time()))
     sig_basestring = f"v0:{ts}:{body}"

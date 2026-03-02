@@ -1,8 +1,10 @@
 from django.conf import settings
 from django.db import models
 
+from posthog.models.utils import UUIDModel
 
-class UserRepoPreference(models.Model):
+
+class UserRepoPreference(UUIDModel):
     class ScopeType(models.TextChoices):
         SLACK_CHANNEL = "slack_channel"
 

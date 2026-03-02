@@ -1073,11 +1073,7 @@ def _extract_text_from_message_payload(message: dict[str, Any]) -> str | None:
 def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
     from posthog.storage import object_storage
 
-    raw_log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
-    if isinstance(raw_log_content, bytes):
-        log_content = raw_log_content.decode("utf-8", errors="ignore")
-    else:
-        log_content = str(raw_log_content)
+    log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
 
     if not log_content.strip():
         return None

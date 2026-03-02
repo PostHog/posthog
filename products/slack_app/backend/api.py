@@ -131,7 +131,7 @@ def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -
 def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_info: dict[str, Any]) -> None:
     from products.slack_app.backend.models import SlackUserProfileCache
 
-    profile = user_info.get("user", {}).get("profile", {})  # type: ignore[call-overload]
+    profile = user_info.get("user", {}).get("profile", {})
     try:
         SlackUserProfileCache.objects.update_or_create(
             integration_id=integration.id,
@@ -196,7 +196,7 @@ def resolve_slack_user(
     """Resolve a Slack user to a PostHog user. Posts an ephemeral error message and returns None on failure."""
     try:
         slack_user_info = _get_slack_user_info(slack, integration, slack_user_id)
-        slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")  # type: ignore[call-overload]
+        slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")
         if not slack_email:
             fresh_user_info = _normalize_slack_response(slack.client.users_info(user=slack_user_id))
             if fresh_user_info:
@@ -206,7 +206,7 @@ def resolve_slack_user(
                     fresh_user_info,
                     timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS,
                 )
-                slack_email = fresh_user_info.get("user", {}).get("profile", {}).get("email")  # type: ignore[call-overload]
+                slack_email = fresh_user_info.get("user", {}).get("profile", {}).get("email")
 
         if not slack_email:
             logger.exception("slack_app_no_user_email", slack_user_id=slack_user_id)
@@ -766,7 +766,7 @@ def _collect_thread_messages(
         if uid not in user_cache:
             try:
                 user_info = _get_slack_user_info(slack, integration, uid)
-                profile = user_info.get("user", {}).get("profile", {})  # type: ignore[call-overload]
+                profile = user_info.get("user", {}).get("profile", {})
                 user_cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
             except Exception:
                 user_cache[uid] = "Unknown"
@@ -887,7 +887,7 @@ def _match_repo_rule(
     try:
         from posthog.llm.gateway_client import get_llm_client
 
-        client = get_llm_client("twig")
+        client = get_llm_client("django")  # just for internal testing
         response = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": prompt}],
@@ -1169,7 +1169,10 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         logger.info("twig_repo_picker_options_missing_expected_user", context_token=context_token)
 
     try:
-        integration_id = ctx["integration_id"] if ctx else hinted_integration_id
+        integration_id: int | None = ctx["integration_id"] if ctx else hinted_integration_id
+        if not integration_id:
+            raise Integration.DoesNotExist
+        # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
         integration = Integration.objects.get(id=integration_id, kind="slack-twig", integration_id=slack_team_id)
     except Integration.DoesNotExist:
         logger.info("twig_repo_picker_options_no_integration", context_token=context_token)
@@ -1218,6 +1221,7 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
             return
 
         try:
+            # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
             integration = Integration.objects.get(id=integration_id, kind="slack-twig", integration_id=slack_team_id)
             SlackIntegration(integration).client.chat_postMessage(
                 channel=channel,
@@ -1269,6 +1273,7 @@ def _replace_repo_picker_with_selection(payload: dict, context: dict | None, sel
         return
 
     try:
+        # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
         integration = Integration.objects.get(id=integration_id, kind="slack-twig", integration_id=slack_team_id)
         slack = SlackIntegration(integration)
         text = f"Repository selected: `{selected_repo}`"
@@ -1350,15 +1355,19 @@ def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
     slack_team_id = payload.get("team", {}).get("id")
 
     local = False
-    if slack_team_id and context:
+    ctx_integration_id = context.get("integration_id") if context else None
+    if slack_team_id and ctx_integration_id:
+        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get — Slack webhook: scoped by PK + kind + workspace ID
         local = Integration.objects.filter(
-            id=context.get("integration_id"), kind="slack-twig", integration_id=slack_team_id
+            id=ctx_integration_id, kind="slack-twig", integration_id=slack_team_id
         ).exists()
     elif slack_team_id and hinted_integration_id and hinted_user_id and requesting_user == hinted_user_id:
+        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get — Slack webhook: scoped by PK + kind + workspace ID
         local = Integration.objects.filter(
             id=hinted_integration_id, kind="slack-twig", integration_id=slack_team_id
         ).exists()
     elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
+        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get — Slack webhook: scoped by PK + kind + workspace ID
         local = Integration.objects.filter(
             id=terminate_integration_id, kind="slack-twig", integration_id=slack_team_id
         ).exists()

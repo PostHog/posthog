@@ -702,7 +702,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.errors == ""
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.external_requests.get")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_retries_transient_non_json_response(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -725,7 +725,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert repos == ["posthog", "posthog-js"]
         assert mock_get.call_count == 2
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.external_requests.get")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_returns_empty_after_repeated_transient_non_json(self, _mock_expired, mock_get):
         integration = self.create_integration(
