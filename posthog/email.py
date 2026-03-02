@@ -17,7 +17,6 @@ from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
 
-import requests
 import css_inline
 import posthoganalytics
 from celery import shared_task
@@ -26,6 +25,7 @@ from lxml import html as lxml_html
 from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
+from posthog.security.outbound_proxy import external_requests
 from posthog.tasks.utils import CeleryQueue
 
 
@@ -167,7 +167,9 @@ def _send_via_http(
                     "message_data": properties,
                 }
 
-                response = requests.post(f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload)
+                response = external_requests.post(
+                    f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload
+                )
 
                 if response.status_code != 200:
                     raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")

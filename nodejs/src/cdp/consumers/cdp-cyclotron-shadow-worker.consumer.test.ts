@@ -35,7 +35,7 @@ describe('CdpCyclotronShadowWorker', () => {
         team = await getFirstTeam(hub)
         hub.CYCLOTRON_SHADOW_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
 
-        processor = new CdpCyclotronShadowWorker(hub)
+        processor = new CdpCyclotronShadowWorker(hub, hub)
 
         fn = await insertHogFunction(
             hub.postgres,

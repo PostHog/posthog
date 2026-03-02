@@ -102,6 +102,15 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                             // Throttle delay used to reduce the number of snapshots captured. Default is 1000ms
                                             config.sessionReplayConfig.throttleDelayMs = 1000
 
+                                            // Sample rate for session recordings. A value between 0.0 and 1.0.
+                                            // 1.0 means 100% of sessions will be recorded. 0.5 means 50%, and so on.
+                                            // Default is null (all sessions are recorded).
+                                            // 
+                                            // Support for remote configuration
+                                            // in the [session replay triggers](https://us.posthog.com/settings/project-replay#replay-triggers)
+                                            // requires SDK version 3.34.0 or higher.
+                                            config.sessionReplayConfig.sampleRate = null
+
                                             PostHogAndroid.setup(this, config)
                                         }
                                     }

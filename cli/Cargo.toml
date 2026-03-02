@@ -56,6 +56,7 @@ rayon = "1.11.0"
 similar = "2.7"
 open = "5"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
+symbolic = { version = "12.12", features = ["debuginfo"] }
 plist = "1"
 
 [dev-dependencies]

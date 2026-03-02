@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from json import JSONDecodeError, loads
 from typing import Any, List, Literal, cast  # noqa: UP035
 
@@ -27,7 +27,7 @@ from posthog.auth import TemporaryTokenAuthentication
 from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.heatmap_saved import SavedHeatmap
+from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -37,6 +37,8 @@ from posthog.rate_limit import (
 from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.heatmap_screenshot import generate_heatmap_screenshot
 from posthog.utils import relative_date_parse_with_delta_mapping
+
+STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
 
 DEFAULT_QUERY = """
             select pointer_target_fixed, pointer_relative_x, client_y, {aggregation_count}
@@ -669,7 +671,33 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
+
+        if (
+            obj.type == SavedHeatmap.Type.SCREENSHOT
+            and obj.status == SavedHeatmap.Status.PROCESSING
+            and obj.updated_at < datetime.now(tz=obj.updated_at.tzinfo) - STALE_PROCESSING_THRESHOLD
+        ):
+            self._regenerate(obj)
+
         return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def regenerate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self.get_object()
+        if obj.type != SavedHeatmap.Type.SCREENSHOT:
+            return response.Response(
+                {"error": "Only screenshot heatmaps can be regenerated"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        self._regenerate(obj)
+        return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
+
+    def _regenerate(self, obj: SavedHeatmap) -> None:
+        obj.status = SavedHeatmap.Status.PROCESSING
+        obj.exception = None
+        obj.save(update_fields=["status", "exception", "updated_at"])
+        HeatmapSnapshot.objects.filter(heatmap=obj).delete()
+        generate_heatmap_screenshot.delay(obj.id)
 
     def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()

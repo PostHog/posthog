@@ -72,7 +72,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
 
-        processor = new CdpCyclotronWorkerHogFlow(hub)
+        processor = new CdpCyclotronWorkerHogFlow(hub, hub)
 
         hogFlows = []
         hogFlows.push(

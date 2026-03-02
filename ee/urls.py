@@ -108,6 +108,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         backfill_precalculated_person_properties_view,
     )
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
+    from posthog.admin.admins.email_mfa_bypass_admin import EmailMFABypassViewSet, email_mfa_bypass_view
     from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
@@ -139,6 +140,21 @@ if settings.ADMIN_PORTAL_ENABLED:
             "api/admin/radar-bypass/<str:email>/",
             RadarBypassViewSet.as_view({"delete": "destroy"}),
             name="radar-bypass-api-detail",
+        ),
+        path(
+            "admin/email-mfa-bypass/",
+            admin.site.admin_view(email_mfa_bypass_view),
+            name="email-mfa-bypass",
+        ),
+        path(
+            "api/admin/email-mfa-bypass/",
+            EmailMFABypassViewSet.as_view({"get": "list", "post": "create"}),
+            name="email-mfa-bypass-api-list",
+        ),
+        path(
+            "api/admin/email-mfa-bypass/<str:email>/",
+            EmailMFABypassViewSet.as_view({"delete": "destroy"}),
+            name="email-mfa-bypass-api-detail",
         ),
         path(
             "admin/resave-cohorts/",

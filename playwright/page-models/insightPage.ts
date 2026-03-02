@@ -77,6 +77,11 @@ export class InsightPage {
         await this.editButton.click()
     }
 
+    async discard(): Promise<void> {
+        await this.page.getByTestId('insight-cancel-edit-button').click()
+        await expect(this.editButton).toBeVisible()
+    }
+
     async editName(insightName: string = randomString('insight')): Promise<void> {
         const nameField = this.page.getByTestId('scene-title-textarea')
         await expect(nameField).toBeVisible()
@@ -98,6 +103,30 @@ export class InsightPage {
     async openPersonsModal(): Promise<void> {
         await this.page.locator('.TrendsInsight canvas').click()
         await this.page.waitForSelector('[data-attr="persons-modal"]', { state: 'visible' })
+    }
+
+    async openInfoPanel(): Promise<void> {
+        const inlineButton = this.page.getByTestId('info-actions-panel')
+        const sidePanelButton = this.page.locator('#main-content').getByTestId('open-context-panel-button')
+        await inlineButton.or(sidePanelButton).click()
+        await this.page.locator('.scene-panel-actions-section').first().waitFor({ state: 'visible' })
+    }
+
+    async clickDeleteInsight(): Promise<void> {
+        await this.page.getByTestId('insight-delete').click()
+    }
+
+    async confirmDeleteDialog(): Promise<void> {
+        const dialog = this.page.locator('.LemonModal').filter({ hasText: 'Delete insight?' })
+        await expect(dialog).toBeVisible()
+        await dialog.getByRole('button', { name: 'Delete' }).click()
+    }
+
+    async cancelDeleteDialog(): Promise<void> {
+        const dialog = this.page.locator('.LemonModal').filter({ hasText: 'Delete insight?' })
+        await expect(dialog).toBeVisible()
+        await dialog.getByRole('button', { name: 'Cancel' }).click()
+        await expect(dialog).not.toBeVisible()
     }
 
     async saveAsNew(name: string): Promise<void> {
