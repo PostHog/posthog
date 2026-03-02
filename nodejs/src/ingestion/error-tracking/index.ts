@@ -6,7 +6,7 @@ export {
     ErrorTrackingConsumerOptions,
     ErrorTrackingConsumerDeps,
     ErrorTrackingHogTransformer,
-} from '../error-tracking-consumer'
+} from './error-tracking-consumer'
 export { CymbalClient, CymbalClientConfig } from './cymbal'
 export {
     createErrorTrackingPipeline,

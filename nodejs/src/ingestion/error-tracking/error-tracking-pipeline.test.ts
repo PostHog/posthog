@@ -11,11 +11,11 @@ import { TeamManager } from '~/utils/team-manager'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
-import { ErrorTrackingHogTransformer } from '../error-tracking-consumer'
 import { TopHogRegistry } from '../pipelines/extensions/tophog'
 import { TopHog } from '../tophog'
 import { CymbalClient } from './cymbal/client'
 import { CymbalResponse } from './cymbal/types'
+import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
 import {
     ErrorTrackingPipelineConfig,
     createErrorTrackingPipeline,

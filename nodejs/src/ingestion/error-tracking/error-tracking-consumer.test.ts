@@ -10,13 +10,12 @@ import { parseJSON } from '~/utils/json-parse'
 import { UUIDT } from '~/utils/utils'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
-import { ErrorTrackingConsumer } from './error-tracking-consumer'
-import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
+import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
 
 jest.setTimeout(60000)
 
-jest.mock('../utils/posthog', () => {
-    const original = jest.requireActual('../utils/posthog')
+jest.mock('../../utils/posthog', () => {
+    const original = jest.requireActual('../../utils/posthog')
     return {
         ...original,
         captureException: jest.fn(),
@@ -24,10 +23,10 @@ jest.mock('../utils/posthog', () => {
 })
 
 // Mock the IngestionWarningLimiter to always allow warnings
-jest.mock('../utils/token-bucket', () => {
+jest.mock('../../utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
-        ...jest.requireActual('../utils/token-bucket'),
+        ...jest.requireActual('../../utils/token-bucket'),
         IngestionWarningLimiter: {
             consume: mockConsume,
         },
@@ -35,7 +34,7 @@ jest.mock('../utils/token-bucket', () => {
 })
 
 // Mock the logger to reduce noise
-jest.mock('../utils/logger', () => ({
+jest.mock('../../utils/logger', () => ({
     logger: {
         debug: jest.fn(),
         info: jest.fn(),
@@ -66,7 +65,7 @@ const createMockPersonRepository = (): jest.Mocked<PersonRepository> => ({
 
 // Mock the CymbalClient to avoid real HTTP calls
 // Cymbal receives event properties and returns them with fingerprint/issue_id added
-jest.mock('./error-tracking/cymbal', () => ({
+jest.mock('./cymbal', () => ({
     CymbalClient: jest.fn().mockImplementation(() => ({
         processExceptions: jest.fn().mockImplementation((requests) =>
             // Return a valid response for each request, preserving input properties

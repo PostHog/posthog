@@ -7,7 +7,6 @@ import { TeamManager } from '~/utils/team-manager'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
-import { ErrorTrackingHogTransformer } from '../error-tracking-consumer'
 import {
     createApplyEventRestrictionsStep,
     createOverflowLaneTTLRefreshStep,
@@ -27,6 +26,7 @@ import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
+import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
 import { createGroupTypeMappingStep } from './group-type-mapping-step'
 import { createPersonPropertiesReadOnlyStep } from './person-properties-step'
 import { createErrorTrackingPrepareEventStep } from './prepare-event-step'
