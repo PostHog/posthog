@@ -1,5 +1,6 @@
 import { sanitizeString } from '~/utils/db/utils'
 import { LazyLoader } from '~/utils/lazy-loader'
+import { logger } from '~/utils/logger'
 import { TeamManager } from '~/utils/team-manager'
 import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
@@ -51,30 +52,27 @@ export class GroupsManagerService {
     }
 
     /**
-     * Enriches a single globals context with group type info and properties.
-     *
-     * Designed to be called per-item. When multiple calls happen concurrently
-     * (e.g. via Promise.all), the LazyLoader batches the underlying DB queries.
+     * Loads groups for a given team and event, returning the groups record.
+     * Can be used directly when a full globals object isn't available (e.g. hogflow worker).
      */
-    public async addGroupsToGlobals(globals: HogFunctionInvocationGlobals): Promise<void> {
-        if (globals.groups) {
-            return
-        }
-
+    public async getGroupsForEvent(
+        teamId: number,
+        eventProperties: Record<string, any>,
+        projectUrl: string
+    ): Promise<Record<string, GroupType>> {
         // Early return - if there are no $groups on the event then we don't need to do anything
-        const groupsProperty = globals.event.properties['$groups']
+        const groupsProperty = eventProperties['$groups']
         if (typeof groupsProperty !== 'object' || groupsProperty === null || Object.keys(groupsProperty).length === 0) {
-            globals.groups = {}
-            return
+            return {}
         }
 
-        const typeMapping = await this.groupTypesLoader.get(String(globals.project.id))
+        const typeMapping = await this.groupTypesLoader.get(String(teamId))
         if (!typeMapping) {
-            globals.groups = {}
-            return
+            logger.warn('No group types found for team', { teamId })
+            return {}
         }
 
-        const groups: HogFunctionInvocationGlobals['groups'] = {}
+        const groups: Record<string, GroupType> = {}
         const entries: { compositeKey: string; sanitizedType: string; sanitizedKey: string; groupIndex: number }[] = []
 
         for (const [groupType, groupKey] of Object.entries(groupsProperty)) {
@@ -91,7 +89,7 @@ export class GroupsManagerService {
             }
 
             entries.push({
-                compositeKey: toGroupPropertiesKey(globals.project.id, groupIndex, sanitizedKey),
+                compositeKey: toGroupPropertiesKey(teamId, groupIndex, sanitizedKey),
                 sanitizedType,
                 sanitizedKey,
                 groupIndex,
@@ -99,8 +97,7 @@ export class GroupsManagerService {
         }
 
         if (entries.length === 0) {
-            globals.groups = {}
-            return
+            return {}
         }
 
         const propertiesMap = await this.groupPropertiesLoader.getMany(entries.map((e) => e.compositeKey))
@@ -110,12 +107,26 @@ export class GroupsManagerService {
                 id: sanitizedKey,
                 index: groupIndex,
                 type: sanitizedType,
-                url: `${globals.project.url}/groups/${groupIndex}/${encodeURIComponent(sanitizedKey)}`,
+                url: `${projectUrl}/groups/${groupIndex}/${encodeURIComponent(sanitizedKey)}`,
                 properties: propertiesMap[compositeKey] ?? {},
             }
         }
 
-        globals.groups = groups
+        return groups
+    }
+
+    /**
+     * Enriches a single globals context with group type info and properties.
+     *
+     * Designed to be called per-item. When multiple calls happen concurrently
+     * (e.g. via Promise.all), the LazyLoader batches the underlying DB queries.
+     */
+    public async addGroupsToGlobals(globals: HogFunctionInvocationGlobals): Promise<void> {
+        if (globals.groups) {
+            return
+        }
+
+        globals.groups = await this.getGroupsForEvent(globals.project.id, globals.event.properties, globals.project.url)
     }
 
     public async addGroupsToGlobalsList(globalsList: HogFunctionInvocationGlobals[]): Promise<void> {

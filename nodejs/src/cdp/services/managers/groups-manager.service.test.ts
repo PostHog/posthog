@@ -4,7 +4,7 @@ import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-re
 import { createHogExecutionGlobals } from '../../_tests/fixtures'
 import { GroupsManagerService } from './groups-manager.service'
 
-describe('Groups Manager V2', () => {
+describe('Groups Manager', () => {
     jest.setTimeout(1000)
     let groupsManager: GroupsManagerService
 
