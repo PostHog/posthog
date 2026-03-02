@@ -5,6 +5,39 @@
 {% block head %}
 <style type="text/css">
     body, .main { background-color: #f3f4f0 !important; }
+    .card { background-color: #fff; border-radius: 8px; padding: 20px; margin-bottom: 8px; }
+    .divhr { height: 1px; background-color: #d1d5db; }
+    .divhr2 { height: 1px; background-color: #e1e5e9; padding: 0; font-size: 0; line-height: 0; }
+    .slink { font-size: 1.15em; font-weight: 600; color: #111827; text-decoration: none; }
+    .slbl { font-size: 0.9em; font-weight: 600; color: #6b7280; }
+    .lbl { font-size: 0.8em; color: #6b7280; margin-bottom: 4px; }
+    .big-num { margin: 0; font-size: 2.5em; font-weight: bold; line-height: 1.1; }
+    .chg-txt { margin: 0 0 12px 0; font-size: 0.85em; }
+    .no-chg { margin-bottom: 12px; }
+    .day-bar { padding: 0 3px; height: 60px; }
+    .day-lbl { padding: 4px 3px 0; font-size: 0.75em; color: #9ca3af; text-align: center; }
+    .crash-td { text-align: center; padding: 8px; }
+    .crash-val { font-size: 1.5em; font-weight: bold; }
+    .crash-chg { font-size: 0.75em; }
+    .th { padding: 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+    .rsep { border-bottom: 1px solid #f3f4f6; }
+    .rsep2 { border-bottom: 1px solid #e1e5e9; }
+    .td-iss { padding: 10px 8px 10px 0; vertical-align: top; }
+    .iss-a { text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em; }
+    .iss-d { color: #6b7280; font-size: 0.8em; margin-top: 2px; }
+    .td-sp { padding: 10px 8px; vertical-align: middle; width: 90px; }
+    .td-ct { padding: 10px 0 10px 8px; vertical-align: middle; color: #111827; white-space: nowrap; width: 90px; }
+    .sp-td { padding: 0 1px; height: 24px; }
+    .sp-b { width: 8px; background-color: #9f9fa9; border-radius: 1px; }
+    .warn-box { background-color: #fef3cd; border: 1px solid #ffc107; padding: 20px; border-radius: 8px; margin-bottom: 8px; }
+    .warn-ttl { margin: 0 0 8px 0; font-weight: 700; color: #856404; font-size: 1em; }
+    .warn-txt { margin: 0 0 16px 0; color: #664d03; font-size: 0.9em; }
+    .btn-w { display: inline-block; padding: 8px 16px; background-color: #856404; color: #fff; text-decoration: none; border-radius: 6px; font-size: 0.9em; font-weight: 500; margin-right: 8px; }
+    .btn-wo { display: inline-block; padding: 8px 16px; color: #856404; text-decoration: none; border: 1px solid #856404; border-radius: 6px; font-size: 0.9em; font-weight: 500; }
+    .note-t { margin: 0 0 8px 0; font-size: 0.9em; color: #6b7280; }
+    .note-l { margin: 0; padding-left: 20px; color: #6b7280; font-size: 0.9em; }
+    .note-l-mb { margin: 0 0 16px 0; }
+    .fl { color: #6b7280; font-size: 0.85em; text-decoration: underline; }
 </style>
 {% endblock %}
 
@@ -18,39 +51,37 @@
 <div style="margin-bottom: 40px;">
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 12px;">
         <tr>
-            <td style="width: 50%; vertical-align: middle;"><div style="height: 1px; background-color: #d1d5db;"></div></td>
+            <td style="width: 50%; vertical-align: middle;"><div class="divhr"></div></td>
             <td style="white-space: nowrap; padding: 0 16px; vertical-align: middle;">
-                <a href="{{ section.error_tracking_url }}" target="_blank" style="font-size: 1.15em; font-weight: 600; color: #111827; text-decoration: none;">{{ section.team.name }}</a>
+                <a href="{{ section.error_tracking_url }}" target="_blank" class="slink">{{ section.team.name }}</a>
             </td>
-            <td style="width: 50%; vertical-align: middle;"><div style="height: 1px; background-color: #d1d5db;"></div></td>
+            <td style="width: 50%; vertical-align: middle;"><div class="divhr"></div></td>
         </tr>
     </table>
 
     <!-- Total -->
-    <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 8px;">
+    <div class="card">
         <div style="text-align: center;">
-            <div style="font-size: 0.8em; color: #6b7280; margin-bottom: 4px;">Total exceptions</div>
-            <p style="margin: 0; font-size: 2.5em; font-weight: bold; line-height: 1.1;">
-                {{ section.exception_count|compact_number }}
-            </p>
+            <div class="lbl">Total exceptions</div>
+            <p class="big-num">{{ section.exception_count|compact_number }}</p>
             {% if section.exception_change %}
-            <p style="margin: 0 0 12px 0; font-size: 0.85em; color: {{ section.exception_change.color }};">{{ section.exception_change.long_text }}</p>
+            <p class="chg-txt" style="color: {{ section.exception_change.color }};">{{ section.exception_change.long_text }}</p>
             {% else %}
-            <div style="margin-bottom: 12px;"></div>
+            <div class="no-chg"></div>
             {% endif %}
             {% if section.daily_counts %}
             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
                 <tr>
                     {% for day in section.daily_counts %}
-                    <td align="center" valign="bottom" style="padding: 0 3px; height: 60px;">
-                        <div style="width: 100%; min-width: 20px; height: {{ day.height_percent }}%; {% if day.height_percent > 0 %}min-height: 3px;{% endif %} background-color: #9f9fa9; border-radius: 3px 3px 0 0;"></div>
+                    <td align="center" valign="bottom" class="day-bar">
+                        <div style="width: 100%; min-width: 20px; height: {{ day.height_percent }}%; {% if day.height_percent > 0 %}min-height: 3px; {% endif %}background-color: #9f9fa9; border-radius: 3px 3px 0 0;"></div>
                     </td>
                     {% endfor %}
                 </tr>
-                <tr><td colspan="{{ section.daily_counts|length }}" style="height: 1px; background-color: #e1e5e9; padding: 0; font-size: 0; line-height: 0;"></td></tr>
+                <tr><td colspan="{{ section.daily_counts|length }}" class="divhr2"></td></tr>
                 <tr>
                     {% for day in section.daily_counts %}
-                    <td align="center" style="padding: 4px 3px 0; font-size: 0.75em; color: #9ca3af;">{{ day.day }}</td>
+                    <td align="center" class="day-lbl">{{ day.day }}</td>
                     {% endfor %}
                 </tr>
             </table>
@@ -59,18 +90,18 @@
         {% if section.crash_free %}
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top: 16px; border-top: 1px solid #f3f4f6; padding-top: 16px;">
             <tr>
-                <td align="center" style="text-align: center; padding: 8px;">
-                    <div style="font-size: 0.8em; color: #6b7280;">Total sessions</div>
-                    <div style="font-size: 1.5em; font-weight: bold;">{{ section.crash_free.total_sessions|compact_number }}</div>
+                <td class="crash-td">
+                    <div class="lbl">Total sessions</div>
+                    <div class="crash-val">{{ section.crash_free.total_sessions|compact_number }}</div>
                     {% if section.crash_free.total_sessions_change %}
-                    <div style="font-size: 0.75em; color: {{ section.crash_free.total_sessions_change.color }};">{{ section.crash_free.total_sessions_change.text }}</div>
+                    <div class="crash-chg" style="color: {{ section.crash_free.total_sessions_change.color }};">{{ section.crash_free.total_sessions_change.text }}</div>
                     {% endif %}
                 </td>
-                <td align="center" style="text-align: center; padding: 8px;">
-                    <div style="font-size: 0.8em; color: #6b7280;">Crash free sessions</div>
-                    <div style="font-size: 1.5em; font-weight: bold;">{{ section.crash_free.crash_free_rate }}%</div>
+                <td class="crash-td">
+                    <div class="lbl">Crash free sessions</div>
+                    <div class="crash-val">{{ section.crash_free.crash_free_rate }}%</div>
                     {% if section.crash_free.crash_free_rate_change %}
-                    <div style="font-size: 0.75em; color: {{ section.crash_free.crash_free_rate_change.color }};">{{ section.crash_free.crash_free_rate_change.text }}</div>
+                    <div class="crash-chg" style="color: {{ section.crash_free.crash_free_rate_change.color }};">{{ section.crash_free.crash_free_rate_change.text }}</div>
                     {% endif %}
                 </td>
             </tr>
@@ -80,43 +111,41 @@
 
     <!-- Top issues -->
     {% if section.top_issues %}
-    <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 8px;">
+    <div class="card">
         <h3 style="margin: 0 0 4px 0; text-align: left;">Top issues</h3>
         <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #6b7280; text-align: left;">Issues sorted by occurrence count this week</p>
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
             <thead>
-                <tr style="border-bottom: 1px solid #e1e5e9;">
-                    <th align="left" style="padding: 8px 8px 8px 0; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; text-align: left;">Issue</th>
-                    <th align="center" style="padding: 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">Volume</th>
-                    <th align="right" style="padding: 8px 0 8px 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">Occurrences</th>
+                <tr class="rsep2">
+                    <th align="left" class="th" style="padding-left: 0;">Issue</th>
+                    <th align="center" class="th" style="width: 90px;">Volume</th>
+                    <th align="right" class="th" style="padding-right: 0; width: 90px;">Occurrences</th>
                 </tr>
             </thead>
             <tbody>
                 {% for issue in section.top_issues %}
-                <tr style="border-bottom: 1px solid #f3f4f6;">
-                    <td align="left" style="padding: 10px 8px 10px 0; vertical-align: top; text-align: left;">
-                        <a href="{{ issue.url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em;">{{ issue.name|truncatechars:40 }}</a>
+                <tr class="rsep">
+                    <td class="td-iss">
+                        <a href="{{ issue.url }}" target="_blank" class="iss-a">{{ issue.name|truncatechars:40 }}</a>
                         {% if issue.description %}
-                        <div style="color: #6b7280; font-size: 0.8em; margin-top: 2px;">{{ issue.description|truncatechars:45 }}</div>
+                        <div class="iss-d">{{ issue.description|truncatechars:45 }}</div>
                         {% endif %}
                     </td>
-                    <td align="center" style="padding: 10px 8px; vertical-align: middle; width: 90px;">
+                    <td align="center" class="td-sp">
                         {% if issue.sparkline %}
                         <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto; height: 24px;">
                             <tr>
                                 {% for bar in issue.sparkline %}
-                                <td valign="bottom" style="padding: 0 1px; height: 24px;">
-                                    <div style="width: 8px; height: {{ bar.height_percent }}%; {% if bar.height_percent > 0 %}min-height: 2px;{% endif %} background-color: #9f9fa9; border-radius: 1px;"></div>
+                                <td valign="bottom" class="sp-td">
+                                    <div class="sp-b" style="height: {{ bar.height_percent }}%;{% if bar.height_percent > 0 %} min-height: 2px;{% endif %}"></div>
                                 </td>
                                 {% endfor %}
                             </tr>
-                            <tr><td colspan="{{ issue.sparkline|length }}" style="height: 1px; background-color: #e1e5e9; padding: 0; font-size: 0; line-height: 0;"></td></tr>
+                            <tr><td colspan="{{ issue.sparkline|length }}" class="divhr2"></td></tr>
                         </table>
                         {% endif %}
                     </td>
-                    <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; color: #111827; white-space: nowrap; width: 90px;">
-                        {{ issue.occurrence_count|compact_number }}
-                    </td>
+                    <td align="right" class="td-ct">{{ issue.occurrence_count|compact_number }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -126,43 +155,41 @@
 
     <!-- New issues -->
     {% if section.new_issues %}
-    <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 8px;">
+    <div class="card">
         <h3 style="margin: 0 0 4px 0; text-align: left;">New issues</h3>
         <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #6b7280; text-align: left;">Issues first seen this week sorted by occurrence count</p>
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
             <thead>
-                <tr style="border-bottom: 1px solid #e1e5e9;">
-                    <th align="left" style="padding: 8px 8px 8px 0; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; text-align: left;">Issue</th>
-                    <th align="center" style="padding: 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">Volume</th>
-                    <th align="right" style="padding: 8px 0 8px 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">Occurrences</th>
+                <tr class="rsep2">
+                    <th align="left" class="th" style="padding-left: 0;">Issue</th>
+                    <th align="center" class="th" style="width: 90px;">Volume</th>
+                    <th align="right" class="th" style="padding-right: 0; width: 90px;">Occurrences</th>
                 </tr>
             </thead>
             <tbody>
                 {% for issue in section.new_issues %}
-                <tr style="border-bottom: 1px solid #f3f4f6;">
-                    <td align="left" style="padding: 10px 8px 10px 0; vertical-align: top; text-align: left;">
-                        <a href="{{ issue.url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em;">{{ issue.name|truncatechars:40 }}</a>
+                <tr class="rsep">
+                    <td class="td-iss">
+                        <a href="{{ issue.url }}" target="_blank" class="iss-a">{{ issue.name|truncatechars:40 }}</a>
                         {% if issue.description %}
-                        <div style="color: #6b7280; font-size: 0.8em; margin-top: 2px;">{{ issue.description|truncatechars:45 }}</div>
+                        <div class="iss-d">{{ issue.description|truncatechars:45 }}</div>
                         {% endif %}
                     </td>
-                    <td align="center" style="padding: 10px 8px; vertical-align: middle; width: 90px;">
+                    <td align="center" class="td-sp">
                         {% if issue.sparkline %}
                         <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto; height: 24px;">
                             <tr>
                                 {% for bar in issue.sparkline %}
-                                <td valign="bottom" style="padding: 0 1px; height: 24px;">
-                                    <div style="width: 8px; height: {{ bar.height_percent }}%; {% if bar.height_percent > 0 %}min-height: 2px;{% endif %} background-color: #9f9fa9; border-radius: 1px;"></div>
+                                <td valign="bottom" class="sp-td">
+                                    <div class="sp-b" style="height: {{ bar.height_percent }}%;{% if bar.height_percent > 0 %} min-height: 2px;{% endif %}"></div>
                                 </td>
                                 {% endfor %}
                             </tr>
-                            <tr><td colspan="{{ issue.sparkline|length }}" style="height: 1px; background-color: #e1e5e9; padding: 0; font-size: 0; line-height: 0;"></td></tr>
+                            <tr><td colspan="{{ issue.sparkline|length }}" class="divhr2"></td></tr>
                         </table>
                         {% endif %}
                     </td>
-                    <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; color: #111827; white-space: nowrap; width: 90px;">
-                        {{ issue.occurrence_count|compact_number }}
-                    </td>
+                    <td align="right" class="td-ct">{{ issue.occurrence_count|compact_number }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -172,18 +199,14 @@
 
     <!-- Ingestion failures -->
     {% if section.ingestion_failure_count > 0 %}
-    <div style="background-color: #fef3cd; border: 1px solid #ffc107; padding: 20px; border-radius: 8px; margin-bottom: 8px;">
-        <p style="margin: 0 0 8px 0; font-weight: 700; color: #856404; font-size: 1em;">
-            &#9888; {{ section.ingestion_failure_count|compact_number }} exceptions failed to ingest
-        </p>
-        <p style="margin: 0 0 16px 0; color: #664d03; font-size: 0.9em;">
-            This is usually caused by malformed events being sent. You can inspect each failed exception to see what went wrong by expanding it.
-        </p>
+    <div class="warn-box">
+        <p class="warn-ttl">&#9888; {{ section.ingestion_failure_count|compact_number }} exceptions failed to ingest</p>
+        <p class="warn-txt">This is usually caused by malformed events being sent. You can inspect each failed exception to see what went wrong by expanding it.</p>
         <table cellpadding="0" cellspacing="0" border="0" width="100%">
             <tr>
                 <td align="right" style="text-align: right;">
-                    <a href="{{ section.ingestion_failures_url }}" target="_blank" style="display: inline-block; padding: 8px 16px; background-color: #856404; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 0.9em; font-weight: 500; margin-right: 8px;">View these exceptions</a>
-                    <a href="{{ contact_support_url }}" target="_blank" style="display: inline-block; padding: 8px 16px; background-color: transparent; color: #856404; text-decoration: none; border: 1px solid #856404; border-radius: 6px; font-size: 0.9em; font-weight: 500;">Contact support</a>
+                    <a href="{{ section.ingestion_failures_url }}" target="_blank" class="btn-w">View these exceptions</a>
+                    <a href="{{ contact_support_url }}" target="_blank" class="btn-wo">Contact support</a>
                 </td>
             </tr>
         </table>
@@ -196,17 +219,17 @@
 {% if disabled_project_names or excluded_project_count > 0 %}
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 12px;">
     <tr>
-        <td style="width: 50%; vertical-align: middle;"><div style="height: 1px; background-color: #d1d5db;"></div></td>
+        <td style="width: 50%; vertical-align: middle;"><div class="divhr"></div></td>
         <td style="white-space: nowrap; padding: 0 16px; vertical-align: middle;">
-            <span style="font-size: 0.9em; font-weight: 600; color: #6b7280;">Note</span>
+            <span class="slbl">Note</span>
         </td>
-        <td style="width: 50%; vertical-align: middle;"><div style="height: 1px; background-color: #d1d5db;"></div></td>
+        <td style="width: 50%; vertical-align: middle;"><div class="divhr"></div></td>
     </tr>
 </table>
-<div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
+<div class="card" style="margin-bottom: 16px;">
     {% if disabled_project_names %}
-    <p style="margin: 0 0 8px 0; font-size: 0.9em; color: #6b7280;">This report did not include the following projects because they are disabled in your settings:</p>
-    <ul style="margin: 0 0 {% if excluded_project_count > 0 %}16px{% else %}0{% endif %} 0; padding-left: 20px; color: #6b7280; font-size: 0.9em;">
+    <p class="note-t">This report did not include the following projects because they are disabled in your settings:</p>
+    <ul class="note-l {% if excluded_project_count > 0 %}note-l-mb{% endif %}">
         {% for name in disabled_project_names %}
         <li>{{ name }}</li>
         {% endfor %}
@@ -216,15 +239,13 @@
     <p style="margin: 0; font-size: 0.9em; color: #6b7280;">{{ excluded_project_count }} other project{{ excluded_project_count|pluralize }} in your organization had no exceptions this week and {{ excluded_project_count|pluralize:"was,were" }} not included in this digest.</p>
     {% endif %}
 </div>
-{% if disabled_project_names %}
-<div style="margin-bottom: 16px; text-align: center;">
-    <a href="{{ settings_url }}" style="color: #6b7280; font-size: 0.85em; text-decoration: underline;">Change notification settings</a>
-</div>
-{% endif %}
 {% endif %}
 
 <div style="margin-bottom: 16px; text-align: center;">
-    <a href="{{ feedback_survey_url }}" target="_blank" style="color: #6b7280; font-size: 0.85em; text-decoration: underline;">Share feedback on this digest</a>
+    <a href="{{ settings_url }}" class="fl">Change notification settings</a>
+</div>
+<div style="margin-bottom: 16px; text-align: center;">
+    <a href="{{ feedback_survey_url }}" target="_blank" class="fl">Share feedback on this digest</a>
 </div>
 {% endblock %}
 
