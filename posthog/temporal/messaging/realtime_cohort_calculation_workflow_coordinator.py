@@ -215,10 +215,19 @@ async def get_cached_percentile_thresholds(
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         LOGGER.warning(f"Failed to deserialize cached thresholds: {e}")
         # Continue to calculation if cache is corrupted
+    except Exception as e:
+        LOGGER.warning(f"Cache unavailable, falling back to direct calculation: {e}")
+        # Cache service is down - fall back to direct calculation
+        return await calculate_percentile_thresholds(inputs)
 
     # Cache miss - need to calculate
     # Use distributed lock to prevent multiple schedules from calculating simultaneously
-    lock_acquired = cache.set(lock_key, "calculating", nx=True, timeout=PERCENTILE_CACHE_LOCK_TTL_SECONDS)
+    try:
+        lock_acquired = cache.set(lock_key, "calculating", nx=True, timeout=PERCENTILE_CACHE_LOCK_TTL_SECONDS)
+    except Exception as e:
+        LOGGER.warning(f"Cache locking unavailable, calculating directly: {e}")
+        # Cache service is down - calculate directly without locking
+        return await calculate_percentile_thresholds(inputs)
 
     if lock_acquired:
         try:
@@ -227,24 +236,33 @@ async def get_cached_percentile_thresholds(
             thresholds = await calculate_percentile_thresholds(inputs)
             if thresholds:
                 # Store in cache for other schedules to use
-                cache.set(cache_key, json.dumps(thresholds.to_dict()), timeout=PERCENTILE_CACHE_TTL_SECONDS)
-                LOGGER.info(f"Cached fresh percentile thresholds for {PERCENTILE_CACHE_TTL_SECONDS}s")
+                try:
+                    cache.set(cache_key, json.dumps(thresholds.to_dict()), timeout=PERCENTILE_CACHE_TTL_SECONDS)
+                    LOGGER.info(f"Cached fresh percentile thresholds for {PERCENTILE_CACHE_TTL_SECONDS}s")
+                except Exception as e:
+                    LOGGER.warning(f"Failed to cache thresholds, continuing anyway: {e}")
             return thresholds
         finally:
-            # Always release the lock
-            cache.delete(lock_key)
+            # Always release the lock (ignore failures)
+            try:
+                cache.delete(lock_key)
+            except Exception as e:
+                LOGGER.warning(f"Failed to release cache lock (continuing): {e}")
     else:
         # Another schedule is calculating, wait briefly and retry cache
         LOGGER.info("Another schedule is calculating thresholds, waiting...")
         await asyncio.sleep(2)  # Brief wait to avoid thundering herd
 
         # Try cache one more time
-        cached_data = cache.get(cache_key)
-        if cached_data:
-            try:
-                return QueryPercentileThresholds.from_dict(json.loads(cached_data))
-            except (json.JSONDecodeError, KeyError, TypeError):
-                pass
+        try:
+            cached_data = cache.get(cache_key)
+            if cached_data:
+                try:
+                    return QueryPercentileThresholds.from_dict(json.loads(cached_data))
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    pass
+        except Exception as e:
+            LOGGER.warning(f"Cache retry failed: {e}")
 
         # If still no cache after waiting, fall back to direct calculation
         LOGGER.info("Cache still empty after waiting, calculating directly")
