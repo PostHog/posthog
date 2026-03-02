@@ -233,6 +233,31 @@ export interface PatchedOrganizationMemberApi {
 }
 
 /**
+ * Serializer for organization-scoped OAuth applications (read-only).
+ */
+export interface OrganizationOAuthApplicationApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name?: string
+    /** @maxLength 100 */
+    client_id?: string
+    readonly redirect_uris_list: readonly string[]
+    /** True if this application has been verified by PostHog */
+    is_verified?: boolean
+    readonly created: string
+    readonly updated: string
+}
+
+export interface PaginatedOrganizationOAuthApplicationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationOAuthApplicationApi[]
+}
+
+/**
  * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
 passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
 backward compatibility of the REST API.
@@ -958,106 +983,6 @@ export interface PatchedDashboardTemplateApi {
 }
 
 /**
- * * `allow` - Allow
- * `reject` - Reject
- */
-export type EnforcementModeEnumApi = (typeof EnforcementModeEnumApi)[keyof typeof EnforcementModeEnumApi]
-
-export const EnforcementModeEnumApi = {
-    Allow: 'allow',
-    Reject: 'reject',
-} as const
-
-/**
- * Serializer mixin that handles tags for objects.
- */
-export interface EnterpriseEventDefinitionApi {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    /** @nullable */
-    owner?: number | null
-    /** @nullable */
-    description?: string | null
-    tags?: unknown[]
-    /** @nullable */
-    readonly created_at: string | null
-    readonly updated_at: string
-    readonly updated_by: UserBasicApi
-    /** @nullable */
-    readonly last_seen_at: string | null
-    readonly last_updated_at: string
-    verified?: boolean
-    /** @nullable */
-    readonly verified_at: string | null
-    readonly verified_by: UserBasicApi
-    /** @nullable */
-    hidden?: boolean | null
-    enforcement_mode?: EnforcementModeEnumApi
-    readonly is_action: boolean
-    readonly action_id: number
-    readonly is_calculating: boolean
-    readonly last_calculated_at: string
-    readonly created_by: UserBasicApi
-    post_to_slack?: boolean
-    default_columns?: string[]
-    readonly media_preview_urls: readonly string[]
-}
-
-export interface PaginatedEnterpriseEventDefinitionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: EnterpriseEventDefinitionApi[]
-}
-
-/**
- * Serializer mixin that handles tags for objects.
- */
-export interface PatchedEnterpriseEventDefinitionApi {
-    readonly id?: string
-    /** @maxLength 400 */
-    name?: string
-    /** @nullable */
-    owner?: number | null
-    /** @nullable */
-    description?: string | null
-    tags?: unknown[]
-    /** @nullable */
-    readonly created_at?: string | null
-    readonly updated_at?: string
-    readonly updated_by?: UserBasicApi
-    /** @nullable */
-    readonly last_seen_at?: string | null
-    readonly last_updated_at?: string
-    verified?: boolean
-    /** @nullable */
-    readonly verified_at?: string | null
-    readonly verified_by?: UserBasicApi
-    /** @nullable */
-    hidden?: boolean | null
-    enforcement_mode?: EnforcementModeEnumApi
-    readonly is_action?: boolean
-    readonly action_id?: number
-    readonly is_calculating?: boolean
-    readonly last_calculated_at?: string
-    readonly created_by?: UserBasicApi
-    post_to_slack?: boolean
-    default_columns?: string[]
-    readonly media_preview_urls?: readonly string[]
-}
-
-export type EventDefinitionApiProperties = { [key: string]: unknown }
-
-export interface EventDefinitionApi {
-    elements: unknown[]
-    event: string
-    properties: EventDefinitionApiProperties
-}
-
-/**
  * * `image/png` - image/png
  * `application/pdf` - application/pdf
  * `text/csv` - text/csv
@@ -1199,10 +1124,11 @@ export interface SharingConfigurationApi {
  * `azure-blob` - Azure Blob
  * `firebase` - Firebase
  * `jira` - Jira
+ * `pinterest-ads` - Pinterest Ads
  */
-export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
+export type KindE61EnumApi = (typeof KindE61EnumApi)[keyof typeof KindE61EnumApi]
 
-export const KindCf2EnumApi = {
+export const KindE61EnumApi = {
     Slack: 'slack',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
@@ -1228,6 +1154,7 @@ export const KindCf2EnumApi = {
     AzureBlob: 'azure-blob',
     Firebase: 'firebase',
     Jira: 'jira',
+    PinterestAds: 'pinterest-ads',
 } as const
 
 /**
@@ -1235,7 +1162,7 @@ export const KindCf2EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindCf2EnumApi
+    kind: KindE61EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1257,7 +1184,7 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: KindCf2EnumApi
+    kind?: KindE61EnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1933,6 +1860,17 @@ export type MembersListParams = {
     offset?: number
 }
 
+export type OauthApplicationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type List2Params = {
     /**
      * Number of results to return per page.
@@ -1990,24 +1928,6 @@ export type DashboardTemplatesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-}
-
-export type EventDefinitionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EventDefinitionsByNameRetrieveParams = {
-    /**
-     * The exact event name to look up
-     */
-    name: string
 }
 
 export type ExportsListParams = {

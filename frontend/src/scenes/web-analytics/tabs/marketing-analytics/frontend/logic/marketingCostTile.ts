@@ -68,6 +68,15 @@ export const externalAdsCostTile = (
             return null
         }
         mathHogql = `${sumSafeFloat(conversionValueColumn)} / nullIf(SUM(toFloat(${costColumn})), 0)`
+    } else if (tileColumnSelection === 'cost_per_reported_conversion') {
+        const costColumn = sanitizeColumnName(table.source_map.cost)
+        const conversionColumn = table.source_map.reported_conversion
+            ? sanitizeColumnName(table.source_map.reported_conversion)
+            : null
+        if (!costColumn || !conversionColumn) {
+            return null
+        }
+        mathHogql = `SUM(toFloat(${costColumn})) / nullIf(${sumSafeFloat(conversionColumn)}, 0)`
     } else {
         const rawColumn = table.source_map[tileColumnSelection]
         const column = rawColumn ? sanitizeColumnName(rawColumn) : null

@@ -22,6 +22,8 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey, PropertyOperator
 
+from posthog.hogql.property import parse_semver
+
 from posthog.api.cohort import CohortSerializer
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.documentation import extend_schema
@@ -84,6 +86,48 @@ from products.product_tours.backend.models import ProductTour
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 MAX_PROPERTY_VALUES = 1000
+
+# Operators the Rust feature-flag evaluation service supports (OperatorType in property_models.rs).
+# None means "no operator specified" which defaults to exact.
+FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
+    {
+        None,
+        "exact",
+        "is_not",
+        "icontains",
+        "not_icontains",
+        "icontains_multi",
+        "not_icontains_multi",
+        "regex",
+        "not_regex",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "semver_gt",
+        "semver_gte",
+        "semver_lt",
+        "semver_lte",
+        "semver_eq",
+        "semver_neq",
+        "semver_tilde",
+        "semver_caret",
+        "semver_wildcard",
+        "is_set",
+        "is_not_set",
+        "is_date_exact",
+        "is_date_after",
+        "is_date_before",
+        "in",
+        "not_in",
+        "flag_evaluates_to",
+    }
+)
+
+FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {
+    "min": "gte",
+    "max": "lte",
+}
 
 LOCAL_EVALUATION_REQUEST_COUNTER = Counter(
     "posthog_local_evaluation_request_total",
@@ -777,12 +821,21 @@ class FeatureFlagSerializer(
                 raise serializers.ValidationError("Filters are not valid (variant override does not exist)")
 
             for property in condition.get("properties", []):
+                if property.get("operator") in FEATURE_FLAG_OPERATOR_ALIASES:
+                    property["operator"] = FEATURE_FLAG_OPERATOR_ALIASES[property["operator"]]
+
                 prop = Property(**property)
 
                 if prop.operator is not None and prop.operator not in PropertyOperator.__members__.values():
                     raise serializers.ValidationError(
                         detail=f"Invalid operator: {prop.operator}",
                         code="invalid_operator",
+                    )
+
+                if prop.operator not in FEATURE_FLAG_SUPPORTED_OPERATORS:
+                    raise serializers.ValidationError(
+                        detail=f"Unsupported operator for feature flags: {prop.operator}",
+                        code="unsupported_operator",
                     )
 
                 if isinstance(prop.value, list):
@@ -813,7 +866,11 @@ class FeatureFlagSerializer(
                             code="cohort_does_not_exist",
                         )
 
-                if prop.operator in ("is_date_before", "is_date_after"):
+                if prop.operator in (
+                    PropertyOperator.IS_DATE_BEFORE,
+                    PropertyOperator.IS_DATE_AFTER,
+                    PropertyOperator.IS_DATE_EXACT,
+                ):
                     parsed_date = determine_parsed_date_for_property_matching(prop.value)
 
                     if not parsed_date:
@@ -843,6 +900,64 @@ class FeatureFlagSerializer(
                         detail=f"The '{prop.operator}' operator is only valid for cohort properties, not '{prop.type}' properties.",
                         code="invalid_operator",
                     )
+
+                # Currently unreachable (between/not_between rejected by FEATURE_FLAG_SUPPORTED_OPERATORS),
+                # but kept so value validation is ready if Rust adds support for these operators.
+                if prop.operator in (PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN):
+                    if not isinstance(prop.value, list) or len(prop.value) != 2:
+                        raise serializers.ValidationError(
+                            detail=f"{prop.operator} operator requires a two-element array [min, max]",
+                            code="invalid_value",
+                        )
+                    try:
+                        if float(prop.value[0]) > float(prop.value[1]):
+                            raise serializers.ValidationError(
+                                detail=f"{prop.operator} operator requires min value to be less than or equal to max value",
+                                code="invalid_value",
+                            )
+                    except (ValueError, TypeError):
+                        raise serializers.ValidationError(
+                            detail=f"{prop.operator} operator requires numeric values",
+                            code="invalid_value",
+                        )
+
+                semver_operators = (
+                    PropertyOperator.SEMVER_EQ,
+                    PropertyOperator.SEMVER_NEQ,
+                    PropertyOperator.SEMVER_GT,
+                    PropertyOperator.SEMVER_GTE,
+                    PropertyOperator.SEMVER_LT,
+                    PropertyOperator.SEMVER_LTE,
+                    PropertyOperator.SEMVER_TILDE,
+                    PropertyOperator.SEMVER_CARET,
+                    PropertyOperator.SEMVER_WILDCARD,
+                )
+                if prop.operator in semver_operators:
+                    if not isinstance(prop.value, str):
+                        raise serializers.ValidationError(
+                            detail=f"Invalid value for operator {prop.operator}: expected a semver string",
+                            code="invalid_value",
+                        )
+                    try:
+                        semver_value = prop.value
+                        if str(prop.operator) == PropertyOperator.SEMVER_WILDCARD:
+                            semver_value = semver_value.rstrip(".*")
+                        parse_semver(semver_value)
+                    except (ValueError, IndexError):
+                        raise serializers.ValidationError(
+                            detail=f"Invalid semver value for operator {prop.operator}: {prop.value}",
+                            code="invalid_value",
+                        )
+
+                if prop.operator in (
+                    PropertyOperator.ICONTAINS_MULTI,
+                    PropertyOperator.NOT_ICONTAINS_MULTI,
+                ):
+                    if not isinstance(prop.value, list):
+                        raise serializers.ValidationError(
+                            detail=f"{prop.operator} operator requires a list of values",
+                            code="invalid_value",
+                        )
 
         payloads = filters.get("payloads", {})
 

@@ -60,6 +60,9 @@ CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", "
 # NOTE: We purposefully DON'T re-use the driver. It would be slightly faster but would keep an in-memory browser
 # window permanently around which is unnecessary
 def get_driver() -> webdriver.Chrome:
+    # this instance of Chrome does *not* use the egress proxy.
+    # after multiple attempts, we were not able to get selenium to actually use the proxy.
+    # the risk is minimal though, since this always uses a URL hardoded to settings.SITE_URL
     options = Options()
     options.add_argument("--headless=new")  # Hint: Try removing this line when debugging
     options.add_argument("--force-device-scale-factor=2")  # Scale factor for higher res image

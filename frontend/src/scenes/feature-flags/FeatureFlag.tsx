@@ -48,6 +48,7 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
@@ -55,7 +56,6 @@ import { ApprovalActionKey } from 'scenes/approvals/utils'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
-import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -102,7 +102,8 @@ import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
 import { FeatureFlagForm } from './FeatureFlagForm'
-import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
+import { FeatureFlagOverviewV2 } from './FeatureFlagOverviewV2'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -126,6 +127,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
         props,
         featureFlag,
+        originalFeatureFlag,
         featureFlagLoading,
         featureFlagMissing,
         isEditingFlag,
@@ -144,6 +146,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         setActiveTab,
         updateFlag,
         saveFeatureFlag,
+        saveDescriptionInline,
     } = useActions(featureFlagLogic)
 
     const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
@@ -152,9 +155,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const { reportUserFeedbackButtonClicked } = useActions(eventUsageLogic)
-
-    // whether the key for an existing flag is being changed
-    const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
     const [quickSurveyVariantKey, setQuickSurveyVariantKey] = useState<string | null>(null)
@@ -198,7 +198,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             props.id !== 'link' &&
             featureFlag?.id
         ),
-        deps: [currentTeamId, featureFlag?.id, featureFlagMissing, accessDeniedToFeatureFlag, props.id],
     })
 
     if (featureFlagMissing) {
@@ -232,7 +231,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         {
             label: 'Overview',
             key: FeatureFlagsTab.OVERVIEW,
-            content: (
+            content: useFormUI ? (
+                <FeatureFlagOverviewV2 featureFlag={featureFlag} onGetFeedback={handleGetFeedback} />
+            ) : (
                 <>
                     <div className="flex flex-col gap-4">
                         <FeatureFlagRollout readOnly onGetFeedback={handleGetFeedback} />
@@ -385,17 +386,16 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     name="key"
                                     label="Key"
                                     help={
-                                        hasKeyChanged && id !== 'new' ? (
+                                        id !== 'new' &&
+                                        originalFeatureFlag &&
+                                        featureFlag.key !== originalFeatureFlag.key ? (
                                             <span className="text-warning">
-                                                <b>Warning! </b>Changing this key will
-                                                <Link
-                                                    to={`https://posthog.com/docs/feature-flags${UTM_TAGS}#feature-flag-persistence`}
-                                                    target="_blank"
-                                                    targetBlankIcon
-                                                >
-                                                    {' '}
-                                                    affect the persistence of your flag
-                                                </Link>
+                                                <b>Warning! </b>Changing this key will break any existing code that
+                                                references it (e.g.{' '}
+                                                <code className="text-xs bg-fill-secondary rounded px-1 py-0.5">
+                                                    getFeatureFlag('{originalFeatureFlag.key}')
+                                                </code>
+                                                ). Make sure to update all SDK calls and integrations.
                                             </span>
                                         ) : undefined
                                     }
@@ -405,10 +405,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             <LemonInput
                                                 value={value}
                                                 onChange={(v) => {
-                                                    if (v !== value) {
-                                                        setHasKeyChanged(true)
-                                                    }
-                                                    onChange(v)
+                                                    const normalized = slugifyFeatureFlagKey(v)
+                                                    onChange(normalized)
                                                 }}
                                                 data-attr="feature-flag-key"
                                                 className="ph-ignore-input"
@@ -427,11 +425,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
 
                                 <LemonField name="name" label="Description">
-                                    <LemonTextArea
-                                        className="ph-ignore-input"
-                                        data-attr="feature-flag-description"
-                                        defaultValue={featureFlag.name || ''}
-                                    />
+                                    {({ value, onChange }) => (
+                                        <LemonTextArea
+                                            className="ph-ignore-input"
+                                            data-attr="feature-flag-description"
+                                            value={value || ''}
+                                            onChange={onChange}
+                                        />
+                                    )}
                                 </LemonField>
                             </div>
                             <SceneDivider />
@@ -444,6 +445,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                         evaluationRuntime={featureFlag.evaluation_runtime}
+                                        isDisabled={!featureFlag.active}
                                     />
                                     <SceneDivider />
                                 </>
@@ -869,6 +871,18 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 resourceType={{
                                     type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                                 }}
+                                canEdit={
+                                    !featureFlag.deleted &&
+                                    userHasAccess(
+                                        AccessControlResourceType.FeatureFlag,
+                                        AccessControlLevel.Editor,
+                                        featureFlag.user_access_level
+                                    )
+                                }
+                                saveOnBlur
+                                onDescriptionChange={(newName) => {
+                                    saveDescriptionInline(newName)
+                                }}
                                 actions={
                                     <AccessControlAction
                                         resourceType={AccessControlResourceType.FeatureFlag}
@@ -928,7 +942,10 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
         // FIXME: Refactor out into <ConnectedDashboard />, as React hooks under conditional branches are no good
         // eslint-disable-next-line react-hooks/rules-of-hooks
         const dashboardLogicValues = useValues(
-            dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
+            dashboardLogic({
+                id: dashboardId,
+                placement: DashboardPlacement.FeatureFlag,
+            })
         )
         dashboard = dashboardLogicValues.dashboard
     }
@@ -1144,7 +1161,7 @@ function FeatureFlagRollout({
                                                 onChange={(newValue) => {
                                                     toggleFeatureFlagActive(newValue)
                                                 }}
-                                                label={featureFlag.active ? 'Enabled' : 'Disabled'}
+                                                label="Enable feature flag"
                                                 loading={featureFlagActiveUpdateLoading}
                                                 disabledReason={
                                                     !featureFlag.can_edit
@@ -1182,7 +1199,9 @@ function FeatureFlagRollout({
                                         <Label intent="menu">Linked experiment</Label>
                                         <div className="flex gap-1 items-center">
                                             <CopyToClipboardInline
-                                                iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
+                                                iconStyle={{
+                                                    color: 'var(--lemon-button-icon-opacity)',
+                                                }}
                                                 className="font-normal text-sm"
                                                 description="experiment name"
                                             >
@@ -1520,7 +1539,10 @@ function FeatureFlagRollout({
                                     isDraftExperiment={isDraftExperiment}
                                     onVariantChange={(index, field, value) => {
                                         const currentVariants = [...variants]
-                                        currentVariants[index] = { ...currentVariants[index], [field]: value }
+                                        currentVariants[index] = {
+                                            ...currentVariants[index],
+                                            [field]: value,
+                                        }
                                         setFeatureFlag({
                                             ...featureFlag,
                                             filters: {

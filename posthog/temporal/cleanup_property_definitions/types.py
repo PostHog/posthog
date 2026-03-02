@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from posthog.models.property_definition import PropertyDefinition
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 # String type names for the workflow input (user-friendly)
 PropertyTypeName = Literal["event", "person", "group", "session"]

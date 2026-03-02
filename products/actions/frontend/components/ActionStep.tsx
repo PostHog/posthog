@@ -59,7 +59,7 @@ export function ActionStep({
         <div className="bg-surface-primary rounded border p-3 relative">
             {index > 0 && !(index % 2 === 0) && (
                 <div className="absolute top-1/2 -left-5">
-                    <OperandTag operand="or" />
+                    <OperandTag operand="or" className="bg-surface-primary" />
                 </div>
             )}
             <div className="deprecated-space-y-4">

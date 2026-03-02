@@ -9,7 +9,6 @@ export interface StackTraceRendererProps {
     frames: ErrorTrackingStackFrame[]
     stackFrameRecords: KeyedStackFrameRecords
     renderFrame: (frame: ErrorTrackingStackFrame, record?: ErrorTrackingStackFrameRecord) => React.ReactNode
-    onFrameExpanded?: () => void
 }
 
 export function StackTraceRenderer({

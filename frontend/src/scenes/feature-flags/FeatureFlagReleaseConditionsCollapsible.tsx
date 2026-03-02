@@ -3,7 +3,16 @@ import { useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 import { IconCopy, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCollapse,
+    LemonInput,
+    LemonLabel,
+    LemonSelect,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -16,7 +25,13 @@ import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils'
 import { clamp } from 'lib/utils'
 
-import { AnyPropertyFilter, FeatureFlagGroupType, MultivariateFlagVariant, PropertyFilterType } from '~/types'
+import {
+    AnyPropertyFilter,
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagGroupType,
+    MultivariateFlagVariant,
+    PropertyFilterType,
+} from '~/types'
 
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -26,6 +41,9 @@ import {
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     readOnly?: boolean
     variants?: MultivariateFlagVariant[]
+    isDisabled?: boolean
+    bucketingIdentifier?: FeatureFlagBucketingIdentifier | null
+    onBucketingIdentifierChange?: (value: FeatureFlagBucketingIdentifier | null) => void
 }
 
 function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
@@ -168,6 +186,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
     onChange,
     readOnly,
     variants,
+    isDisabled,
+    bucketingIdentifier,
+    onBucketingIdentifierChange,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -269,21 +290,39 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 condition matches when all property filters pass AND the target falls within the rollout percentage.
             </p>
 
+            {isDisabled && (
+                <LemonBanner type="info" className="mb-3">
+                    This flag is currently <b>disabled</b>. These release conditions won't take effect until you enable
+                    it.
+                </LemonBanner>
+            )}
+
             {/* Match by selector */}
-            {showGroupsOptions && (
+            {(showGroupsOptions || onBucketingIdentifierChange) && (
                 <div className="mb-2">
                     <LemonLabel className="mb-2">Match by</LemonLabel>
                     <LemonRadio
                         data-attr="feature-flag-aggregation-filter"
-                        value={releaseFilters.aggregation_group_type_index != null ? 'group' : 'user'}
+                        value={
+                            releaseFilters.aggregation_group_type_index != null
+                                ? 'group'
+                                : bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
+                                  ? 'device'
+                                  : 'user'
+                        }
                         onChange={(value: string) => {
                             if (value === 'user') {
                                 setAggregationGroupTypeIndex(null)
+                                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+                            } else if (value === 'device') {
+                                setAggregationGroupTypeIndex(null)
+                                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
                             } else if (value === 'group') {
                                 const firstGroupType = Array.from(groupTypes.values())[0]
                                 if (firstGroupType) {
                                     setAggregationGroupTypeIndex(firstGroupType.group_type_index)
                                 }
+                                onBucketingIdentifierChange?.(null)
                             }
                         }}
                         options={[
@@ -298,18 +337,38 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     </div>
                                 ),
                             },
-                            {
-                                value: 'group',
-                                label: (
-                                    <div>
-                                        <div className="font-medium">Group</div>
-                                        <div className="text-xs text-muted">
-                                            Stable assignment for everyone in an organization, company, or other custom
-                                            group type.
-                                        </div>
-                                    </div>
-                                ),
-                            },
+                            ...(onBucketingIdentifierChange
+                                ? [
+                                      {
+                                          value: 'device',
+                                          label: (
+                                              <div>
+                                                  <div className="font-medium">Device</div>
+                                                  <div className="text-xs text-muted">
+                                                      Stable assignment per device. Good fit for experiments on
+                                                      anonymous users.
+                                                  </div>
+                                              </div>
+                                          ),
+                                      },
+                                  ]
+                                : []),
+                            ...(showGroupsOptions
+                                ? [
+                                      {
+                                          value: 'group',
+                                          label: (
+                                              <div>
+                                                  <div className="font-medium">Group</div>
+                                                  <div className="text-xs text-muted">
+                                                      Stable assignment for everyone in an organization, company, or
+                                                      other custom group type.
+                                                  </div>
+                                              </div>
+                                          ),
+                                      },
+                                  ]
+                                : []),
                         ]}
                         radioPosition="top"
                     />

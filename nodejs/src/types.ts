@@ -318,6 +318,10 @@ export type LogsIngestionConsumerConfig = {
     LOGS_LIMITER_TTL_SECONDS: number
     LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: string
     LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
+    REDIS_URL: string
+    REDIS_POOL_MIN_SIZE: number
+    REDIS_POOL_MAX_SIZE: number
+    KAFKA_CLIENT_RACK: string | undefined
 }
 
 export type SessionRecordingApiConfig = {
@@ -486,6 +490,8 @@ export interface PluginsServerConfig
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
+    OUTBOUND_PROXY_URL: string
+    OUTBOUND_PROXY_ENABLED: boolean
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
@@ -501,7 +507,9 @@ export interface PluginsServerConfig
     // Super properties for internal analytics (matching Python posthoganalytics.super_properties)
     OTEL_SERVICE_NAME: string | null
     OTEL_SERVICE_ENVIRONMENT: string | null
+
     // Internal API authentication
+    INTERNAL_API_BASE_URL: string
     INTERNAL_API_SECRET: string
 
     // Destination Migration Diffing
@@ -529,13 +537,6 @@ export interface PluginsServerConfig
     POD_TERMINATION_ENABLED: boolean
     POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
     POD_TERMINATION_JITTER_MINUTES: number
-
-    // ClickHouse
-    CLICKHOUSE_HOST: string
-    CLICKHOUSE_PORT: number
-    CLICKHOUSE_USERNAME: string
-    CLICKHOUSE_PASSWORD: string
-    CLICKHOUSE_DATABASE: string
 }
 
 export interface HubServices {

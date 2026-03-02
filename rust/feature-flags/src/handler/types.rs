@@ -65,6 +65,8 @@ pub struct FeatureFlagEvaluationContext {
     pub parallel_eval_threshold: usize,
     /// Dispatcher for bounded-concurrency Rayon batch evaluation.
     pub rayon_dispatcher: RayonDispatcher,
+    /// When true, skip all writes to PostgreSQL and Redis.
+    pub skip_writes: bool,
 }
 
 /// SDK type classification based on user-agent parsing.

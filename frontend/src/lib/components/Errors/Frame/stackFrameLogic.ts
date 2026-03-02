@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -28,16 +28,6 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
     actions({
         loadFromRawIds: (rawIds: ErrorTrackingStackFrame['raw_id'][]) => ({ rawIds }),
         loadForSymbolSet: (symbolSetId: ErrorTrackingSymbolSet['id']) => ({ symbolSetId }),
-        setLoadStartTime: (startTime: number | null) => ({ startTime }),
-    }),
-
-    reducers({
-        loadStartTime: [
-            null as number | null,
-            {
-                setLoadStartTime: (_, { startTime }) => startTime,
-            },
-        ],
     }),
 
     loaders(({ values }) => ({
@@ -62,23 +52,45 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
         ],
     })),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ cache }) => ({
         loadFromRawIds: () => {
-            actions.setLoadStartTime(performance.now())
+            const loadStartedAt = performance.now()
+            cache.currentLoadStartedAt = loadStartedAt
+            cache.currentLoadType = cache.hasLoadedStackFrames ? 'subsequent' : 'initial'
         },
         loadFromRawIdsSuccess: ({ stackFrameRecords }) => {
-            const durationMs =
-                values.loadStartTime !== null ? Math.round(performance.now() - values.loadStartTime) : null
-            actions.setLoadStartTime(null)
+            const loadType = cache.currentLoadType ?? 'initial'
+            const loadStartedAt = cache.currentLoadStartedAt
+            const requestDurationMs =
+                loadStartedAt !== null && loadStartedAt !== undefined
+                    ? Math.round(performance.now() - loadStartedAt)
+                    : null
+            const mountDurationMs =
+                loadType === 'initial' && cache.mountedAt ? Math.round(performance.now() - cache.mountedAt) : null
+            cache.currentLoadStartedAt = null
+            cache.currentLoadType = null
 
             const recordsWithContext = Object.values(stackFrameRecords).filter((record) => record.context)
+            if (recordsWithContext.length > 0) {
+                cache.hasLoadedStackFrames = true
+            }
+
             posthog.capture('error_tracking_stack_trace_loaded', {
-                duration_ms: durationMs,
+                load_type: loadType,
+                duration_ms: requestDurationMs,
+                duration_since_mount_ms: mountDurationMs,
                 frame_count: recordsWithContext.length,
             })
         },
         loadFromRawIdsFailure: () => {
-            actions.setLoadStartTime(null)
+            cache.currentLoadStartedAt = null
+            cache.currentLoadType = null
         },
     })),
+    afterMount(({ cache }) => {
+        cache.mountedAt = performance.now()
+        cache.hasLoadedStackFrames = false
+        cache.currentLoadStartedAt = null as number | null
+        cache.currentLoadType = null as 'initial' | 'subsequent' | null
+    }),
 ])

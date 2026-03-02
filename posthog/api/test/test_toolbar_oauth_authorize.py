@@ -69,3 +69,4 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
         session = self.client.session
         assert "toolbar_oauth_code_verifier" in session
         assert len(session["toolbar_oauth_code_verifier"]) >= 43
+        assert "toolbar_oauth_code_verifier_ts" in session

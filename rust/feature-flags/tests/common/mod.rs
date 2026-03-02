@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use common_cache::NegativeCache;
 use common_database::get_pool;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::MockRedisClient;
@@ -328,6 +329,7 @@ impl ServerHandle {
                 team_hypercache_reader,
                 config_hypercache_reader,
                 RayonDispatcher::new(2),
+                NegativeCache::new(10_000, 300),
                 config,
             );
 

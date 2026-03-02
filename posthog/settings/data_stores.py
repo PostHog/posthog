@@ -449,6 +449,8 @@ FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://local
 
 FLAGS_CACHE_TTL = int(os.getenv("FLAGS_CACHE_TTL", str(60 * 60 * 24 * 7)))  # 7 days
 FLAGS_CACHE_MISS_TTL = int(os.getenv("FLAGS_CACHE_MISS_TTL", str(60 * 60 * 24)))  # 1 day
+LLM_PROMPTS_CACHE_TTL = int(os.getenv("LLM_PROMPTS_CACHE_TTL", str(60 * 60 * 24)))  # 1 day
+LLM_PROMPTS_CACHE_MISS_TTL = int(os.getenv("LLM_PROMPTS_CACHE_MISS_TTL", str(60 * 5)))  # 5 minutes
 
 CACHES = {
     "default": {
