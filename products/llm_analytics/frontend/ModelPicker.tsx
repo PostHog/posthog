@@ -1,53 +1,102 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useMemo, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { urls } from 'scenes/urls'
 
-import { byokModelPickerLogic } from './byokModelPickerLogic'
-import { ModelOption } from './llmAnalyticsPlaygroundLogic'
+import { urls } from '~/scenes/urls'
+
 import { LLMProviderIcon } from './LLMProviderIcon'
+import { type ModelOption, type ProviderModelGroup } from './modelPickerLogic'
+import { type LLMProvider, toLLMProvider } from './settings/llmProviderKeysLogic'
 
-export interface ByokModelPickerProps {
+const PROVIDER_SETTINGS_URL = urls.settings('environment-llm-analytics', 'llm-analytics-byok')
+
+export function getModelPickerFooterLink(hasByokKeys: boolean): { label: string; to: string } {
+    return {
+        label: hasByokKeys ? 'Configure AI providers' : 'Add your own API keys',
+        to: PROVIDER_SETTINGS_URL,
+    }
+}
+
+export function parseTrialProviderKeyId(providerKeyId: string): LLMProvider | null {
+    return providerKeyId.startsWith('trial:') ? toLLMProvider(providerKeyId.slice(6)) : null
+}
+
+export interface ModelPickerProps {
     model: string
     selectedProviderKeyId: string | null
     onSelect: (modelId: string, providerKeyId: string) => void
+    groups: ProviderModelGroup[]
+    loading?: boolean
+    footerLink?: { label: string; to: string } | null
     placeholder?: string
     selectedModelName?: string
     'data-attr'?: string
 }
 
-export function ByokModelPicker({
+export function findSelectedProvider(
+    groups: ProviderModelGroup[],
+    model: string,
+    providerKeyId: string | null
+): LLMProvider | null {
+    // Try exact match on providerKeyId first
+    const exactMatch = groups.find((g) => g.providerKeyId === providerKeyId && g.models.some((m) => m.id === model))
+    if (exactMatch) {
+        return exactMatch.provider
+    }
+    // Fall back to matching by model id alone (e.g., trial mode where providerKeyId is null)
+    const modelMatch = groups.find((g) => g.models.some((m) => m.id === model))
+    return modelMatch?.provider ?? null
+}
+
+export function filterGroups(groups: ProviderModelGroup[], search: string): ProviderModelGroup[] {
+    if (!search) {
+        return groups
+    }
+    const lower = search.toLowerCase()
+    return groups
+        .map((group) => ({
+            ...group,
+            models: group.models.filter(
+                (m) => m.name.toLowerCase().includes(lower) || m.id.toLowerCase().includes(lower)
+            ),
+        }))
+        .filter((group) => group.models.length > 0)
+}
+
+export function ModelPicker({
     model,
     selectedProviderKeyId,
     onSelect,
+    groups,
+    loading = false,
+    footerLink,
     placeholder = 'Select model',
     selectedModelName,
     'data-attr': dataAttr,
-}: ByokModelPickerProps): JSX.Element {
-    useMountedLogic(byokModelPickerLogic)
-    const {
-        search,
-        filteredProviderModelGroups,
-        selectedProviderForModel,
-        byokModelsLoading,
-        providerKeysLoading,
-        isProviderExpanded,
-        hasExplicitExpandState,
-    } = useValues(byokModelPickerLogic)
-    const { setSearch, clearSearch, toggleProviderExpanded } = useActions(byokModelPickerLogic)
+}: ModelPickerProps): JSX.Element {
+    const [search, setSearch] = useState('')
+    const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({})
 
-    const selectedProvider = selectedProviderForModel(model, selectedProviderKeyId)
+    const filteredGroups = useMemo(() => filterGroups(groups, search), [groups, search])
+    const selectedProvider = useMemo(
+        () => findSelectedProvider(groups, model, selectedProviderKeyId),
+        [groups, model, selectedProviderKeyId]
+    )
+
+    const toggleProviderExpanded = (providerKeyId: string): void => {
+        setExpandedProviders((prev) => ({ ...prev, [providerKeyId]: !prev[providerKeyId] }))
+    }
 
     const handleVisibilityChange = (visible: boolean): void => {
         if (!visible) {
-            clearSearch()
+            setSearch('')
         }
     }
 
-    if (byokModelsLoading || providerKeysLoading) {
+    if (loading) {
         return <LemonSkeleton className="h-10" />
     }
 
@@ -69,7 +118,7 @@ export function ByokModelPicker({
                 </div>
             ),
         },
-        ...filteredProviderModelGroups.map((group): LemonMenuItems[number] => {
+        ...filteredGroups.map((group): LemonMenuItems[number] => {
             if (group.disabled) {
                 return {
                     icon: <LLMProviderIcon provider={group.provider} />,
@@ -78,13 +127,15 @@ export function ByokModelPicker({
                 }
             }
 
-            const isActiveGroup = group.providerKeyId === selectedProviderKeyId
+            const isActiveGroup =
+                group.providerKeyId === selectedProviderKeyId ||
+                (selectedProviderKeyId === null && group.models.some((m) => m.id === model))
 
             const buildModelItem = (m: ModelOption): LemonMenuItem => ({
                 icon: <LLMProviderIcon provider={group.provider} />,
                 label: m.name,
                 tooltip: m.description || undefined,
-                active: isActiveGroup && m.id === model,
+                active: m.id === model && isActiveGroup,
                 onClick: () => onSelect(m.id, group.providerKeyId),
             })
 
@@ -93,7 +144,6 @@ export function ByokModelPicker({
             const hasOther = other.length > 0
             const hasRecommended = recommended.length > 0
 
-            // When searching or no split needed, show all models flat
             if (isSearching || !hasOther || !hasRecommended) {
                 return {
                     icon: <LLMProviderIcon provider={group.provider} />,
@@ -106,9 +156,8 @@ export function ByokModelPicker({
             // Auto-expand when the selected model is in the collapsed section,
             // but only as a default — once the user explicitly toggles, respect their choice.
             const selectedIsHidden = isActiveGroup && other.some((m) => m.id === model)
-            const expanded = hasExplicitExpandState(group.providerKeyId)
-                ? isProviderExpanded(group.providerKeyId)
-                : selectedIsHidden
+            const hasExplicitState = group.providerKeyId in expandedProviders
+            const expanded = hasExplicitState ? !!expandedProviders[group.providerKeyId] : selectedIsHidden
 
             return {
                 icon: <LLMProviderIcon provider={group.provider} />,
@@ -137,15 +186,19 @@ export function ByokModelPicker({
                 ],
             }
         }),
-        {
-            label: () => (
-                <div className="px-2 py-1.5 border-t">
-                    <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')} className="text-xs">
-                        Configure AI providers
-                    </Link>
-                </div>
-            ),
-        },
+        ...(footerLink
+            ? [
+                  {
+                      label: () => (
+                          <div className="px-2 py-1.5 border-t">
+                              <Link to={footerLink.to} className="text-xs">
+                                  {footerLink.label}
+                              </Link>
+                          </div>
+                      ),
+                  },
+              ]
+            : []),
     ]
 
     return (

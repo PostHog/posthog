@@ -1528,6 +1528,9 @@ export type RetentionFilter = {
     aggregationType?: 'count' | 'sum' | 'avg'
     /** @description The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string
+    /** @description The type of property to aggregate on (event or person). Defaults to event.
+     * @default event */
+    aggregationPropertyType?: 'event' | 'person'
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
