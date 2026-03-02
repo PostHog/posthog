@@ -75,17 +75,17 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         window_end=window_end,
         max_samples=inputs.max_samples,
         analysis_level=inputs.analysis_level,
-        trace_filters=inputs.trace_filters if inputs.trace_filters else None,
+        event_filters=inputs.event_filters if inputs.event_filters else None,
     )
 
-    logger.debug(
+    logger.info(
         "perform_clustering_compute_fetched_embeddings",
         num_items=len(item_ids),
         analysis_level=inputs.analysis_level,
     )
 
-    # Need at least 2 items to perform clustering
-    if len(item_ids) < 2:
+    # Need enough items for UMAP (n_neighbors default=15) and meaningful clusters
+    if len(item_ids) < constants.MIN_TRACES_FOR_CLUSTERING:
         logger.warning(
             "Not enough items for clustering",
             item_count=len(item_ids),
@@ -141,6 +141,27 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
             "Skipped generations missing trace_id",
             skipped_count=skipped_missing_trace_id,
             team_id=inputs.team_id,
+        )
+
+    if not items:
+        logger.warning(
+            "All items filtered out after summary join",
+            team_id=inputs.team_id,
+            analysis_level=inputs.analysis_level,
+            original_item_count=len(item_ids),
+        )
+        return ClusteringComputeResult(
+            clustering_run_id=clustering_run_id,
+            items=[],
+            labels=[],
+            centroids=[],
+            distances=[],
+            coords_2d=[],
+            centroid_coords_2d=[],
+            probabilities=[],
+            analysis_level=inputs.analysis_level,
+            num_noise_points=0,
+            batch_run_ids={},
         )
 
     embeddings_array = np.array(filtered_embeddings)

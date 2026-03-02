@@ -13,7 +13,10 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Install [`posthog-js`](https://github.com/posthog/posthog-js) and `@posthog/react` using your package manager:</Markdown>
+                    <Markdown>
+                        Install [`posthog-js`](https://github.com/posthog/posthog-js) and `@posthog/react` using your
+                        package manager:
+                    </Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -57,7 +60,7 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                 language: 'bash',
                                 file: '.env',
                                 code: dedent`
-                                    VITE_PUBLIC_POSTHOG_KEY=<ph_project_api_key>
+                                    VITE_PUBLIC_POSTHOG_KEY=<ph_project_token>
                                     VITE_PUBLIC_POSTHOG_HOST=<ph_client_api_host>
                                 `,
                             },
@@ -89,7 +92,7 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
 
                                     const options = {
                                       api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
-                                      defaults: '2025-11-30',
+                                      defaults: '2026-01-30',
                                     } as const
 
                                     createRoot(document.getElementById('root')).render(

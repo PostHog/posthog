@@ -609,6 +609,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_two_after_delete = self.dashboard_api.get_dashboard(dashboard_two_id)
         assert len(dashboard_two_after_delete["tiles"]) == 1
 
+    def test_delete_dashboard_clears_primary_dashboard(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({})
+        self.team.primary_dashboard_id = dashboard_id
+        self.team.save()
+
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards")
+
+        self.team.refresh_from_db()
+        assert self.team.primary_dashboard is None
+
     def test_delete_dashboard_resets_group_type_detail_dashboard_if_needed(self):
         group_type = create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
@@ -847,6 +857,24 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
         assert dashboard_json["tiles"][0]["color"] == "red"
 
+    def test_dashboard_tile_show_description_can_be_toggled(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test", "pinned": True})
+        self.dashboard_api.create_insight(
+            {"filters": {"hello": "test"}, "dashboards": [dashboard_id], "name": "insight"}
+        )
+
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        tile_id = dashboard_json["tiles"][0]["id"]
+        assert dashboard_json["tiles"][0]["show_description"] is None
+
+        self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [{"id": tile_id, "show_description": True}]})
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
+        assert dashboard_json["tiles"][0]["show_description"] is True
+
+        self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [{"id": tile_id, "show_description": False}]})
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
+        assert dashboard_json["tiles"][0]["show_description"] is False
+
     @patch("posthog.api.dashboards.dashboard.report_user_action")
     def test_dashboard_from_template(self, mock_capture):
         _, response = self.dashboard_api.create_dashboard({"name": "another", "use_template": "DEFAULT_APP"})
@@ -868,8 +896,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_shared": False,
                 "item_count": 6,
                 "pinned": False,
+                "source": "web",
                 "tags_count": 0,
                 "template_key": "DEFAULT_APP",
+                "was_impersonated": False,
             },
         )
 
@@ -1548,8 +1578,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_shared": False,
                 "item_count": 1,
                 "pinned": False,
+                "source": "web",
                 "tags_count": 0,
                 "template_key": valid_template["template_name"],
+                "was_impersonated": False,
             },
         )
 
@@ -1584,6 +1616,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "last_refresh": None,
                 "layouts": {},
                 "order": 0,
+                "show_description": None,
                 "text": {
                     "body": "hello world",
                     "created_by": None,
@@ -1696,6 +1729,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "last_refresh": None,
                 "layouts": {},
                 "order": 0,
+                "show_description": None,
                 "text": None,
             },
         ]

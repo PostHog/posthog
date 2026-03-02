@@ -60,21 +60,9 @@ class CanApprove(permissions.BasePermission):
 
 
 class CanCancel(permissions.BasePermission):
-    """
-    Only the requester can cancel their own pending change request.
-    """
+    """Only the requester can cancel their own pending change request."""
 
-    message = "You can only cancel your own change requests"
+    message = "You cannot cancel this change request"
 
     def has_object_permission(self, request, view, obj):
-        from posthog.approvals.models import ChangeRequestState
-
-        if obj.state != ChangeRequestState.PENDING:
-            self.message = "Only pending change requests can be canceled"
-            return False
-
-        if obj.created_by != request.user:
-            self.message = "You can only cancel your own change requests"
-            return False
-
-        return True
+        return obj.can_be_canceled_by(request.user.id)

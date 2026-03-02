@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
@@ -17,7 +18,11 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
-from pydantic import BaseModel
+from pydantic import (
+    BaseModel,
+    Field as PydanticField,
+    RootModel,
+)
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
@@ -35,7 +40,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
+from posthog.api.insight_suggestions import generate_insight_name, get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -50,7 +55,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import INSIGHT, INSIGHT_FUNNELS, INSIGHT_STICKINESS, TRENDS_STICKINESS, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import groups
+from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
@@ -76,7 +81,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.alert import AlertConfiguration, are_alerts_supported_for_insight
+from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
@@ -309,22 +314,20 @@ class InsightBasicSerializer(
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
-@extend_schema_field(
-    {
-        "type": "object",
-        "example": {
-            "kind": "InsightVizNode",
-            "source": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {"kind": "EventsNode", "math": "total", "name": "$pageview", "event": "$pageview", "version": 1}
-                ],
-                "version": 1,
-            },
-            "version": 1,
-        },
-    }
-)
+class _InsightQuerySchema(RootModel):
+    """The query definition for this insight. The `kind` field determines the query type:
+    - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
+    - `DataVisualizationNode` — SQL insights using HogQL
+    - `DataTableNode` — raw data tables
+    - `HogQuery` — Hog language queries
+    """
+
+    root: schema.InsightVizNode | schema.DataTableNode | schema.DataVisualizationNode | schema.HogQuery = PydanticField(
+        discriminator="kind"
+    )
+
+
+@extend_schema_field(_InsightQuerySchema)  # type: ignore[arg-type]
 class QueryFieldSerializer(serializers.Serializer):
     def to_representation(self, value):
         return self.parent._query_variables_mapping(value)  # type: ignore
@@ -453,8 +456,6 @@ class InsightSerializer(InsightBasicSerializer):
         request = self.context["request"]
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
         team_id = self.context["team_id"]
-        current_url = request.headers.get("Referer")
-        session_id = request.headers.get("X-Posthog-Session-Id")
 
         created_by = validated_data.pop("created_by", request.user)
         dashboards = validated_data.pop("dashboards", None)
@@ -469,6 +470,7 @@ class InsightSerializer(InsightBasicSerializer):
         InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
 
         if dashboards is not None:
+            # nosemgrep: idor-lookup-without-team
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
@@ -477,10 +479,6 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
-
-        properties = {}
-        properties["$current_url"] = current_url
-        properties["$session_id"] = session_id
 
         log_and_report_insight_activity(
             activity="created",
@@ -491,7 +489,7 @@ class InsightSerializer(InsightBasicSerializer):
             team_id=team_id,
             user=self.context["request"].user,
             was_impersonated=is_impersonated_session(self.context["request"]),
-            properties=properties,
+            properties=get_request_analytics_properties(request),
         )
 
         return insight
@@ -499,8 +497,6 @@ class InsightSerializer(InsightBasicSerializer):
     @transaction.atomic()
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="PATCH")
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
-        current_url = self.context["request"].headers.get("Referer")
-        session_id = self.context["request"].headers.get("X-Posthog-Session-Id")
         dashboards_before_change: list[Union[str, dict]] = []
         try:
             # since it is possible to be restoring a soft deleted insight
@@ -532,10 +528,10 @@ class InsightSerializer(InsightBasicSerializer):
                 self._update_insight_dashboards(dashboards, instance)
 
         updated_insight = super().update(instance, validated_data)
-        if not are_alerts_supported_for_insight(updated_insight):
+        if not updated_insight.are_alerts_supported:
             instance.alertconfiguration_set.all().delete()
 
-        self._log_insight_update(before_update, dashboards_before_change, updated_insight, current_url, session_id)
+        self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
         self.user_permissions.reset_insights_dashboard_cached_results()
 
@@ -546,8 +542,6 @@ class InsightSerializer(InsightBasicSerializer):
         before_update,
         dashboards_before_change,
         updated_insight,
-        current_url,
-        session_id,
     ):
         """
         KLUDGE: Automatic detection of insight dashboard updates is flaky
@@ -561,10 +555,6 @@ class InsightSerializer(InsightBasicSerializer):
         ]
         synthetic_dashboard_changes = self._synthetic_dashboard_changes(dashboards_before_change)
         changes = detected_changes + synthetic_dashboard_changes
-
-        properties = {}
-        properties["$current_url"] = current_url
-        properties["$session_id"] = session_id
 
         activity = "updated"
         deleted_change = next((change for change in changes if change.field == "deleted"), None)
@@ -584,7 +574,7 @@ class InsightSerializer(InsightBasicSerializer):
             user=self.context["request"].user,
             was_impersonated=is_impersonated_session(self.context["request"]),
             changes=changes,
-            properties=properties,
+            properties=get_request_analytics_properties(self.context["request"]),
         )
 
     def _synthetic_dashboard_changes(self, dashboards_before_change: list[dict]) -> list[Change]:
@@ -611,6 +601,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
         ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
+        # nosemgrep: idor-lookup-without-team (team check after lookup)
         candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add)
         dashboard: Dashboard
         for dashboard in candidate_dashboards:
@@ -633,6 +624,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         if ids_to_remove:
             # Check permission before removing insight from dashboards
+            # nosemgrep: idor-lookup-without-team (team check after lookup)
             dashboards_to_remove = Dashboard.objects.filter(id__in=ids_to_remove)
             for dashboard in dashboards_to_remove:
                 if (
@@ -702,7 +694,7 @@ class InsightSerializer(InsightBasicSerializer):
         return self.insight_result(insight).resolved_date_range
 
     def get_alerts(self, insight: Insight):
-        if not are_alerts_supported_for_insight(insight):
+        if not insight.are_alerts_supported:
             return []
 
         # Use prefetched alerts data
@@ -817,7 +809,7 @@ class InsightSerializer(InsightBasicSerializer):
         export_cache_keys: dict[int, str] | None = self.context.get("export_cache_keys")
         if export_cache_keys and insight.id in export_cache_keys:
             expected_cache_key = export_cache_keys[insight.id]
-            cached_response = fetch_cached_response_by_key(expected_cache_key)
+            cached_response = fetch_cached_response_by_key(expected_cache_key, team_id=insight.team_id)
             if cached_response:
                 return InsightResult(
                     result=cached_response.get("results"),
@@ -876,7 +868,6 @@ class InsightSerializer(InsightBasicSerializer):
                 logger.warn(
                     "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
                 )
-
                 return InsightResult(
                     result=None,
                     last_refresh=now(),
@@ -888,6 +879,29 @@ class InsightSerializer(InsightBasicSerializer):
                             insight_id=str(insight.id),
                             dashboard_id=str(dashboard.id) if dashboard else None,
                             error_message="concurrency_limit_exceeded",
+                            error=True,
+                        )
+                    ),
+                    cache_key=None,
+                    hogql=None,
+                    columns=None,
+                    has_more=None,
+                    timezone=self.context["get_team"]().timezone,
+                )
+            except Exception as e:
+                # Capture unexpected crashes so the API list doesn't fail
+                logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
+                return InsightResult(
+                    result=None,
+                    last_refresh=None,
+                    is_cached=False,
+                    query_status=dict(
+                        QueryStatus(
+                            id=self.context["request"].query_params.get("client_query_id"),
+                            team_id=insight.team_id,
+                            insight_id=str(insight.id),
+                            dashboard_id=str(dashboard.id) if dashboard else None,
+                            error_message=str(e),
                             error=True,
                         )
                     ),
@@ -1075,6 +1089,65 @@ class InsightViewSet(
 
         response = InsightBasicSerializer(recently_viewed, many=True)
         return Response(data=response.data, status=status.HTTP_200_OK)
+
+    @action(methods=["GET"], detail=False)
+    def trending(self, request: request.Request, *args, **kwargs) -> Response:
+        """
+        Returns trending insights based on view count in the last 24 hours.
+        Defaults to returning top 10 insights.
+        """
+        try:
+            days = int(request.GET.get("days", "1"))
+            limit = min(int(request.GET.get("limit", "10")), 100)
+        except (ValueError, TypeError):
+            raise ValidationError("days and limit must be valid integers")
+
+        cutoff_date = now() - timedelta(days=days)
+
+        queryset = (
+            Insight.objects.filter(team__project_id=self.team.project_id)
+            .annotate(
+                view_count=Count(
+                    "insightviewed",
+                    filter=Q(insightviewed__last_viewed_at__gte=cutoff_date),
+                )
+            )
+            .filter(view_count__gt=0)
+            .order_by("-view_count", "-last_modified_at")
+        )
+
+        queryset = self._filter_queryset_by_access_level(queryset)
+        queryset = queryset[:limit]
+        queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
+
+        response = InsightBasicSerializer(queryset, many=True)
+        data = response.data
+
+        # Batch fetch all viewers to avoid N+1 queries
+        insight_ids = [item["id"] for item in data]
+        all_viewers = (
+            InsightViewed.objects.filter(
+                team=self.team,
+                insight_id__in=insight_ids,
+                last_viewed_at__gte=cutoff_date,
+                user__isnull=False,
+            )
+            .select_related("user")
+            .order_by("insight_id", "-last_viewed_at")
+        )
+
+        viewers_by_insight: dict[int, list] = {}
+        for viewer in all_viewers:
+            iid = viewer.insight_id
+            if iid not in viewers_by_insight:
+                viewers_by_insight[iid] = []
+            if len(viewers_by_insight[iid]) < 3:
+                viewers_by_insight[iid].append(viewer.user)
+
+        for item in data:
+            item["viewers"] = UserBasicSerializer(viewers_by_insight.get(item["id"], []), many=True).data
+
+        return Response(data=data, status=status.HTTP_200_OK)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -1350,6 +1423,27 @@ When set, the specified dashboard's filters and date range override will be appl
         suggestions = get_insight_suggestions(query, self.team, result, context)
 
         return Response([s.model_dump() for s in suggestions])
+
+    @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
+    def generate_name(self, request: Request, **kwargs) -> Response:
+        """Generate an AI-suggested name for an insight based on its query configuration."""
+        query_data = request.data.get("query")
+        if not query_data:
+            return Response(
+                {"error": "Missing 'query' field in request body"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            query = schema.InsightVizNode.model_validate(query_data)
+        except Exception:
+            return Response(
+                {"error": "Invalid query format"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        name = generate_insight_name(query, self.team)
+        return Response({"name": name})
 
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])

@@ -14,6 +14,7 @@ import {
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import { createElement } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { handleApprovalRequired } from 'lib/approvals/utils'
@@ -21,12 +22,13 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { slugify } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { type ModifiedField } from 'scenes/feature-flags/FeatureFlagTemplates'
 import { FeatureFlagsTab, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -72,6 +74,7 @@ import {
 } from '~/types'
 
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
@@ -95,6 +98,8 @@ export interface DependentFlag {
     key: string
     name: string
 }
+
+export type FeatureFlagEditableSection = 'advanced_options' | 'variants' | 'payload' | 'release_conditions'
 
 export const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -148,6 +153,36 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 }
 
 const FLAG_DEPENDENCY_TIMEOUT_MS = 2000
+
+// Only returns true when groups are present and ALL explicitly set to 0.
+// In feature flags, null/undefined rollout_percentage means "serve to all" (100%), not 0%.
+export function hasZeroRollout(filters: FeatureFlagType['filters'] | undefined | null): boolean {
+    const groups = filters?.groups
+    if (!groups || groups.length === 0) {
+        return false
+    }
+    return groups.every((g) => g.rollout_percentage === 0)
+}
+
+// In feature flags, null/undefined rollout_percentage means "serve to all" (100%), so treat as active.
+export function hasMultipleVariantsActive(filters: FeatureFlagType['filters'] | undefined | null): boolean {
+    const variants = filters?.multivariate?.variants
+    if (!variants) {
+        return false
+    }
+    return variants.filter(({ rollout_percentage }) => rollout_percentage !== 0).length > 1
+}
+
+// Normalize a value into a valid feature flag key: spaces to dashes, strip invalid chars.
+// fromTitleInput: when auto-filling from a name field, downcase and trim both ends.
+// Direct key input preserves case and only trims the start (so users can can continue typing with spaces).
+// Note that lowercase should not be enforced as users do use camelCase or UPPERCASE
+export function slugifyFeatureFlagKey(
+    value: string,
+    { fromTitleInput = false }: { fromTitleInput?: boolean } = {}
+): string {
+    return slugify(value, { lowercase: fromTitleInput, trimBothEnds: fromTitleInput })
+}
 
 /** Check whether a string is a valid feature flag key. If not, a reason string is returned - otherwise undefined. */
 export function validateFeatureFlagKey(key: string): string | undefined {
@@ -382,12 +417,25 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
         }) => payload,
+        // V2 inline section editing actions
+        setSectionEditing: (section: FeatureFlagEditableSection | null) => ({ section }),
+        updateSectionDraft: (draft: Partial<FeatureFlagType>) => ({ draft }),
+        cancelSectionEdit: true,
+        saveSectionEdit: true,
+        updateDraftVariant: (index: number, field: 'key' | 'name' | 'rollout_percentage', value: string | number) => ({
+            index,
+            field,
+            value,
+        }),
+        updateDraftVariantPayload: (index: number, value: string | undefined) => ({ index, value }),
+        addDraftVariant: true,
+        removeDraftVariant: (index: number) => ({ index }),
+        distributeDraftVariantsEqually: true,
+        saveDescriptionInline: (name: string) => ({ name }),
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
         setPayloadExpanded: (expanded: boolean) => ({ expanded }),
-        setHighlightedFields: (fields: ModifiedField[]) => ({ fields }),
-        clearHighlight: (field: ModifiedField) => ({ field }),
         setTemplateExpanded: (expanded: boolean) => ({ expanded }),
         applyUrlTemplate: (templateId: string) => ({ templateId }),
         applyTemplate: (templateId: string) => ({ templateId }),
@@ -632,6 +680,35 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 editFeatureFlag: (_, { editing }) => editing,
             },
         ],
+        editingSection: [
+            null as FeatureFlagEditableSection | null,
+            {
+                setSectionEditing: (_, { section }) => section,
+                cancelSectionEdit: () => null,
+                saveFeatureFlagSuccess: () => null,
+            },
+        ],
+        sectionDraft: [
+            null as Partial<FeatureFlagType> | null,
+            {
+                setSectionEditing: () => null,
+                updateSectionDraft: (state, { draft }) => {
+                    const merged = { ...state, ...draft }
+                    if (state?.filters && draft.filters) {
+                        merged.filters = {
+                            ...state.filters,
+                            ...draft.filters,
+                            multivariate: draft.filters.multivariate
+                                ? { ...state.filters?.multivariate, ...draft.filters.multivariate }
+                                : state.filters?.multivariate,
+                        }
+                    }
+                    return merged
+                },
+                cancelSectionEdit: () => null,
+                saveFeatureFlagSuccess: () => null,
+            },
+        ],
         copyDestinationProject: [
             null as number | null,
             {
@@ -727,15 +804,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 setPayloadExpanded: (_, { expanded }) => expanded,
                 loadFeatureFlagSuccess: (_, { featureFlag }) => !!featureFlag?.filters?.payloads?.['true'],
-            },
-        ],
-        highlightedFields: [
-            [] as ModifiedField[],
-            {
-                setHighlightedFields: (_, { fields }) => fields,
-                clearHighlight: (state, { field }) => state.filter((f: ModifiedField) => f !== field),
-                // Reset when loading a new flag to avoid stale highlights
-                loadFeatureFlag: () => [],
             },
         ],
         templateExpanded: [
@@ -1416,7 +1484,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             } as FeatureFlagType)
 
             actions.setTemplateExpanded(false)
-            actions.setHighlightedFields(template.modifiedFields)
             actions.applyUrlTemplate(templateId)
         },
         copyFlagSuccess: ({ featureFlagCopy }) => {
@@ -1556,15 +1623,193 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 )
             }
         },
+        saveDescriptionInline: async ({ name }) => {
+            const flag = values.featureFlag
+            if (!flag.id || name === flag.name) {
+                return
+            }
+            try {
+                const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
+                    name,
+                })
+                actions.setFeatureFlag({ ...flag, name: savedFlag.name })
+                actions.updateFlag({ ...flag, name: savedFlag.name })
+                lemonToast.success('Description saved')
+            } catch {
+                lemonToast.error('Failed to save description')
+            }
+        },
+        saveSectionEdit: () => {
+            const draft = values.sectionDraft
+            if (!draft) {
+                actions.cancelSectionEdit()
+                return
+            }
+            const flag = values.featureFlag
+            const mergedFilters = draft.filters
+                ? {
+                      ...flag.filters,
+                      ...draft.filters,
+                      multivariate: draft.filters.multivariate
+                          ? { ...flag.filters?.multivariate, ...draft.filters.multivariate }
+                          : flag.filters?.multivariate,
+                  }
+                : flag.filters
+            const updatedFlag = { ...flag, ...draft, filters: mergedFilters }
+            actions.submitFeatureFlagWithValidation(updatedFlag)
+        },
+        updateDraftVariant: ({ index, field, value }) => {
+            const flag = values.featureFlag
+            const draft = values.sectionDraft
+            const variants = [...(draft?.filters?.multivariate?.variants ?? flag.filters?.multivariate?.variants ?? [])]
+            const payloads = { ...(draft?.filters?.payloads ?? flag.filters?.payloads) }
+
+            const coercedValue = field === 'rollout_percentage' ? Number(value) || 0 : String(value)
+            const oldKey = variants[index]?.key
+            variants[index] = { ...variants[index], [field]: coercedValue }
+
+            if (field === 'key' && oldKey && oldKey !== coercedValue) {
+                const duplicateExists = variants.some((v, i) => i !== index && v.key === coercedValue)
+                if (duplicateExists) {
+                    lemonToast.error('A variant with this key already exists')
+                    return
+                }
+                const existingPayload = payloads[oldKey]
+                if (existingPayload !== undefined) {
+                    delete payloads[oldKey]
+                    payloads[coercedValue as string] = existingPayload
+                }
+            }
+
+            actions.updateSectionDraft({
+                filters: {
+                    ...flag.filters,
+                    ...draft?.filters,
+                    multivariate: { ...flag.filters?.multivariate, ...draft?.filters?.multivariate, variants },
+                    payloads,
+                },
+            })
+        },
+        updateDraftVariantPayload: ({ index, value }) => {
+            const flag = values.featureFlag
+            const draft = values.sectionDraft
+            const variants = draft?.filters?.multivariate?.variants ?? flag.filters?.multivariate?.variants ?? []
+            const variantKey = variants[index]?.key
+            if (!variantKey) {
+                return
+            }
+            const payloads = { ...(draft?.filters?.payloads ?? flag.filters?.payloads) }
+            if (value === '' || value === undefined) {
+                delete payloads[variantKey]
+            } else {
+                payloads[variantKey] = value
+            }
+            actions.updateSectionDraft({
+                filters: { ...flag.filters, ...draft?.filters, payloads },
+            })
+        },
+        addDraftVariant: () => {
+            const flag = values.featureFlag
+            const draft = values.sectionDraft
+            const variants = [...(draft?.filters?.multivariate?.variants ?? flag.filters?.multivariate?.variants ?? [])]
+            variants.push({ key: '', name: '', rollout_percentage: 0 })
+            actions.updateSectionDraft({
+                filters: {
+                    ...flag.filters,
+                    ...draft?.filters,
+                    multivariate: { ...flag.filters?.multivariate, ...draft?.filters?.multivariate, variants },
+                },
+            })
+        },
+        removeDraftVariant: ({ index }) => {
+            const flag = values.featureFlag
+            const draft = values.sectionDraft
+            const variants = [...(draft?.filters?.multivariate?.variants ?? flag.filters?.multivariate?.variants ?? [])]
+            const removed = variants[index]
+            variants.splice(index, 1)
+
+            const payloads = { ...(draft?.filters?.payloads ?? flag.filters?.payloads) }
+            if (removed?.key) {
+                delete payloads[removed.key]
+            }
+
+            actions.updateSectionDraft({
+                filters: {
+                    ...flag.filters,
+                    ...draft?.filters,
+                    multivariate: { ...flag.filters?.multivariate, ...draft?.filters?.multivariate, variants },
+                    payloads,
+                },
+            })
+        },
+        distributeDraftVariantsEqually: () => {
+            const flag = values.featureFlag
+            const draft = values.sectionDraft
+            const variants = [...(draft?.filters?.multivariate?.variants ?? flag.filters?.multivariate?.variants ?? [])]
+            const numVariants = variants.length
+            if (numVariants > 0 && numVariants <= 100) {
+                const percentageRounded = Math.round(100 / numVariants)
+                const totalRounded = percentageRounded * numVariants
+                const delta = totalRounded - 100
+                variants.forEach((variant, i) => {
+                    variants[i] = { ...variant, rollout_percentage: percentageRounded }
+                })
+                variants[numVariants - 1] = {
+                    ...variants[numVariants - 1],
+                    rollout_percentage: percentageRounded - delta,
+                }
+            }
+            actions.updateSectionDraft({
+                filters: {
+                    ...flag.filters,
+                    ...draft?.filters,
+                    multivariate: { ...flag.filters?.multivariate, ...draft?.filters?.multivariate, variants },
+                },
+            })
+        },
         editFeatureFlag: async ({ editing }) => {
             if (editing) {
                 actions.loadFeatureFlag()
             }
         },
         submitFeatureFlagWithValidation: async ({ featureFlag }, breakpoint, action, previousState) => {
+            const originalFlag = values.originalFeatureFlag
+            const keyChanged = originalFlag && featureFlag.id && originalFlag.key !== featureFlag.key
+
+            if (keyChanged) {
+                const confirmed = await new Promise<boolean>((resolve) => {
+                    LemonDialog.open({
+                        title: 'Change flag key?',
+                        description: createElement(
+                            'span',
+                            null,
+                            'Renaming this key will break any existing code that references it (e.g. ',
+                            createElement(
+                                'code',
+                                { className: 'text-xs bg-fill-secondary rounded px-1 py-0.5' },
+                                `getFeatureFlag('${originalFlag.key}')`
+                            ),
+                            '). Make sure to update all SDK calls and integrations.'
+                        ),
+                        primaryButton: {
+                            children: 'Change key',
+                            status: 'danger',
+                            onClick: () => resolve(true),
+                        },
+                        secondaryButton: {
+                            children: 'Cancel',
+                        },
+                        onAfterClose: () => resolve(false),
+                    })
+                })
+                if (!confirmed) {
+                    return
+                }
+            }
+
             await sharedListeners.checkDependentFlagsAndConfirm(
                 {
-                    originalFlag: values.originalFeatureFlag,
+                    originalFlag,
                     updatedFlag: featureFlag,
                     onConfirm: () => {
                         if (featureFlag.id) {
@@ -1772,29 +2017,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 id: string
                 name: string
                 description: string
-                modifiedFields: ModifiedField[]
                 getValues: (flag: FeatureFlagType) => Partial<FeatureFlagType>
             }> => [
                 {
                     id: 'simple',
-                    name: 'Simple flag',
+                    name: TEMPLATE_NAMES.simple,
                     description: 'On/off for all users',
-                    modifiedFields: ['key', 'rollout'],
                     getValues: (flag) => ({
                         key: 'my-feature',
                         is_remote_configuration: false,
                         filters: {
                             ...flag.filters,
                             multivariate: null,
-                            groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+                            groups: [{ properties: [], rollout_percentage: 0, variant: null }],
                         },
                     }),
                 },
                 {
                     id: 'targeted',
-                    name: 'Targeted release',
+                    name: TEMPLATE_NAMES.targeted,
                     description: 'Release to specific users',
-                    modifiedFields: ['key', 'conditions', 'rollout'],
                     getValues: (flag) => ({
                         key: 'targeted-release',
                         is_remote_configuration: false,
@@ -1811,7 +2053,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                             operator: PropertyOperator.IContains,
                                         },
                                     ],
-                                    rollout_percentage: 100,
+                                    rollout_percentage: 0,
                                     variant: null,
                                 },
                             ],
@@ -1820,9 +2062,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 {
                     id: 'multivariate',
-                    name: 'Multivariate',
+                    name: TEMPLATE_NAMES.multivariate,
                     description: 'Multiple variants',
-                    modifiedFields: ['key', 'flagType', 'rollout'],
                     getValues: (flag) => ({
                         key: 'multivariate-flag',
                         is_remote_configuration: false,
@@ -1834,15 +2075,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                     { key: 'test', rollout_percentage: 50 },
                                 ],
                             },
-                            groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+                            groups: [{ properties: [], rollout_percentage: 0, variant: null }],
                         },
                     }),
                 },
                 {
                     id: 'targeted-multivariate',
-                    name: 'Targeted multivariate',
+                    name: TEMPLATE_NAMES['targeted-multivariate'],
                     description: 'Variants for specific users',
-                    modifiedFields: ['key', 'flagType', 'conditions', 'rollout'],
                     getValues: (flag) => ({
                         key: 'targeted-multivariate',
                         is_remote_configuration: false,
@@ -1864,7 +2104,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                             operator: PropertyOperator.IContains,
                                         },
                                     ],
-                                    rollout_percentage: 100,
+                                    rollout_percentage: 0,
                                     variant: null,
                                 },
                             ],
@@ -1879,8 +2119,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
-                // Reset editing state when navigating to prevent it from persisting across flags
-                actions.editFeatureFlag(false)
+                // Set editing state based on URL parameter, or reset to prevent persisting across flags
+                actions.editFeatureFlag(searchParams.edit === true || searchParams.edit === 'true')
 
                 if (props.id) {
                     // When there is sourceId, we load the feature flag (for duplicating)

@@ -86,10 +86,16 @@ class Client:
         """List available models for a provider."""
         return _get_provider(provider).list_models(api_key)
 
+    @classmethod
+    def recommended_models(cls, provider: str) -> set[str]:
+        """Return the set of curated/recommended model IDs for a provider."""
+        return _get_provider(provider).recommended_models()
+
 
 def _get_provider(name: str) -> "Provider":
     """Get provider by name."""
     from products.llm_analytics.backend.llm.providers.anthropic import AnthropicAdapter
+    from products.llm_analytics.backend.llm.providers.fireworks import FireworksAdapter
     from products.llm_analytics.backend.llm.providers.gemini import GeminiAdapter
     from products.llm_analytics.backend.llm.providers.openai import OpenAIAdapter
     from products.llm_analytics.backend.llm.providers.openrouter import OpenRouterAdapter
@@ -103,5 +109,7 @@ def _get_provider(name: str) -> "Provider":
             return GeminiAdapter()
         case "openrouter":
             return OpenRouterAdapter()
+        case "fireworks":
+            return FireworksAdapter()
         case _:
             raise UnsupportedProviderError(name)

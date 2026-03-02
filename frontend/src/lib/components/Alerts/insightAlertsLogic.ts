@@ -27,6 +27,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     key(({ insightId }) => `insight-${insightId}`),
     actions({
         setShouldShowAlertDeletionWarning: (show: boolean) => ({ show }),
+        upsertAlert: (alert: AlertType) => ({ alert }),
+        removeAlert: (alertId: AlertType['id']) => ({ alertId }),
     }),
 
     connect((props: InsightAlertsLogicProps) => ({
@@ -50,6 +52,19 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     })),
 
     reducers({
+        alerts: [
+            [] as AlertType[],
+            {
+                upsertAlert: (state, { alert }) => {
+                    const index = state.findIndex((a) => a.id === alert.id)
+                    if (index >= 0) {
+                        return [...state.slice(0, index), alert, ...state.slice(index + 1)]
+                    }
+                    return [...state, alert]
+                },
+                removeAlert: (state, { alertId }) => state.filter((a) => a.id !== alertId),
+            },
+        ],
         shouldShowAlertDeletionWarning: [
             false,
             {

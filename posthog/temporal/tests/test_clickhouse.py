@@ -14,6 +14,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseMemoryLimitExceededError,
     ClickHouseQueryNotFound,
     ClickHouseQueryStatus,
+    ClickHouseTooManySimultaneousQueriesError,
     add_log_comment_param,
     encode_clickhouse_data,
 )
@@ -149,11 +150,26 @@ def test_clickhouse_memory_limit_exceeded_error(clickhouse_client):
         return_value=(
             MagicMock(
                 status_code=500,
-                text="Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB (attempt to allocate chunk of 12.26 MiB bytes), current RSS: 111.22 GiB, maximum: 111.19 GiB. OvercommitTracker decision: Query was selected to stop by OvercommitTracker: While executing MergeSortingTransform. (MEMORY_LIMIT_EXCEEDED) (version 25.8.12.129 (official build))",
+                text="Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB (attempt to allocate chunk of 12.26 MiB bytes), current RSS: 111.22 GiB, maximum: 111.19 GiB. OvercommitTracker decision: Query was selected to stop by OvercommitTracker: While executing MergeSortingTransform. (MEMORY_LIMIT_EXCEEDED) (version x.x.x.x (official build))",
             )
         ),
     ):
         with pytest.raises(ClickHouseMemoryLimitExceededError):
+            with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
+                pass
+
+
+def test_clickhouse_too_many_simultaneous_queries_error(clickhouse_client):
+    with patch(
+        "posthog.temporal.common.clickhouse.requests.Session.post",
+        return_value=(
+            MagicMock(
+                status_code=500,
+                text="Code: 202. DB::Exception: Received from dummy-ch-node.internal. DB::Exception: Too many simultaneous queries for all users. Current: 100, maximum: 100. (TOO_MANY_SIMULTANEOUS_QUERIES) (version x.x.x.x (official build))",
+            )
+        ),
+    ):
+        with pytest.raises(ClickHouseTooManySimultaneousQueriesError):
             with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
                 pass
 

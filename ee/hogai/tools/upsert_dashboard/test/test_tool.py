@@ -23,8 +23,9 @@ from posthog.schema import (
 )
 
 from posthog.models import Dashboard, DashboardTile, Insight
+from posthog.models.dashboard_tile import Text
 
-from ee.hogai.artifacts.types import ModelArtifactResult
+from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
@@ -117,6 +118,47 @@ class TestUpsertDashboardTool(BaseTest):
 
         self.assertIn("Test Dashboard", result)
         self.assertIn(str(dashboard.id), result)
+
+    async def test_create_dashboard_output_includes_correct_url(self):
+        insight = await self._create_insight("URL Test Insight")
+
+        tool = self._create_tool()
+
+        action = CreateDashboardToolArgs(
+            insight_ids=[insight.short_id],
+            name="URL Dashboard",
+            description="Testing URL output",
+        )
+
+        result, _ = await tool._arun_impl(action)
+
+        dashboard = await Dashboard.objects.aget(name="URL Dashboard")
+        expected_url = f"/project/{self.team.id}/dashboard/{dashboard.id}"
+        self.assertIn(f"Dashboard URL: {expected_url}", result)
+        self.assertNotIn("/dashboards/", result)
+
+    async def test_update_dashboard_output_includes_correct_url(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Existing Dashboard",
+            created_by=self.user,
+        )
+
+        insight = await self._create_insight("Update URL Insight")
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight, layouts={})
+
+        tool = self._create_tool()
+
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            name="Updated Dashboard",
+        )
+
+        result, _ = await tool._arun_impl(action)
+
+        expected_url = f"/project/{self.team.id}/dashboard/{dashboard.id}"
+        self.assertIn(f"Dashboard URL: {expected_url}", result)
+        self.assertNotIn("/dashboards/", result)
 
     async def test_update_dashboard_with_multiple_insights_replaces_all(self):
         """Test that insight_ids replaces all existing insights with the new ones."""
@@ -805,6 +847,125 @@ class TestUpsertDashboardTool(BaseTest):
         active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
         self.assertEqual(len(active_tiles), 3)
         self.assertEqual({t.insight_id for t in active_tiles}, {insights[k].id for k in ["A", "B", "C"]})
+
+    @parameterized.expand(
+        [
+            ("add_insight_to_dashboard_with_text", None),
+            ("replace_insights_on_dashboard_with_text", "Old Insight"),
+        ]
+    )
+    async def test_update_dashboard_preserves_text_tiles(self, _name: str, existing_insight_name: str | None):
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+
+        text = await Text.objects.acreate(body="Hello World", team=self.team)
+        text_tile = await DashboardTile.objects.acreate(
+            dashboard=dashboard, text=text, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 3}}
+        )
+
+        if existing_insight_name:
+            old_insight = await self._create_insight(existing_insight_name)
+            await DashboardTile.objects.acreate(dashboard=dashboard, insight=old_insight, layouts={})
+
+        new_insight = await self._create_insight("New Insight")
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[new_insight.short_id],
+        )
+
+        await tool._arun_impl(action)
+
+        await text_tile.arefresh_from_db()
+        self.assertFalse(text_tile.deleted)
+
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        text_tiles = [t for t in active_tiles if t.text_id is not None]
+        insight_tiles = [t for t in active_tiles if t.insight_id is not None]
+        self.assertEqual(len(text_tiles), 1)
+        self.assertEqual(text_tiles[0].text_id, text.id)
+        self.assertEqual(len(insight_tiles), 1)
+        self.assertEqual(insight_tiles[0].insight_id, new_insight.id)
+
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_create_dashboard_reports_dashboard_created(self, mock_report):
+        insight = await self._create_insight("Test Insight")
+        tool = self._create_tool()
+
+        action = CreateDashboardToolArgs(
+            insight_ids=[insight.short_id],
+            name="Reported Dashboard",
+            description="Test",
+        )
+
+        await tool._arun_impl(action)
+
+        dashboard_created_calls = [c for c in mock_report.call_args_list if c[0][1] == "dashboard created"]
+        self.assertEqual(len(dashboard_created_calls), 1)
+        self.assertEqual(dashboard_created_calls[0][0][0], self.user)
+        self.assertEqual(dashboard_created_calls[0][0][2]["source"], "posthog_ai")
+
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_update_dashboard_reports_dashboard_updated(self, mock_report):
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Existing", created_by=self.user)
+        insight = await self._create_insight("Test Insight")
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight, layouts={})
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            name="Updated",
+        )
+
+        await tool._arun_impl(action)
+
+        dashboard_updated_calls = [c for c in mock_report.call_args_list if c[0][1] == "dashboard updated"]
+        self.assertEqual(len(dashboard_updated_calls), 1)
+        self.assertEqual(dashboard_updated_calls[0][0][0], self.user)
+        self.assertEqual(dashboard_updated_calls[0][0][2]["source"], "posthog_ai")
+
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_create_dashboard_reports_insight_created_for_new_insights(self, mock_report):
+        state_query = TrendsQuery(series=[EventsNode(name="$pageview")])
+        state_content = VisualizationArtifactContent(
+            query=state_query,
+            name="New Insight",
+            description="From state",
+        )
+        state_result: VisualizationWithSourceResult = StateArtifactResult(content=state_content)
+
+        tool = self._create_tool()
+
+        action = CreateDashboardToolArgs(
+            insight_ids=["state-id"],
+            name="Dashboard with New Insights",
+            description="Test",
+        )
+
+        with patch.object(
+            tool._context_manager.artifacts, "aget_visualizations", new=AsyncMock(return_value=[state_result])
+        ):
+            await tool._arun_impl(action)
+
+        insight_created_calls = [c for c in mock_report.call_args_list if c[0][1] == "insight created"]
+        self.assertEqual(len(insight_created_calls), 1)
+        self.assertEqual(insight_created_calls[0][0][2]["source"], "posthog_ai")
+        self.assertIn("insight_id", insight_created_calls[0][0][2])
+
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_create_dashboard_does_not_report_insight_created_for_existing_insights(self, mock_report):
+        insight = await self._create_insight("Existing Insight")
+        tool = self._create_tool()
+
+        action = CreateDashboardToolArgs(
+            insight_ids=[insight.short_id],
+            name="Dashboard with Existing",
+            description="Test",
+        )
+
+        await tool._arun_impl(action)
+
+        insight_created_calls = [c for c in mock_report.call_args_list if c[0][1] == "insight created"]
+        self.assertEqual(len(insight_created_calls), 0)
 
 
 class TestGetDashboardAndSortedTiles(BaseTest):

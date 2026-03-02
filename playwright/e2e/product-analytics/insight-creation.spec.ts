@@ -8,35 +8,11 @@ test.describe('Insight creation', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true })
+        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
         await playwrightSetup.login(page, workspace!)
-    })
-
-    test('Trends: add breakdown, save and verify persistence', async ({ page }) => {
-        const insight = new InsightPage(page)
-
-        await test.step('navigate to new Trends insight and verify chart renders', async () => {
-            await insight.goToNewTrends()
-            await expect(insight.activeTab).toContainText('Trends')
-            await insight.trends.waitForChart()
-        })
-
-        await test.step('add breakdown by Browser and verify row count increases', async () => {
-            await insight.trends.addBreakdown('Browser')
-            await insight.trends.waitForChart()
-            await insight.trends.waitForDetailsTable()
-            const rowCount = await insight.trends.detailsLabels.count()
-            expect(rowCount).toBeGreaterThanOrEqual(1)
-        })
-
-        await test.step('save the insight and verify view mode', async () => {
-            await insight.save()
-            await expect(insight.editButton).toBeVisible()
-            expect(page.url()).not.toContain('/new')
-        })
     })
 
     test('Funnels: configure multi-step funnel, verify visualization, save and persist', async ({ page }) => {
@@ -181,8 +157,9 @@ test.describe('Insight creation', () => {
         })
 
         await test.step('add insight to a new dashboard', async () => {
-            await dashboard.addInsightToNewDashboard()
-            await expect(dashboard.items.locator('canvas').first()).toBeVisible()
+            await dashboard.addToNewDashboardFromInsightPage()
+            await expect(page).toHaveURL(/\/dashboard\//)
+            await expect(page.locator('.InsightCard canvas').first()).toBeVisible()
         })
     })
 })

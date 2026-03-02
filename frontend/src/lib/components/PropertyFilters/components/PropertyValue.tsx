@@ -179,8 +179,9 @@ export function PropertyValue({
     }, [propertyOptions?.values, initialSuggestedValues])
 
     const onSearchTextChange = (newInput: string): void => {
-        if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
-            load(newInput.trim())
+        const trimmedInput = newInput.trim()
+        if (trimmedInput !== currentSearchInput.current && !(operator && isOperatorFlag(operator))) {
+            load(trimmedInput)
         }
     }
 
@@ -302,6 +303,7 @@ export function PropertyValue({
             loading={propertyOptions?.status === 'loading'}
             value={formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
+            singleValueAsSnack
             allowCustomValues={propertyOptions?.allowCustomValues ?? true}
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
             onInputChange={onSearchTextChange}

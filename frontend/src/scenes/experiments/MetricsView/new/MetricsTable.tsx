@@ -10,9 +10,9 @@ import { ExperimentStatsMethod, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
 import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
+import { MAX_AXIS_RANGE } from './constants'
 import { MetricRowGroup } from './MetricRowGroup'
 import { TableHeader } from './TableHeader'
-import { MAX_AXIS_RANGE } from './constants'
 
 interface MetricsTableProps {
     metrics: ExperimentMetric[]
@@ -33,7 +33,7 @@ export function MetricsTable({
     getInsightType,
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
-    const { experiment, hasMinimumExposureForResults, exposuresLoading } = useValues(experimentLogic)
+    const { experiment, exposuresLoading } = useValues(experimentLogic)
     const { duplicateMetric, updateExperimentMetrics, updateMetricBreakdown, removeMetricBreakdown } =
         useActions(experimentLogic)
 
@@ -151,7 +151,6 @@ export function MetricsTable({
                                 }}
                                 error={error}
                                 isLoading={isLoading}
-                                hasMinimumExposureForResults={hasMinimumExposureForResults}
                                 exposuresLoading={exposuresLoading}
                                 showDetailsModal={showDetailsModal}
                             />

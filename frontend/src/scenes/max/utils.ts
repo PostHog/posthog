@@ -25,7 +25,7 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import {
     DashboardFilter,
-    DataTableNode,
+    DataVisualizationNode,
     HogQLVariable,
     InsightVizNode,
     NodeKind,
@@ -36,7 +36,6 @@ import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
 import { Scene } from '../sceneTypes'
-import { EnhancedToolCall } from './Thread'
 import { MODE_DEFINITIONS } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import {
@@ -48,6 +47,7 @@ import {
     MaxInsightContext,
     MaxUIContext,
 } from './maxTypes'
+import { EnhancedToolCall } from './Thread'
 
 export function isMultiVisualizationMessage(
     message: RootAssistantMessage | undefined | null
@@ -144,37 +144,6 @@ export function getSlackThreadUrl(slackThreadKey: string, slackWorkspaceDomain?:
     return `https://${domain}.slack.com/archives/${channel}/${urlTs}`
 }
 
-/**
- * Checks if a suggestion requires user input.
- * @param suggestion - The suggestion to check.
- * @returns True if the suggestion requires input, false otherwise.
- */
-export function checkSuggestionRequiresUserInput(suggestion: string): boolean {
-    const matches = suggestion.match(/<|>|…/g)
-    return !!matches && matches.length > 0
-}
-
-/**
- * Strips the user input placeholder (`<`, `>`, `…`) from a suggestion.
- * @param suggestion - The suggestion to strip.
- * @returns The stripped suggestion.
- */
-export function stripSuggestionPlaceholders(suggestion: string): string {
-    return `${suggestion
-        .replace(/<[^>]*>/g, '')
-        .replace(/…$/, '')
-        .trim()} `
-}
-
-/**
- * Formats a suggestion by stripping the placeholder characters (`<`, `>`) from a suggestion.
- * @param suggestion - The suggestion to format.
- * @returns The formatted suggestion.
- */
-export function formatSuggestion(suggestion: string): string {
-    return `${suggestion.replace(/[<>]/g, '').replace(/…$/, '').trim()}${suggestion.endsWith('…') ? '…' : ''}`
-}
-
 // Utility functions for transforming data to max context
 export const insightToMaxContext = (
     insight: Partial<QueryBasedInsightModel>,
@@ -190,6 +159,7 @@ export const insightToMaxContext = (
         name: insight.name || insight.derived_name,
         description: insight.description,
         query: source,
+        result: insight.result ?? undefined,
         filtersOverride,
         variablesOverride,
     }
@@ -312,7 +282,7 @@ export const visualizationTypeToQuery = (
 ): QuerySchema | null => {
     const source = castAssistantQuery('answer' in visualization ? visualization.answer : visualization.query)
     if (isHogQLQuery(source)) {
-        return { kind: NodeKind.DataTableNode, source: source } satisfies DataTableNode
+        return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
     }
     if (isInsightQueryNode(source)) {
         return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode

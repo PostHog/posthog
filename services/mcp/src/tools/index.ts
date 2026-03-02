@@ -34,6 +34,8 @@ import deleteFeatureFlag from './featureFlags/delete'
 import getAllFeatureFlags from './featureFlags/getAll'
 import getFeatureFlagDefinition from './featureFlags/getDefinition'
 import updateFeatureFlag from './featureFlags/update'
+// Generated tools (from definitions/*.yaml)
+import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import createInsight from './insights/create'
 import deleteInsight from './insights/delete'
@@ -43,14 +45,16 @@ import queryInsight from './insights/query'
 import updateInsight from './insights/update'
 // LLM Observability
 import getLLMCosts from './llmAnalytics/getLLMCosts'
-import logsListAttributeValues from './logs/listAttributeValues'
 import logsListAttributes from './logs/listAttributes'
+import logsListAttributeValues from './logs/listAttributeValues'
 // Logs
 import logsQuery from './logs/query'
 // Organizations
 import getOrganizationDetails from './organizations/getDetails'
 import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
+// PostHog AI tools
+import { executeSql, readDataSchema, readDataWarehouseSchema } from './posthogAiTools'
 // Projects
 import eventDefinitions from './projects/eventDefinitions'
 import getProjects from './projects/getProjects'
@@ -71,7 +75,11 @@ import surveysGlobalStats from './surveys/global-stats'
 import surveyStats from './surveys/stats'
 import updateSurvey from './surveys/update'
 // Misc
-import { getToolsForFeatures as getFilteredToolNames, getToolDefinition } from './toolDefinitions'
+import {
+    type ToolFilterOptions,
+    getToolsForFeatures as getFilteredToolNames,
+    getToolDefinition,
+} from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 
 // Map of tool names to tool factory functions
@@ -160,10 +168,21 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Demo
     'demo-mcp-ui-apps': demoMcpUiApps,
+
+    // PostHog AI tools
+    'execute-sql': executeSql,
+    'read-data-schema': readDataSchema,
+    'read-data-warehouse-schema': readDataWarehouseSchema,
 }
 
-export const getToolsFromContext = async (context: Context, features?: string[]): Promise<Tool<ZodObjectAny>[]> => {
-    const allowedToolNames = getFilteredToolNames(features)
+export const getToolsFromContext = async (
+    context: Context,
+    options?: ToolFilterOptions
+): Promise<Tool<ZodObjectAny>[]> => {
+    const useGenerated = context.env.USE_GENERATED_TOOLS === 'true'
+    const effectiveMap = useGenerated ? { ...TOOL_MAP, ...GENERATED_TOOL_MAP } : TOOL_MAP
+    const excludeTools = options?.excludeTools ?? []
+    const allowedToolNames = getFilteredToolNames(options).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
     for (const toolName of allowedToolNames) {
@@ -171,7 +190,7 @@ export const getToolsFromContext = async (context: Context, features?: string[])
         if (toolName === 'docs-search' && context.env.INKEEP_API_KEY) {
             toolBases.push(searchDocs())
         } else {
-            const toolFactory = TOOL_MAP[toolName]
+            const toolFactory = effectiveMap[toolName]
             if (toolFactory) {
                 toolBases.push(toolFactory())
             }
@@ -179,7 +198,7 @@ export const getToolsFromContext = async (context: Context, features?: string[])
     }
 
     const tools: Tool<ZodObjectAny>[] = toolBases.map((toolBase) => {
-        const definition = getToolDefinition(toolBase.name)
+        const definition = getToolDefinition(toolBase.name, options?.version)
         return {
             ...toolBase,
             title: definition.title,

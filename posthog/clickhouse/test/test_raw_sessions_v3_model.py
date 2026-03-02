@@ -10,6 +10,7 @@ from posthog.test.base import (
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.raw_sessions.sessions_v3 import (
+    DISTRIBUTED_RAW_SESSIONS_TABLE_V3,
     GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
@@ -331,6 +332,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
                 where="team_id = %(team_id)s AND timestamp >= '2024-03-01'",
                 shard_index=1,
                 num_shards=2,
+                include_session_timestamp=True,
             ),
             {"team_id": self.team.id},
         )
@@ -339,6 +341,15 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
                 where="team_id = %(team_id)s AND min_first_timestamp >= '2024-03-01'",
                 shard_index=1,
                 num_shards=2,
+            ),
+            {"team_id": self.team.id},
+        )
+        # distributed table has MATERIALIZED session_timestamp, so don't include it
+        sync_execute(
+            RAW_SESSION_TABLE_BACKFILL_SQL_V3(
+                where="team_id = %(team_id)s AND timestamp >= '2024-03-01'",
+                target_table=DISTRIBUTED_RAW_SESSIONS_TABLE_V3(),
+                include_session_timestamp=False,
             ),
             {"team_id": self.team.id},
         )

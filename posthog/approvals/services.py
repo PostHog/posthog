@@ -27,6 +27,8 @@ class RequestContext:
         self.user = user
         self.data = data
         self.session: dict[str, Any] = {}
+        self.META: dict[str, str] = {}
+        self.headers: dict[str, str] = {}
 
 
 def apply_change_request(change_request: ChangeRequest) -> Any:
@@ -320,11 +322,11 @@ class ChangeRequestService:
         )
 
     def cancel(self, reason: str = "Canceled by requester") -> CancelResult:
-        if self.change_request.state != ChangeRequestState.PENDING:
-            raise InvalidStateError("Only pending change requests can be canceled")
-
         with transaction.atomic():
             change_request = ChangeRequest.objects.select_for_update().get(pk=self.change_request.pk)
+
+            if not change_request.can_be_canceled_by(self.user.id):
+                raise InvalidStateError("Cannot cancel this change request")
 
             # Create a rejection record with the cancellation reason
             Approval.objects.create(

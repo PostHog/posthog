@@ -21,12 +21,22 @@ class VideoSummarySingleSessionInputs(BaseModel):
     extra_summary_context: ExtraSummaryContext | None = None
 
 
+class PrepSessionVideoAssetResult(BaseModel):
+    """Result from preparing the session video ExportedAsset."""
+
+    model_config = ConfigDict(frozen=True)
+
+    asset_id: int
+    needs_export: bool
+
+
 class UploadedVideo(BaseModel):
     """Reference to a video uploaded to Gemini for analysis"""
 
     model_config = ConfigDict(frozen=True)
 
     file_uri: str
+    gemini_file_name: str = Field(description="Gemini file identifier for deletion (e.g. 'files/abc123')")
     mime_type: str
     duration: int = Field(description="Duration in seconds")
 

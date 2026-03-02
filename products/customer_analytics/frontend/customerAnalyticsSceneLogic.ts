@@ -6,12 +6,13 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { capitalizeFirstLetter, getDefaultInterval, wordPluralize } from 'lib/utils'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { ActionsNode, AnyEntityNode, EventsNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { sceneLogic } from '~/scenes/sceneLogic'
 import {
     BaseMathType,
     Breadcrumb,
@@ -89,6 +90,8 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             ],
             groupsModel,
             ['aggregationLabel', 'groupsEnabled', 'groupTypesRaw'],
+            sceneLogic,
+            ['sceneKey'],
         ],
     })),
     actions({
@@ -136,13 +139,19 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             () => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId],
             (tabIdProp: string): string => tabIdProp,
         ],
+        activeTab: [
+            (s) => [s.sceneKey],
+            (sceneKey): 'dashboard' | 'journeys' => {
+                return sceneKey === 'customerAnalyticsJourneys' ? 'journeys' : 'dashboard'
+            },
+        ],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
                 {
                     key: Scene.CustomerAnalytics,
                     name: sceneConfigurations[Scene.CustomerAnalytics].name,
-                    path: urls.customerAnalytics(),
+                    path: urls.customerAnalyticsDashboard(),
                     iconType: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
                 },
             ],

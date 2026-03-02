@@ -16,12 +16,16 @@ const getToday = (): { month: number; day: number } => {
 
 // Always wrap the exported functions with this to prevent them
 // from returning true on Storybook which would cause a bunch of flakey snapshots
-const wrapWithStorybookCheck = (fn: () => boolean) => () => {
-    if (inStorybook() || inStorybookTestRunner()) {
-        return false
-    }
+const wrapWithStorybookCheck = <F extends (...args: any[]) => boolean>(
+    fn: F
+): ((...args: Parameters<F>) => boolean) => {
+    return (...args: Parameters<F>): boolean => {
+        if (inStorybook() || inStorybookTestRunner()) {
+            return false
+        }
 
-    return fn()
+        return fn(...args)
+    }
 }
 
 export const isChristmas = wrapWithStorybookCheck(() => {
@@ -43,3 +47,24 @@ export const isHalloween = wrapWithStorybookCheck(() => {
     const { month, day } = getToday()
     return month === 9 && day >= 28 && day <= 31
 })
+
+type Holiday = 'christmas' | 'halloween'
+type HolidayMatcher<T> = {
+    [key in Holiday]?: T
+}
+
+export const holidaysMatcher = <T,>(matcher: HolidayMatcher<T>, orElse: T): T => {
+    // Return the default value in Storybook to prevent flakey snapshots
+    if (inStorybook() || inStorybookTestRunner()) {
+        return orElse
+    }
+
+    if (matcher.christmas !== undefined && isChristmas()) {
+        return matcher.christmas
+    }
+    if (matcher.halloween !== undefined && isHalloween()) {
+        return matcher.halloween
+    }
+
+    return orElse
+}

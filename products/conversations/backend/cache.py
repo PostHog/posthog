@@ -116,3 +116,12 @@ def invalidate_unread_count_cache(team_id: int) -> None:
         cache.delete(key)
     except Exception:
         logger.warning("conversations_cache_delete_error", key=key)
+
+
+def invalidate_tickets_cache(team_id: int, widget_session_id: str) -> None:
+    """Invalidate tickets list cache for a widget session (no status filter)."""
+    key = get_tickets_cache_key(team_id, widget_session_id, None)
+    try:
+        cache.delete(key)
+    except Exception:
+        logger.warning("conversations_cache_delete_error", key=key)

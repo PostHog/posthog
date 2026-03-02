@@ -99,7 +99,7 @@ function validateInsight(insight: Partial<InsightModel>, options?: InsightHclExp
     return warnings
 }
 
-const INSIGHT_EXPORTER: ResourceExporter<Partial<InsightModel>, InsightHclExportOptions> = {
+export const INSIGHT_EXPORTER: ResourceExporter<Partial<InsightModel>, InsightHclExportOptions> = {
     resourceType: 'posthog_insight',
     resourceLabel: 'insight',
     fieldMappings: INSIGHT_FIELD_MAPPINGS,

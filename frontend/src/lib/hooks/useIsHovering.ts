@@ -1,30 +1,24 @@
 import { RefObject, useEffect, useState } from 'react'
 
 // adapted from https://github.com/streamich/react-use/blob/master/src/useHoverDirty.ts
-const useIsHovering = (ref: RefObject<Element>): boolean => {
-    if (typeof ref !== 'object' || typeof ref.current === 'undefined') {
-        console.error('useHoverDirty expects a single ref argument.')
-    }
-
+export function useIsHovering(ref: RefObject<Element>): boolean {
     const [value, setValue] = useState(false)
 
     useEffect(() => {
+        const el = ref.current
+        if (!el) {
+            return
+        }
+
         const onMouseOver = (): void => setValue(true)
         const onMouseOut = (): void => setValue(false)
 
-        if (ref && ref.current) {
-            ref.current.addEventListener('mouseover', onMouseOver)
-            ref.current.addEventListener('mouseout', onMouseOut)
-        }
-
-        // fixes react-hooks/exhaustive-deps warning about stale ref elements
-        const { current } = ref
+        el.addEventListener('mouseover', onMouseOver)
+        el.addEventListener('mouseout', onMouseOut)
 
         return () => {
-            if (current) {
-                current.removeEventListener('mouseover', onMouseOver)
-                current.removeEventListener('mouseout', onMouseOut)
-            }
+            el.removeEventListener('mouseover', onMouseOver)
+            el.removeEventListener('mouseout', onMouseOut)
         }
     }, [ref])
 

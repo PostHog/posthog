@@ -8,7 +8,7 @@ from temporalio import common
 
 from posthog.temporal.common.base import PostHogWorkflow  # matches repo conventions
 
-from .activities import build_export_context_activity, persist_exported_asset_activity, record_replay_video_activity
+from .activities import build_export_context_activity, record_and_persist_video_activity
 
 
 @dataclass(frozen=True)
@@ -37,19 +37,9 @@ class VideoExportWorkflow(PostHogWorkflow):
             build["use_puppeteer"] = True
         # Dynamic timeout: base 600s + recording duration + 30s buffer for processing
         recording_timeout = dt.timedelta(seconds=600 + build["duration"] + 30)
-        rec: dict[str, Any] = await wf.execute_activity(
-            record_replay_video_activity,
+        await wf.execute_activity(
+            record_and_persist_video_activity,
             build,
             start_to_close_timeout=recording_timeout,
-            retry_policy=retry_policy,
-        )
-        await wf.execute_activity(
-            persist_exported_asset_activity,
-            {
-                "exported_asset_id": inputs.exported_asset_id,
-                "tmp_path": rec["tmp_path"],
-                "inactivity_periods": rec["inactivity_periods"],
-            },
-            start_to_close_timeout=dt.timedelta(seconds=300),
             retry_policy=retry_policy,
         )

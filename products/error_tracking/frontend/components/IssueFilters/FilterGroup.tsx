@@ -52,11 +52,11 @@ const UniversalSearch = (): JSX.Element => {
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         taxonomicFilterLogicKey: TAXONOMIC_FILTER_LOGIC_KEY,
         taxonomicGroupTypes: TAXONOMIC_GROUP_TYPES,
-        onChange: (taxonomicGroup, value, item, originalQuery) => {
+        onChange: (taxonomicGroup, value, item) => {
             searchInputRef.current?.blur()
             setVisible(false)
             setSearchQuery('')
-            addGroupFilter(taxonomicGroup, value, item, originalQuery)
+            addGroupFilter(taxonomicGroup, value, item)
         },
         onEnter: onClose,
         autoSelectItem: false,
@@ -91,6 +91,7 @@ const UniversalSearch = (): JSX.Element => {
                     onClose={() => onClose()}
                     onChange={onChange}
                     size="small"
+                    autoFocus={false}
                     fullWidth
                     docLink="https://posthog.com/docs/error-tracking/filter-and-search-issues"
                 />

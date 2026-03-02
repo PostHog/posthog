@@ -126,6 +126,32 @@ async fn it_captures_one_recording_with_user_agent_fallback_for_lib() -> Result<
 }
 
 #[tokio::test]
+async fn it_rejects_empty_token() -> Result<()> {
+    setup_tracing();
+    let distinct_id = random_string("id", 16);
+    let session_id = Uuid::now_v7().to_string();
+    let window_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_recordings(&main_topic).await;
+
+    let event = json!({
+        "token": "",
+        "event": "testing",
+        "distinct_id": distinct_id,
+        "$session_id": session_id,
+        "properties": {
+            "$session_id": session_id,
+            "$window_id": window_id,
+            "$snapshot_data": [],
+        }
+    });
+    let res = server.capture_recording(event.to_string(), None).await;
+    assert_eq!(StatusCode::UNAUTHORIZED, res.status());
+    Ok(())
+}
+
+#[tokio::test]
 async fn it_fails_no_session_id() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);

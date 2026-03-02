@@ -4,15 +4,19 @@ Coordinator workflow for batch trace summarization.
 This workflow discovers teams dynamically via the team discovery activity
 and spawns child workflows to process traces for each team.
 
+Uses continue_as_new after each batch to keep the workflow history bounded
+(Temporal has a 50K event limit per execution).
+
 Per-team child workflows handle the case where a team has no traces
 gracefully (returning empty results).
 
-Teams are processed in parallel batches (default 3 at a time) using
+Teams are processed in parallel batches (default 20 at a time) using
 start_child_workflow + await pattern for controlled concurrency.
 """
 
 import dataclasses
 from datetime import timedelta
+from typing import Any
 
 import structlog
 import temporalio
@@ -43,6 +47,15 @@ from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTra
 from products.llm_analytics.backend.summarization.models import SummarizationMode
 
 with temporalio.workflow.unsafe.imports_passed_through():
+    from posthog.temporal.llm_analytics.coordinator_metrics import (
+        increment_team_failed,
+        increment_team_succeeded,
+        record_teams_discovered,
+    )
+    from posthog.temporal.llm_analytics.shared_activities import (
+        FetchAllClusteringFiltersInput,
+        fetch_all_clustering_filters_activity,
+    )
     from posthog.temporal.llm_analytics.team_discovery import (
         DISCOVERY_ACTIVITY_RETRY_POLICY,
         DISCOVERY_ACTIVITY_TIMEOUT,
@@ -53,6 +66,16 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
 
 logger = structlog.get_logger(__name__)
+
+
+def _empty_summarization_results() -> dict[str, Any]:
+    return {
+        "teams_succeeded": 0,
+        "teams_failed": 0,
+        "failed_team_ids": [],
+        "total_items": 0,
+        "total_summaries": 0,
+    }
 
 
 @dataclasses.dataclass
@@ -66,6 +89,11 @@ class BatchTraceSummarizationCoordinatorInputs:
     window_minutes: int = DEFAULT_WINDOW_MINUTES
     model: str = DEFAULT_MODEL
     max_concurrent_teams: int = DEFAULT_MAX_CONCURRENT_TEAMS
+    # Fields used by continue_as_new to carry state across continuations.
+    # When remaining_team_ids is set, team discovery is skipped.
+    remaining_team_ids: list[int] | None = None
+    per_team_filters: dict[str, list[dict[str, Any]]] | None = None
+    results_so_far: dict[str, Any] | None = None
 
 
 @temporalio.workflow.defn(name=COORDINATOR_WORKFLOW_NAME)
@@ -75,9 +103,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
     workflows for each team. Teams with no traces will complete quickly
     with empty results.
 
-    Teams are processed in parallel batches for controlled concurrency,
-    using start_child_workflow + await to start all workflows in a batch
-    before waiting for results.
+    Uses continue_as_new to keep history bounded when processing many teams.
     """
 
     @staticmethod
@@ -95,36 +121,62 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: BatchTraceSummarizationCoordinatorInputs) -> CoordinatorResult:
         """Execute coordinator workflow."""
-        logger.info(
-            "Starting batch trace summarization coordinator",
-            analysis_level=inputs.analysis_level,
-            max_items=inputs.max_items,
-            window_minutes=inputs.window_minutes,
-        )
 
-        # Discover teams dynamically via activity, falling back to guaranteed
-        # teams if the activity fails (e.g. ClickHouse timeout).
-        try:
-            team_ids = await temporalio.workflow.execute_activity(
-                get_team_ids_for_llm_analytics,
-                TeamDiscoveryInput(sample_percentage=SAMPLE_PERCENTAGE),
-                start_to_close_timeout=DISCOVERY_ACTIVITY_TIMEOUT,
-                retry_policy=DISCOVERY_ACTIVITY_RETRY_POLICY,
+        # Phase A: resolve teams and filters.
+        # On continuation legs, these are passed in directly to avoid
+        # re-running expensive ClickHouse queries.
+        if inputs.remaining_team_ids is not None:
+            team_ids = inputs.remaining_team_ids
+            # Temporal JSON serialization converts int dict keys to strings
+            per_team_filters: dict[int, list[dict[str, Any]]] = (
+                {int(k): v for k, v in inputs.per_team_filters.items()} if inputs.per_team_filters else {}
             )
-        except Exception:
-            logger.warning("Team discovery activity failed, falling back to guaranteed teams", exc_info=True)
-            team_ids = sorted(GUARANTEED_TEAM_IDS)
+            results_so_far = inputs.results_so_far or _empty_summarization_results()
+            logger.info(
+                "Resuming summarization coordinator after continue_as_new",
+                remaining_teams=len(team_ids),
+                teams_succeeded_so_far=results_so_far["teams_succeeded"],
+            )
+        else:
+            logger.info(
+                "Starting batch trace summarization coordinator",
+                analysis_level=inputs.analysis_level,
+                max_items=inputs.max_items,
+                window_minutes=inputs.window_minutes,
+            )
 
-        logger.info("Processing discovered teams", team_count=len(team_ids), team_ids=team_ids)
+            # Discover teams dynamically via activity, falling back to guaranteed
+            # teams if the activity fails (e.g. ClickHouse timeout).
+            try:
+                team_ids = await temporalio.workflow.execute_activity(
+                    get_team_ids_for_llm_analytics,
+                    TeamDiscoveryInput(sample_percentage=SAMPLE_PERCENTAGE),
+                    start_to_close_timeout=DISCOVERY_ACTIVITY_TIMEOUT,
+                    retry_policy=DISCOVERY_ACTIVITY_RETRY_POLICY,
+                )
+            except Exception:
+                logger.warning("Team discovery activity failed, falling back to guaranteed teams", exc_info=True)
+                team_ids = sorted(GUARANTEED_TEAM_IDS)
 
-        # Spawn child workflows for each team with concurrency limit.
-        # Uses start_child_workflow + await pattern: start all workflows in a
-        # batch first, then await results. This runs teams in parallel within
-        # each batch instead of sequentially.
-        total_items = 0
-        total_summaries = 0
-        failed_teams: list[int] = []
-        successful_teams: list[int] = []
+            logger.info("Processing discovered teams", team_count=len(team_ids), team_ids=team_ids)
+            record_teams_discovered(len(team_ids), "summarization", inputs.analysis_level)
+
+            # Fetch user-configured event filters for all teams
+            try:
+                per_team_filters = await temporalio.workflow.execute_activity(
+                    fetch_all_clustering_filters_activity,
+                    FetchAllClusteringFiltersInput(team_ids=team_ids),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
+                )
+            except Exception:
+                logger.warning("Failed to fetch clustering filters, proceeding without filters", exc_info=True)
+                per_team_filters = {}
+
+            results_so_far = _empty_summarization_results()
+
+        # Phase B: process teams in batches, using continue_as_new to keep
+        # the workflow history bounded.
         child_id_prefix = (
             GENERATION_CHILD_WORKFLOW_ID_PREFIX if inputs.analysis_level == "generation" else CHILD_WORKFLOW_ID_PREFIX
         )
@@ -138,6 +190,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                 tuple[int, ChildWorkflowHandle[BatchTraceSummarizationWorkflow, BatchSummarizationResult]]
             ] = []
             for team_id in batch:
+                event_filters = per_team_filters.get(team_id, [])
                 handle = await temporalio.workflow.start_child_workflow(
                     BatchTraceSummarizationWorkflow.run,
                     BatchSummarizationInputs(
@@ -148,14 +201,12 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                         mode=inputs.mode,
                         window_minutes=inputs.window_minutes,
                         model=inputs.model,
+                        event_filters=event_filters,
                     ),
                     id=f"{child_id_prefix}-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
-                    # Allow child workflows to complete even if the coordinator
-                    # is cancelled (e.g. due to coordinator timeout). Prevents
-                    # wasting work already in progress.
-                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.TERMINATE,
                 )
                 workflow_handles.append((team_id, handle))
 
@@ -163,27 +214,58 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             for team_id, handle in workflow_handles:
                 try:
                     workflow_result: BatchSummarizationResult = await handle
-                    total_items += workflow_result.metrics.items_queried
-                    total_summaries += workflow_result.metrics.summaries_generated
-                    successful_teams.append(team_id)
+                    results_so_far["total_items"] += workflow_result.metrics.items_queried
+                    results_so_far["total_summaries"] += workflow_result.metrics.summaries_generated
+                    results_so_far["teams_succeeded"] += 1
+                    increment_team_succeeded("summarization", inputs.analysis_level)
 
                 except Exception:
                     logger.exception("Failed to process team", team_id=team_id)
-                    failed_teams.append(team_id)
+                    results_so_far["failed_team_ids"].append(team_id)
+                    results_so_far["teams_failed"] += 1
+                    increment_team_failed("summarization", inputs.analysis_level)
 
+            # After each batch, check if Temporal suggests continuing as new
+            # to keep the history size bounded.
+            remaining = team_ids[batch_start + max_concurrent :]
+            if remaining and temporalio.workflow.info().is_continue_as_new_suggested():
+                logger.info(
+                    "Continuing as new to keep history bounded",
+                    teams_remaining=len(remaining),
+                    teams_processed_this_leg=batch_start + len(batch),
+                )
+                # Serialize per_team_filters with string keys for Temporal JSON
+                serializable_filters = {str(k): v for k, v in per_team_filters.items()}
+                temporalio.workflow.continue_as_new(
+                    BatchTraceSummarizationCoordinatorInputs(
+                        analysis_level=inputs.analysis_level,
+                        max_items=inputs.max_items,
+                        batch_size=inputs.batch_size,
+                        mode=inputs.mode,
+                        window_minutes=inputs.window_minutes,
+                        model=inputs.model,
+                        max_concurrent_teams=inputs.max_concurrent_teams,
+                        remaining_team_ids=remaining,
+                        per_team_filters=serializable_filters,
+                        results_so_far=results_so_far,
+                    )
+                )
+
+        # Final leg: return accumulated results
+        total_teams = results_so_far["teams_succeeded"] + results_so_far["teams_failed"]
         logger.info(
             "Batch trace summarization coordinator completed",
-            teams_processed=len(team_ids),
-            teams_succeeded=len(successful_teams),
-            teams_failed=len(failed_teams),
-            total_items=total_items,
-            total_summaries=total_summaries,
+            teams_processed=total_teams,
+            teams_succeeded=results_so_far["teams_succeeded"],
+            teams_failed=results_so_far["teams_failed"],
+            total_items=results_so_far["total_items"],
+            total_summaries=results_so_far["total_summaries"],
         )
 
         return CoordinatorResult(
-            teams_processed=len(team_ids),
-            teams_failed=len(failed_teams),
-            failed_team_ids=failed_teams,
-            total_items=total_items,
-            total_summaries=total_summaries,
+            teams_processed=total_teams,
+            teams_failed=results_so_far["teams_failed"],
+            failed_team_ids=results_so_far["failed_team_ids"],
+            total_items=results_so_far["total_items"],
+            total_summaries=results_so_far["total_summaries"],
         )

@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.temporal.llm_analytics.trace_clustering.data import (
     AI_EVENT_TYPES,
-    fetch_eligible_trace_ids,
+    _build_property_filter_expr,
     fetch_item_embeddings_for_clustering,
     fetch_item_summaries,
 )
@@ -29,80 +29,28 @@ def mock_team(db):
     return team
 
 
-class TestFetchEligibleTraceIds:
-    def test_returns_empty_list_when_no_filters(self, mock_team):
-        result = fetch_eligible_trace_ids(
-            team=mock_team,
-            window_start=datetime(2025, 1, 1, tzinfo=UTC),
-            window_end=datetime(2025, 1, 8, tzinfo=UTC),
-            trace_filters=[],
-            max_samples=100,
+class TestBuildPropertyFilterExpr:
+    def test_single_filter_returns_expr_directly(self, mock_team):
+        from posthog.hogql import ast
+
+        result = _build_property_filter_expr(
+            [{"key": "$ai_model", "value": "gpt-4", "operator": "exact"}],
+            mock_team,
         )
+        assert not isinstance(result, ast.And)
 
-        assert result == []
+    def test_multiple_filters_returns_and_expr(self, mock_team):
+        from posthog.hogql import ast
 
-    @patch("posthog.temporal.llm_analytics.trace_clustering.data.execute_hogql_query")
-    def test_builds_property_filter_expression(self, mock_execute, mock_team):
-        mock_result = MagicMock()
-        mock_result.results = [("trace_1",), ("trace_2",), ("trace_3",)]
-        mock_execute.return_value = mock_result
-
-        trace_filters = [
-            {"key": "$ai_model", "value": "gpt-4", "operator": "exact"},
-        ]
-
-        result = fetch_eligible_trace_ids(
-            team=mock_team,
-            window_start=datetime(2025, 1, 1, tzinfo=UTC),
-            window_end=datetime(2025, 1, 8, tzinfo=UTC),
-            trace_filters=trace_filters,
-            max_samples=100,
+        result = _build_property_filter_expr(
+            [
+                {"key": "$ai_model", "value": "gpt-4", "operator": "exact"},
+                {"key": "environment", "value": "production", "operator": "exact"},
+            ],
+            mock_team,
         )
-
-        assert result == ["trace_1", "trace_2", "trace_3"]
-        mock_execute.assert_called_once()
-        call_kwargs = mock_execute.call_args.kwargs
-        assert call_kwargs["query_type"] == "EligibleTraceIdsForClustering"
-        assert "placeholders" in call_kwargs
-
-    @patch("posthog.temporal.llm_analytics.trace_clustering.data.execute_hogql_query")
-    def test_combines_multiple_filters_with_and(self, mock_execute, mock_team):
-        mock_result = MagicMock()
-        mock_result.results = [("trace_1",)]
-        mock_execute.return_value = mock_result
-
-        trace_filters = [
-            {"key": "$ai_model", "value": "gpt-4", "operator": "exact"},
-            {"key": "environment", "value": "production", "operator": "exact"},
-        ]
-
-        result = fetch_eligible_trace_ids(
-            team=mock_team,
-            window_start=datetime(2025, 1, 1, tzinfo=UTC),
-            window_end=datetime(2025, 1, 8, tzinfo=UTC),
-            trace_filters=trace_filters,
-            max_samples=100,
-        )
-
-        assert result == ["trace_1"]
-
-    @patch("posthog.temporal.llm_analytics.trace_clustering.data.execute_hogql_query")
-    def test_handles_empty_results(self, mock_execute, mock_team):
-        mock_result = MagicMock()
-        mock_result.results = []
-        mock_execute.return_value = mock_result
-
-        trace_filters = [{"key": "$ai_model", "value": "nonexistent", "operator": "exact"}]
-
-        result = fetch_eligible_trace_ids(
-            team=mock_team,
-            window_start=datetime(2025, 1, 1, tzinfo=UTC),
-            window_end=datetime(2025, 1, 8, tzinfo=UTC),
-            trace_filters=trace_filters,
-            max_samples=100,
-        )
-
-        assert result == []
+        assert isinstance(result, ast.And)
+        assert len(result.exprs) == 2
 
 
 class TestFetchItemEmbeddingsForClustering:
@@ -152,46 +100,117 @@ class TestFetchItemEmbeddingsForClustering:
         assert batch_run_ids == {}
         assert trace_ids == ["trace_1", "trace_2"]
 
-    @patch("posthog.temporal.llm_analytics.trace_clustering.data.fetch_eligible_trace_ids")
     @patch("posthog.temporal.llm_analytics.trace_clustering.data.execute_hogql_query")
-    def test_with_trace_filters_fetches_eligible_ids_first(self, mock_execute, mock_fetch_eligible, mock_team):
-        mock_fetch_eligible.return_value = ["trace_1", "trace_2"]
+    def test_no_filters_uses_simple_query(self, mock_execute, mock_team):
+        mock_result = MagicMock()
+        mock_result.results = [("trace_1", [0.1, 0.2], "batch_123")]
+        mock_execute.return_value = mock_result
+
+        fetch_item_embeddings_for_clustering(
+            team=mock_team,
+            window_start=datetime(2025, 1, 1, tzinfo=UTC),
+            window_end=datetime(2025, 1, 8, tzinfo=UTC),
+            max_samples=100,
+        )
+
+        call_kwargs = mock_execute.call_args.kwargs
+        # No filters: placeholders should not contain event_types or property_filters
+        assert "event_types" not in call_kwargs["placeholders"]
+        assert "property_filters" not in call_kwargs["placeholders"]
+
+    @patch("posthog.temporal.llm_analytics.trace_clustering.data.execute_hogql_query")
+    def test_trace_level_with_filters_uses_subquery(self, mock_execute, mock_team):
+        mock_result = MagicMock()
+        mock_result.results = [("trace_1", [0.1, 0.2], "batch_123")]
+        mock_execute.return_value = mock_result
+
+        event_filters = [{"key": "$ai_model", "value": "gpt-4", "operator": "exact"}]
+
+        trace_ids, embeddings_map, batch_run_ids = fetch_item_embeddings_for_clustering(
+            team=mock_team,
+            window_start=datetime(2025, 1, 1, tzinfo=UTC),
+            window_end=datetime(2025, 1, 8, tzinfo=UTC),
+            max_samples=100,
+            event_filters=event_filters,
+        )
+
+        assert trace_ids == ["trace_1"]
+        mock_execute.assert_called_once()
+        call_kwargs = mock_execute.call_args.kwargs
+        # With filters: placeholders should contain event_types and property_filters
+        assert "event_types" in call_kwargs["placeholders"]
+        assert "property_filters" in call_kwargs["placeholders"]
+        # Trace-level should not have generation_event placeholder
+        assert "generation_event" not in call_kwargs["placeholders"]
+
+    @patch("posthog.temporal.llm_analytics.trace_clustering.data.execute_hogql_query")
+    def test_generation_level_with_filters_uses_nested_subquery(self, mock_execute, mock_team):
         mock_result = MagicMock()
         mock_result.results = [
-            ("trace_1", [0.1, 0.2], "batch_123"),
+            ("gen_1", [0.1, 0.2], "batch_123"),
+            ("gen_2", [0.3, 0.4], "batch_123"),
         ]
         mock_execute.return_value = mock_result
 
-        trace_filters = [{"key": "$ai_model", "value": "gpt-4", "operator": "exact"}]
+        event_filters = [{"key": "ai_product", "value": "posthog_ai", "operator": "exact"}]
 
-        trace_ids, embeddings_map, batch_run_ids = fetch_item_embeddings_for_clustering(
+        item_ids, embeddings_map, batch_run_ids = fetch_item_embeddings_for_clustering(
             team=mock_team,
             window_start=datetime(2025, 1, 1, tzinfo=UTC),
             window_end=datetime(2025, 1, 8, tzinfo=UTC),
             max_samples=100,
-            trace_filters=trace_filters,
+            analysis_level="generation",
+            event_filters=event_filters,
         )
 
-        mock_fetch_eligible.assert_called_once()
-        assert trace_ids == ["trace_1"]
+        assert item_ids == ["gen_1", "gen_2"]
+        mock_execute.assert_called_once()
+        call_kwargs = mock_execute.call_args.kwargs
+        # Generation-level with filters should have generation_event placeholder
+        assert "generation_event" in call_kwargs["placeholders"]
+        assert "event_types" in call_kwargs["placeholders"]
+        assert "property_filters" in call_kwargs["placeholders"]
 
-    @patch("posthog.temporal.llm_analytics.trace_clustering.data.fetch_eligible_trace_ids")
-    def test_with_filters_returns_empty_when_no_eligible_traces(self, mock_fetch_eligible, mock_team):
-        mock_fetch_eligible.return_value = []
+    @patch("posthog.temporal.llm_analytics.trace_clustering.data.execute_hogql_query")
+    def test_with_filters_returns_empty_when_no_results(self, mock_execute, mock_team):
+        mock_result = MagicMock()
+        mock_result.results = []
+        mock_execute.return_value = mock_result
 
-        trace_filters = [{"key": "$ai_model", "value": "nonexistent", "operator": "exact"}]
+        event_filters = [{"key": "$ai_model", "value": "nonexistent", "operator": "exact"}]
 
         trace_ids, embeddings_map, batch_run_ids = fetch_item_embeddings_for_clustering(
             team=mock_team,
             window_start=datetime(2025, 1, 1, tzinfo=UTC),
             window_end=datetime(2025, 1, 8, tzinfo=UTC),
             max_samples=100,
-            trace_filters=trace_filters,
+            event_filters=event_filters,
         )
 
         assert trace_ids == []
         assert embeddings_map == {}
         assert batch_run_ids == {}
+
+    @patch("posthog.temporal.llm_analytics.trace_clustering.data.execute_hogql_query")
+    def test_single_query_for_all_cases(self, mock_execute, mock_team):
+        """All cases (no filters, trace+filters, generation+filters) use a single execute_hogql_query call."""
+        mock_result = MagicMock()
+        mock_result.results = [("id_1", [0.1], "batch_1")]
+        mock_execute.return_value = mock_result
+
+        # Generation-level with filters — previously required 3 separate queries
+        event_filters = [{"key": "$ai_model", "value": "gpt-4", "operator": "exact"}]
+        fetch_item_embeddings_for_clustering(
+            team=mock_team,
+            window_start=datetime(2025, 1, 1, tzinfo=UTC),
+            window_end=datetime(2025, 1, 8, tzinfo=UTC),
+            max_samples=100,
+            analysis_level="generation",
+            event_filters=event_filters,
+        )
+
+        # Should be exactly 1 query, not 3
+        assert mock_execute.call_count == 1
 
 
 class TestFetchItemSummaries:

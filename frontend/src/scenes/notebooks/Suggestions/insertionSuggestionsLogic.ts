@@ -3,8 +3,8 @@ import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { RichContentEditorType, RichContentNode } from 'lib/components/RichContentEditor/types'
 
 import { InsertionSuggestion } from './InsertionSuggestion'
-import SlashCommands from './SlashCommands'
 import type { insertionSuggestionsLogicType } from './insertionSuggestionsLogicType'
+import SlashCommands from './SlashCommands'
 
 export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
     path(['scenes', 'notebooks', 'Suggestions', 'insertionSuggestionsLogic']),

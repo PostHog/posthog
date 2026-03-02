@@ -1,8 +1,27 @@
 import { actions, afterMount, beforeUnmount, kea, path, reducers } from 'kea'
 
+import { isMac } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 
 import type { appShortcutLogicType } from './appShortcutLogicType'
+
+const IS_MAC = isMac()
+const COMMAND_OR_CTRL = IS_MAC ? 'command' : 'ctrl'
+
+const DISABLED_SHORTCUTS_KEY = 'posthog-disabled-shortcuts'
+
+function loadDisabledShortcuts(): string[] {
+    try {
+        const stored = localStorage.getItem(DISABLED_SHORTCUTS_KEY)
+        return stored ? JSON.parse(stored) : []
+    } catch {
+        return []
+    }
+}
+
+function saveDisabledShortcuts(names: string[]): void {
+    localStorage.setItem(DISABLED_SHORTCUTS_KEY, JSON.stringify(names))
+}
 
 interface AppShortcutBase {
     name: string
@@ -75,6 +94,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
         registerAppShortcut: (appShortcut: AppShortcutType) => ({ appShortcut }),
         unregisterAppShortcut: (name: string) => ({ name }),
         setAppShortcutMenuOpen: (open: boolean) => ({ open }),
+        toggleShortcutDisabled: (name: string) => ({ name }),
     }),
     reducers({
         registeredAppShortcuts: [
@@ -94,6 +114,16 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 setAppShortcutMenuOpen: (_, { open }) => open,
             },
         ],
+        disabledShortcutNames: [
+            loadDisabledShortcuts() as string[],
+            {
+                toggleShortcutDisabled: (state, { name }) => {
+                    const next = state.includes(name) ? state.filter((n) => n !== name) : [...state, name]
+                    saveDisabledShortcuts(next)
+                    return next
+                },
+            },
+        ],
     }),
     afterMount(({ values, cache }) => {
         // Sequence shortcut state
@@ -110,7 +140,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 cache.sequenceKeys = []
                 cache.sequenceShortcut = null
 
-                const pressedKeys: string[] = ['command']
+                const pressedKeys: string[] = [COMMAND_OR_CTRL]
                 if (event.shiftKey) {
                     pressedKeys.push('shift')
                 }
@@ -140,7 +170,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                     )
                 )
 
-                if (matchingShortcut) {
+                if (matchingShortcut && !values.disabledShortcutNames.includes(matchingShortcut.name)) {
                     event.preventDefault()
                     event.stopPropagation()
                     triggerShortcut(matchingShortcut)
@@ -165,7 +195,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 shortcut.keybind.some((keybind) => isSingleKeyKeybind(keybind) && keybind[0] === key)
             )
 
-            if (singleKeyMatch) {
+            if (singleKeyMatch && !values.disabledShortcutNames.includes(singleKeyMatch.name)) {
                 event.preventDefault()
                 event.stopPropagation()
                 cache.sequenceKeys = []
@@ -207,10 +237,12 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
 
                 if (cache.sequenceKeys.length === sequenceKeys.length) {
                     // Sequence complete
-                    event.preventDefault()
                     cache.sequenceKeys = []
                     cache.sequenceShortcut = null
-                    triggerShortcut(matchingShortcut)
+                    if (!values.disabledShortcutNames.includes(matchingShortcut.name)) {
+                        event.preventDefault()
+                        triggerShortcut(matchingShortcut)
+                    }
                 } else {
                     // Partial match - keep tracking
                     cache.sequenceShortcut = matchingShortcut
