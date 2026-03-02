@@ -25,8 +25,15 @@ export interface InsightAIAnalysisProps {
 export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Element | null {
     const { insight, insightProps } = useValues(insightLogic)
     const { insightDataLoading } = useValues(insightVizDataLogic(insightProps))
-    const { analysis, isAnalyzing, hasClickedAnalyze, hasClickedSuggestions, analysisFeedbackGiven, analysisError } =
-        useValues(insightAIAnalysisLogic({ insightId: insight.id, query }))
+    const {
+        analysis,
+        isAnalyzing,
+        hasClickedAnalyze,
+        hasClickedSuggestions,
+        analysisFeedbackGiven,
+        analysisError,
+        suggestionsLoading,
+    } = useValues(insightAIAnalysisLogic({ insightId: insight.id, query }))
     const { resetAnalysis, reportAnalysisFeedback, loadSuggestions, setHasClickedSuggestions } = useActions(
         insightAIAnalysisLogic({ insightId: insight.id, query })
     )
@@ -77,21 +84,21 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                         </AIConsentPopoverWrapper>
                         <AIConsentPopoverWrapper
                             onApprove={() => {
-                                setHasClickedSuggestions(true)
+                                setHasClickedSuggestions()
                                 loadSuggestions({})
                             }}
                         >
                             <LemonButton
                                 type="secondary"
                                 onClick={() => {
-                                    setHasClickedSuggestions(true)
+                                    setHasClickedSuggestions()
                                     loadSuggestions({})
                                 }}
                                 sideIcon={null}
                                 data-attr="insight-ai-suggestions-button"
                                 disabledReason={
-                                    hasClickedSuggestions
-                                        ? 'Suggestions already loading'
+                                    suggestionsLoading
+                                        ? 'Generating suggestions...'
                                         : insightDataLoading
                                           ? 'Please wait for the insight to finish loading'
                                           : undefined
