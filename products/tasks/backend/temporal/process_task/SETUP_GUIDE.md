@@ -65,7 +65,7 @@ GITHUB_APP_CLIENT_ID=your_app_id
 GITHUB_APP_SLUG=your-app-slug
 GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
 
-# Optional: for local agent development (see step 8)
+# Optional: for local agent development (see step 7)
 # LOCAL_TWIG_MONOREPO_ROOT=/path/to/twig
 ```
 
@@ -80,33 +80,9 @@ Create a `tasks` feature flag at 100% rollout:
 
 This is the feature flag used on the endpoints and in the temporal worker.
 
-## 5. Start Temporal
+## 5. Temporal worker
 
-The workflow requires a running Temporal server. You can start it via docker-compose or standalone.
-
-**Option A: docker-compose** (recommended if you already run PostHog via docker-compose):
-
-```bash
-docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal up -d
-```
-
-This starts `temporal`, `temporal-ui` (at http://localhost:8081), `temporal-admin-tools`, and `elasticsearch`.
-
-**Option B: standalone** (lighter, no docker-compose):
-
-```bash
-temporal server start-dev
-```
-
-## 6. Start the Temporal worker
-
-The worker process listens on the `development-task-queue` (in DEBUG mode) and executes the `process-task` workflow. Start it with:
-
-```bash
-./bin/temporal-django-worker
-```
-
-This runs `python3 manage.py start_temporal_worker` under the hood.
+Temporal and the temporal-django-worker start automatically via mprocs when you run `./bin/start`.
 
 The `process-task` workflow defined in `products/tasks/backend/temporal/process_task/workflow.py` provisions a sandbox, starts an agent inside it, and waits for the agent to finish. The workflow orchestrates these activities:
 
@@ -118,7 +94,7 @@ The `process-task` workflow defined in `products/tasks/backend/temporal/process_
 
 The activities live in `products/tasks/backend/temporal/process_task/activities/`.
 
-## 7. Running via the UI
+## 6. Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what is happening with a background cloud run.
 
@@ -127,7 +103,7 @@ This is very minimal at the moment, but the tasks page can be used to see what i
 3. Click "Run task"
 4. Watch logs stream in the session view
 
-## 8. Testing with local agent packages
+## 7. Testing with local agent packages
 
 To test changes to `@posthog/agent` before publishing:
 
