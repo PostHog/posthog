@@ -11,17 +11,6 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.common_pb2 impo
     GroupIdentifier,
     GroupKey,
     ReadOptions,
-    TeamDistinctId,
-)
-from posthog.personhog_client.proto.generated.personhog.types.v1.feature_flag_pb2 import (
-    DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse,
-    GetHashKeyOverrideContextRequest,
-    GetHashKeyOverrideContextResponse,
-    HashKeyOverride,
-    HashKeyOverrideContext,
-    UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
 )
 from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 import (
     GetGroupRequest,
@@ -50,11 +39,9 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.person_pb2 impo
     GetPersonRequest,
     GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest,
-    GetPersonsByDistinctIdsRequest,
     GetPersonsByUuidsRequest,
     GetPersonsRequest,
     Person,
     PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse,
     PersonsResponse,
 )

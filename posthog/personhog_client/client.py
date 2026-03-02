@@ -11,8 +11,6 @@ import structlog
 from posthog.personhog_client.proto import (
     CheckCohortMembershipRequest,
     CohortMembershipResponse,
-    DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,
@@ -26,14 +24,11 @@ from posthog.personhog_client.proto import (
     GetGroupTypeMappingsByProjectIdsRequest,
     GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest,
-    GetHashKeyOverrideContextRequest,
-    GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest,
     GetPersonByUuidRequest,
     GetPersonRequest,
     GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest,
-    GetPersonsByDistinctIdsRequest,
     GetPersonsByUuidsRequest,
     GetPersonsRequest,
     GroupsResponse,
@@ -41,10 +36,7 @@ from posthog.personhog_client.proto import (
     GroupTypeMappingsResponse,
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse,
     PersonsResponse,
-    UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
 )
 
 logger = structlog.get_logger(__name__)
@@ -83,9 +75,6 @@ class PersonHogClient:
     ) -> PersonsByDistinctIdsInTeamResponse:
         return self._stub.GetPersonsByDistinctIdsInTeam(request, timeout=self._timeout)
 
-    def get_persons_by_distinct_ids(self, request: GetPersonsByDistinctIdsRequest) -> PersonsByDistinctIdsResponse:
-        return self._stub.GetPersonsByDistinctIds(request, timeout=self._timeout)
-
     # -- Distinct ID operations --
 
     def get_distinct_ids_for_person(self, request: GetDistinctIdsForPersonRequest) -> GetDistinctIdsForPersonResponse:
@@ -95,21 +84,6 @@ class PersonHogClient:
         self, request: GetDistinctIdsForPersonsRequest
     ) -> GetDistinctIdsForPersonsResponse:
         return self._stub.GetDistinctIdsForPersons(request, timeout=self._timeout)
-
-    # -- Feature flag hash key overrides --
-
-    def get_hash_key_override_context(
-        self, request: GetHashKeyOverrideContextRequest
-    ) -> GetHashKeyOverrideContextResponse:
-        return self._stub.GetHashKeyOverrideContext(request, timeout=self._timeout)
-
-    def upsert_hash_key_overrides(self, request: UpsertHashKeyOverridesRequest) -> UpsertHashKeyOverridesResponse:
-        return self._stub.UpsertHashKeyOverrides(request, timeout=self._timeout)
-
-    def delete_hash_key_overrides_by_teams(
-        self, request: DeleteHashKeyOverridesByTeamsRequest
-    ) -> DeleteHashKeyOverridesByTeamsResponse:
-        return self._stub.DeleteHashKeyOverridesByTeams(request, timeout=self._timeout)
 
     # -- Cohort membership --
 
