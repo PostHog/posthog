@@ -9,7 +9,7 @@ import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
-import { Hub } from '../../types'
+import { PluginsServerConfig } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { TeamManager } from '../../utils/team-manager'
@@ -36,7 +36,10 @@ import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 /** Narrowed config type for CDP fetch retry settings, used by native/segment destination executors */
-export type CdpFetchConfig = Pick<Hub, 'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'>
+export type CdpFetchConfig = Pick<
+    PluginsServerConfig,
+    'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'
+>
 
 export interface HogExecutorConfig {
     hogCostTimingUpperMs: number

@@ -6,17 +6,24 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
-import { Hub } from '../../types'
+import { InternalCaptureService } from '../../common/services/internal-capture'
+import { KafkaProducerWrapper } from '../../kafka/producer'
+import { PluginsServerConfig } from '../../types'
+import { PostgresRouter } from '../../utils/db/postgres'
 import { GeoIPService, GeoIp } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
+import { PubSub } from '../../utils/pubsub'
+import { TeamManager } from '../../utils/team-manager'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
+import { IntegrationManagerService } from '../services/managers/integration-manager.service'
 import { EmailService } from '../services/messaging/email.service'
 import { RecipientTokensService } from '../services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-watcher.service'
+import { EncryptedFields } from '../utils/encryption-utils'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation } from '../utils/invocation-utils'
 import { getTransformationFunctions } from './transformation-functions'
@@ -389,14 +396,9 @@ export class HogTransformerService {
     }
 }
 
-/**
- * Hub fields needed by createHogTransformerService factory.
- * This will be removed once callers are themselves migrated off Hub.
- */
-export type HogTransformerServiceDeps = Pick<
-    Hub,
+export type HogTransformerServiceConfig = Pick<
+    PluginsServerConfig,
     | 'CDP_HOG_WATCHER_SAMPLE_RATE'
-    | 'geoipService'
     | 'SITE_URL'
     | 'REDIS_URL'
     | 'REDIS_POOL_MIN_SIZE'
@@ -404,23 +406,16 @@ export type HogTransformerServiceDeps = Pick<
     | 'CDP_REDIS_HOST'
     | 'CDP_REDIS_PORT'
     | 'CDP_REDIS_PASSWORD'
-    | 'postgres'
-    | 'pubSub'
-    | 'encryptedFields'
     | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
     | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
     | 'CDP_FETCH_BACKOFF_BASE_MS'
     | 'CDP_FETCH_BACKOFF_MAX_MS'
     | 'CDP_FETCH_RETRIES'
-    | 'integrationManager'
     | 'ENCRYPTION_SALT_KEYS'
     | 'SES_ACCESS_KEY_ID'
     | 'SES_SECRET_ACCESS_KEY'
     | 'SES_REGION'
     | 'SES_ENDPOINT'
-    | 'kafkaProducer'
-    | 'teamManager'
-    | 'internalCaptureService'
     | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
     | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
     | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
@@ -439,71 +434,85 @@ export type HogTransformerServiceDeps = Pick<
     | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
 >
 
-export function createHogTransformerService(hub: HogTransformerServiceDeps): HogTransformerService {
+export interface HogTransformerServiceDeps {
+    geoipService: GeoIPService
+    postgres: PostgresRouter
+    pubSub: PubSub
+    encryptedFields: EncryptedFields
+    integrationManager: IntegrationManagerService
+    kafkaProducer: KafkaProducerWrapper
+    teamManager: TeamManager
+    internalCaptureService: InternalCaptureService
+}
+
+export function createHogTransformerService(
+    config: HogTransformerServiceConfig,
+    deps: HogTransformerServiceDeps
+): HogTransformerService {
     const redis = createRedisV2PoolFromConfig({
-        connection: hub.CDP_REDIS_HOST
+        connection: config.CDP_REDIS_HOST
             ? {
-                  url: hub.CDP_REDIS_HOST,
-                  options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  url: config.CDP_REDIS_HOST,
+                  options: { port: config.CDP_REDIS_PORT, password: config.CDP_REDIS_PASSWORD },
                   name: 'hog-transformer-redis',
               }
-            : { url: hub.REDIS_URL, name: 'hog-transformer-redis-fallback' },
-        poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-        poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+            : { url: config.REDIS_URL, name: 'hog-transformer-redis-fallback' },
+        poolMinSize: config.REDIS_POOL_MIN_SIZE,
+        poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })
-    const hogFunctionManager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
-    const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+    const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
+    const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const emailService = new EmailService(
         {
-            sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-            sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-            sesRegion: hub.SES_REGION,
-            sesEndpoint: hub.SES_ENDPOINT,
+            sesAccessKeyId: config.SES_ACCESS_KEY_ID,
+            sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
+            sesRegion: config.SES_REGION,
+            sesEndpoint: config.SES_ENDPOINT,
         },
-        hub.integrationManager,
-        hub.ENCRYPTION_SALT_KEYS,
-        hub.SITE_URL
+        deps.integrationManager,
+        config.ENCRYPTION_SALT_KEYS,
+        config.SITE_URL
     )
-    const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+    const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogExecutor = new HogExecutorService(
         {
-            hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-            googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-            fetchRetries: hub.CDP_FETCH_RETRIES,
-            fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-            fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+            hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+            googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+            fetchRetries: config.CDP_FETCH_RETRIES,
+            fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
+            fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
         },
-        { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+        { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
         hogInputsService,
         emailService,
         recipientTokensService
     )
-    const pluginExecutor = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
+    const pluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
-        hub.kafkaProducer,
-        hub.internalCaptureService,
-        hub.teamManager,
-        hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
-        hub.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC
+        deps.kafkaProducer,
+        deps.internalCaptureService,
+        deps.teamManager,
+        config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+        config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC
     )
     const hogWatcher = new HogWatcherService(
-        hub.teamManager,
+        deps.teamManager,
         {
-            hogCostTimingLowerMs: hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
-            hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-            hogCostTiming: hub.CDP_WATCHER_HOG_COST_TIMING,
-            asyncCostTimingLowerMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
-            asyncCostTimingUpperMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
-            asyncCostTiming: hub.CDP_WATCHER_ASYNC_COST_TIMING,
-            sendEvents: hub.CDP_WATCHER_SEND_EVENTS,
-            bucketSize: hub.CDP_WATCHER_BUCKET_SIZE,
-            refillRate: hub.CDP_WATCHER_REFILL_RATE,
-            ttl: hub.CDP_WATCHER_TTL,
-            automaticallyDisableFunctions: hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS,
-            thresholdDegraded: hub.CDP_WATCHER_THRESHOLD_DEGRADED,
-            stateLockTtl: hub.CDP_WATCHER_STATE_LOCK_TTL,
-            observeResultsBufferTimeMs: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
-            observeResultsBufferMaxResults: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
+            hogCostTimingLowerMs: config.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
+            hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+            hogCostTiming: config.CDP_WATCHER_HOG_COST_TIMING,
+            asyncCostTimingLowerMs: config.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
+            asyncCostTimingUpperMs: config.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
+            asyncCostTiming: config.CDP_WATCHER_ASYNC_COST_TIMING,
+            sendEvents: config.CDP_WATCHER_SEND_EVENTS,
+            bucketSize: config.CDP_WATCHER_BUCKET_SIZE,
+            refillRate: config.CDP_WATCHER_REFILL_RATE,
+            ttl: config.CDP_WATCHER_TTL,
+            automaticallyDisableFunctions: config.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS,
+            thresholdDegraded: config.CDP_WATCHER_THRESHOLD_DEGRADED,
+            stateLockTtl: config.CDP_WATCHER_STATE_LOCK_TTL,
+            observeResultsBufferTimeMs: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
+            observeResultsBufferMaxResults: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
         },
         redis
     )
@@ -514,11 +523,11 @@ export function createHogTransformerService(hub: HogTransformerServiceDeps): Hog
         hogWatcher,
         hogFunctionMonitoringService,
         pluginExecutor,
-        hub.geoipService,
+        deps.geoipService,
         redis,
         {
-            siteUrl: hub.SITE_URL,
-            hogWatcherSampleRate: hub.CDP_HOG_WATCHER_SAMPLE_RATE,
+            siteUrl: config.SITE_URL,
+            hogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
         }
     )
 }

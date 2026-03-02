@@ -6,8 +6,9 @@ import { HogFlow } from '~/schema/hogflow'
 import { parseJSON } from '~/utils/json-parse'
 import { captureException } from '~/utils/posthog'
 
+import { InternalFetchService } from '../../common/services/internal-fetch'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { HealthCheckResult, Hub, Team } from '../../types'
+import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import { HogFlowBatchPersonQueryService } from '../services/hogflows/hogflow-batch-person-query.service'
@@ -15,7 +16,7 @@ import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { CyclotronJobInvocation, HogFunctionFilters } from '../types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
-import { CdpConsumerBase } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
 export interface BatchHogFlowRequest {
@@ -32,21 +33,25 @@ export interface BatchHogFlowRequestMessage {
     hogFlow: HogFlow
 }
 
-export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
+export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServerConfig> {
     protected name = 'CdpBatchHogFlowRequestsConsumer'
     private cyclotronJobQueue: CyclotronJobQueue
     protected kafkaConsumer: KafkaConsumer
     private hogFlowBatchPersonQueryService: HogFlowBatchPersonQueryService
 
     constructor(
-        hub: Hub,
+        config: PluginsServerConfig,
+        deps: CdpConsumerBaseDeps,
         topic: string = KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
         groupId: string = 'cdp-batch-hogflow-requests-consumer'
     ) {
-        super(hub)
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hogflow')
+        super(config, deps)
+        this.cyclotronJobQueue = new CyclotronJobQueue(config, 'hogflow')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
-        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(hub.SITE_URL, hub.internalFetchService)
+        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(
+            config.SITE_URL,
+            new InternalFetchService(config)
+        )
     }
 
     private createHogFlowInvocation({
@@ -65,7 +70,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
         const invocationGlobals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
             team: team,
             personId: personId,
-            siteUrl: this.hub.SITE_URL,
+            siteUrl: this.config.SITE_URL,
         })
 
         const filterGlobals = convertToHogFunctionFilterGlobal(invocationGlobals)
@@ -225,7 +230,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
 
                     const [teamHogFlow, team] = await Promise.all([
                         this.hogFlowManager.getHogFlow(batchHogFlowRequest.hogFlowId),
-                        this.hub.teamManager.getTeam(batchHogFlowRequest.teamId),
+                        this.deps.teamManager.getTeam(batchHogFlowRequest.teamId),
                     ])
 
                     if (!teamHogFlow || !team) {
