@@ -100,7 +100,7 @@ class Command(BaseCommand):
                 }
             )
 
-        # Signals from ClickHouse
+        # Signals coming from ClickHouse
         if include_signals:
             entry["signals"] = self._fetch_signals(team, report)
 

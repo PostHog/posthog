@@ -137,13 +137,14 @@
             right: 0.75rem;
         }
 
+        .CardMeta__divider {
+            margin: 0;
+            opacity: 1;
+        }
+
         h4 {
             height: auto;
             margin: 0;
-        }
-
-        .CardMeta__divider {
-            opacity: 1;
         }
 
         @container (min-width: 14rem) {

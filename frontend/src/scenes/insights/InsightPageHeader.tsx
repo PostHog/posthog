@@ -454,6 +454,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 forceEdit={insightMode === ItemMode.Edit}
                 renameDebounceMs={0}
                 saveOnBlur
+                descriptionMaxLength={400}
                 actions={
                     <>
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
