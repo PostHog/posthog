@@ -1014,16 +1014,6 @@ class SlackIntegration:
 
         return config
 
-    @classmethod
-    def twig_slack_config(cls) -> dict[str, str]:
-        return get_instance_settings(
-            [
-                "SLACK_APP_CLIENT_ID",
-                "SLACK_APP_CLIENT_SECRET",
-                "SLACK_APP_SIGNING_SECRET",
-            ]
-        )
-
 
 def validate_slack_request(request: HttpRequest | Request, signing_secret: str) -> None:
     """

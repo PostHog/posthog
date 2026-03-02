@@ -7,7 +7,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 
 export function TwigSlackIntegration(): JSX.Element {
-    const { twigSlackIntegrations, twigSlackAvailable } = useValues(integrationsLogic)
+    const { twigSlackIntegrations, slackAvailable } = useValues(integrationsLogic)
 
     return (
         <div>
@@ -19,7 +19,7 @@ export function TwigSlackIntegration(): JSX.Element {
                 ))}
 
                 <div>
-                    {twigSlackAvailable ? (
+                    {slackAvailable ? (
                         <Link to={api.integrations.authorizeUrl({ kind: 'slack-twig' })} disableClientSideRouting>
                             <img
                                 alt="Add to Slack"
