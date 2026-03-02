@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 import { IconCopy, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
@@ -33,7 +33,7 @@ import {
     PropertyFilterType,
 } from '~/types'
 
-import { ConditionWarning, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
+import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
 import { FeatureFlagLogicProps } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -183,29 +183,59 @@ function ConditionHeader({
     )
 }
 
-function ConditionWarnings({ warnings }: { warnings?: ConditionWarning[] }): JSX.Element | null {
-    if (!warnings || warnings.length === 0) {
+const INTENT_CONSEQUENCE: Record<FlagIntent, string> = {
+    'local-eval':
+        'These will force a server request to evaluate this flag, removing the speed and cost benefits of local evaluation.',
+    'first-page-load':
+        'These may cause the flag to briefly return the wrong value on first page load, resulting in a visible flicker.',
+}
+
+function IntentIssuesSummary({
+    issues,
+    docUrl,
+    intent,
+}: {
+    issues: string[]
+    docUrl: string | null
+    intent: FlagIntent | null
+}): JSX.Element | null {
+    const [expanded, setExpanded] = useState(false)
+
+    if (issues.length === 0 || !intent) {
         return null
     }
-    // Don't show unreachable_condition inside the expanded panel (it's shown above the collapse)
-    const filteredWarnings = warnings.filter((w) => w.type !== 'unreachable_condition')
-    if (filteredWarnings.length === 0) {
-        return null
-    }
+
+    const label = issues.length === 1 ? '1 issue detected' : `${issues.length} issues detected`
+
     return (
-        <>
-            {filteredWarnings.map((warning, i) => (
-                <LemonBanner key={i} type={warning.severity === 'warning' ? 'warning' : 'info'}>
-                    <strong>{warning.title}</strong>
-                    <p className="mb-0">{warning.description}</p>
-                    {warning.docUrl && (
-                        <Link to={warning.docUrl} target="_blank">
-                            Learn more
-                        </Link>
-                    )}
-                </LemonBanner>
-            ))}
-        </>
+        <LemonBanner type="warning">
+            <div>
+                <div
+                    className="flex items-center justify-between cursor-pointer select-none"
+                    onClick={() => setExpanded(!expanded)}
+                >
+                    <span className="text-sm font-medium">{label}</span>
+                    <span className="text-xs text-secondary">{expanded ? 'Hide' : 'Show'}</span>
+                </div>
+                {expanded && (
+                    <div className="mt-1.5">
+                        <p className="text-xs text-secondary mb-1.5">{INTENT_CONSEQUENCE[intent]}</p>
+                        <ul className="list-disc pl-4 mb-0 space-y-0.5">
+                            {issues.map((issue, i) => (
+                                <li key={i} className="text-xs">
+                                    {issue}
+                                </li>
+                            ))}
+                        </ul>
+                        {docUrl && (
+                            <Link to={docUrl} target="_blank" className="text-xs mt-1.5 block">
+                                Learn more
+                            </Link>
+                        )}
+                    </div>
+                )}
+            </div>
+        </LemonBanner>
     )
 }
 
@@ -239,7 +269,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
         openConditions,
     } = useValues(releaseConditionsLogic)
 
-    const { warningsByGroup, flagWarnings } = useValues(featureFlagIntentWarningLogic({ id: flagId ?? 'new' }))
+    const { unreachableGroups, intentIssues, intentDocUrl, flagIntent } = useValues(
+        featureFlagIntentWarningLogic({ id: flagId ?? 'new' })
+    )
     const {
         updateConditionSet,
         removeConditionSet,
@@ -425,17 +457,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 </div>
             )}
 
-            {flagWarnings.map((warning, i) => (
-                <LemonBanner key={i} type={warning.severity === 'warning' ? 'warning' : 'info'} className="mb-2">
-                    <strong>{warning.title}</strong>
-                    <p className="mb-0">{warning.description}</p>
-                    {warning.docUrl && (
-                        <Link to={warning.docUrl} target="_blank">
-                            Learn more
-                        </Link>
-                    )}
-                </LemonBanner>
-            ))}
+            <IntentIssuesSummary issues={intentIssues} docUrl={intentDocUrl} intent={flagIntent} />
 
             <div ref={collapseRef}>
                 {filterGroups.map((group, index) => (
@@ -445,7 +467,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 or
                             </div>
                         )}
-                        {warningsByGroup[index]?.some((w: ConditionWarning) => w.type === 'unreachable_condition') && (
+                        {unreachableGroups.has(index) && (
                             <LemonBanner type="warning" className="mb-1">
                                 <strong>Unreachable condition</strong> — A previous condition matches all users at 100%
                                 rollout, so this condition will never be evaluated.
@@ -480,7 +502,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     className: 'bg-bg-light',
                                     content: (
                                         <div className="flex flex-col gap-3 pt-2">
-                                            <ConditionWarnings warnings={warningsByGroup[index]} />
                                             <div className="max-w-md">
                                                 <EditableField
                                                     multiline

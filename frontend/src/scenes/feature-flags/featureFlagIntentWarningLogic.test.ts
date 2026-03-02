@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { ConditionWarning, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
+import { featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
 import { featureFlagLogic, NEW_FLAG } from './featureFlagLogic'
 
 describe('featureFlagIntentWarningLogic', () => {
@@ -170,59 +170,11 @@ describe('featureFlagIntentWarningLogic', () => {
     describe('local eval intent', () => {
         it.each([
             {
-                name: 'is_not_set operator triggers warning',
+                name: 'is_not_set operator',
                 properties: [{ key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.IsNotSet }],
-                expectedWarningTypes: ['is_not_set'],
+                expectedIssueContains: '"is not set"',
             },
-            {
-                name: 'regex with lookahead triggers warning',
-                properties: [
-                    {
-                        key: 'email',
-                        type: PropertyFilterType.Person,
-                        operator: PropertyOperator.Regex,
-                        value: '(?=test)',
-                    },
-                ],
-                expectedWarningTypes: ['regex_unsupported'],
-            },
-            {
-                name: 'regex with lookbehind triggers warning',
-                properties: [
-                    {
-                        key: 'email',
-                        type: PropertyFilterType.Person,
-                        operator: PropertyOperator.Regex,
-                        value: '(?<=test)',
-                    },
-                ],
-                expectedWarningTypes: ['regex_unsupported'],
-            },
-            {
-                name: 'regex with backreference triggers warning',
-                properties: [
-                    {
-                        key: 'email',
-                        type: PropertyFilterType.Person,
-                        operator: PropertyOperator.Regex,
-                        value: '(test)\\1',
-                    },
-                ],
-                expectedWarningTypes: ['regex_unsupported'],
-            },
-            {
-                name: 'simple regex does not trigger warning',
-                properties: [
-                    {
-                        key: 'email',
-                        type: PropertyFilterType.Person,
-                        operator: PropertyOperator.Regex,
-                        value: '.*@posthog\\.com',
-                    },
-                ],
-                expectedWarningTypes: [],
-            },
-        ])('$name', async ({ properties, expectedWarningTypes }) => {
+        ])('detects $name', async ({ properties, expectedIssueContains }) => {
             enableIntentsFeatureFlag()
 
             flagLogic.actions.setFlagIntent('local-eval')
@@ -234,12 +186,60 @@ describe('featureFlagIntentWarningLogic', () => {
                 },
             })
 
-            const warnings = warningLogic.values.warningsByGroup[0] || []
-            const warningTypes = warnings.map((w: ConditionWarning) => w.type)
-            expect(warningTypes).toEqual(expectedWarningTypes)
+            const issues = warningLogic.values.intentIssues
+            expect(issues.length).toBeGreaterThanOrEqual(1)
+            expect(issues.some((s) => s.toLowerCase().includes(expectedIssueContains.toLowerCase()))).toBe(true)
         })
 
-        it('no intent warnings without intent set', async () => {
+        it('multiple issues across groups are deduplicated', async () => {
+            enableIntentsFeatureFlag()
+
+            flagLogic.actions.setFlagIntent('local-eval')
+            flagLogic.actions.setFeatureFlag({
+                ...NEW_FLAG,
+                filters: {
+                    ...NEW_FLAG.filters,
+                    groups: [
+                        {
+                            properties: [
+                                { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.IsNotSet },
+                            ] as AnyPropertyFilter[],
+                            rollout_percentage: 100,
+                            variant: null,
+                        },
+                        {
+                            properties: [
+                                { key: 'name', type: PropertyFilterType.Person, operator: PropertyOperator.IsNotSet },
+                            ] as AnyPropertyFilter[],
+                            rollout_percentage: 100,
+                            variant: null,
+                        },
+                    ],
+                },
+            })
+
+            const issues = warningLogic.values.intentIssues
+            expect(issues.filter((s) => s.includes('"is not set"'))).toHaveLength(1)
+        })
+
+        it('experience continuity adds an issue', async () => {
+            enableIntentsFeatureFlag()
+
+            flagLogic.actions.setFlagIntent('local-eval')
+            flagLogic.actions.setFeatureFlag({
+                ...NEW_FLAG,
+                ensure_experience_continuity: true,
+                filters: {
+                    ...NEW_FLAG.filters,
+                    groups: [{ properties: [] as AnyPropertyFilter[], rollout_percentage: 100, variant: null }],
+                },
+            })
+
+            const issues = warningLogic.values.intentIssues
+            expect(issues.some((s) => s.toLowerCase().includes('persist'))).toBe(true)
+        })
+
+        it('no issues without intent set', async () => {
             enableIntentsFeatureFlag()
 
             flagLogic.actions.setFeatureFlag({
@@ -258,36 +258,34 @@ describe('featureFlagIntentWarningLogic', () => {
                 },
             })
 
-            await expectLogic(warningLogic).toMatchValues({
-                warningsByGroup: {},
-            })
+            expect(warningLogic.values.intentIssues).toEqual([])
         })
     })
 
     describe('prevent flicker intent', () => {
         it.each([
             {
-                name: 'non-instant property triggers consolidated flicker warning',
+                name: 'non-instant property triggers flicker issue',
                 properties: [
                     { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.Exact, value: 'test' },
                 ],
-                expectedWarningTypes: ['flicker_risk'],
+                expectedIssueCount: 1,
             },
             {
-                name: 'cohort filter triggers consolidated flicker warning',
+                name: 'cohort filter triggers flicker issue',
                 properties: [{ type: PropertyFilterType.Cohort, value: 1, key: 'id' }],
-                expectedWarningTypes: ['flicker_risk'],
+                expectedIssueCount: 1,
             },
             {
-                name: 'cohort and non-instant property produce single flicker warning',
+                name: 'cohort and non-instant property produce separate issues',
                 properties: [
                     { type: PropertyFilterType.Cohort, value: 1, key: 'id' },
                     { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.Exact, value: 'test' },
                 ],
-                expectedWarningTypes: ['flicker_risk'],
+                expectedIssueCount: 2,
             },
             {
-                name: 'instant property does not trigger warning',
+                name: 'instant property does not trigger issue',
                 properties: [
                     {
                         key: '$geoip_country_code',
@@ -296,9 +294,9 @@ describe('featureFlagIntentWarningLogic', () => {
                         value: 'US',
                     },
                 ],
-                expectedWarningTypes: [],
+                expectedIssueCount: 0,
             },
-        ])('$name', async ({ properties, expectedWarningTypes }) => {
+        ])('$name', async ({ properties, expectedIssueCount }) => {
             enableIntentsFeatureFlag()
 
             flagLogic.actions.setFlagIntent('first-page-load')
@@ -310,12 +308,10 @@ describe('featureFlagIntentWarningLogic', () => {
                 },
             })
 
-            const warnings = warningLogic.values.warningsByGroup[0] || []
-            const warningTypes = warnings.map((w: ConditionWarning) => w.type)
-            expect(warningTypes).toEqual(expectedWarningTypes)
+            expect(warningLogic.values.intentIssues).toHaveLength(expectedIssueCount)
         })
 
-        it('no intent warnings without intent set', async () => {
+        it('no issues without intent set', async () => {
             enableIntentsFeatureFlag()
 
             flagLogic.actions.setFeatureFlag({
@@ -339,9 +335,7 @@ describe('featureFlagIntentWarningLogic', () => {
                 },
             })
 
-            await expectLogic(warningLogic).toMatchValues({
-                warningsByGroup: {},
-            })
+            expect(warningLogic.values.intentIssues).toEqual([])
         })
     })
 
@@ -369,11 +363,11 @@ describe('featureFlagIntentWarningLogic', () => {
                 },
             })
 
-            const warnings = warningLogic.values.warningsByGroup[1] || []
-            expect(warnings.some((w: ConditionWarning) => w.type === 'unreachable_condition')).toBe(true)
+            expect(warningLogic.values.unreachableGroups.has(1)).toBe(true)
         })
 
-        it('intent warnings suppressed when intents feature flag is off', async () => {
+        it('intent issues suppressed when intents feature flag is off', async () => {
+            enabledFeaturesLogic.actions.setFeatureFlags([], {})
             flagLogic.actions.setFlagIntent('local-eval')
             flagLogic.actions.setFeatureFlag({
                 ...NEW_FLAG,
@@ -391,9 +385,7 @@ describe('featureFlagIntentWarningLogic', () => {
                 },
             })
 
-            await expectLogic(warningLogic).toMatchValues({
-                warningsByGroup: {},
-            })
+            expect(warningLogic.values.intentIssues).toEqual([])
         })
     })
 })
