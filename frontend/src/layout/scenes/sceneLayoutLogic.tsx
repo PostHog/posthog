@@ -19,8 +19,16 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         setScenePanelIsPresent: (active: boolean) => ({ active }),
         setScenePanelOpen: (open: boolean) => ({ open }),
         setSceneLayoutConfig: (config: SceneConfig) => ({ config }),
+        toggleShowDescription: true,
     }),
     reducers({
+        showDescription: [
+            true,
+            { persist: true },
+            {
+                toggleShowDescription: (state) => !state,
+            },
+        ],
         scenePanelElement: [
             null as HTMLElement | null,
             {

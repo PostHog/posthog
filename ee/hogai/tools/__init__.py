@@ -1,3 +1,4 @@
+from .call_mcp_server.tool import CallMCPServerTool
 from .create_form import CreateFormTool
 from .create_insight import CreateInsightTool
 
@@ -10,6 +11,7 @@ from .read_data import ReadDataTool
 from .read_data_warehouse_schema.mcp_tool import ReadDataWarehouseSchemaMCPTool  # noqa: F401
 from .read_taxonomy.mcp_tool import ReadTaxonomyMCPTool  # noqa: F401
 from .read_taxonomy.tool import ReadTaxonomyTool
+from .recommend_products import RecommendProductsTool
 from .search import SearchTool
 from .switch_mode import SwitchModeTool
 from .task import TaskTool
@@ -17,11 +19,13 @@ from .todo_write import TodoWriteTool
 from .upsert_dashboard import UpsertDashboardTool
 
 __all__ = [
+    "CallMCPServerTool",
     "CreateFormTool",
     "ManageMemoriesTool",
     "ListDataTool",
     "ReadDataTool",
     "ReadTaxonomyTool",
+    "RecommendProductsTool",
     "SearchTool",
     "TaskTool",
     "TodoWriteTool",

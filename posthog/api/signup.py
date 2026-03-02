@@ -1,7 +1,7 @@
 import json
 import uuid as uuid_module
 from typing import Any, Optional, Union, cast
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from django import forms
 from django.conf import settings
@@ -69,7 +69,7 @@ def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = 
         redirect_url = "/verify_email/" + uuid
 
         if next_url:
-            redirect_url += "?next=" + next_url
+            redirect_url += "?next=" + quote(next_url, safe="")
 
         return redirect_url
 
@@ -165,7 +165,6 @@ class SignupSerializer(serializers.Serializer):
         request = self.context["request"]
         passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
 
-        # Evaluate signup attempt with WorkOS Radar (log-only mode, does not block)
         auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
         evaluate_auth_attempt(
             request=request._request,
@@ -385,8 +384,6 @@ class InviteSignupSerializer(serializers.Serializer):
         except OrganizationInvite.DoesNotExist:
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
-        # Evaluate signup attempt with WorkOS Radar (log-only mode, does not block)
-        # Only for new users, not existing authenticated users
         if not user and invite.target_email:
             auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
             evaluate_auth_attempt(

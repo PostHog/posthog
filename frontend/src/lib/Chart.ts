@@ -11,7 +11,7 @@ if (registerables) {
 }
 RawChart.register(CrosshairPlugin)
 RawChart.register(ZoomPlugin)
-RawChart.defaults.animation['duration'] = 0
+RawChart.defaults.animation = false
 
 // Create positioner to put tooltip at cursor position
 Tooltip.positioners.cursor = function (_, coordinates) {

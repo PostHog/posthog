@@ -699,7 +699,20 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
-  VISIT(WithClause) { return visit(ctx->withExprList()); }
+  VISIT(WithClause) {
+    Json json = visitAsJSON(ctx->withExprList());
+
+    // If RECURSIVE keyword is present, add recursive: true to each CTE
+    if (ctx->RECURSIVE()) {
+      for (auto& cte : json.getArrayMut()) {
+        if (cte.isObject()) {
+          cte.getObjectMut()["recursive"] = true;
+        }
+      }
+    }
+
+    return json;
+  }
 
   VISIT_UNSUPPORTED(TopClause)
 
@@ -1782,6 +1795,17 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["name"] = visitAsString(ctx->identifier());
     json["expr"] = visitAsJSON(ctx->selectSetStmt());
     json["cte_type"] = "subquery";
+    json["materialized"] = Json::Null();
+    if (ctx->MATERIALIZED()) {
+      json["materialized"] = ctx->NOT() ? false : true;
+    }
+    json["columns"] = Json::Null();
+    if (const auto& columnNameList = ctx->withExprColumnNameList()) {
+      json["columns"] = Json::array();
+      for (const auto& ident : columnNameList->identifier()) {
+        json["columns"].pushBack(visitAsString(ident));
+      }
+    }
     return json;
   }
 
@@ -1917,6 +1941,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
     json["table"] = std::move(table_json);
     json["table_args"] = std::move(table_args_json);
+    json["next_join"] = nullptr;
+    json["alias"] = nullptr;
     return json;
   }
 

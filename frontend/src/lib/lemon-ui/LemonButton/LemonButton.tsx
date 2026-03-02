@@ -208,7 +208,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             let tooltipContent: TooltipProps['title']
             if (disabledReason) {
                 disabled = true // Support `disabledReason` while maintaining compatibility with `disabled`
-                if (tooltipContent) {
+                if (tooltip) {
                     tooltipContent = (
                         <>
                             {tooltip}

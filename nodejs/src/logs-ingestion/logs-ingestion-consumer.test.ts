@@ -110,7 +110,7 @@ describe('LogsIngestionConsumer', () => {
     let logMessageDroppedCounterSpy: jest.SpyInstance
 
     const createLogsIngestionConsumer = async (hub: Hub, overrides: any = {}) => {
-        const consumer = new LogsIngestionConsumer(hub, overrides)
+        const consumer = new LogsIngestionConsumer(hub, hub, overrides)
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
         consumer['kafkaConsumer'] = {
             connect: jest.fn(),

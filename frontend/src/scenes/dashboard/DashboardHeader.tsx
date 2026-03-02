@@ -38,37 +38,37 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
-import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat } from '~/types'
 
-import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
-import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
+import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
 const RESOURCE_TYPE = 'dashboard'
@@ -116,6 +116,7 @@ export function DashboardHeader(): JSX.Element | null {
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
 
     const [terraformModalOpen, setTerraformModalOpen] = useState(false)
+
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
             return false
@@ -454,6 +455,26 @@ export function DashboardHeader(): JSX.Element | null {
                 isLoading={dashboardLoading}
                 forceEdit={dashboardMode === DashboardMode.Edit || isNewDashboard}
                 renameDebounceMs={1000}
+                maxToolProps={
+                    dashboard && canEditDashboard
+                        ? {
+                              identifier: 'upsert_dashboard',
+                              context: {
+                                  current_dashboard: {
+                                      id: dashboard.id,
+                                      name: dashboard.name,
+                                      description: dashboard.description,
+                                      tags: dashboard.tags,
+                                  },
+                              },
+                              contextDescription: {
+                                  text: dashboard.name,
+                                  icon: iconForType('dashboard'),
+                              },
+                              callback: () => loadDashboard({ action: DashboardLoadAction.Update }),
+                          }
+                        : undefined
+                }
                 actions={
                     <>
                         {dashboardMode === DashboardMode.Edit ? (
@@ -465,7 +486,6 @@ export function DashboardHeader(): JSX.Element | null {
                                         setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
                                     }
                                     size="small"
-                                    tabIndex={9}
                                 >
                                     Cancel
                                 </LemonButton>
@@ -483,7 +503,6 @@ export function DashboardHeader(): JSX.Element | null {
                                             setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
                                         }
                                         size="small"
-                                        tabIndex={10}
                                         disabledReason={
                                             dashboardLoading
                                                 ? 'Wait for dashboard to finish loading'
@@ -572,7 +591,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                       }
                                                     : undefined
                                             }
-                                            active={!!dashboard && canEditDashboard}
+                                            active={false}
                                             callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
                                             position="top-right"
                                         >
@@ -587,7 +606,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     data-attr="dashboard-add-graph-header"
                                                     size="small"
                                                 >
-                                                    <span className="pr-3">Add insight</span>
+                                                    Add insight
                                                 </LemonButton>
                                             </AccessControlAction>
                                         </MaxTool>

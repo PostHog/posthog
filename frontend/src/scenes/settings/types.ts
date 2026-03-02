@@ -25,6 +25,7 @@ export type SettingSectionId =
     | 'environment-product-analytics'
     | 'environment-privacy'
     | 'environment-revenue-analytics'
+    | 'environment-llm-analytics'
     | 'environment-marketing-analytics'
     | 'environment-web-analytics'
     | 'environment-replay'
@@ -50,6 +51,7 @@ export type SettingSectionId =
     | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'organization-details'
     | 'organization-integrations'
+    | 'organization-oauth-apps'
     | 'organization-members'
     | 'organization-notifications'
     | 'organization-roles'
@@ -66,7 +68,8 @@ export type SettingSectionId =
     | 'user-customization'
     | 'user-danger-zone'
     | 'user-feature-previews'
-    | 'mcp-server'
+    | 'posthog-mcp'
+    | 'mcp-servers'
 
 export type SettingId =
     | 'snippet-v2'
@@ -74,7 +77,6 @@ export type SettingId =
     | 'replay-integrations'
     | 'display-name'
     | 'snippet'
-    | 'authorized-urls'
     | 'web-analytics-authorized-urls'
     | 'variables'
     | 'autocapture'
@@ -121,6 +123,7 @@ export type SettingId =
     | 'error-tracking-alerting'
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'
+    | 'error-tracking-spike-detection'
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-error-tracking'
@@ -134,6 +137,7 @@ export type SettingId =
     | 'project-move'
     | 'organization-display-name'
     | 'organization-integrations-list'
+    | 'organization-oauth-apps-list'
     | 'invites'
     | 'members'
     | 'email-members'
@@ -167,6 +171,7 @@ export type SettingId =
     | 'revenue-analytics-goals'
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
+    | 'llm-analytics-byok'
     | 'session-table-version'
     | 'web-vitals-autocapture'
     | 'dead-clicks-autocapture'
@@ -183,7 +188,8 @@ export type SettingId =
     | 'csp-reporting'
     | 'base-currency'
     | 'marketing-settings'
-    | 'mcp-server-configure'
+    | 'posthog-mcp-configure'
+    | 'mcp-servers-manage'
     | 'activity-log-settings'
     | 'activity-log-org-level-settings'
     | 'activity-log-notifications'
@@ -196,7 +202,6 @@ export type SettingId =
     | 'approval-policies'
     | 'change-requests'
     | 'banner'
-    | 'sql-editor-tab-preference'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

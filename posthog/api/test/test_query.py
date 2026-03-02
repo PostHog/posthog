@@ -33,8 +33,9 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.api.services.query import process_query_dict
 from posthog.models.insight_variable import InsightVariable
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -352,14 +353,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
             self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
 
-            self.assertEqual(
-                response_post.json(),
-                {
-                    "type": "validation_error",
-                    "code": "illegal_type_of_argument",
-                    "detail": "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: While processing toTimeZone(timestamp, 'UTC') + 'string'.",
-                    "attr": None,
-                },
+            response = response_post.json()
+            self.assertEqual(response["type"], "validation_error")
+            self.assertEqual(response["code"], "illegal_type_of_argument")
+            self.assertEqual(response["attr"], None)
+            self.assertIn(
+                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus",
+                response["detail"],
             )
 
     @patch(

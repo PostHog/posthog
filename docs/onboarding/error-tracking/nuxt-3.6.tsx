@@ -113,12 +113,7 @@ export const getNuxt36Steps = (ctx: OnboardingComponentsContext): StepDefinition
         ),
     }
 
-    return [
-        ...installSteps,
-        manualCaptureStep,
-        exceptionAutocaptureStep,
-        verifyStep,
-    ]
+    return [...installSteps, manualCaptureStep, exceptionAutocaptureStep, verifyStep]
 }
 
 export const Nuxt36Installation = createInstallation(getNuxt36Steps)

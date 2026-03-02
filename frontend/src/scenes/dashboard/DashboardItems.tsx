@@ -47,6 +47,7 @@ export function DashboardItems(): JSX.Element {
         updateLayouts,
         updateContainerWidth,
         updateTileColor,
+        toggleTileDescription,
         removeTile,
         duplicateTile,
         refreshDashboardItem,
@@ -86,6 +87,7 @@ export function DashboardItems(): JSX.Element {
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
     const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
+    const isMobileView = gridWrapperWidth && gridWrapperWidth <= BREAKPOINTS['sm']
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -94,8 +96,8 @@ export function DashboardItems(): JSX.Element {
                     width={gridWrapperWidth}
                     className={className}
                     draggableHandle=".CardMeta,.TextCard__body"
-                    isDraggable={dashboardMode === DashboardMode.Edit}
-                    isResizable={dashboardMode === DashboardMode.Edit}
+                    isDraggable={dashboardMode === DashboardMode.Edit && !isMobileView}
+                    isResizable={dashboardMode === DashboardMode.Edit && !isMobileView}
                     layouts={layouts}
                     rowHeight={80}
                     margin={[16, 16]}
@@ -188,7 +190,7 @@ export function DashboardItems(): JSX.Element {
 
                         const commonTileProps = {
                             dashboardId: dashboard?.id,
-                            showResizeHandles: dashboardMode === DashboardMode.Edit,
+                            showResizeHandles: dashboardMode === DashboardMode.Edit && !isMobileView,
                             canResizeWidth: canResizeWidth,
                             showEditingControls: [
                                 DashboardPlacement.Dashboard,
@@ -225,6 +227,7 @@ export function DashboardItems(): JSX.Element {
                                     apiError={apiError}
                                     highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                     updateColor={(color) => updateTileColor(tile.id, color)}
+                                    toggleShowDescription={() => toggleTileDescription(tile.id)}
                                     ribbonColor={tile.color}
                                     refresh={() => refreshDashboardItem({ tile })}
                                     refreshEnabled={!itemsLoading}

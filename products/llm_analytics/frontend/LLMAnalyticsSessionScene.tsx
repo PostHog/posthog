@@ -10,6 +10,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -20,9 +21,12 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
+import { SentimentBar } from './components/SentimentTag'
 import { TraceSummary, llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
-import { formatLLMCost, getTraceTimestamp } from './utils'
+import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { flattenGenerationMessages } from './sentimentUtils'
+import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
 const LLMASessionFeedbackDisplay = lazy(() =>
     import('./LLMASessionFeedbackDisplay').then((m) => ({ default: m.LLMASessionFeedbackDisplay }))
@@ -33,20 +37,53 @@ export const scene: SceneExport = {
     logic: llmAnalyticsSessionLogic,
 }
 
-export function LLMAnalyticsSessionScene(): JSX.Element {
-    const { sessionId, query } = useValues(llmAnalyticsSessionLogic)
+export function LLMAnalyticsSessionScene({ tabId }: { tabId?: string }): JSX.Element {
+    const sessionLogic = llmAnalyticsSessionLogic({ tabId })
+    const { sessionId, query } = useValues(sessionLogic)
+    const sessionDataLogic = llmAnalyticsSessionDataLogic({ sessionId, query, tabId })
+
+    useAttachedLogic(sessionDataLogic, sessionLogic)
 
     return (
-        <BindLogic logic={llmAnalyticsSessionDataLogic} props={{ sessionId, query }}>
-            <SessionSceneWrapper />
+        <BindLogic logic={llmAnalyticsSessionLogic} props={{ tabId }}>
+            <BindLogic logic={llmAnalyticsSessionDataLogic} props={{ sessionId, query, tabId }}>
+                <SessionSceneWrapper />
+            </BindLogic>
         </BindLogic>
+    )
+}
+
+function SessionTraceSentimentBar({ traceId }: { traceId: string }): JSX.Element | null {
+    const { sentimentByTraceId, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
+    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
+
+    const cached = sentimentByTraceId[traceId]
+    const loading = isTraceLoading(traceId)
+
+    if (cached === undefined && !loading) {
+        ensureSentimentLoaded(traceId)
+    }
+
+    if (cached === null) {
+        return null
+    }
+
+    return (
+        <SentimentBar
+            label={cached?.label ?? 'neutral'}
+            score={cached?.score ?? 0}
+            loading={loading || cached === undefined}
+            messages={cached ? flattenGenerationMessages(cached.generations) : undefined}
+        />
     )
 }
 
 function SessionSceneWrapper(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+    const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
+    const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
 
     const {
         traces,
@@ -58,9 +95,11 @@ function SessionSceneWrapper(): JSX.Element {
         loadingFullTraces,
         traceSummaries,
         summariesLoading,
+        hasMoreData,
+        nextDataLoading,
     } = useValues(llmAnalyticsSessionDataLogic)
     const { sessionId } = useValues(llmAnalyticsSessionLogic)
-    const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces } =
+    const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces, loadNextData } =
         useActions(llmAnalyticsSessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -97,7 +136,8 @@ function SessionSceneWrapper(): JSX.Element {
                                 <span className="font-mono">{sessionId}</span>
                             </LemonTag>
                             <LemonTag size="medium" className="bg-surface-primary">
-                                {sessionStats.traceCount} {sessionStats.traceCount === 1 ? 'trace' : 'traces'}
+                                {sessionStats.traceCount}
+                                {hasMoreData ? '+' : ''} {sessionStats.traceCount === 1 ? 'trace' : 'traces'}
                             </LemonTag>
                             {sessionStats.totalCost > 0 && (
                                 <LemonTag size="medium" className="bg-surface-primary">
@@ -161,9 +201,10 @@ function SessionSceneWrapper(): JSX.Element {
                     <div className="bg-surface-primary border rounded p-4">
                         <h3 className="font-semibold text-sm mb-3">Traces in this session</h3>
                         <div className="space-y-2">
-                            {traces.map((trace) => {
+                            {traces.map((trace, index) => {
                                 const isTraceExpanded = expandedTraceIds.has(trace.id)
                                 const summary: TraceSummary | undefined = traceSummaries[trace.id]
+                                const turnNumber = index + 1
 
                                 return (
                                     <div key={trace.id} className="border rounded">
@@ -180,6 +221,9 @@ function SessionSceneWrapper(): JSX.Element {
                                             </div>
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                                    <span className="text-xs font-semibold text-muted">
+                                                        #{turnNumber}
+                                                    </span>
                                                     <strong className="font-mono text-xs">
                                                         {trace.id.slice(0, 8)}...
                                                     </strong>
@@ -203,10 +247,11 @@ function SessionSceneWrapper(): JSX.Element {
                                                             {formatLLMCost(trace.totalCost)}
                                                         </LemonTag>
                                                     )}
+                                                    {showSentiment && <SessionTraceSentimentBar traceId={trace.id} />}
                                                     <Link
                                                         to={
                                                             combineUrl(urls.llmAnalyticsTrace(trace.id), {
-                                                                ...searchParams,
+                                                                ...traceSearchParams,
                                                                 timestamp: getTraceTimestamp(trace.createdAt),
                                                             }).url
                                                         }
@@ -233,7 +278,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                             <Link
                                                                 to={
                                                                     combineUrl(urls.llmAnalyticsTrace(trace.id), {
-                                                                        ...searchParams,
+                                                                        ...traceSearchParams,
                                                                         timestamp: getTraceTimestamp(trace.createdAt),
                                                                         tab: 'summary',
                                                                     }).url
@@ -259,6 +304,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                         isLoading={loadingFullTraces.has(trace.id)}
                                                         expandedEventIds={expandedGenerationIds}
                                                         onToggleEventExpand={toggleGenerationExpanded}
+                                                        traceId={trace.id}
                                                     />
                                                 </div>
                                             </div>
@@ -266,6 +312,18 @@ function SessionSceneWrapper(): JSX.Element {
                                     </div>
                                 )
                             })}
+                            {hasMoreData && (
+                                <div className="flex justify-center pt-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        loading={nextDataLoading}
+                                        onClick={loadNextData}
+                                        data-attr="llm-session-load-more-traces"
+                                    >
+                                        Load more traces
+                                    </LemonButton>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

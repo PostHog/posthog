@@ -7,6 +7,7 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { sanitizeTraceUrlSearchParams } from '../../utils'
 import { EvaluationPattern, EvaluationRun } from '../types'
 
 export interface PatternCardProps {
@@ -17,6 +18,7 @@ export interface PatternCardProps {
 
 export function PatternCard({ pattern, type, runsLookup }: PatternCardProps): JSX.Element {
     const { searchParams } = useValues(router)
+    const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     const borderClass = type === 'pass' ? 'border-success' : type === 'fail' ? 'border-danger' : 'border-muted'
     const iconClass = type === 'pass' ? 'text-success' : type === 'fail' ? 'text-danger' : 'text-muted'
     const Icon = type === 'pass' ? IconCheck : type === 'fail' ? IconX : IconMinus
@@ -40,7 +42,7 @@ export function PatternCard({ pattern, type, runsLookup }: PatternCardProps): JS
                                     <Link
                                         to={
                                             combineUrl(urls.llmAnalyticsTrace(run.trace_id), {
-                                                ...searchParams,
+                                                ...traceSearchParams,
                                                 event: genId,
                                                 tab: 'evals',
                                             }).url

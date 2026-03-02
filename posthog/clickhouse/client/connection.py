@@ -15,21 +15,9 @@ from clickhouse_connect.driver import (
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 
+from posthog.clickhouse.workload import Workload
 from posthog.settings import data_stores
 from posthog.utils import patchable
-
-
-class Workload(StrEnum):
-    # Default workload
-    DEFAULT = "DEFAULT"
-    # Analytics queries, other 'lively' queries
-    ONLINE = "ONLINE"
-    # Historical exports, other long-running processes where latency is less critical
-    OFFLINE = "OFFLINE"
-    # Logs queries
-    LOGS = "LOGS"
-    # Endpoints (the product) queries
-    ENDPOINTS = "ENDPOINTS"
 
 
 class NodeRole(StrEnum):

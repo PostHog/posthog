@@ -91,6 +91,13 @@ const handleRequest = async (
         })
     }
 
+    // OpenAI ChatGPT App Directory domain verification
+    if (url.pathname === '/.well-known/openai-apps-challenge') {
+        return new Response('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU', {
+            headers: { 'content-type': 'text/plain' },
+        })
+    }
+
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
     // Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
     const effectiveRegion = getRegionFromRequest(request)
@@ -181,10 +188,33 @@ const handleRequest = async (
         )
     }
 
+    if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
+        log.extend({ authError: 'invalid_token_format' })
+        return new Response(
+            `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
+            { status: 401 }
+        )
+    }
+
+    // Organization and project IDs can be provided via headers or query params.
+    // When set, they pin the MCP session to a specific org/project and remove the switch tools.
+    const organizationId =
+        request.headers.get('x-posthog-organization-id') || url.searchParams.get('organization_id') || undefined
+    const projectId = request.headers.get('x-posthog-project-id') || url.searchParams.get('project_id') || undefined
+
+    // Extract posthog/foo identifier from the client's User-Agent (e.g. "posthog/wizard")
+    // so we can forward it in outgoing API requests for source attribution
+    const clientUserAgent = request.headers.get('User-Agent') || ''
+    const clientIdentifierMatch = clientUserAgent.match(/posthog\/([\w.-]+)/)
+    const clientIdentifier = clientIdentifierMatch ? clientIdentifierMatch[0] : undefined
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
         sessionId: sessionId || undefined,
+        organizationId,
+        projectId,
+        clientIdentifier,
     })
 
     // Search params are used to build up the list of available tools. If no features are provided, all tools are available.

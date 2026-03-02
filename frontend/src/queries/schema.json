@@ -364,8 +364,10 @@
                 "plan",
                 "execution",
                 "survey",
+                "onboarding",
                 "research",
-                "flags"
+                "flags",
+                "llm_analytics"
             ],
             "type": "string"
         },
@@ -1997,7 +1999,11 @@
                 "manage_memories",
                 "create_notebook",
                 "list_data",
-                "finalize_plan"
+                "upsert_alert",
+                "finalize_plan",
+                "call_mcp_server",
+                "recommend_products",
+                "search_llm_traces"
             ],
             "type": "string"
         },
@@ -2132,6 +2138,10 @@
         "AssistantTrendsDisplayType": {
             "anyOf": [
                 {
+                    "const": "Auto",
+                    "type": "string"
+                },
+                {
                     "const": "ActionsLineGraph",
                     "type": "string"
                 },
@@ -2259,6 +2269,7 @@
                     "default": "ActionsLineGraph",
                     "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
                     "enum": [
+                        "Auto",
                         "ActionsLineGraph",
                         "ActionsBar",
                         "ActionsUnstackedBar",
@@ -2619,7 +2630,7 @@
                     "items": {
                         "$ref": "#/definitions/Breakdown"
                     },
-                    "maxLength": 3,
+                    "maxItems": 3,
                     "type": "array"
                 }
             },
@@ -8046,6 +8057,7 @@
         },
         "ChartDisplayType": {
             "enum": [
+                "Auto",
                 "ActionsLineGraph",
                 "ActionsBar",
                 "ActionsUnstackedBar",
@@ -11894,6 +11906,13 @@
         "EndpointRequest": {
             "additionalProperties": false,
             "properties": {
+                "bucket_overrides": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).",
+                    "type": "object"
+                },
                 "cache_age_seconds": {
                     "type": "number"
                 },
@@ -11953,6 +11972,10 @@
                 "limit": {
                     "$ref": "#/definitions/integer",
                     "description": "Maximum number of results to return. If not provided, returns all results."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
                 },
                 "refresh": {
                     "$ref": "#/definitions/EndpointRefreshMode",
@@ -15421,7 +15444,110 @@
                 "Shopify",
                 "Attio",
                 "SnapchatAds",
-                "Linear"
+                "Linear",
+                "Intercom",
+                "Amplitude",
+                "Mixpanel",
+                "Jira",
+                "ActiveCampaign",
+                "Marketo",
+                "Adjust",
+                "AppsFlyer",
+                "Freshdesk",
+                "GoogleAnalytics",
+                "Pipedrive",
+                "SendGrid",
+                "Slack",
+                "PagerDuty",
+                "Asana",
+                "Notion",
+                "Airtable",
+                "Greenhouse",
+                "BambooHR",
+                "Lever",
+                "GitLab",
+                "Datadog",
+                "Sentry",
+                "Pendo",
+                "FullStory",
+                "AmazonAds",
+                "PinterestAds",
+                "AppleSearchAds",
+                "QuickBooks",
+                "Xero",
+                "NetSuite",
+                "WooCommerce",
+                "BigCommerce",
+                "PayPal",
+                "Square",
+                "Zoom",
+                "Trello",
+                "Monday",
+                "ClickUp",
+                "Confluence",
+                "Recurly",
+                "SalesLoft",
+                "Outreach",
+                "Gong",
+                "Calendly",
+                "Typeform",
+                "Iterable",
+                "ZohoCRM",
+                "Close",
+                "Oracle",
+                "DynamoDB",
+                "Elasticsearch",
+                "Kafka",
+                "LaunchDarkly",
+                "Braintree",
+                "Recharge",
+                "HelpScout",
+                "Gorgias",
+                "Instagram",
+                "YouTubeAnalytics",
+                "FacebookPages",
+                "TwitterAds",
+                "Workday",
+                "ServiceNow",
+                "Pardot",
+                "Copper",
+                "Front",
+                "ChartMogul",
+                "Zuora",
+                "Paddle",
+                "CircleCI",
+                "CockroachDB",
+                "Firebase",
+                "AzureBlob",
+                "GoogleDrive",
+                "OneDrive",
+                "SharePoint",
+                "Box",
+                "SFTP",
+                "MicrosoftTeams",
+                "Aircall",
+                "Webflow",
+                "Okta",
+                "Auth0",
+                "Productboard",
+                "Smartsheet",
+                "Wrike",
+                "Plaid",
+                "SurveyMonkey",
+                "Eventbrite",
+                "RingCentral",
+                "Twilio",
+                "Freshsales",
+                "Shortcut",
+                "ConvertKit",
+                "Drip",
+                "CampaignMonitor",
+                "MailerLite",
+                "Omnisend",
+                "Brevo",
+                "Postmark",
+                "Granola",
+                "BuildBetter"
             ],
             "type": "string"
         },
@@ -16317,7 +16443,7 @@
             "type": "array"
         },
         "FunnelVizType": {
-            "enum": ["steps", "time_to_convert", "trends"],
+            "enum": ["steps", "time_to_convert", "trends", "flow"],
             "type": "string"
         },
         "FunnelsActorsQuery": {
@@ -16592,7 +16718,14 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AnyEntityNode"
+                            },
+                            {
+                                "$ref": "#/definitions/GroupNode"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -17033,8 +17166,33 @@
             },
             "type": "object"
         },
-        "HedgehogColorOptions": {
-            "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
+        "HedgehogActorAccessoryOption": {
+            "enum": [
+                "beret",
+                "cap",
+                "chef",
+                "cowboy",
+                "eyepatch",
+                "flag",
+                "glasses",
+                "graduation",
+                "parrot",
+                "party",
+                "pineapple",
+                "sunglasses",
+                "tophat",
+                "xmas-hat",
+                "xmas-antlers",
+                "xmas-scarf"
+            ],
+            "type": "string"
+        },
+        "HedgehogActorColorOption": {
+            "enum": ["green", "red", "blue", "purple", "dark", "light", "greyscale", "sepia", "invert", "rainbow"],
+            "type": "string"
+        },
+        "HedgehogActorSkinOption": {
+            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost"],
             "type": "string"
         },
         "HogCompileResponse": {
@@ -17055,56 +17213,6 @@
         "HogLanguage": {
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate", "liquid"],
             "type": "string"
-        },
-        "HogQLASTQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "explain": {
-                    "deprecated": "use modifiers.debug instead",
-                    "type": "boolean"
-                },
-                "filters": {
-                    "$ref": "#/definitions/HogQLFilters"
-                },
-                "kind": {
-                    "const": "HogQLASTQuery",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "name": {
-                    "description": "Client provided name of the query",
-                    "type": "string"
-                },
-                "query": {
-                    "type": "object"
-                },
-                "response": {
-                    "$ref": "#/definitions/HogQLQueryResponse"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "values": {
-                    "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
-                    "type": "object"
-                },
-                "variables": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/HogQLVariable"
-                    },
-                    "description": "Variables to be substituted into the query",
-                    "type": "object"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["kind", "query"],
-            "type": "object"
         },
         "HogQLAutocomplete": {
             "additionalProperties": false,
@@ -17441,6 +17549,10 @@
                 },
                 "inCohortVia": {
                     "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
+                    "type": "string"
+                },
+                "inlineCohortCalculation": {
+                    "enum": ["off", "auto", "always"],
                     "type": "string"
                 },
                 "materializationMode": {
@@ -18553,7 +18665,8 @@
                 "vercel",
                 "azure-blob",
                 "firebase",
-                "jira"
+                "jira",
+                "pinterest-ads"
             ],
             "type": "string"
         },
@@ -18604,6 +18717,12 @@
                 },
                 "person": {
                     "$ref": "#/definitions/LLMTracePerson"
+                },
+                "tools": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "totalCost": {
                     "type": "number"
@@ -19564,7 +19683,8 @@
                 "CTR",
                 "Reported Conversion",
                 "Reported Conversion Value",
-                "Reported ROAS"
+                "Reported ROAS",
+                "Cost per Reported Conversion"
             ],
             "type": "string"
         },
@@ -19634,8 +19754,8 @@
             },
             "type": "object"
         },
-        "MarketingAnalyticsHelperForColumnNames": {
-            "enum": ["Goal", "Cost per"],
+        "MarketingAnalyticsConstants": {
+            "enum": ["Goal", "Cost per", "const:"],
             "type": "string"
         },
         "MarketingAnalyticsItem": {
@@ -20481,6 +20601,114 @@
                         "primarySource"
                     ],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "conversionFields": {
+                            "items": [
+                                {
+                                    "const": "conversion_purchases",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "conversion_sign_ups",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "conversion_subscribe",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 3,
+                            "minItems": 3,
+                            "type": "array"
+                        },
+                        "conversionValueFields": {
+                            "items": [
+                                {
+                                    "const": "conversion_purchases_value",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "conversion_sign_ups_value",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "conversion_subscribe_value",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 3,
+                            "minItems": 3,
+                            "type": "array"
+                        },
+                        "defaultSources": {
+                            "items": {
+                                "const": "snapchat",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "snapchat",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "SnapchatAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_stats_daily",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "stats_daily",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource",
+                        "conversionFields",
+                        "conversionValueFields"
+                    ],
+                    "type": "object"
                 }
             ]
         },
@@ -21254,6 +21482,7 @@
                 "query": {
                     "$ref": "#/definitions/QuerySchema"
                 },
+                "result": {},
                 "type": {
                     "const": "insight",
                     "type": "string"
@@ -21514,14 +21743,24 @@
             "properties": {
                 "accessories": {
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/HedgehogActorAccessoryOption"
                     },
                     "type": "array"
                 },
                 "color": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/HedgehogColorOptions"
+                            "$ref": "#/definitions/HedgehogActorColorOption"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "skin": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HedgehogActorSkinOption"
                         },
                         {
                             "type": "null"
@@ -21532,7 +21771,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["use_as_profile", "color", "accessories"],
+            "required": ["use_as_profile"],
             "type": "object"
         },
         "ModeContext": {
@@ -21658,7 +21897,7 @@
             "type": "string"
         },
         "NativeMarketingSource": {
-            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds", "BingAds"],
+            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds", "BingAds", "SnapchatAds"],
             "type": "string"
         },
         "NewExperimentQueryResponse": {
@@ -21711,7 +21950,6 @@
                 "PersonsNode",
                 "HogQuery",
                 "HogQLQuery",
-                "HogQLASTQuery",
                 "HogQLMetadata",
                 "HogQLAutocomplete",
                 "ActorsQuery",
@@ -22427,6 +22665,9 @@
                 "is_identified": {
                     "type": "boolean"
                 },
+                "last_seen_at": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -22536,57 +22777,6 @@
         "PlanningStepStatus": {
             "enum": ["pending", "in_progress", "completed"],
             "type": "string"
-        },
-        "PlaywrightWorkspaceSetupData": {
-            "additionalProperties": false,
-            "properties": {
-                "organization_name": {
-                    "type": "string"
-                },
-                "skip_onboarding": {
-                    "type": "boolean"
-                },
-                "use_current_time": {
-                    "type": "boolean"
-                }
-            },
-            "type": "object"
-        },
-        "PlaywrightWorkspaceSetupResult": {
-            "additionalProperties": false,
-            "properties": {
-                "organization_id": {
-                    "type": "string"
-                },
-                "organization_name": {
-                    "type": "string"
-                },
-                "personal_api_key": {
-                    "type": "string"
-                },
-                "team_id": {
-                    "type": "string"
-                },
-                "team_name": {
-                    "type": "string"
-                },
-                "user_email": {
-                    "type": "string"
-                },
-                "user_id": {
-                    "type": "string"
-                }
-            },
-            "required": [
-                "organization_id",
-                "team_id",
-                "organization_name",
-                "team_name",
-                "user_id",
-                "user_email",
-                "personal_api_key"
-            ],
-            "type": "object"
         },
         "ProductAnalyticsInsightQueryNode": {
             "anyOf": [
@@ -27471,9 +27661,6 @@
                     "$ref": "#/definitions/HogQLAutocomplete"
                 },
                 {
-                    "$ref": "#/definitions/HogQLASTQuery"
-                },
-                {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
                 },
                 {
@@ -28460,8 +28647,11 @@
         "RetentionValue": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_value": {
+                    "type": "number"
+                },
                 "count": {
-                    "$ref": "#/definitions/integer"
+                    "type": "number"
                 },
                 "label": {
                     "type": "string"
@@ -30495,6 +30685,26 @@
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"
         },
+        "SnapchatAdsConversionFields": {
+            "enum": ["conversion_purchases", "conversion_sign_ups", "conversion_subscribe"],
+            "type": "string"
+        },
+        "SnapchatAdsConversionValueFields": {
+            "enum": ["conversion_purchases_value", "conversion_sign_ups_value", "conversion_subscribe_value"],
+            "type": "string"
+        },
+        "SnapchatAdsDefaultSources": {
+            "enum": ["snapchat"],
+            "type": "string"
+        },
+        "SnapchatAdsTableExclusions": {
+            "enum": ["stats_daily"],
+            "type": "string"
+        },
+        "SnapchatAdsTableKeywords": {
+            "enum": ["campaigns"],
+            "type": "string"
+        },
         "SourceConfig": {
             "additionalProperties": false,
             "properties": {
@@ -31643,7 +31853,11 @@
                 "numerical_event_properties",
                 "person_properties",
                 "pageview_urls",
+                "pageview_events",
                 "screens",
+                "screen_events",
+                "email_addresses",
+                "autocapture_events",
                 "custom_events",
                 "wildcard",
                 "groups",
@@ -31866,38 +32080,6 @@
                 "results",
                 "timezone"
             ],
-            "type": "object"
-        },
-        "TestSetupRequest": {
-            "additionalProperties": false,
-            "properties": {
-                "data": {
-                    "type": "object"
-                }
-            },
-            "type": "object"
-        },
-        "TestSetupResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "available_tests": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "error": {
-                    "type": "string"
-                },
-                "result": {},
-                "success": {
-                    "type": "boolean"
-                },
-                "test_name": {
-                    "type": "string"
-                }
-            },
-            "required": ["success", "test_name"],
             "type": "object"
         },
         "TikTokAdsDefaultSources": {

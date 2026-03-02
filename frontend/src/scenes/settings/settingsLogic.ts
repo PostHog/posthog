@@ -14,8 +14,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { Realm } from '~/types'
 
-import { SETTINGS_MAP } from './SettingsMap'
 import type { settingsLogicType } from './settingsLogicType'
+import { SETTINGS_MAP } from './SettingsMap'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
 
 // Explicitly avoid "heat" matching "feature flags", but still allowing "heature" to match it
@@ -209,14 +209,18 @@ export const settingsLogic = kea<settingsLogicType>([
         navigateToSetting: ({ sectionId, settingId }) => {
             const section = values.sections.find((s) => s.id === sectionId)
             if (section) {
-                actions.selectSection(sectionId, section.level)
                 actions.setSearchTerm('')
-                setTimeout(() => {
-                    const element = document.getElementById(settingId)
-                    if (element) {
-                        element.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                    }
-                }, 200)
+                if (section.to) {
+                    router.actions.push(section.to)
+                } else {
+                    actions.selectSection(sectionId, section.level)
+                    setTimeout(() => {
+                        const element = document.getElementById(settingId)
+                        if (element) {
+                            element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                        }
+                    }, 200)
+                }
             }
         },
     })),
@@ -463,6 +467,24 @@ export const settingsLogic = kea<settingsLogicType>([
                             description:
                                 setting.searchDescription ??
                                 (typeof setting.description === 'string' ? setting.description : ''),
+                        })
+                    }
+                }
+
+                // Index sections that are top-level links with no settings (e.g. Billing)
+                for (const section of sections) {
+                    if (section.settings.length === 0) {
+                        const sectionTitle =
+                            typeof section.title === 'string' ? section.title : section.id.replace(/[-]/g, ' ')
+
+                        entries.push({
+                            settingId: section.id as SettingId,
+                            settingTitle: sectionTitle,
+                            sectionId: section.id,
+                            sectionTitle,
+                            level: section.level,
+                            keywords: '',
+                            description: '',
                         })
                     }
                 }

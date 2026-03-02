@@ -5,35 +5,29 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { HealthCheckResult, Hub } from '../../types'
+import { HealthCheckResult } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 // Zod schema for validation
 const CohortMembershipChangeSchema = z.object({
     person_id: z.string().uuid(),
     cohort_id: z.number(),
     team_id: z.number(),
-    status: z.enum(['entered', 'left', 'member', 'not_member']),
+    status: z.enum(['entered', 'left']),
     last_updated: z.string().optional(),
 })
 
 export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema>
 
-/**
- * Hub type for CdpCohortMembershipConsumer.
- * Extends CdpConsumerBaseHub with postgres for cohort membership persistence.
- */
-export type CdpCohortMembershipConsumerHub = CdpConsumerBaseHub & Pick<Hub, 'postgres'>
-
-export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMembershipConsumerHub> {
+export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     protected name = 'CdpCohortMembershipConsumer'
     private kafkaConsumer: KafkaConsumer
 
-    constructor(hub: CdpCohortMembershipConsumerHub) {
-        super(hub)
+    constructor(config: CdpConsumerBaseConfig, deps: CdpConsumerBaseDeps) {
+        super(config, deps)
         this.kafkaConsumer = new KafkaConsumer({
             groupId: 'cdp-cohort-membership-consumer',
             topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
@@ -81,12 +75,12 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                 INSERT INTO cohort_membership (team_id, cohort_id, person_id, in_cohort, last_updated)
                 VALUES ${placeholders.join(', ')}
                 ON CONFLICT (team_id, cohort_id, person_id)
-                DO UPDATE SET 
+                DO UPDATE SET
                     in_cohort = EXCLUDED.in_cohort,
                     last_updated = CURRENT_TIMESTAMP
             `
 
-            await this.hub.postgres.query(
+            await this.deps.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 query,
                 values,

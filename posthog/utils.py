@@ -1083,7 +1083,7 @@ def get_instance_realm() -> str:
 
 def get_instance_region() -> Optional[str]:
     """
-    Returns the region for the current Cloud instance. `US` or `EU`.
+    Returns the region for the current Cloud instance. `US`, `EU` or `DEV`.
     """
     return settings.CLOUD_DEPLOYMENT
 
@@ -1283,13 +1283,15 @@ def cache_requested_by_client(request: Request) -> bool | str:
 
 
 def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
-    from posthog.auth import SharingAccessTokenAuthentication
+    from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     dashboard_filters = dashboard.filters if dashboard else {}
     raw_override = request.query_params.get("filters_override")
 
     # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+    if not raw_override or isinstance(
+        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    ):
         return dashboard_filters
 
     try:
@@ -1304,13 +1306,19 @@ def variables_override_requested_by_client(
     request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
 ) -> Optional[dict[str, dict]]:
     from posthog.api.insight_variable import map_stale_to_latest
-    from posthog.auth import SharingAccessTokenAuthentication
+    from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     dashboard_variables = (dashboard and dashboard.variables) or {}
     raw_override = request.query_params.get("variables_override") if request else None
 
     # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or (request and isinstance(request.successful_authenticator, SharingAccessTokenAuthentication)):
+    if not raw_override or (
+        request
+        and isinstance(
+            request.successful_authenticator,
+            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+        )
+    ):
         return map_stale_to_latest(dashboard_variables, variables)
 
     try:
@@ -1322,13 +1330,15 @@ def variables_override_requested_by_client(
 
 
 def tile_filters_override_requested_by_client(request: Request, tile: Optional["DashboardTile"]) -> dict:
-    from posthog.auth import SharingAccessTokenAuthentication
+    from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
     raw_override = request.query_params.get("tile_filters_override")
 
     # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+    if not raw_override or isinstance(
+        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    ):
         return tile_filters
 
     try:
