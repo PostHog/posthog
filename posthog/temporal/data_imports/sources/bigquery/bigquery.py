@@ -143,10 +143,10 @@ def filter_incremental_fields(columns: list[tuple[str, str, bool]]) -> list[tupl
         type = type.upper()
         if type.startswith("TIMESTAMP"):
             results.append((column_name, IncrementalFieldType.Timestamp, nullable))
-        elif type.startswith("DATE"):
-            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif type.startswith("DATETIME"):
             results.append((column_name, IncrementalFieldType.DateTime, nullable))
+        elif type.startswith("DATE"):
+            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif (
             type.startswith("INT64")
             or type.startswith("NUMERIC")

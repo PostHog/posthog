@@ -57,6 +57,9 @@ pub struct PipelineBuilder {
     checkpoint_importer: Option<Arc<CheckpointImporter>>,
     rebalance_cleanup_parallelism: usize,
 
+    // Fail-open mode: bypass deduplication and forward events directly
+    fail_open: bool,
+
     // Ingestion events specific
     dedup_config: Option<DeduplicationConfig>,
     main_producer: Option<Arc<FutureProducer<KafkaContext>>>,
@@ -76,6 +79,7 @@ impl PipelineBuilder {
         commit_interval: std::time::Duration,
         seek_timeout: std::time::Duration,
         rebalance_cleanup_parallelism: usize,
+        fail_open: bool,
     ) -> Self {
         Self {
             pipeline_type,
@@ -89,6 +93,7 @@ impl PipelineBuilder {
             seek_timeout,
             checkpoint_importer: None,
             rebalance_cleanup_parallelism,
+            fail_open,
             dedup_config: None,
             main_producer: None,
             duplicate_producer: None,
@@ -197,6 +202,7 @@ impl PipelineBuilder {
 
         let ch_config = ClickHouseEventsConfig {
             store_config: self.store_manager.config().clone(),
+            fail_open: self.fail_open,
         };
 
         let processor = Arc::new(ClickHouseEventsBatchProcessor::new(

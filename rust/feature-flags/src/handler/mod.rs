@@ -111,6 +111,7 @@ async fn process_request_inner(
             context.state.database_pools.non_persons_reader.clone(),
             context.state.team_hypercache_reader.clone(),
             context.state.flags_hypercache_reader.clone(),
+            context.state.team_negative_cache.clone(),
         );
 
         let (original_distinct_id, team, request) =

@@ -14,6 +14,7 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 
 import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
+import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { HogFunctionType } from '../cdp/types'
 import { PostgresUse } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
@@ -98,9 +99,13 @@ describe('IngestionConsumer', () => {
 
     const createIngestionConsumer = async (
         hub: Hub,
-        overrides?: ConstructorParameters<typeof IngestionConsumer>[1]
+        overrides?: ConstructorParameters<typeof IngestionConsumer>[2]
     ) => {
-        const ingester = new IngestionConsumer(hub, overrides)
+        const ingester = new IngestionConsumer(
+            hub,
+            { ...hub, hogTransformer: createHogTransformerService(hub) },
+            overrides
+        )
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
         ingester['kafkaConsumer'] = {
             connect: jest.fn(),

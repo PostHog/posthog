@@ -688,10 +688,15 @@ export function clearDOMTextSelection(): void {
 }
 
 // trimBothEnds=false is useful when the input is slugified as the user is typing to allow them hitting space and continue typing
-export function slugify(text: string, { trimBothEnds = true }: { trimBothEnds?: boolean } = {}): string {
-    return text
-        .toString() // Cast to string
-        .toLowerCase() // Convert the string to lowercase letters
+export function slugify(
+    text: string,
+    { trimBothEnds = true, lowercase = true }: { trimBothEnds?: boolean; lowercase?: boolean } = {}
+): string {
+    let result = text.toString()
+    if (lowercase) {
+        result = result.toLowerCase()
+    }
+    return result
         .normalize('NFD') // The normalize() method returns the Unicode Normalization Form of a given string.
         [trimBothEnds ? 'trim' : 'trimStart']()
         .replace(/\s+/g, '-') // Replace spaces with -
@@ -1134,10 +1139,10 @@ export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs):
             fromComponents = fromComponents.filter((x) => x !== YEAR)
         }
 
-        if (dateFrom.date() === dateTo.date()) {
+        if (dateFrom.isSame(dateTo, 'day')) {
             toComponents = toComponents.filter((x) => x !== MONTHDAY)
             toComponents = toComponents.filter((x) => x !== COMMA)
-            if (dateTo.date() === dayjs().date()) {
+            if (dateFrom.isSame(dayjs(), 'day')) {
                 fromComponents = fromComponents.filter((x) => x !== MONTHDAY)
                 fromComponents = fromComponents.filter((x) => x !== COMMA)
             }

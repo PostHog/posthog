@@ -32,7 +32,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ByokModelPicker } from '../ByokModelPicker'
 import { byokModelPickerLogic } from '../byokModelPickerLogic'
-import { LLMProvider, LLM_PROVIDER_LABELS } from '../settings/llmProviderKeysLogic'
+import { LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
+import { LLMProvider } from '../settings/llmProviderKeysLogic'
 import {
     providerKeyStateIssueDescription,
     providerKeyStateSuffix,
@@ -54,7 +55,6 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         runsSummary,
         evaluationProviderKeyIssue,
         signalEmissionEnabled,
-        signalEmissionLoading,
     } = useValues(llmEvaluationLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -186,17 +186,18 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                 />
                             </Field>
 
-                            <Field name="enabled" label="Status">
-                                <div className="flex items-center gap-2">
-                                    <LemonSwitch checked={evaluation.enabled} onChange={setEvaluationEnabled} />
-                                    <span>{evaluation.enabled ? 'Enabled' : 'Disabled'}</span>
-                                    <span className="text-muted text-sm">
-                                        {evaluation.enabled
-                                            ? 'This evaluation will run automatically based on triggers'
-                                            : 'This evaluation is paused and will not run'}
-                                    </span>
-                                </div>
-                            </Field>
+                            <div className="flex items-center gap-2">
+                                <LemonSwitch
+                                    checked={evaluation.enabled}
+                                    onChange={setEvaluationEnabled}
+                                    label="Enable evaluation"
+                                />
+                                <span className="text-muted text-sm">
+                                    {evaluation.enabled
+                                        ? 'This evaluation will run automatically based on triggers'
+                                        : 'This evaluation is paused and will not run'}
+                                </span>
+                            </div>
 
                             <Field
                                 name="allows_na"
@@ -223,11 +224,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             </Field>
                             {!isNewEvaluation && user?.is_staff && (
                                 <div className="flex items-center gap-2">
-                                    <LemonSwitch
-                                        checked={signalEmissionEnabled}
-                                        onChange={setSignalEmission}
-                                        loading={signalEmissionLoading}
-                                    />
+                                    <LemonSwitch checked={signalEmissionEnabled} onChange={setSignalEmission} />
                                     <span>Emit signals</span>
                                     <Tooltip title="When enabled, true verdicts from this evaluation will be emitted as signals for clustering and investigation.">
                                         <IconInfo className="text-muted text-base" />
@@ -343,13 +340,7 @@ function EvaluationModelPicker(): JSX.Element {
                             <LemonSelect
                                 value={selectedProvider}
                                 onChange={(value) => setSelectedProvider(value as LLMProvider)}
-                                options={[
-                                    { value: 'openai', label: LLM_PROVIDER_LABELS.openai },
-                                    { value: 'anthropic', label: LLM_PROVIDER_LABELS.anthropic },
-                                    { value: 'gemini', label: LLM_PROVIDER_LABELS.gemini },
-                                    { value: 'openrouter', label: LLM_PROVIDER_LABELS.openrouter },
-                                    { value: 'fireworks', label: LLM_PROVIDER_LABELS.fireworks },
-                                ]}
+                                options={LLM_PROVIDER_SELECT_OPTIONS}
                                 fullWidth
                             />
                         </Field>
