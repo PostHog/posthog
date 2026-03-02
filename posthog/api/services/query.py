@@ -45,7 +45,7 @@ def _source_id_for_connection(team: Team, connection_id: str | None) -> str | No
         return None
 
     source = ExternalDataSource.objects.filter(team_id=team.pk, connection_id=connection_id).first()
-    return str(source.source_id) if source else None
+    return str(source.id) if source else None
 
 
 def _filter_schema_tables_for_connection(tables: dict, source_id: str | None) -> dict:
