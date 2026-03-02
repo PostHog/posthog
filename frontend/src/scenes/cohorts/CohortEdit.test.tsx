@@ -296,5 +296,39 @@ describe('cohortEditLogic', () => {
             await new Promise((resolve) => setTimeout(resolve, 100))
             expect(screen.queryAllByText('In progress...')).toHaveLength(0)
         })
+
+        it('shows retry button and contact support link when calculation fails', async () => {
+            const cohortId = 2
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team/cohorts/${cohortId}`]: {
+                        id: cohortId,
+                        name: 'Test Cohort',
+                        is_static: false,
+                        filters: { properties: { type: 'AND', values: [] } },
+                        version: 1,
+                        pending_version: 1,
+                        is_calculating: false,
+                        errors_calculating: 1,
+                        last_calculation: '2024-01-01T00:00:00Z',
+                        last_error_message: 'Query execution timed out',
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} tabId="test-tab-error" />)
+
+            // Verify error message is shown
+            await screen.findByText(/Calculation failed:/)
+            expect(screen.getByText(/Query execution timed out/)).toBeInTheDocument()
+
+            // Verify Retry button is shown as the primary action
+            const retryButtons = screen.getAllByRole('button', { name: 'Retry' })
+            expect(retryButtons.length).toBeGreaterThan(0)
+
+            // Verify contact support link is shown as secondary option
+            expect(screen.getByText('contact support')).toBeInTheDocument()
+        })
     })
 })
