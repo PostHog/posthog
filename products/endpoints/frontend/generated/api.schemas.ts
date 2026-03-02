@@ -501,6 +501,14 @@ export const InCohortViaApi = {
     LeftjoinConjoined: 'leftjoin_conjoined',
 } as const
 
+export type InlineCohortCalculationApi = (typeof InlineCohortCalculationApi)[keyof typeof InlineCohortCalculationApi]
+
+export const InlineCohortCalculationApi = {
+    Off: 'off',
+    Auto: 'auto',
+    Always: 'always',
+} as const
+
 export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
 
 export const MaterializationModeApi = {
@@ -586,6 +594,7 @@ export interface HogQLQueryModifiersApi {
     /** @nullable */
     formatCsvAllowDoubleQuotes?: boolean | null
     inCohortVia?: InCohortViaApi | null
+    inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** @nullable */

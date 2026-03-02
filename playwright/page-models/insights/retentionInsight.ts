@@ -115,6 +115,11 @@ export class RetentionInsight {
     }
 
     async getCohortSizes(): Promise<number[]> {
+        // Detail rows are only rendered after the breakdown section auto-expands,
+        // which happens asynchronously in afterMount. Wait for at least one detail
+        // row with a cohort size cell before reading.
+        await this.detailRows.first().locator('.RetentionTable__TextTab').waitFor({ timeout: 10000 })
+
         const rows = this.detailRows
         const count = await rows.count()
         const sizes: number[] = []
@@ -127,6 +132,7 @@ export class RetentionInsight {
 
     async getCellPercentages(rowIndex: number): Promise<string[]> {
         const row = this.detailRows.nth(rowIndex)
+        await row.locator('.RetentionTable__Tab').first().waitFor({ timeout: 10000 })
         return row.locator('.RetentionTable__Tab').allTextContents()
     }
 

@@ -282,7 +282,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
         License.PLANS = current_plans
 
-    @patch("ee.api.license.requests.post")
+    @patch("ee.api.license.external_requests.post")
     def test_feature_available_self_hosted_license_expired(self, patch_post):
         current_plans = License.PLANS
         License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
