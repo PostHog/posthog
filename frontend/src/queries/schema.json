@@ -15811,6 +15811,7 @@
                 "pipeline_status",
                 "llm_evaluations",
                 "llm_datasets",
+                "llm_playground",
                 "llm_prompts",
                 "llm_clusters",
                 "exports"
@@ -28376,6 +28377,12 @@
             "properties": {
                 "aggregationProperty": {
                     "description": "The property to aggregate when aggregationType is sum or avg",
+                    "type": "string"
+                },
+                "aggregationPropertyType": {
+                    "default": "event",
+                    "description": "The type of property to aggregate on (event or person). Defaults to event.",
+                    "enum": ["event", "person"],
                     "type": "string"
                 },
                 "aggregationType": {

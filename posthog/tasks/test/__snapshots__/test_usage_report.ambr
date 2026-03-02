@@ -453,7 +453,8 @@
      WHERE min_first_timestamp >= '2022-01-10 00:00:00'
        AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
-     HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'web')
+     HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'web'
+     AND max(is_deleted) = 0)
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
        FROM session_replay_events
@@ -489,7 +490,8 @@
      WHERE min_first_timestamp >= '2022-01-10 00:00:00'
        AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
-     HAVING dateDiff('milliseconds', min(min_first_timestamp), max(max_last_timestamp)) = 0)
+     HAVING dateDiff('milliseconds', min(min_first_timestamp), max(max_last_timestamp)) = 0
+     AND max(is_deleted) = 0)
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
        FROM session_replay_events
@@ -512,7 +514,8 @@
      WHERE min_first_timestamp >= '2022-01-10 00:00:00'
        AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
-     HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'web')
+     HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'web'
+     AND max(is_deleted) = 0)
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
        FROM session_replay_events
@@ -534,7 +537,8 @@
      WHERE min_first_timestamp >= '2022-01-10 00:00:00'
        AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
-     HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'mobile')
+     HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'mobile'
+     AND max(is_deleted) = 0)
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
        FROM session_replay_events
@@ -557,7 +561,8 @@
      WHERE min_first_timestamp >= '2022-01-10 00:00:00'
        AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
-     HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'mobile')
+     HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'mobile'
+     AND max(is_deleted) = 0)
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
        FROM session_replay_events
@@ -583,7 +588,8 @@
              AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios',
                                                                'posthog-android',
                                                                'posthog-react-native',
-                                                               'posthog-flutter')))
+                                                               'posthog-flutter'))
+     AND max(is_deleted) = 0)
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
        FROM session_replay_events

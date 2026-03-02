@@ -3188,6 +3188,7 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-cache",
  "common-compression",
  "common-continuous-profiling",
  "common-cookieless",

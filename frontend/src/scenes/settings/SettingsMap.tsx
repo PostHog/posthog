@@ -114,6 +114,7 @@ import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { MembersPlatformAddonAd } from './organization/MembersPlatformAddonAd'
+import { OAuthApps } from './organization/OAuthApps'
 import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
@@ -787,15 +788,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['headers', 'payload', 'body', 'request', 'response'],
             },
             {
-                id: 'web-vitals-autocapture',
-                title: 'Web vitals',
-                description: 'Capture web vitals metrics alongside session recordings for performance analysis.',
-                docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
-                platformSupport: FEATURE_SUPPORT.webVitals,
-                component: <WebVitalsAutocaptureSettings />,
-                keywords: ['lcp', 'cls', 'fcp', 'inp', 'performance'],
-            },
-            {
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 description:
@@ -1427,6 +1419,20 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Manage integrations connected at the organization level.',
                 component: <OrganizationIntegrations />,
                 keywords: ['integration', 'connect', 'third-party', 'oauth'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-oauth-apps',
+        title: 'OAuth applications',
+        settings: [
+            {
+                id: 'organization-oauth-apps-list',
+                title: 'OAuth applications',
+                description: 'View applications that have been authorized to connect to your organization.',
+                component: <OAuthApps />,
+                keywords: ['oauth', 'app', 'client', 'integration', 'api', 'authentication', 'third-party'],
             },
         ],
     },

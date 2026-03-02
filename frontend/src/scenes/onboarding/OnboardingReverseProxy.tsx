@@ -166,6 +166,11 @@ function WaitingForDns({ records }: { records: ProxyRecord[] }): JSX.Element {
                     />
                 </div>
             ))}
+            <p className="mb-4 text-sm">
+                <strong>Important:</strong> If you are using a DNS provider like Cloudflare that offers proxy options
+                (orange cloud), make sure the proxy is <strong>disabled</strong> (gray cloud) for this domain. Enabling
+                the proxy at your DNS provider may interfere with the managed reverse proxy functionality.
+            </p>
             <p>Once DNS has propagated, update your SDK to route events through your proxy domain.</p>
             <p className="text-xs text-secondary">
                 Requests to the proxy domain will fail until DNS propagation completes. It may take a few minutes to

@@ -54,7 +54,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         hub = await createHub()
 
         team = await getFirstTeam(hub)
-        processor = new CdpCyclotronWorker(hub)
+        processor = new CdpCyclotronWorker(hub, hub)
 
         await processor.start()
 
