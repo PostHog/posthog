@@ -295,6 +295,7 @@ class DeleteRecordingsWithSessionIdsWorkflow(PostHogWorkflow):
             cleanup_session_id_chunks,
             CleanupChunksInput(s3_prefix=input.s3_prefix, total_chunks=input.total_chunks),
             start_to_close_timeout=timedelta(minutes=2),
+            schedule_to_close_timeout=timedelta(minutes=10),
             retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=10)),
         )
 
