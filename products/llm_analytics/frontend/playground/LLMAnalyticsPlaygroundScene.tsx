@@ -18,7 +18,6 @@ import {
     LemonDropdown,
     LemonInput,
     LemonModal,
-    LemonSearchableSelect,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
@@ -31,18 +30,24 @@ import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
-import { ByokModelPicker } from './ByokModelPicker'
-import { JSONEditor } from './components/JSONEditor'
-import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
+
+import { JSONEditor } from '../components/JSONEditor'
+import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
 import {
     ComparisonItem,
     Message,
     MessageRole,
     PromptConfig,
     llmAnalyticsPlaygroundLogic,
-} from './llmAnalyticsPlaygroundLogic'
+} from '../llmAnalyticsPlaygroundLogic'
+import { getModelPickerFooterLink, ModelPicker as ModelPickerDropdown } from '../ModelPicker'
+import { modelPickerLogic } from '../modelPickerLogic'
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460
@@ -61,16 +66,65 @@ function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element 
 export const scene: SceneExport = {
     component: LLMAnalyticsPlaygroundScene,
     logic: llmAnalyticsPlaygroundLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
 }
 
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     useMountedLogic(llmAnalyticsPlaygroundLogic)
 
-    // 300px accounts for the top nav bar, scene title section, tab bar, and surrounding padding
     return (
-        <div className="flex flex-col h-[calc(100vh-300px)] min-h-[520px]">
-            <PlaygroundLayout />
-        </div>
+        <SceneContent className="h-full">
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.LLMAnalyticsPlayground].name}
+                description="Test and experiment with LLM prompts in a sandbox environment."
+                resourceType={{ type: sceneConfigurations[Scene.LLMAnalyticsPlayground].iconType || 'llm_analytics' }}
+                actions={<PlaygroundHeaderActions />}
+            />
+            <div className="flex h-full flex-1 flex-col min-h-0">
+                <PlaygroundLayout />
+            </div>
+        </SceneContent>
+    )
+}
+
+function PlaygroundHeaderActions(): JSX.Element {
+    const {
+        submitting: playgroundSubmitting,
+        hasRunnablePrompts,
+        activePromptId,
+    } = useValues(llmAnalyticsPlaygroundLogic)
+    const { submitPrompt, addPromptConfig } = useActions(llmAnalyticsPlaygroundLogic)
+
+    return (
+        <>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                onClick={() => addPromptConfig(activePromptId ?? undefined)}
+                disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                data-attr="playground-add-prompt"
+            >
+                Add prompt
+            </LemonButton>
+            <LemonButton
+                type="primary"
+                size="small"
+                icon={<IconPlay />}
+                onClick={() => submitPrompt()}
+                loading={playgroundSubmitting}
+                disabledReason={
+                    playgroundSubmitting
+                        ? 'Generating...'
+                        : !hasRunnablePrompts
+                          ? 'Add messages to at least one prompt'
+                          : undefined
+                }
+                data-attr="playground-run"
+            >
+                Run
+            </LemonButton>
+        </>
     )
 }
 
@@ -284,87 +338,33 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     )
 }
 
-function getModelOptionsErrorMessage(errorStatus: number | null): string | null {
-    if (errorStatus === null) {
-        return null
-    }
-    if (errorStatus === 429) {
-        return 'Too many requests. Please wait a moment and try again.'
-    }
-    return 'Failed to load models. Please refresh the page or try again later.'
-}
-
 function ModelPicker({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const {
-        effectiveModelOptions,
-        hasByokKeys,
-        modelOptions,
-        modelOptionsLoading,
-        modelOptionsErrorStatus,
-        groupedModelOptions,
-    } = useValues(llmAnalyticsPlaygroundLogic)
-    const { setModel, loadModelOptions } = useActions(llmAnalyticsPlaygroundLogic)
+    const { effectiveModelOptions, hasByokKeys } = useValues(llmAnalyticsPlaygroundLogic)
+    const { setModel } = useActions(llmAnalyticsPlaygroundLogic)
+    const { providerModelGroups, trialProviderModelGroups, byokModelsLoading, trialModelsLoading } =
+        useValues(modelPickerLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-10" />
     }
 
-    if (hasByokKeys) {
-        const options = Array.isArray(effectiveModelOptions) ? effectiveModelOptions : []
-        const selectedModel = options.find((m) => m.id === prompt.model)
-
-        return (
-            <ByokModelPicker
-                model={prompt.model}
-                selectedProviderKeyId={prompt.selectedProviderKeyId}
-                onSelect={(modelId, providerKeyId) => setModel(modelId, providerKeyId, promptId)}
-                selectedModelName={selectedModel?.name}
-                data-attr={`playground-model-selector-${promptId}`}
-            />
-        )
-    }
-
-    const options = Array.isArray(modelOptions) ? modelOptions : []
-    const errorMessage = getModelOptionsErrorMessage(modelOptionsErrorStatus)
+    const options = Array.isArray(effectiveModelOptions) ? effectiveModelOptions : []
+    const selectedModel = options.find((m) => m.id === prompt.model)
+    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
+    const loading = hasByokKeys ? byokModelsLoading : trialModelsLoading
 
     return (
-        <>
-            {modelOptionsLoading && !options.length ? (
-                <LemonSkeleton className="h-10" />
-            ) : (
-                <LemonSearchableSelect
-                    className="w-full"
-                    placeholder="Select model"
-                    value={prompt.model}
-                    onChange={(value) => value && setModel(value, undefined, promptId)}
-                    options={groupedModelOptions}
-                    searchPlaceholder="Search models..."
-                    searchKeys={['label', 'value', 'tooltip']}
-                    loading={modelOptionsLoading}
-                    disabledReason={
-                        modelOptionsLoading
-                            ? 'Loading models...'
-                            : options.length === 0
-                              ? 'No models available'
-                              : undefined
-                    }
-                    data-attr={`playground-model-selector-${promptId}`}
-                />
-            )}
-            {options.length === 0 && !modelOptionsLoading && (
-                <div className="mt-1">
-                    <p className="text-xs text-danger">{errorMessage || 'No models available.'}</p>
-                    <button
-                        type="button"
-                        className="text-xs text-link mt-1 underline"
-                        onClick={() => loadModelOptions()}
-                    >
-                        Retry
-                    </button>
-                </div>
-            )}
-        </>
+        <ModelPickerDropdown
+            model={prompt.model}
+            selectedProviderKeyId={prompt.selectedProviderKeyId}
+            onSelect={(modelId, providerKeyId) => setModel(modelId, providerKeyId, promptId)}
+            groups={groups}
+            loading={loading}
+            footerLink={getModelPickerFooterLink(hasByokKeys)}
+            selectedModelName={selectedModel?.name}
+            data-attr={`playground-model-selector-${promptId}`}
+        />
     )
 }
 

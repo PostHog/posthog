@@ -84,6 +84,7 @@ export interface SharingModalProps extends SharingModalBaseProps {
     isOpen: boolean
     closeModal: () => void
     inline?: boolean
+    'data-attr'?: string
 }
 
 export function SharingModalContent({
@@ -631,13 +632,21 @@ function LegendCheckbox({ insightShortId }: { insightShortId: InsightShortId }):
     )
 }
 
-export function SharingModal({ closeModal, isOpen, inline, title, ...props }: SharingModalProps): JSX.Element {
+export function SharingModal({
+    closeModal,
+    isOpen,
+    inline,
+    title,
+    'data-attr': dataAttr,
+    ...props
+}: SharingModalProps): JSX.Element {
     return (
         <LemonModal
             onClose={closeModal}
             isOpen={isOpen}
             width={SHARING_MODAL_WIDTH}
             title={title ?? 'Sharing'}
+            data-attr={dataAttr}
             footer={
                 <LemonButton type="secondary" onClick={closeModal}>
                     Done

@@ -30,7 +30,7 @@ describe('CdpLegacyEventsConsumer', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        consumer = new CdpLegacyEventsConsumer(hub)
+        consumer = new CdpLegacyEventsConsumer(hub, hub)
         legacyPluginExecutor = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
         team = await getFirstTeam(hub)
 

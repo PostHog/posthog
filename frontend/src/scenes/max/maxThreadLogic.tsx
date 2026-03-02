@@ -64,7 +64,7 @@ import {
     PendingApproval,
 } from '~/types'
 
-import { ToolRegistration } from './max-constants'
+import { MODE_DEFINITIONS, ToolRegistration } from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -1580,7 +1580,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 } else if (modeValue === 'plan') {
                     parsedMode = values.featureFlags[FEATURE_FLAGS.PHAI_PLAN_MODE] ? AgentMode.Plan : null
                 } else if ((Object.values(AgentMode) as string[]).includes(modeValue)) {
-                    parsedMode = modeValue as AgentMode
+                    const modeDef = MODE_DEFINITIONS[modeValue as keyof typeof MODE_DEFINITIONS]
+                    if (modeDef?.flag && !values.featureFlags[FEATURE_FLAGS[modeDef.flag]]) {
+                        parsedMode = null
+                    } else {
+                        parsedMode = modeValue as AgentMode
+                    }
                 }
                 if (parsedMode !== undefined) {
                     actions.setAgentMode(parsedMode)
@@ -1622,7 +1627,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 try {
                     // Only auto-set mode when no conversation is active and user hasn't manually set mode (e.g., via URL params)
                     if (!values.conversation && !values.agentModeLockedByUser) {
-                        const suggestedMode = getAgentModeForScene(sceneId)
+                        const suggestedMode = getAgentModeForScene(sceneId, values.featureFlags)
                         if (suggestedMode !== values.agentMode) {
                             // Use sync action to not lock - allows conversation to still update mode if agent changes it
                             actions.syncAgentModeFromConversation(suggestedMode)
