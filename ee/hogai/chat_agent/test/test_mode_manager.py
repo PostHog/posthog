@@ -643,6 +643,61 @@ class TestRootNodeTools(BaseTest):
             self.assertIn("does not exist", result.messages[0].content)
 
 
+class TestChatAgentModeManagerModeFallback(BaseTest):
+    @parameterized.expand(
+        [
+            [AgentMode.LLM_ANALYTICS, "has_llm_analytics_mode_feature_flag"],
+            [AgentMode.ERROR_TRACKING, "has_error_tracking_mode_feature_flag"],
+            [AgentMode.SURVEY, "has_survey_mode_feature_flag"],
+            [AgentMode.FLAGS, "has_flags_mode_feature_flag"],
+        ]
+    )
+    def test_falls_back_to_product_analytics_when_feature_flag_is_off(self, mode, flag_func_name):
+        node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+        context_manager = AssistantContextManager(
+            team=self.team, user=self.user, config=RunnableConfig(configurable={})
+        )
+        state = AssistantState(messages=[HumanMessage(content="Test")], agent_mode=mode)
+
+        with patch(f"ee.hogai.chat_agent.mode_manager.{flag_func_name}", return_value=False):
+            mode_manager = ChatAgentModeManager(
+                team=self.team,
+                user=self.user,
+                node_path=node_path,
+                context_manager=context_manager,
+                state=state,
+            )
+            self.assertEqual(mode_manager._mode, AgentMode.PRODUCT_ANALYTICS)
+            # Accessing .node should not raise KeyError
+            self.assertIn(mode_manager._mode, mode_manager.mode_registry)
+
+    @parameterized.expand(
+        [
+            [AgentMode.LLM_ANALYTICS, "has_llm_analytics_mode_feature_flag"],
+            [AgentMode.ERROR_TRACKING, "has_error_tracking_mode_feature_flag"],
+            [AgentMode.SURVEY, "has_survey_mode_feature_flag"],
+            [AgentMode.FLAGS, "has_flags_mode_feature_flag"],
+        ]
+    )
+    def test_keeps_mode_when_feature_flag_is_on(self, mode, flag_func_name):
+        node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+        context_manager = AssistantContextManager(
+            team=self.team, user=self.user, config=RunnableConfig(configurable={})
+        )
+        state = AssistantState(messages=[HumanMessage(content="Test")], agent_mode=mode)
+
+        with patch(f"ee.hogai.chat_agent.mode_manager.{flag_func_name}", return_value=True):
+            mode_manager = ChatAgentModeManager(
+                team=self.team,
+                user=self.user,
+                node_path=node_path,
+                context_manager=context_manager,
+                state=state,
+            )
+            self.assertEqual(mode_manager._mode, mode)
+            self.assertIn(mode_manager._mode, mode_manager.mode_registry)
+
+
 class TestChatAgentModeManagerSubagent(BaseTest):
     @parameterized.expand(
         [
