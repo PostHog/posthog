@@ -132,21 +132,21 @@ Per-team configuration for sandbox execution: network access level (trusted/full
 
 ## Sandbox providers
 
-|                   | DockerSandbox                                                  | ModalSandbox                           |
-| ----------------- | -------------------------------------------------------------- | -------------------------------------- |
-| Use case          | Local development                                              | Production                             |
-| Internal port     | 47821                                                          | 8080                                   |
-| Host port         | Dynamically assigned                                           | N/A (cloud-routed)                     |
-| Isolation         | Standard Docker container                                      | gVisor kernel-level sandboxing         |
-| Auth              | No token needed                                                | Modal connect token                    |
-| Image source      | Local Dockerfile build                                         | `ghcr.io/posthog/posthog-sandbox-base` |
-| Snapshots         | Docker commit/tag                                              | Modal `snapshot_filesystem()`          |
-| URL rewriting     | Auto (`localhost` → `host.docker.internal`, `:8010` → `:8000`) | None (uses `SANDBOX_API_URL` or ngrok) |
-| `SANDBOX_API_URL` | Not needed (auto-transform handles it)                         | Required (ngrok URL or production URL) |
+|                   | DockerSandbox                                                  | ModalSandbox                                                          |
+| ----------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Use case          | Local development                                              | Production                                                            |
+| Internal port     | 47821                                                          | 8080                                                                  |
+| Host port         | Dynamically assigned                                           | N/A (cloud-routed)                                                    |
+| Isolation         | Standard Docker container                                      | gVisor kernel-level sandboxing                                        |
+| Auth              | No token needed                                                | Modal connect token                                                   |
+| Image source      | Local Dockerfile build                                         | `ghcr.io/posthog/posthog-sandbox-base`                                |
+| Snapshots         | Docker commit/tag                                              | Modal `snapshot_filesystem()`                                         |
+| URL rewriting     | Auto (`localhost` → `host.docker.internal`, `:8010` → `:8000`) | None (uses `SANDBOX_API_URL` or ngrok)                                |
+| `SANDBOX_API_URL` | Not needed (auto-transform handles it)                         | Only for local dev with Modal (ngrok URL); production uses `SITE_URL` |
 
 ### Local development with Docker
 
-Docker is the default sandbox provider for local development. Set `SANDBOX_PROVIDER=docker` and `DEBUG=True` in your `.env`.
+Docker is the recommended sandbox provider for local development. To use it, set `SANDBOX_PROVIDER=docker` and `DEBUG=1` in your `.env`.
 
 **Do not set `SANDBOX_API_URL`** when using Docker. The `DockerSandbox` automatically rewrites `POSTHOG_API_URL` inside the container:
 
@@ -155,7 +155,7 @@ Docker is the default sandbox provider for local development. Set `SANDBOX_PROVI
 
 The container is started with `--add-host host.docker.internal:host-gateway` so `host.docker.internal` resolves to the host machine. The internal agent-server port is 47821; the host port is dynamically assigned to avoid conflicts.
 
-If you set `SANDBOX_API_URL=http://host.docker.internal:8010`, you'll bypass the auto-transform and the sandbox will hit Caddy on port 8010, which returns empty responses from inside Docker. If you need to override, use port 8000: `SANDBOX_API_URL=http://host.docker.internal:8000`.
+Setting `SANDBOX_API_URL` is unnecessary with Docker — the auto-transform already does the right thing. If you need to override, use port 8000: `SANDBOX_API_URL=http://host.docker.internal:8000`.
 
 ### Local development with Modal
 

@@ -44,13 +44,13 @@ The client ID `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` is the dev constant fro
 Add to your `.env`:
 
 ```bash
-# Required: DEBUG must be True for DockerSandbox
-DEBUG=True
+# Required: DEBUG must be enabled for DockerSandbox
+DEBUG=1
 
 # Sandbox provider (required for local dev)
 SANDBOX_PROVIDER=docker
 
-# Do NOT set SANDBOX_API_URL when using Docker.
+# SANDBOX_API_URL is not needed when using Docker.
 # DockerSandbox auto-rewrites POSTHOG_API_URL inside the container:
 #   localhost/127.0.0.1 → host.docker.internal
 #   port 8010 (Caddy) → 8000 (Django direct, Caddy returns empty responses from Docker)
@@ -121,17 +121,17 @@ This builds a `posthog-sandbox-base-local` Docker image that overlays your local
 
 ## Troubleshooting
 
-| Problem                           | Solution                                                                                                                                                       |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Docker not running                | Start Docker Desktop or the Docker daemon                                                                                                                      |
-| Temporal not reachable            | Ensure Temporal is running on `127.0.0.1:7233`. Check with `temporal server start-dev`                                                                         |
-| Feature flag not enabled          | Create the `tasks` flag at 100% rollout (see step 4)                                                                                                           |
-| Array OAuth app missing           | Run the Django shell command in step 2                                                                                                                         |
-| GitHub token expired              | Tokens from GitHub App installations expire after ~1 hour. Re-run the task to get a fresh token                                                                |
-| "Task workflow execution blocked" | The `tasks` feature flag is not enabled for this user/org                                                                                                      |
-| Sandbox image build fails         | Check Docker has enough disk space. Delete old images with `docker system prune`                                                                               |
-| Agent server health check fails   | Check sandbox logs: `docker exec <container_id> cat /tmp/agent-server.log`                                                                                     |
-| `SANDBOX_JWT_PRIVATE_KEY` missing | Generate an RSA key (see step 3) and add it to your `.env`                                                                                                     |
-| Port conflict on 47821            | Another sandbox or process is using the port. Kill it or restart Docker                                                                                        |
-| Sandbox can't reach PostHog API   | Don't set `SANDBOX_API_URL` with Docker — auto-transform handles it. If overriding, use port 8000, not 8010 (Caddy returns empty responses from inside Docker) |
-| `DEBUG` not set                   | `SANDBOX_PROVIDER=docker` requires `DEBUG=True`. Without it, you'll get "DockerSandbox cannot be used in production"                                           |
+| Problem                            | Solution                                                                                                                                                                                   |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Docker not running                 | Start Docker Desktop or the Docker daemon                                                                                                                                                  |
+| Temporal not reachable             | Ensure Temporal is running on `127.0.0.1:7233`. Check with `temporal server start-dev`                                                                                                     |
+| Feature flag not enabled           | Create the `tasks` flag at 100% rollout (see step 4)                                                                                                                                       |
+| Array OAuth app missing            | Run the Django shell command in step 2                                                                                                                                                     |
+| GitHub token expired               | Tokens from GitHub App installations expire after ~1 hour. Re-run the task to get a fresh token                                                                                            |
+| "Task workflow execution blocked"  | The `tasks` feature flag is not enabled for this user/org                                                                                                                                  |
+| Sandbox image build fails          | Check Docker has enough disk space. Delete old images with `docker system prune`                                                                                                           |
+| Agent server health check fails    | Check sandbox logs: `docker exec <container_id> cat /tmp/agent-server.log`                                                                                                                 |
+| `SANDBOX_JWT_PRIVATE_KEY` missing  | Generate an RSA key (see step 3) and add it to your `.env`                                                                                                                                 |
+| Port conflict on sandbox host port | DockerSandbox maps container port 47821 to a dynamic host port. Check sandbox logs or TaskRun state for the assigned port; if another process uses it, stop that process or restart Docker |
+| Sandbox can't reach PostHog API    | Don't set `SANDBOX_API_URL` with Docker — auto-transform handles it. If overriding, use port 8000, not 8010 (Caddy returns empty responses from inside Docker)                             |
+| `DEBUG` not set                    | `SANDBOX_PROVIDER=docker` requires `DEBUG=1`. Without it, you'll get "DockerSandbox cannot be used in production"                                                                          |
