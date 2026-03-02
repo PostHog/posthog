@@ -4277,45 +4277,84 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            ("not_a_list", "between", "1,10", "between operator requires a two-element array [min, max]"),
-            ("wrong_length", "between", [1], "between operator requires a two-element array [min, max]"),
-            (
-                "three_elements",
-                "not_between",
-                [1, 2, 3],
-                "not_between operator requires a two-element array [min, max]",
-            ),
-            ("non_numeric", "between", ["a", "b"], "between operator requires numeric values"),
-            (
-                "min_gt_max",
-                "not_between",
-                [10, 1],
-                "not_between operator requires min value to be less than or equal to max value",
-            ),
+            ("between", "between"),
+            ("not_between", "not_between"),
+            ("is_cleaned_path_exact", "is_cleaned_path_exact"),
         ]
     )
-    def test_create_flag_with_invalid_between_value(self, _name, operator, value, expected_detail):
+    def test_cant_create_flag_with_unsupported_operator(self, _name, operator):
         resp = self._create_flag_with_properties(
-            "between-flag",
-            [{"key": "age", "type": "person", "value": value, "operator": operator}],
+            "unsupported-op-flag",
+            [{"key": "age", "type": "person", "value": "test", "operator": operator}],
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(resp.json()["code"], "invalid_value")
-        self.assertEqual(resp.json()["detail"], expected_detail)
+        self.assertEqual(resp.json()["code"], "unsupported_operator")
+        self.assertIn(operator, resp.json()["detail"])
 
     @parameterized.expand(
         [
-            ("valid_between", "between", [1, 10]),
-            ("valid_not_between", "not_between", [0.5, 99.9]),
-            ("equal_bounds", "between", [5, 5]),
+            ("between", "between"),
+            ("not_between", "not_between"),
+            ("is_cleaned_path_exact", "is_cleaned_path_exact"),
         ]
     )
-    def test_create_flag_with_valid_between_value(self, _name, operator, value):
-        self._create_flag_with_properties(
-            f"between-flag-{_name}",
-            [{"key": "age", "type": "person", "value": value, "operator": operator}],
-            expected_status=status.HTTP_201_CREATED,
+    def test_cant_update_flag_with_unsupported_operator(self, _name, operator):
+        flag = self._create_flag_with_properties(
+            f"flag-to-update-{_name}",
+            [{"key": "age", "type": "person", "value": "test", "operator": "exact"}],
         )
+        resp = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.json()['id']}/",
+            {
+                "filters": {
+                    "groups": [
+                        {"properties": [{"key": "age", "type": "person", "value": "test", "operator": operator}]}
+                    ]
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["code"], "unsupported_operator")
+        self.assertIn(operator, resp.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("min_to_gte", "min", "gte"),
+            ("max_to_lte", "max", "lte"),
+        ]
+    )
+    def test_create_flag_aliases_operator(self, _name, input_op, saved_op):
+        resp = self._create_flag_with_properties(
+            f"alias-flag-{_name}",
+            [{"key": "age", "type": "person", "value": "10", "operator": input_op}],
+        )
+        saved_operator = resp.json()["filters"]["groups"][0]["properties"][0]["operator"]
+        self.assertEqual(saved_operator, saved_op)
+
+    @parameterized.expand(
+        [
+            ("min_to_gte", "min", "gte"),
+            ("max_to_lte", "max", "lte"),
+        ]
+    )
+    def test_update_flag_aliases_operator(self, _name, input_op, saved_op):
+        flag = self._create_flag_with_properties(
+            f"flag-alias-update-{_name}",
+            [{"key": "age", "type": "person", "value": "5", "operator": "exact"}],
+        )
+        resp = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.json()['id']}/",
+            {
+                "filters": {
+                    "groups": [{"properties": [{"key": "age", "type": "person", "value": "10", "operator": input_op}]}]
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        saved_operator = resp.json()["filters"]["groups"][0]["properties"][0]["operator"]
+        self.assertEqual(saved_operator, saved_op)
 
     @parameterized.expand(
         [
