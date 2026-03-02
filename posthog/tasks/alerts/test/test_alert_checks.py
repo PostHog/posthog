@@ -20,7 +20,7 @@ from posthog.schema import (
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.fetch_from_cache import InsightResult
-from posthog.errors import CHQueryErrorCannotScheduleTask
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
 from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck, AlertSubscription
 from posthog.models.instance_setting import set_instance_setting
@@ -851,18 +851,33 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         else:
             assert alert_check.calculated_value == 0
 
-    def test_ch_cannot_schedule_task_raises_for_retry(
-        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    @parameterized.expand(
+        [
+            ("cannot_schedule", CHQueryErrorCannotScheduleTask),
+            ("too_many_queries", CHQueryErrorTooManySimultaneousQueries),
+            ("s3_error", CHQueryErrorS3Error),
+        ]
+    )
+    def test_transient_ch_errors_propagate_for_celery_retry(
+        self,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+        _name: str,
+        error_class: type[Exception],
     ) -> None:
         self.set_thresholds(lower=1)
 
         with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
-            mock_calculate.side_effect = CHQueryErrorCannotScheduleTask("cannot schedule")
+            mock_calculate.side_effect = error_class("transient failure")
 
-            with pytest.raises(CHQueryErrorCannotScheduleTask):
+            with pytest.raises(error_class):
                 check_alert(self.alert["id"])
 
         assert mock_send_errors.call_count == 0
+
+        # No ERRORED alert check created — the error propagates for Celery to retry
+        alert_checks = AlertCheck.objects.filter(alert_configuration=self.alert["id"])
+        assert alert_checks.count() == 0
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")

@@ -320,7 +320,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
         value = alert_evaluation_result.value
         breaches = alert_evaluation_result.breaches
     except CH_TRANSIENT_ERRORS:
-        # transient infra errors — re-raise so celery retries according to config
+        # Re-raise so Celery retries the full task via autoretry_for
         raise
     except Exception as err:
         error_message = f"Alert id = {alert.id}, failed to evaluate"
