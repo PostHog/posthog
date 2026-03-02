@@ -61,7 +61,11 @@ export class RetentionInsight extends ChartInsightBase {
     }
 
     async waitForChart(): Promise<void> {
-        await this.page.getByTestId('insight-loading-waiting-message').waitFor({ state: 'detached', timeout: 30000 })
+        const loading = this.page.getByTestId('insight-loading-waiting-message')
+        // Wait for the loading indicator to appear (query started), then disappear.
+        // Short timeout on 'attached' handles cached/instant queries where it never appears.
+        await loading.waitFor({ state: 'attached', timeout: 2000 }).catch(() => {})
+        await loading.waitFor({ state: 'detached', timeout: 30000 })
         await expect(this.table).toBeVisible()
     }
 
