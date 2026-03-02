@@ -130,7 +130,12 @@ def external_aiohttp_session(**kwargs: Any) -> Any:
 
 
 class _ProxiedAiohttpSession:
-    """Wraps ``aiohttp.ClientSession`` to inject the proxy URL into every request."""
+    """Wraps ``aiohttp.ClientSession`` to inject the proxy URL into every request.
+
+    HTTP methods are overridden to inject the proxy; everything else
+    (``closed``, ``cookie_jar``, etc.) is delegated to the inner session
+    via ``__getattr__``.
+    """
 
     def __init__(self, proxy_url: str, **session_kwargs: Any) -> None:
         import aiohttp
@@ -138,15 +143,15 @@ class _ProxiedAiohttpSession:
         self._proxy_url = proxy_url
         self._session = aiohttp.ClientSession(**session_kwargs)
 
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._session, name)
+
     async def __aenter__(self) -> _ProxiedAiohttpSession:
         await self._session.__aenter__()
         return self
 
     async def __aexit__(self, *args: Any) -> None:
         await self._session.__aexit__(*args)
-
-    async def close(self) -> None:
-        await self._session.close()
 
     def _inject(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         if "proxy" not in kwargs:
