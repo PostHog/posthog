@@ -668,6 +668,34 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.json(), {"status": "skipped"})
         mock_execute_relay.assert_not_called()
 
+    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
+    def test_relay_message_rejects_blank_text(self, mock_execute_relay):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "   "},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_execute_relay.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow", side_effect=Exception("temporal down"))
+    def test_relay_message_returns_503_on_enqueue_failure(self, mock_execute_relay):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "hello"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertIn("error", response.json())
+
     def test_append_log_to_existing_entries(self):
         task = self.create_task()
         run = TaskRun.objects.create(

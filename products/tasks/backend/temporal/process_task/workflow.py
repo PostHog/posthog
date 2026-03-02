@@ -51,6 +51,7 @@ class ProcessTaskOutput:
 
 
 INACTIVITY_TIMEOUT_MINUTES = 5
+PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 
 
 @temporalio.workflow.defn(name="process-task")
@@ -124,7 +125,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
 
-            await self._forward_pending_user_message()
+            try:
+                await self._forward_pending_user_message()
+            except Exception as e:
+                workflow.logger.warning(
+                    "forward_pending_user_message_failed_non_fatal",
+                    run_id=self.context.run_id,
+                    error=str(e),
+                )
 
             # Wait for completion signal or inactivity timeout.
             # Heartbeat signals reset the inactivity timer, keeping the workflow alive
@@ -246,8 +254,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             forward_pending_user_message,
             self.context.run_id,
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RetryPolicy(maximum_attempts=2),
+            start_to_close_timeout=timedelta(seconds=PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS),
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
     async def _track_workflow_event(self, event_name: str, properties: dict) -> None:

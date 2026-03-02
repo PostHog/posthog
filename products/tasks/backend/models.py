@@ -156,6 +156,7 @@ class Task(DeletedMetaFields, models.Model):
         mode: str = "background",
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
+        start_workflow: bool = True,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -186,14 +187,15 @@ class Task(DeletedMetaFields, models.Model):
 
         task_run = task.create_run(mode=mode, extra_state=extra_state)
 
-        execute_task_processing_workflow(
-            task_id=str(task.id),
-            run_id=str(task_run.id),
-            team_id=task.team.id,
-            user_id=user_id,
-            create_pr=create_pr,
-            slack_thread_context=slack_thread_context,
-        )
+        if start_workflow:
+            execute_task_processing_workflow(
+                task_id=str(task.id),
+                run_id=str(task_run.id),
+                team_id=task.team.id,
+                user_id=user_id,
+                create_pr=create_pr,
+                slack_thread_context=slack_thread_context,
+            )
 
         return task
 

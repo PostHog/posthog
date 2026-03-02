@@ -198,7 +198,8 @@ class TestForwardTwigFollowupActivity(TestCase):
         assert mapping.task_id == self.task.id
 
         new_run = self.TaskRun.objects.get(id=new_run_id)
-        assert new_run.state.get("pending_user_message") == "do something"
+        assert "pending_user_message" not in new_run.state
+        assert new_run.state.get("initial_prompt_override") == "do something"
 
         mock_slack_instance.client.reactions_add.assert_called_once_with(
             channel="C123", timestamp="1234.5679", name="eyes"
@@ -221,6 +222,7 @@ class TestForwardTwigFollowupActivity(TestCase):
         new_run = self.TaskRun.objects.get(id=new_run_id)
         assert new_run.state.get("slack_pr_opened_notified") is True
         assert new_run.state.get("slack_notified_pr_url") == "https://github.com/org/repo/pull/1"
+        assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("initial_prompt_override", "")
 
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_unauthorized_user_returns_true_with_error(self, mock_slack_cls):

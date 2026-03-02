@@ -506,6 +506,7 @@ def create_twig_task_for_repo_activity(
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.models import Task
+    from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
     log = structlog.get_logger(__name__)
 
@@ -539,6 +540,7 @@ def create_twig_task_for_repo_activity(
     except Exception:
         log.warning("twig_slack_permalink_failed", channel=channel, thread_ts=thread_ts)
 
+    # 1. Create task + run WITHOUT starting the workflow
     try:
         task = Task.create_and_run(
             team=integration.team,
@@ -549,6 +551,7 @@ def create_twig_task_for_repo_activity(
             repository=repository,
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
+            start_workflow=False,
         )
     except Exception as e:
         log.exception(
@@ -576,6 +579,8 @@ def create_twig_task_for_repo_activity(
         thread_ts=thread_ts,
     )
 
+    # 2. Create mapping BEFORE starting the workflow to avoid race condition
+    # where the agent finishes and tries to relay before the mapping exists
     if task:
         task_run = task.latest_run
         if task_run:
@@ -590,6 +595,18 @@ def create_twig_task_for_repo_activity(
                     "task_run": task_run,
                     "mentioning_slack_user_id": slack_user_id,
                 },
+            )
+
+    # 3. Now start the workflow
+    if task:
+        task_run = task.latest_run
+        if task_run:
+            execute_task_processing_workflow(
+                task_id=str(task.id),
+                run_id=str(task_run.id),
+                team_id=task.team.id,
+                user_id=user_id,
+                slack_thread_context=slack_thread_context,
             )
 
 
@@ -859,20 +876,26 @@ def _resume_task_with_new_run(
         return True
 
     extra_state: dict[str, Any] = {
-        "pending_user_message": user_text,
         "interaction_origin": "slack",
     }
-    if user_message_ts:
-        extra_state["pending_user_message_ts"] = user_message_ts
 
     previous_state = previous_run.state or {}
     if previous_state.get("slack_thread_url"):
         extra_state["slack_thread_url"] = previous_state["slack_thread_url"]
 
     previous_pr_url = (previous_run.output or {}).get("pr_url")
+    initial_prompt_override = user_text
     if previous_pr_url:
+        initial_prompt_override = (
+            f"[CONTEXT: This task already has an open pull request: {previous_pr_url}\n"
+            f"Check out the existing PR branch with `gh pr checkout {previous_pr_url}`, "
+            "make your changes, commit, and push to that branch. "
+            "Do NOT create a new branch or PR.]\n\n" + user_text
+        )
         extra_state["slack_pr_opened_notified"] = True
         extra_state["slack_notified_pr_url"] = previous_pr_url
+
+    extra_state["initial_prompt_override"] = initial_prompt_override
 
     new_run = mapping.task.create_run(extra_state=extra_state)
 
