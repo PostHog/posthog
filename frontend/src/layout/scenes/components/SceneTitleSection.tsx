@@ -565,6 +565,7 @@ function SceneName({
 
     return (
         <div
+            data-attr="scene-name"
             className={cn(
                 'scene-name flex items-center flex-1 max-w-full',
                 !isEditing && onChange && canEdit && 'truncate'

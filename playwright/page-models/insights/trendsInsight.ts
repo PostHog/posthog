@@ -1,6 +1,7 @@
 import { Locator, Page, expect } from '@playwright/test'
 
 import { TableHelper } from '../../utils/table-helper'
+import { TaxonomicFilter } from '../taxonomicFilter'
 import { ChartInsightBase } from './chartInsightBase'
 
 export class TrendsInsight extends ChartInsightBase {
@@ -14,6 +15,7 @@ export class TrendsInsight extends ChartInsightBase {
     readonly dateRangeButton: Locator
     readonly chartTypeButton: Locator
     readonly comparisonButton: Locator
+    readonly taxonomicFilter: TaxonomicFilter
     readonly boldNumber: Locator
     readonly boldNumberComparison: Locator
 
@@ -37,6 +39,7 @@ export class TrendsInsight extends ChartInsightBase {
         this.dateRangeButton = page.getByTestId('date-filter')
         this.chartTypeButton = page.getByTestId('chart-filter')
         this.comparisonButton = page.getByTestId('compare-filter')
+        this.taxonomicFilter = new TaxonomicFilter(page)
         this.boldNumber = page.getByTestId('bold-number-value')
         this.boldNumberComparison = page.getByTestId('bold-number-comparison')
     }
@@ -62,23 +65,12 @@ export class TrendsInsight extends ChartInsightBase {
     async selectEvent(seriesIndex: number, eventName: string): Promise<void> {
         await this.page.keyboard.press('Escape')
         await this.seriesEventButton(seriesIndex).click()
-        const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
-        await searchField.waitFor({ state: 'visible' })
-        await searchField.fill(eventName)
-        const row = this.page.getByRole('button', { name: eventName }).first()
-        await row.waitFor({ state: 'visible' })
-        await row.click()
-        await this.waitForChart()
+        await this.taxonomicFilter.selectItem(eventName)
     }
 
     async addBreakdown(property: string): Promise<void> {
         await this.breakdownButton.click()
-        const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
-        await searchField.waitFor({ state: 'visible' })
-        await searchField.fill(property)
-        const row = this.page.getByRole('button', { name: property }).first()
-        await row.waitFor({ state: 'visible', timeout: 15000 })
-        await row.click()
+        await this.taxonomicFilter.selectItem(property)
     }
 
     async setFormula(formula: string): Promise<void> {
@@ -115,12 +107,7 @@ export class TrendsInsight extends ChartInsightBase {
     async selectMathProperty(property: string): Promise<void> {
         await this.page.keyboard.press('Escape')
         await this.mathPropertySelect().click()
-        const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
-        await searchField.waitFor({ state: 'visible' })
-        await searchField.fill(property)
-        const row = this.page.getByRole('button', { name: property }).first()
-        await row.waitFor({ state: 'visible' })
-        await row.click()
+        await this.taxonomicFilter.selectItem(property)
         await this.waitForChart()
     }
 
@@ -187,11 +174,11 @@ export class TrendsInsight extends ChartInsightBase {
     }
 
     async selectTaxonomicTab(groupType: string): Promise<void> {
-        await this.page.getByTestId(`taxonomic-tab-${groupType}`).last().click()
+        await this.taxonomicFilter.selectTab(groupType)
     }
 
     taxonomicResults(): Locator {
-        return this.page.locator('.taxonomic-list-row')
+        return this.taxonomicFilter.rows
     }
 
     get details(): TableHelper {
