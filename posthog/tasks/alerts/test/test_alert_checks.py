@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from tenacity import wait_none
 
 from posthog.schema import (
     AlertConditionType,
@@ -858,12 +859,11 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             ("s3_error", CHQueryErrorS3Error),
         ]
     )
-    @patch("posthog.tasks.alerts.checks.wait_exponential_jitter", return_value=lambda rs: 0)
+    @patch.object(check_alert.retry, "wait", wait_none())  # type: ignore[attr-defined]
     def test_transient_ch_errors_retry_and_succeed(
         self,
         _name: str,
         error_class: type[Exception],
-        _mock_wait: MagicMock,
         mock_send_notifications_for_breaches: MagicMock,
         mock_send_errors: MagicMock,
     ) -> None:
@@ -880,11 +880,10 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert mock_calculate.call_count == 3
 
-        # Alert evaluated successfully after retries — breach notification sent (value 0 < lower 1)
+        # Alert evaluated successfully after retries
+        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
         assert mock_send_notifications_for_breaches.call_count == 1
         assert mock_send_errors.call_count == 0
-
-        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
         assert alert_check.state == AlertState.FIRING
 
     @parameterized.expand(
@@ -894,12 +893,11 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             ("s3_error", CHQueryErrorS3Error),
         ]
     )
-    @patch("posthog.tasks.alerts.checks.wait_exponential_jitter", return_value=lambda rs: 0)
+    @patch.object(check_alert.retry, "wait", wait_none())  # type: ignore[attr-defined]
     def test_transient_ch_errors_exhaust_retries(
         self,
         _name: str,
         error_class: type[Exception],
-        _mock_wait: MagicMock,
         mock_send_notifications_for_breaches: MagicMock,
         mock_send_errors: MagicMock,
     ) -> None:
@@ -915,9 +913,13 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert mock_calculate.call_count == 4
         assert mock_send_notifications_for_breaches.call_count == 0
         assert mock_send_errors.call_count == 0
-        # No ERRORED alert check — the error propagates after exhausting retries
+        # No ERRORED alert check; this so that it will be picked up at the next cycle
         alert_checks = AlertCheck.objects.filter(alert_configuration=self.alert["id"])
         assert alert_checks.count() == 0
+
+        # is_calculating cleared by the finally block so alert doesn't get stuck
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+        assert alert.is_calculating is False
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
