@@ -76,7 +76,7 @@ export function InsightRow({ insight, isExpanded, onToggle, dataAttr }: InsightR
             </div>
             {isExpanded && (
                 <div className="border-t border-border bg-surface-primary">
-                    <div className="p-4 h-60 relative">
+                    <div className="p-4 h-60 relative flex flex-col">
                         <Query
                             query={insight.query}
                             readOnly

@@ -28378,6 +28378,12 @@
                     "description": "The property to aggregate when aggregationType is sum or avg",
                     "type": "string"
                 },
+                "aggregationPropertyType": {
+                    "default": "event",
+                    "description": "The type of property to aggregate on (event or person). Defaults to event.",
+                    "enum": ["event", "person"],
+                    "type": "string"
+                },
                 "aggregationType": {
                     "default": "count",
                     "description": "The aggregation type to use for retention",
