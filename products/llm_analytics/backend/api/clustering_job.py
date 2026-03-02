@@ -1,5 +1,7 @@
 from typing import cast
 
+from django.db import transaction
+
 from rest_framework import serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -54,21 +56,22 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @llma_track_latency("llma_clustering_job_create")
     @monitor(feature=None, endpoint="llma_clustering_job_create", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
-        existing_count = ClusteringJob.objects.filter(team_id=self.team_id).count()
-        if existing_count >= MAX_JOBS_PER_TEAM:
-            return Response(
-                {"detail": f"Maximum of {MAX_JOBS_PER_TEAM} clustering jobs per team."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        with transaction.atomic():
+            existing_count = ClusteringJob.objects.filter(team_id=self.team_id).select_for_update().count()
+            if existing_count >= MAX_JOBS_PER_TEAM:
+                return Response(
+                    {"detail": f"Maximum of {MAX_JOBS_PER_TEAM} clustering jobs per team."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        name = request.data.get("name", "")
-        if name and ClusteringJob.objects.filter(team_id=self.team_id, name=name).exists():
-            return Response(
-                {"detail": "A clustering job with this name already exists."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            name = request.data.get("name", "")
+            if name and ClusteringJob.objects.filter(team_id=self.team_id, name=name).exists():
+                return Response(
+                    {"detail": "A clustering job with this name already exists."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        return super().create(request, *args, **kwargs)
+            return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         instance = serializer.save(team_id=self.team_id)

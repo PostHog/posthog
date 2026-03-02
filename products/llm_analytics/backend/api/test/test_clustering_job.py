@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -193,3 +194,103 @@ class TestClusteringJobViewSet(APIBaseTest):
 
         custom.refresh_from_db()
         self.assertTrue(custom.enabled)
+
+
+class TestClusteringRunWithJobId(APIBaseTest):
+    """Tests for clustering_job_id param on the manual clustering run endpoint."""
+
+    _RUN_URL_TEMPLATE = "/api/environments/{team_id}/llm_analytics/clustering_runs/"
+
+    def _run_url(self) -> str:
+        return self._RUN_URL_TEMPLATE.format(team_id=self.team.id)
+
+    def _create_job(self, **kwargs) -> ClusteringJob:
+        defaults = {
+            "team": self.team,
+            "name": "Test Job",
+            "analysis_level": "trace",
+            "event_filters": [],
+            "enabled": True,
+        }
+        defaults.update(kwargs)
+        return ClusteringJob.objects.create(**defaults)
+
+    def _minimal_run_payload(self, **kwargs) -> dict:
+        payload: dict = {}
+        payload.update(kwargs)
+        return payload
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.llm_analytics.backend.api.clustering.sync_connect")
+    def test_valid_clustering_job_id_overrides_event_filters(self, mock_connect, _mock_flag):
+        mock_client = AsyncMock()
+        mock_client.start_workflow = AsyncMock(return_value=AsyncMock(id="wf-1", result_run_id="run-1"))
+        mock_connect.return_value = mock_client
+
+        filters = [{"key": "$ai_model", "value": "gpt-4", "operator": "exact", "type": "event"}]
+        job = self._create_job(analysis_level="generation", event_filters=filters)
+
+        response = self.client.post(
+            self._run_url(),
+            self._minimal_run_payload(clustering_job_id=job.id),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        call_kwargs = mock_client.start_workflow.call_args
+        workflow_inputs = call_kwargs[0][1]
+        self.assertEqual(workflow_inputs.analysis_level, "generation")
+        self.assertEqual(workflow_inputs.event_filters, filters)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.llm_analytics.backend.api.clustering.sync_connect")
+    def test_invalid_clustering_job_id_returns_404(self, mock_connect, _mock_flag):
+        response = self.client.post(
+            self._run_url(),
+            self._minimal_run_payload(clustering_job_id=99999),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        mock_connect.assert_not_called()
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.llm_analytics.backend.api.clustering.sync_connect")
+    def test_clustering_job_from_different_team_returns_404(self, mock_connect, _mock_flag):
+        from posthog.models import Organization, Team
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_job = ClusteringJob.objects.create(
+            team=other_team,
+            name="Other Team Job",
+            analysis_level="trace",
+            event_filters=[],
+            enabled=True,
+        )
+
+        response = self.client.post(
+            self._run_url(),
+            self._minimal_run_payload(clustering_job_id=other_job.id),
+            format="json",
+        )
+        # 403 or 404 — either way the cross-team job is not accessible
+        self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
+        mock_connect.assert_not_called()
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.llm_analytics.backend.api.clustering.sync_connect")
+    def test_no_clustering_job_id_uses_request_event_filters(self, mock_connect, _mock_flag):
+        mock_client = AsyncMock()
+        mock_client.start_workflow = AsyncMock(return_value=AsyncMock(id="wf-1", result_run_id="run-1"))
+        mock_connect.return_value = mock_client
+
+        request_filters = [{"key": "$ai_provider", "value": "openai", "operator": "exact", "type": "event"}]
+        response = self.client.post(
+            self._run_url(),
+            self._minimal_run_payload(event_filters=request_filters),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        call_kwargs = mock_client.start_workflow.call_args
+        workflow_inputs = call_kwargs[0][1]
+        self.assertEqual(workflow_inputs.event_filters, request_filters)
