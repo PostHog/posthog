@@ -21,7 +21,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps, 'hogflow')
-        this.loadGroupsMatcher = buildIntegerMatcher(config.CDP_CYCLOTRON_LOAD_GROUPS_IN_WORKER_TEAMS, true)
+        this.loadGroupsMatcher = buildIntegerMatcher(config.CDP_CYCLOTRON_GROUPS_IN_WORKFLOWS_TEAMS, true)
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')

@@ -161,7 +161,7 @@ export type CdpConfig = {
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: string // Like the above but with a team check too
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: boolean // If true then scheduled jobs will be routed to postgres even if they are mapped to kafka
     CDP_CYCLOTRON_STRIP_GROUPS_FROM_STATE_TEAMS: string // Team IDs to strip groups from persisted job state ('*' for all, '' for none)
-    CDP_CYCLOTRON_LOAD_GROUPS_IN_WORKER_TEAMS: string // Team IDs to load groups fresh in hogflow worker ('*' for all, '' for none)
+    CDP_CYCLOTRON_GROUPS_IN_WORKFLOWS_TEAMS: string // Team IDs to load groups fresh in hogflow worker ('*' for all, '' for none)
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
