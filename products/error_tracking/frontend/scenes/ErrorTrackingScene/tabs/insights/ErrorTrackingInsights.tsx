@@ -1,15 +1,17 @@
-import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { useActions, useValues } from 'kea'
+import { useCallback, useMemo } from 'react'
 
 import { ChartCard } from './ChartCard'
-import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
+import { InsightsTrackableItem, errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 import { InsightsFilters } from './InsightsFilters'
 import { buildCrashFreeSessionsQuery, buildExceptionVolumeQuery } from './queries'
 import { SummaryStats } from './SummaryStats'
 import { TimeRangeControls } from './TimeRangeControls'
 
 export function ErrorTrackingInsights(): JSX.Element {
-    const { dateFrom, chartDateTo, filterGroup, filterTestAccounts } = useValues(errorTrackingInsightsLogic)
+    const { dateFrom, chartDateTo, filterGroup, filterTestAccounts, loadStartTime, refreshKey } =
+        useValues(errorTrackingInsightsLogic)
+    const { reportItemLoaded } = useActions(errorTrackingInsightsLogic)
 
     const filters = useMemo(() => ({ filterGroup, filterTestAccounts }), [filterGroup, filterTestAccounts])
 
@@ -20,6 +22,11 @@ export function ErrorTrackingInsights(): JSX.Element {
     const crashFreeQuery = useMemo(
         () => buildCrashFreeSessionsQuery(dateFrom, chartDateTo, filters),
         [dateFrom, chartDateTo, filters]
+    )
+
+    const handleChartLoad = useCallback(
+        (item: InsightsTrackableItem, durationMs: number) => reportItemLoaded(item, durationMs),
+        [reportItemLoaded]
     )
 
     return (
@@ -35,11 +42,23 @@ export function ErrorTrackingInsights(): JSX.Element {
                     Charts
                 </div>
                 <div className="p-3 grid grid-cols-1 xl:grid-cols-2 gap-3">
-                    <ChartCard title="Exception volume" description="Exceptions per day" query={exceptionVolumeQuery} />
                     <ChartCard
+                        key={`exception_volume-${refreshKey}`}
+                        title="Exception volume"
+                        description="Exceptions per day"
+                        query={exceptionVolumeQuery}
+                        chartKey="exception_volume"
+                        loadStartTime={loadStartTime}
+                        onLoad={handleChartLoad}
+                    />
+                    <ChartCard
+                        key={`crash_free_sessions-${refreshKey}`}
                         title="Crash-free sessions"
                         description="Percentage of sessions without any exceptions"
                         query={crashFreeQuery}
+                        chartKey="crash_free_sessions"
+                        loadStartTime={loadStartTime}
+                        onLoad={handleChartLoad}
                     />
                 </div>
             </div>

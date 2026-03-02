@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -19,6 +20,10 @@ function getPeriodStart(date: Dayjs, viewMode: InsightsViewMode, weekStartDay: n
 }
 
 export type InsightsViewMode = 'week' | 'month'
+
+export type InsightsTrackableItem = 'summary_stats' | 'exception_volume' | 'crash_free_sessions'
+
+const TRACKABLE_ITEMS: InsightsTrackableItem[] = ['summary_stats', 'exception_volume', 'crash_free_sessions']
 
 export interface InsightsSummaryStats {
     totalExceptions: number
@@ -52,8 +57,12 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         setAnchorDate: (date: Dayjs) => ({ date }),
         navigateBack: true,
         navigateForward: true,
+        reload: true,
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+        setLoadStartTime: (time: number) => ({ time }),
+        reportItemLoaded: (item: InsightsTrackableItem, durationMs: number) => ({ item, durationMs }),
+        incrementRefreshKey: true,
     }),
 
     reducers({
@@ -80,6 +89,25 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             false as boolean,
             {
                 setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
+            },
+        ],
+        loadStartTime: [
+            0 as number,
+            {
+                setLoadStartTime: (_, { time }) => time,
+            },
+        ],
+        itemTimings: [
+            {} as Partial<Record<InsightsTrackableItem, number>>,
+            {
+                setLoadStartTime: () => ({}),
+                reportItemLoaded: (state, { item, durationMs }) => ({ ...state, [item]: durationMs }),
+            },
+        ],
+        refreshKey: [
+            0 as number,
+            {
+                incrementRefreshKey: (state) => state + 1,
             },
         ],
     }),
@@ -138,11 +166,12 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         ],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         summaryStats: [
             null as InsightsSummaryStats | null,
             {
                 loadSummaryStats: async () => {
+                    const startTime = performance.now()
                     const periodEnd =
                         values.viewMode === 'week'
                             ? values.anchorDate.add(1, 'week')
@@ -175,6 +204,9 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                     const [totalExceptions, totalSessions, crashSessions] = row as [number, number, number]
                     const crashFreeRate =
                         totalSessions > 0 ? ((totalSessions - crashSessions) / totalSessions) * 100 : 100
+
+                    actions.reportItemLoaded('summary_stats', Math.round(performance.now() - startTime))
+
                     return {
                         totalExceptions,
                         totalSessions,
@@ -188,6 +220,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
 
     listeners(({ actions, values }) => ({
         setViewMode: ({ mode }) => {
+            posthog.capture('error_tracking_insights_view_mode_changed', { view_mode: mode })
             actions.setAnchorDate(getPeriodStart(dayjs(), mode, values.weekStartDay))
         },
         navigateBack: () => {
@@ -201,17 +234,41 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             actions.setAnchorDate(next.isAfter(currentPeriodStart) ? currentPeriodStart : next)
         },
         setAnchorDate: () => {
+            actions.setLoadStartTime(performance.now())
             actions.loadSummaryStats()
         },
         setFilterTestAccounts: () => {
+            actions.setLoadStartTime(performance.now())
             actions.loadSummaryStats()
         },
         setFilterGroup: () => {
+            actions.setLoadStartTime(performance.now())
             actions.loadSummaryStats()
+        },
+        reload: () => {
+            actions.setLoadStartTime(performance.now())
+            actions.incrementRefreshKey()
+            actions.loadSummaryStats()
+        },
+        reportItemLoaded: ({ item, durationMs }) => {
+            const updatedTimings = { ...values.itemTimings, [item]: durationMs }
+            const allLoaded = TRACKABLE_ITEMS.every((key) => updatedTimings[key] !== undefined)
+            if (allLoaded) {
+                posthog.capture('error_tracking_insights_data_loaded', {
+                    view_mode: values.viewMode,
+                    date_from: values.dateFrom,
+                    date_to: values.dateTo,
+                    relative_label: values.relativeDateLabel,
+                    duration_ms_summary_stats: updatedTimings.summary_stats,
+                    duration_ms_exception_volume: updatedTimings.exception_volume,
+                    duration_ms_crash_free_sessions: updatedTimings.crash_free_sessions,
+                })
+            }
         },
     })),
 
     afterMount(({ actions, values }) => {
+        posthog.capture('error_tracking_insights_viewed')
         actions.setAnchorDate(getPeriodStart(dayjs(), values.viewMode, values.weekStartDay))
     }),
 ])

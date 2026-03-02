@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
+import { IconChevronLeft, IconChevronRight, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { InsightsViewMode, errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 
 export function TimeRangeControls(): JSX.Element {
-    const { viewMode, dateLabel, relativeDateLabel, canNavigateForward } = useValues(errorTrackingInsightsLogic)
-    const { setViewMode, navigateBack, navigateForward } = useActions(errorTrackingInsightsLogic)
+    const { viewMode, dateLabel, relativeDateLabel, canNavigateForward, summaryStatsLoading } =
+        useValues(errorTrackingInsightsLogic)
+    const { setViewMode, navigateBack, navigateForward, reload } = useActions(errorTrackingInsightsLogic)
 
     return (
         <div className="flex items-center gap-2">
@@ -33,6 +34,13 @@ export function TimeRangeControls(): JSX.Element {
                     disabledReason={!canNavigateForward ? "You're viewing the current period" : undefined}
                 />
             </div>
+            <LemonButton
+                size="small"
+                icon={<IconRefresh />}
+                onClick={reload}
+                loading={summaryStatsLoading}
+                tooltip="Reload"
+            />
         </div>
     )
 }
