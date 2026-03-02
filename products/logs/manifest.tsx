@@ -2,7 +2,7 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Logs',
@@ -11,7 +11,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/LogsScene'),
             projectBased: true,
             name: 'Logs',
-            activityScope: 'Logs',
+            activityScope: ActivityScope.LOG,
             layout: 'app-container',
             iconType: 'logs',
             description: 'Monitor and analyze your logs to understand and fix issues.',

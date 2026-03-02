@@ -30,7 +30,7 @@ import {
     StartupProgramLabel,
 } from '~/types'
 
-import { buildUsageLimitApproachingMessage, buildUsageLimitExceededMessage } from './billing-utils'
+import { buildUsageLimitApproachingMessage, buildUsageLimitExceededMessage, canAccessBilling } from './billing-utils'
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
@@ -809,6 +809,8 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
+            const hasBillingAccess = canAccessBilling(values.currentOrganization)
+
             const trial = values.billing.trial
             if (trial && trial.expires_at && dayjs(trial.expires_at).isAfter(dayjs())) {
                 if (trial.type === 'autosubscribe' || trial.status !== 'active') {
@@ -864,7 +866,7 @@ export const billingLogic = kea<billingLogicType>([
                 }) || []
 
             if (productsOverLimit.length > 0) {
-                const { title, message } = buildUsageLimitExceededMessage(productsOverLimit)
+                const { title, message } = buildUsageLimitExceededMessage(productsOverLimit, hasBillingAccess)
 
                 actions.setBillingAlert({
                     status: 'error',
@@ -911,7 +913,7 @@ export const billingLogic = kea<billingLogicType>([
                 }) || []
 
             if (productsApproachingLimit.length > 0) {
-                const { title, message } = buildUsageLimitApproachingMessage(productsApproachingLimit)
+                const { title, message } = buildUsageLimitApproachingMessage(productsApproachingLimit, hasBillingAccess)
 
                 actions.setBillingAlert({
                     status: 'info',

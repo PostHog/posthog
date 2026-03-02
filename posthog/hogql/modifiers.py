@@ -8,6 +8,7 @@ from posthog.schema import (
     CustomChannelRule,
     HogQLQueryModifiers,
     InCohortVia,
+    InlineCohortCalculation,
     MaterializationMode,
     PersonsArgMaxVersion,
     PropertyGroupsMode,
@@ -128,6 +129,9 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
 
     if modifiers.optimizeProjections is None:
         modifiers.optimizeProjections = False
+
+    if modifiers.inlineCohortCalculation is None:
+        modifiers.inlineCohortCalculation = InlineCohortCalculation.AUTO
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:

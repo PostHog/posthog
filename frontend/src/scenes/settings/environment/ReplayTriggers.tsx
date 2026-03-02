@@ -181,7 +181,12 @@ function Sampling(): JSX.Element {
             <div className="flex flex-row justify-between mt-2">
                 <LemonLabel className="text-base">
                     <IngestionControls.MatchTypeTag /> Sampling{' '}
-                    <Since web={{ version: '1.85.0' }} android={{ version: '3.34.0' }} ios={{ version: '3.42.0' }} />
+                    <Since
+                        web={{ version: '1.85.0' }}
+                        android={{ version: '3.34.0' }}
+                        ios={{ version: '3.42.0' }}
+                        reactNative={{ version: '4.37.0' }}
+                    />
                 </LemonLabel>
                 <IngestionControls.SamplingTrigger
                     initialSampleRate={

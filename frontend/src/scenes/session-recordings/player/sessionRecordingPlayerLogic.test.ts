@@ -135,10 +135,11 @@ describe('findSegmentForTimestamp', () => {
         expect(result?.windowId).toBe(1)
     })
 
-    it('falls back to last segment with windowId when timestamp is after all segments', () => {
+    it('returns synthetic buffer when timestamp is after all segments', () => {
         const result = findSegmentForTimestamp(segments, 9999)
-        expect(result).toEqual(segments[2])
-        expect(result?.windowId).toBe(2)
+        expect(result?.kind).toBe('buffer')
+        expect(result?.startTimestamp).toBe(9999)
+        expect(result?.endTimestamp).toBe(5001)
     })
 
     it('skips segments without windowId when falling back', () => {
@@ -198,6 +199,28 @@ describe('sessionRecordingPlayerLogic', () => {
                 sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }),
                 playerSettingsLogic,
             ])
+        })
+    })
+
+    describe('currentPlayerTime clamping', () => {
+        // Mock recording: start=1682952380877, end=1682952392745, durationMs=11868
+        const START = 1682952380877
+        const DURATION = 11868
+
+        it.each([
+            { description: 'before start', timestamp: START - 1000, expected: 0 },
+            { description: 'at start', timestamp: START, expected: 0 },
+            { description: 'at midpoint', timestamp: START + 5000, expected: 5000 },
+            { description: 'at end', timestamp: START + DURATION, expected: DURATION },
+            { description: 'beyond end', timestamp: START + DURATION + 5000, expected: DURATION },
+        ])('clamps to [$expected] when $description', async ({ timestamp, expected }) => {
+            await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+            ])
+
+            logic.actions.setCurrentTimestamp(timestamp)
+
+            expect(logic.values.currentPlayerTime).toBe(expected)
         })
     })
 
