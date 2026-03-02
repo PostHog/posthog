@@ -264,4 +264,7 @@ class TestDatabricksVolumeTestStep:
             )
             result = await test_step.run()
             assert result.status == Status.FAILED
-            assert result.message == "Failed to execute 'CREATE VOLUME': Insufficient permissions"
+            assert (
+                result.message
+                == "A test volume could not be created: Failed to execute 'CREATE VOLUME': Insufficient permissions"
+            )
