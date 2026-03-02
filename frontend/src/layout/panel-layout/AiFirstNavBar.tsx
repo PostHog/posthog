@@ -2,9 +2,19 @@ import { Collapsible } from '@base-ui/react/collapsible'
 import { Menubar } from '@base-ui/react/menubar'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useCallback, useRef } from 'react'
 
-import { IconChevronRight, IconClock, IconHome, IconNotification, IconSearch, IconSparkles } from '@posthog/icons'
+import {
+    IconChevronRight,
+    IconClock,
+    IconFolder,
+    IconHome,
+    IconNotification,
+    IconPlus,
+    IconSearch,
+    IconSparkles,
+    IconStar,
+} from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
@@ -12,7 +22,9 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
+import { AiChatListItem } from 'lib/ui/ai/AiChatListItem'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
@@ -25,6 +37,7 @@ import { FilesMenu } from '~/layout/panel-layout/ai-first/FilesMenu'
 import { RecentsMenu } from '~/layout/panel-layout/ai-first/RecentsMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
+import { maxGlobalLogic } from '~/scenes/max/maxGlobalLogic'
 import { ActivityTab } from '~/types'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
@@ -59,10 +72,12 @@ function SectionTrigger({
     label,
     open,
     isCollapsed,
+    icon,
 }: {
     label: string
     open: boolean
     isCollapsed: boolean
+    icon: React.ReactNode
 }): JSX.Element {
     return (
         <Collapsible.Trigger
@@ -75,10 +90,39 @@ function SectionTrigger({
                     isCollapsed && 'text-[7px] m-0 w-full text-center'
                 )}
             >
+                {icon && !isCollapsed && <span className="size-3 mr-1">{icon}</span>}
                 {label}
             </Label>
             {!isCollapsed && <SectionChevron open={open} />}
         </Collapsible.Trigger>
+    )
+}
+
+function MenubarWithHoverCone({
+    children,
+    className,
+    debug = false,
+    ...menubarProps
+}: React.ComponentProps<typeof Menubar> & { debug?: boolean }): JSX.Element {
+    const coneRef = useRef<HTMLDivElement>(null)
+
+    const handleMouseMove = useCallback((e: React.MouseEvent) => {
+        const el = coneRef.current
+        if (!el) {
+            return
+        }
+        const rect = el.getBoundingClientRect()
+        el.style.setProperty('--cone-x', `${e.clientX - rect.left}px`)
+        el.style.setProperty('--cone-y', `${e.clientY - rect.top}px`)
+    }, [])
+
+    return (
+        <div ref={coneRef} className="menubar-hover-cone relative" onMouseMove={handleMouseMove}>
+            <Menubar className={className} {...menubarProps}>
+                {children}
+            </Menubar>
+            <div className={cn('menubar-hover-cone-overlay', debug && 'debug')} />
+        </div>
     )
 }
 
@@ -89,6 +133,9 @@ export function AiFirstNavBar(): JSX.Element {
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const { toggleCommand } = useActions(commandLogic)
+    const { conversationHistory } = useValues(maxGlobalLogic)
+    const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
+    const recentChats = conversationHistory.slice(0, 3)
 
     return (
         <div className="flex gap-0 relative">
@@ -136,20 +183,44 @@ export function AiFirstNavBar(): JSX.Element {
                         direction="vertical"
                         styledScrollbars
                     >
-                        <div className={cn('flex flex-col gap-px px-1', isLayoutNavCollapsed && 'items-center')}>
-                            <Link
-                                tooltip={isLayoutNavCollapsed ? 'PostHog AI' : undefined}
-                                tooltipPlacement="right"
-                                to={urls.ai()}
-                                buttonProps={{
-                                    menuItem: !isLayoutNavCollapsed,
-                                    iconOnly: isLayoutNavCollapsed,
-                                }}
+                        <Collapsible.Root
+                            open={expandedNavSections.ai ?? true}
+                            onOpenChange={() => toggleNavSection('ai')}
+                            className="px-1 mt-2"
+                        >
+                            <SectionTrigger
+                                icon={<IconSparkles />}
+                                label={isLayoutNavCollapsed ? 'AI' : 'PostHog AI'}
+                                open={expandedNavSections.ai ?? true}
+                                isCollapsed={isLayoutNavCollapsed}
+                            />
+                            <Collapsible.Panel
+                                className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}
                             >
-                                <IconSparkles className="size-4 text-secondary" />
-                                {!isLayoutNavCollapsed && <span className="flex-1 text-left">PostHog AI</span>}
-                            </Link>
-                        </div>
+                                <Link
+                                    tooltip={isLayoutNavCollapsed ? 'New AI chat' : undefined}
+                                    tooltipPlacement="right"
+                                    to={urls.ai()}
+                                    buttonProps={{
+                                        menuItem: !isLayoutNavCollapsed,
+                                        iconOnly: isLayoutNavCollapsed,
+                                    }}
+                                >
+                                    <IconPlus className="size-4 text-ai" />
+                                    {!isLayoutNavCollapsed && <span className="flex-1 text-left">New chat</span>}
+                                </Link>
+                                {!isLayoutNavCollapsed &&
+                                    recentChats.map((conversation) => (
+                                        <AiChatListItem
+                                            key={conversation.id}
+                                            conversationId={conversation.id}
+                                            title={conversation.title}
+                                            status={conversation.status}
+                                            updatedAt={conversation.updated_at}
+                                        />
+                                    ))}
+                            </Collapsible.Panel>
+                        </Collapsible.Root>
 
                         <Collapsible.Root
                             open={expandedNavSections.project ?? true}
@@ -157,6 +228,7 @@ export function AiFirstNavBar(): JSX.Element {
                             className="px-1 mt-2"
                         >
                             <SectionTrigger
+                                icon={<IconFolder />}
                                 label="Project"
                                 open={expandedNavSections.project ?? true}
                                 isCollapsed={isLayoutNavCollapsed}
@@ -177,18 +249,20 @@ export function AiFirstNavBar(): JSX.Element {
                                     {!isLayoutNavCollapsed && <span className="flex-1 text-left">Home</span>}
                                 </Link>
 
-                                <Link
-                                    buttonProps={{
-                                        menuItem: !isLayoutNavCollapsed,
-                                        iconOnly: isLayoutNavCollapsed,
-                                    }}
-                                    tooltip={isLayoutNavCollapsed ? 'Inbox' : undefined}
-                                    tooltipPlacement="right"
-                                    to={urls.inbox()}
-                                >
-                                    <IconNotification className="size-4 text-secondary" />
-                                    {!isLayoutNavCollapsed && <span className="flex-1 text-left">Inbox</span>}
-                                </Link>
+                                {isProductAutonomyEnabled && (
+                                    <Link
+                                        buttonProps={{
+                                            menuItem: !isLayoutNavCollapsed,
+                                            iconOnly: isLayoutNavCollapsed,
+                                        }}
+                                        tooltip={isLayoutNavCollapsed ? 'Inbox' : undefined}
+                                        tooltipPlacement="right"
+                                        to={urls.inbox()}
+                                    >
+                                        <IconNotification className="size-4 text-secondary" />
+                                        {!isLayoutNavCollapsed && <span className="flex-1 text-left">Inbox</span>}
+                                    </Link>
+                                )}
 
                                 <Link
                                     buttonProps={{
@@ -203,7 +277,7 @@ export function AiFirstNavBar(): JSX.Element {
                                     {!isLayoutNavCollapsed && <span className="flex-1 text-left">Activity</span>}
                                 </Link>
 
-                                <Menubar
+                                <MenubarWithHoverCone
                                     orientation="vertical"
                                     modal={false}
                                     className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}
@@ -212,7 +286,7 @@ export function AiFirstNavBar(): JSX.Element {
                                     <DataMenu isCollapsed={isLayoutNavCollapsed} />
                                     <FilesMenu isCollapsed={isLayoutNavCollapsed} />
                                     <RecentsMenu isCollapsed={isLayoutNavCollapsed} />
-                                </Menubar>
+                                </MenubarWithHoverCone>
                             </Collapsible.Panel>
                         </Collapsible.Root>
 
@@ -222,6 +296,7 @@ export function AiFirstNavBar(): JSX.Element {
                             className="px-1 mt-2"
                         >
                             <SectionTrigger
+                                icon={<IconStar />}
                                 label="Starred"
                                 open={expandedNavSections.favorites ?? true}
                                 isCollapsed={isLayoutNavCollapsed}

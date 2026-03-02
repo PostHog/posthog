@@ -21,6 +21,7 @@ import {
 } from 'lib/ui/ContextMenu/ContextMenu'
 import { cn } from 'lib/utils/css-classes'
 
+import { MenuSearchInput } from '~/layout/panel-layout/ai-first/MenuSearchInput'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { DashboardsMenuItems } from '~/layout/panel-layout/ProjectTree/menus/DashboardsMenuItems'
@@ -173,22 +174,14 @@ export function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element
                     className="z-[var(--z-popover)]"
                     side="right"
                     align="start"
-                    sideOffset={5}
+                    sideOffset={6}
                     alignOffset={-4}
                 >
                     <Menu.Popup className="primitive-menu-content min-w-[300px] flex flex-col p-1 h-(--available-height)">
-                        <input
-                            type="text"
+                        <MenuSearchInput
                             placeholder="Search apps"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key !== 'Escape' && e.key !== 'Tab') {
-                                    e.stopPropagation()
-                                }
-                            }}
-                            className="w-full px-2 py-1.5 text-sm rounded-sm border border-primary bg-surface-primary focus:outline-none focus:ring-1 focus:ring-primary mb-1"
-                            autoFocus
                         />
                         <ScrollableShadows innerClassName="overflow-y-auto" direction="vertical" styledScrollbars>
                             <div className="flex flex-col gap-1">

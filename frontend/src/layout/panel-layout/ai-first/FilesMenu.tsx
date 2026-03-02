@@ -1,6 +1,6 @@
 import { Menu } from '@base-ui/react/menu'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconChevronRight, IconFolder } from '@posthog/icons'
 
@@ -16,6 +16,11 @@ function FilesSearchInput(): JSX.Element {
     const { searchTerm } = useValues(projectTreeLogic)
     const { setSearchTerm, clearSearch } = useActions(projectTreeLogic)
     const inputRef = useRef<HTMLInputElement>(null)
+
+    useEffect(() => {
+        const timer = setTimeout(() => inputRef.current?.focus(), 0)
+        return () => clearTimeout(timer)
+    }, [])
 
     return (
         <input
@@ -33,7 +38,6 @@ function FilesSearchInput(): JSX.Element {
             }}
             placeholder="Search files"
             className="w-full px-2 py-1.5 text-sm rounded-sm border border-primary bg-surface-primary focus:outline-none focus:ring-1 focus:ring-primary mb-1"
-            autoFocus
         />
     )
 }
