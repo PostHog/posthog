@@ -1,3 +1,4 @@
+import json
 import math
 import random
 import asyncio
@@ -6,6 +7,7 @@ import dataclasses
 from typing import Any, Optional, TypedDict
 
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 import temporalio.common
@@ -23,6 +25,10 @@ from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
 )
 
 LOGGER = get_logger(__name__)
+
+# Cache settings for shared threshold calculation
+PERCENTILE_CACHE_TTL_SECONDS = 10 * 60  # 10 minutes (shortest schedule interval)
+PERCENTILE_CACHE_LOCK_TTL_SECONDS = 5 * 60  # 5 minutes for calculation lock
 
 
 @dataclasses.dataclass
@@ -52,6 +58,22 @@ class QueryPercentileThresholds:
 
         if self.max_threshold_seconds is not None and self.max_threshold_ms == 0:
             self.max_threshold_ms = int(self.max_threshold_seconds * 1000)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to dictionary for cache storage."""
+        return {
+            "min_threshold_ms": self.min_threshold_ms,
+            "max_threshold_ms": self.max_threshold_ms,
+            "calculated_at": dt.datetime.now(dt.UTC).isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "QueryPercentileThresholds":
+        """Deserialize from dictionary from cache storage."""
+        return cls(
+            min_threshold_ms=data["min_threshold_ms"],
+            max_threshold_ms=data["max_threshold_ms"],
+        )
 
 
 @dataclasses.dataclass
@@ -162,11 +184,77 @@ class RealtimeCohortSelectionResult:
     cohort_ids: list[int]
 
 
-@temporalio.activity.defn
-async def get_query_percentile_thresholds_activity(
+def get_percentile_cache_key() -> str:
+    """Generate cache key for percentile thresholds (daily key to allow fresh calculations)."""
+    today = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d")
+    return f"cohort_percentile_thresholds:{today}"
+
+
+def get_percentile_lock_key() -> str:
+    """Generate cache key for percentile calculation lock."""
+    return f"{get_percentile_cache_key()}:lock"
+
+
+async def get_cached_percentile_thresholds(
     inputs: QueryPercentileThresholdsInput,
 ) -> QueryPercentileThresholds | None:
-    """Get query duration percentile thresholds from cohort database for the last 24 hours."""
+    """Get percentile thresholds from cache, calculating if needed.
+
+    This ensures all schedules use consistent thresholds to avoid overlap/gaps.
+    Uses a distributed lock pattern to prevent multiple calculations.
+    """
+    cache_key = get_percentile_cache_key()
+    lock_key = get_percentile_lock_key()
+
+    # Try to get from cache first
+    try:
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            LOGGER.info(f"Using cached percentile thresholds from {cache_key}")
+            return QueryPercentileThresholds.from_dict(json.loads(cached_data))
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        LOGGER.warning(f"Failed to deserialize cached thresholds: {e}")
+        # Continue to calculation if cache is corrupted
+
+    # Cache miss - need to calculate
+    # Use distributed lock to prevent multiple schedules from calculating simultaneously
+    lock_acquired = cache.set(lock_key, "calculating", nx=True, timeout=PERCENTILE_CACHE_LOCK_TTL_SECONDS)
+
+    if lock_acquired:
+        try:
+            LOGGER.info(f"Calculating fresh percentile thresholds (lock acquired)")
+            # Calculate new thresholds
+            thresholds = await calculate_percentile_thresholds(inputs)
+            if thresholds:
+                # Store in cache for other schedules to use
+                cache.set(cache_key, json.dumps(thresholds.to_dict()), timeout=PERCENTILE_CACHE_TTL_SECONDS)
+                LOGGER.info(f"Cached fresh percentile thresholds for {PERCENTILE_CACHE_TTL_SECONDS}s")
+            return thresholds
+        finally:
+            # Always release the lock
+            cache.delete(lock_key)
+    else:
+        # Another schedule is calculating, wait briefly and retry cache
+        LOGGER.info("Another schedule is calculating thresholds, waiting...")
+        await asyncio.sleep(2)  # Brief wait to avoid thundering herd
+
+        # Try cache one more time
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            try:
+                return QueryPercentileThresholds.from_dict(json.loads(cached_data))
+            except (json.JSONDecodeError, KeyError, TypeError):
+                pass
+
+        # If still no cache after waiting, fall back to direct calculation
+        LOGGER.info("Cache still empty after waiting, calculating directly")
+        return await calculate_percentile_thresholds(inputs)
+
+
+async def calculate_percentile_thresholds(
+    inputs: QueryPercentileThresholdsInput,
+) -> QueryPercentileThresholds | None:
+    """Calculate percentile thresholds from database (extracted from original activity)."""
 
     @database_sync_to_async
     def get_percentile_thresholds():
@@ -176,26 +264,6 @@ async def get_query_percentile_thresholds_activity(
 
         # Calculate percentiles directly from cohort last_calculation_duration_ms field
         # This uses the same metric that we store during cohort calculation (Python timing)
-        #
-        # POTENTIAL ISSUE: This approach is flawed because percentile thresholds (p90, p95, etc.)
-        # are calculated independently for each scheduled workflow execution. Since the three
-        # percentile-based schedules run at different intervals:
-        # - p0-p90: Every 1 minute
-        # - p90-p95: Every 2 minutes
-        # - p95-p100: Every 3 minutes
-        #
-        # The p90 and p95 thresholds can change between executions due to:
-        # 1. New cohort calculations completing between schedule runs
-        # 2. The rolling 24-hour window shifting slightly
-        # 3. Floating point precision differences
-        #
-        # This can result in:
-        # - OVERLAP: A cohort being processed by both p0-p90 and p90-p95 workflows
-        # - GAPS: A cohort being skipped by all workflows
-        #
-        # A better approach would be to calculate percentiles once and distribute the work,
-        # or ensure all schedules use the exact same threshold values.
-
         from posthog.models.cohort.cohort import Cohort
 
         # Get cohorts with recent duration data (past 24 hours)
@@ -264,6 +332,19 @@ async def get_query_percentile_thresholds_activity(
             return None
 
     return await get_percentile_thresholds()
+
+
+@temporalio.activity.defn
+async def get_query_percentile_thresholds_activity(
+    inputs: QueryPercentileThresholdsInput,
+) -> QueryPercentileThresholds | None:
+    """Get query duration percentile thresholds using shared cache to ensure consistency.
+
+    This activity uses a distributed cache with locking to ensure all three schedules
+    (p0-p90, p90-p95, p95-p100) use the same percentile thresholds, preventing
+    overlap and gaps in cohort processing.
+    """
+    return await get_cached_percentile_thresholds(inputs)
 
 
 @temporalio.activity.defn
