@@ -317,7 +317,7 @@ class TestAnthropicCountTokensEndpoint:
         )
 
         assert response.status_code == 503
-        assert "not configured" in response.json()["detail"]["error"]["message"]
+        assert "not configured" in response.json()["error"]["message"]
 
     @pytest.mark.parametrize(
         "error_status,error_body",
