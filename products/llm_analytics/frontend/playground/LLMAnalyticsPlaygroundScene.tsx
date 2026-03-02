@@ -33,10 +33,11 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { urls } from 'scenes/urls'
 
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
@@ -340,6 +341,8 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                             isError={item.error}
                             inputTokens={item.usage?.prompt_tokens ?? undefined}
                             outputTokens={item.usage?.completion_tokens ?? undefined}
+                            cacheReadTokens={item.usage?.cache_read_tokens ?? undefined}
+                            cacheWriteTokens={item.usage?.cache_write_tokens ?? undefined}
                             latency={typeof item.latencyMs === 'number' ? item.latencyMs / 1000 : undefined}
                             timeToFirstToken={typeof item.ttftMs === 'number' ? item.ttftMs / 1000 : undefined}
                             isStreaming={isStreaming}
