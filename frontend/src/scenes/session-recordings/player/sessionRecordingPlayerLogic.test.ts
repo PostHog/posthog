@@ -135,10 +135,11 @@ describe('findSegmentForTimestamp', () => {
         expect(result?.windowId).toBe(1)
     })
 
-    it('falls back to last segment with windowId when timestamp is after all segments', () => {
+    it('returns synthetic buffer when timestamp is after all segments', () => {
         const result = findSegmentForTimestamp(segments, 9999)
-        expect(result).toEqual(segments[2])
-        expect(result?.windowId).toBe(2)
+        expect(result?.kind).toBe('buffer')
+        expect(result?.startTimestamp).toBe(9999)
+        expect(result?.endTimestamp).toBe(5001)
     })
 
     it('skips segments without windowId when falling back', () => {

@@ -20,7 +20,7 @@ function prepareChartData(results: TrendsResultItem[]): {
         return { series: [], labels: [], maxValue: 0 }
     }
 
-    const labels = results[0]?.labels || results[0]?.days || []
+    const labels = results[0]?.days || results[0]?.labels || []
     let maxValue = 0
 
     const series = results.map((item, seriesIndex) => {

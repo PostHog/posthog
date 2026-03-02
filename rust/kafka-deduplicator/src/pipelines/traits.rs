@@ -4,8 +4,10 @@
 //! - [`DeduplicationKeyExtractor`] - How to extract dedup keys from events
 //! - [`EventParser`] - How to parse wire format to domain events
 //! - [`DeduplicationMetadata`] - How to manage metadata for deduplication
+//! - [`FailOpenProcessor`] - How to handle fail-open mode (bypass deduplication)
 
 use anyhow::Result;
+use axum::async_trait;
 
 use crate::kafka::batch_message::KafkaMessage;
 use crate::pipelines::EventSimilarity;
@@ -72,4 +74,24 @@ pub trait DeduplicationMetadata<E>: Sized {
 
     /// Deserialize metadata from bytes.
     fn from_bytes(bytes: &[u8]) -> Result<Self>;
+}
+
+/// Trait for processors that support fail-open mode.
+///
+/// When fail-open is active, the processor bypasses all deduplication store
+/// operations and forwards events directly. This serves as an emergency kill
+/// switch when the deduplication store is causing issues.
+///
+/// All pipeline processors must implement this trait to ensure fail-open
+/// behavior is handled explicitly for every pipeline. Each processor's
+/// `BatchConsumerProcessor::process_batch()` should call this when its
+/// config has fail-open enabled.
+#[async_trait]
+pub trait FailOpenProcessor<T: Send>: Send + Sync {
+    /// Process a batch of messages in fail-open mode, bypassing deduplication.
+    ///
+    /// For pipelines that produce to an output topic, this should parse events
+    /// and forward them all without dedup checks. For read-only pipelines,
+    /// this should skip processing entirely.
+    async fn process_batch_fail_open(&self, messages: Vec<KafkaMessage<T>>) -> Result<()>;
 }

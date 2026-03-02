@@ -30,7 +30,7 @@ export function Activity(): JSX.Element {
             }}
             items={humanizedActivity.slice(0, ACTIVITY_LIMIT)}
             renderRow={(logItem: HumanizedActivityLogItem, index) => (
-                <div key={index} className="mb-2 last:mb-0">
+                <div key={index} className="mb-2 last:mb-0" data-attr="activity-log-item">
                     <ActivityLogRow logItem={logItem} />
                 </div>
             )}
