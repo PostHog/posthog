@@ -62,7 +62,7 @@ describe('klime template', () => {
     it.each([
         ['$identify', 'identify'],
         ['$set', 'identify'],
-        ['$group_identify', 'group'],
+        ['$groupidentify', 'group'],
         ['custom_event', 'track'],
         ['$pageview', 'track'],
     ])('automatic action maps %s to %s', async (eventName, expectedType) => {

@@ -1,7 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
-    status: 'beta',
+    status: 'alpha',
     free: false,
     type: 'destination',
     id: 'template-klime',
@@ -16,7 +16,7 @@ let action := inputs.action
 if (action == 'automatic') {
     if (event.event in ('$identify', '$set')) {
         action := 'identify'
-    } else if (event.event == '$group_identify') {
+    } else if (event.event == '$groupidentify') {
         action := 'group'
     } else {
         action := 'track'
@@ -139,7 +139,7 @@ if (res.status >= 400) {
             type: 'choice',
             label: 'Action',
             description:
-                'How to map PostHog events to Klime event types. Automatic converts $identify/$set to identify, $group_identify to group, and everything else to track.',
+                'How to map PostHog events to Klime event types. Automatic converts $identify/$set to identify, $groupidentify to group, and everything else to track.',
             default: 'automatic',
             choices: [
                 { label: 'Automatic', value: 'automatic' },
