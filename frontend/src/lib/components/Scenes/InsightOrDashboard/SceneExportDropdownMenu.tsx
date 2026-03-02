@@ -38,9 +38,11 @@ export function SceneExportDropdownMenu({
         actions.startExport(triggerExportProps)
     }
 
+    const isDisabled = disabledReasons ? Object.values(disabledReasons).some(Boolean) : false
+
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <DropdownMenuTrigger asChild disabled={isDisabled}>
                 <ButtonPrimitive menuItem disabledReasons={disabledReasons}>
                     <IconDownload />
                     Export
