@@ -1869,6 +1869,7 @@ class FileSystemIconType(StrEnum):
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_DATASETS = "llm_datasets"
+    LLM_PLAYGROUND = "llm_playground"
     LLM_PROMPTS = "llm_prompts"
     LLM_CLUSTERS = "llm_clusters"
     EXPORTS = "exports"
@@ -3453,6 +3454,11 @@ class RetentionDashboardDisplayType(StrEnum):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
+
+
+class AggregationPropertyType(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
 
 
 class AggregationType(StrEnum):
@@ -14007,6 +14013,10 @@ class RetentionFilter(BaseModel):
     aggregationProperty: str | None = Field(
         default=None,
         description="The property to aggregate when aggregationType is sum or avg",
+    )
+    aggregationPropertyType: AggregationPropertyType | None = Field(
+        default=AggregationPropertyType.EVENT,
+        description=("The type of property to aggregate on (event or person). Defaults to event."),
     )
     aggregationType: AggregationType | None = Field(
         default=AggregationType.COUNT,
