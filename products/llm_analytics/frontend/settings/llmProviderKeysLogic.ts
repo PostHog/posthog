@@ -26,6 +26,20 @@ export function providerSortIndex(provider: string): number {
     return index === -1 ? PROVIDER_ORDER.length : index
 }
 
+/** Normalize provider aliases from traces/config into canonical LLMProvider keys. */
+export function normalizeLLMProvider(provider: string | undefined): LLMProvider | null {
+    if (!provider) {
+        return null
+    }
+
+    const normalized = provider.trim().toLowerCase()
+    if (normalized === 'google' || normalized === 'google-ai-studio') {
+        return 'gemini'
+    }
+
+    return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null
+}
+
 export interface LLMProviderKey {
     id: string
     provider: LLMProvider
@@ -43,6 +57,43 @@ export interface LLMProviderKey {
         email: string
     } | null
     last_used_at: string | null
+}
+
+/** Canonical provider key ordering: provider order, then key name, then id. */
+export function sortProviderKeys(keys: LLMProviderKey[]): LLMProviderKey[] {
+    return [...keys].sort((a, b) => {
+        const providerDiff = providerSortIndex(a.provider) - providerSortIndex(b.provider)
+        if (providerDiff !== 0) {
+            return providerDiff
+        }
+
+        const nameDiff = (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' })
+        if (nameDiff !== 0) {
+            return nameDiff
+        }
+
+        return a.id.localeCompare(b.id)
+    })
+}
+
+export function sortedUsableProviderKeyIds(keys: LLMProviderKey[]): string[] {
+    return sortProviderKeys(keys)
+        .filter((key) => key.state !== 'invalid')
+        .map((key) => key.id)
+}
+
+export function firstUsableProviderKeyIdForProvider(
+    provider: string | undefined,
+    keys: LLMProviderKey[]
+): string | null {
+    const normalizedProvider = normalizeLLMProvider(provider)
+    if (!normalizedProvider) {
+        return null
+    }
+
+    return (
+        sortProviderKeys(keys).find((key) => key.state !== 'invalid' && key.provider === normalizedProvider)?.id ?? null
+    )
 }
 
 export interface EvaluationConfig {
