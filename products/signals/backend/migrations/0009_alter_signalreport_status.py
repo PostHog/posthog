@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("signals", "0008_alter_signalsourceconfig_source_product_and_more"),
     ]
