@@ -33,6 +33,8 @@ class Task(DeletedMetaFields, models.Model):
         USER_CREATED = "user_created", "User Created"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
+        # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
+        # signal report tasks originate indirectly via signals from other products.
         SIGNAL_REPORT = "signal_report", "Signal Report"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
