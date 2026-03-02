@@ -545,7 +545,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()
-                lemonToast.error('Could not save insight')
+          if (e instanceof ApiError) {
+            lemonToast.error(e.detail ?? "Could not save insight");
+          } else {
+            lemonToast.error("Could not save insight");
+          }
                 throw e
             }
 
