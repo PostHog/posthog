@@ -995,7 +995,8 @@ def toolbar_oauth_callback(request):
 
     # Handle errors first regardless of flow type
     if is_redirect_flow and error:
-        return HttpResponse(request.GET.get("error_description", error), status=400)
+        description = request.GET.get("error_description", error)
+        return HttpResponse(description, status=400, content_type="text/plain")
 
     if error:
         payload = {
@@ -1027,13 +1028,15 @@ def toolbar_oauth_callback(request):
         except ToolbarOAuthError as exc:
             return HttpResponse(exc.detail, status=exc.status_code)
 
+        # app_url is safe: it comes from a cryptographically signed state that was
+        # validated against the team's app_urls allowlist by validate_and_consume_toolbar_oauth_state.
         app_url = state_payload["app_url"]
         parsed = urllib.parse.urlparse(app_url)
         base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
         quoted_code = urllib.parse.quote(code, safe="")
         quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
         fragment = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
-        return redirect(f"{base_url}#{fragment}")
+        return redirect(f"{base_url}#{fragment}")  # nosemgrep: open-redirect
 
     # posthog-js flow: relay code/state for client-side exchange
     payload = {

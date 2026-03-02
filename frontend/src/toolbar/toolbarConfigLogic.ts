@@ -229,12 +229,12 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
 const PKCE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
-function exchangeCodeForTokens(
+async function exchangeCodeForTokens(
     uiHost: string,
     code: string,
     clientId: string,
     actions: { setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => void }
-): void {
+): Promise<void> {
     let pkceData: { verifier?: string; ts?: number } = {}
     try {
         pkceData = JSON.parse(sessionStorage.getItem(PKCE_LOCALSTORAGE_KEY) || '{}')
@@ -245,10 +245,12 @@ function exchangeCodeForTokens(
 
     if (!pkceData.verifier) {
         console.warn('PostHog Toolbar: no PKCE verifier found, cannot exchange code')
+        lemonToast.error('Authentication failed: session data missing. Please try again.')
         return
     }
     if (pkceData.ts && Date.now() - pkceData.ts > PKCE_TTL_MS) {
         console.warn('PostHog Toolbar: PKCE verifier expired')
+        lemonToast.error('Authentication timed out. Please try again.')
         return
     }
 
@@ -260,24 +262,23 @@ function exchangeCodeForTokens(
         code_verifier: pkceData.verifier,
     })
 
-    fetch(`${uiHost}/oauth/token/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-    })
-        .then((res) => res.json())
-        .then((data) => {
-            if (data.access_token && data.refresh_token) {
-                actions.setOAuthTokens(data.access_token, data.refresh_token, clientId)
-            } else {
-                console.error('PostHog Toolbar: token exchange failed', data.error || data)
-                lemonToast.error('Authentication failed. Please try again.')
-            }
+    try {
+        const res = await fetch(`${uiHost}/oauth/token/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString(),
         })
-        .catch((err) => {
-            console.error('PostHog Toolbar: token exchange network error', err)
-            lemonToast.error('Authentication failed due to a network error. Please try again.')
-        })
+        const data = await res.json()
+        if (data.access_token && data.refresh_token) {
+            actions.setOAuthTokens(data.access_token, data.refresh_token, clientId)
+        } else {
+            console.error('PostHog Toolbar: token exchange failed', data.error || data)
+            lemonToast.error('Authentication failed. Please try again.')
+        }
+    } catch (err) {
+        console.error('PostHog Toolbar: token exchange network error', err)
+        lemonToast.error('Authentication failed due to a network error. Please try again.')
+    }
 }
 
 export async function toolbarFetch(
