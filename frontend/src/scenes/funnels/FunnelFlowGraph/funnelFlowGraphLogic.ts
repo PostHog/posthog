@@ -112,7 +112,7 @@ async function layoutNodes(
     }))
 }
 
-interface FunnelFlowLogicProps extends InsightLogicProps {
+export interface FunnelFlowLogicProps extends InsightLogicProps {
     /**Whether the funnel is being displayed in a customer profile (person or group profile canvas) */
     isProfileMode: boolean
 }
@@ -172,7 +172,14 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                 s.nodeHeight,
             ],
             (steps, stepNames, isStepOptional, nodeType, nodeWidth, nodeHeight): Node<FunnelFlowNodeData>[] => {
-                const stepsToMap = steps.length > 0 ? steps : stepNames
+                const stepsToMap: FunnelStepWithConversionMetrics[] =
+                    steps.length > 0
+                        ? steps
+                        : stepNames.map(({ nested_breakdown: _, ...s }) => ({
+                              ...s,
+                              droppedOffFromPrevious: 0,
+                              conversionRates: { fromPrevious: 0, total: 0, fromBasisStep: 0 },
+                          }))
                 return stepsToMap.map((step, index) => {
                     const optional = isStepOptional(index + 1)
                     return {

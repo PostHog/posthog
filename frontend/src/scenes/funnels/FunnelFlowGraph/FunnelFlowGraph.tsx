@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { isInsightVizNode } from '~/queries/utils'
 
 import { JourneyFlowEdge, ProfileFlowEdge } from './FunnelFlowEdge'
 import { AnyFlowNode, funnelFlowGraphLogic } from './funnelFlowGraphLogic'
@@ -44,7 +45,10 @@ function FunnelFlowGraphContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const { insightProps } = useValues(insightLogic)
     // Property filters are only set when in person/group profile, so we can use that as a proxy
-    const isProfileMode = insightProps.query?.source?.properties?.length > 0
+    const isProfileMode =
+        isInsightVizNode(insightProps.query) &&
+        Array.isArray(insightProps.query.source?.properties) &&
+        insightProps.query.source.properties.length > 0
     const { laidOutNodes, edges, fitViewOptions } = useValues(funnelFlowGraphLogic({ ...insightProps, isProfileMode }))
 
     const onInit = useCallback(
