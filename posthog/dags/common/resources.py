@@ -17,7 +17,7 @@ from clickhouse_driver.errors import Error, ErrorCodes
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.redis import get_client, redis
-from posthog.security.outbound_proxy import make_proxied_requests_session
+from posthog.security.outbound_proxy import external_requests_session
 from posthog.utils import initialize_self_capture_api_token
 
 
@@ -246,7 +246,7 @@ class ClayWebhookResource(dagster.ConfigurableResource):
 
     def send(self, data: list[dict]) -> requests.Response:
         """Send data to Clay webhook."""
-        with make_proxied_requests_session() as session:
+        with external_requests_session() as session:
             return self._send_with_retry(session, data)
 
     def _get_batch_size(self, batch: list[dict]) -> int:

@@ -257,6 +257,15 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 active=True,
             )
 
+            FeatureFlag.objects.create(
+                team=self.org_1_team_1,
+                name="Soft-deleted",
+                key="deleted-flag",
+                created_by=self.user,
+                active=True,
+                deleted=True,
+            )
+
             ErrorTrackingIssue.objects.create(team=self.org_1_team_1)
 
             uuids = [uuid4() for _ in range(0, 10)]
