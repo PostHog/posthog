@@ -32,17 +32,17 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { JSONEditor } from './components/JSONEditor'
-import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
+import { JSONEditor } from '../components/JSONEditor'
+import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
 import {
     ComparisonItem,
     Message,
     MessageRole,
     PromptConfig,
     llmAnalyticsPlaygroundLogic,
-} from './llmAnalyticsPlaygroundLogic'
-import { getModelPickerFooterLink, ModelPicker as ModelPickerDropdown } from './ModelPicker'
-import { modelPickerLogic } from './modelPickerLogic'
+} from '../llmAnalyticsPlaygroundLogic'
+import { getModelPickerFooterLink, ModelPicker as ModelPickerDropdown } from '../ModelPicker'
+import { modelPickerLogic } from '../modelPickerLogic'
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460
