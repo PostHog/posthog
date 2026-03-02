@@ -188,26 +188,35 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                         }
 
                         if (flagIntent === 'first-page-load') {
-                            const flickerIssues: string[] = []
+                            let cohortCount = 0
+                            const slowPropertyKeys: string[] = []
 
                             properties.forEach((property: AnyPropertyFilter) => {
                                 if (property.type === PropertyFilterType.Cohort) {
-                                    flickerIssues.push('Cohort filters are resolved server-side')
+                                    cohortCount++
                                 } else if (property.key && !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key)) {
-                                    flickerIssues.push(
-                                        `"${property.key}" isn't available until after the first network request`
-                                    )
+                                    slowPropertyKeys.push(property.key)
                                 }
                             })
 
-                            if (flickerIssues.length > 0) {
+                            if (cohortCount > 0 || slowPropertyKeys.length > 0) {
+                                const parts: string[] = []
+                                if (slowPropertyKeys.length === 1) {
+                                    parts.push(`The property "${slowPropertyKeys[0]}"`)
+                                } else if (slowPropertyKeys.length > 1) {
+                                    parts.push(`${slowPropertyKeys.length} properties`)
+                                }
+                                if (cohortCount === 1) {
+                                    parts.push('a cohort filter')
+                                } else if (cohortCount > 1) {
+                                    parts.push(`${cohortCount} cohort filters`)
+                                }
+
                                 warnings.push({
                                     type: 'flicker_risk',
                                     severity: 'info',
-                                    title: 'These conditions can cause flicker',
-                                    description:
-                                        flickerIssues.join('. ') +
-                                        '. Until the data loads, the flag evaluates to false, which can cause content to flicker. Use bootstrapping to provide the correct flag value immediately.',
+                                    title: 'Some conditions in this group can cause flicker',
+                                    description: `${parts.join(' and ')} in this condition won't be available on first page load. The flag will briefly evaluate to false, which can cause content to flicker. Use bootstrapping to provide the correct value immediately.`,
                                     docUrl: 'https://posthog.com/docs/feature-flags/bootstrapping',
                                 })
                             }
