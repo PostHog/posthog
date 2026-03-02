@@ -2,7 +2,6 @@ import { useValues } from 'kea'
 import React, { useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { HEATMAP_COLOR_PALETTE_OPTIONS } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
@@ -34,43 +33,6 @@ const ScrollDepthJSWarning = (): JSX.Element | null => {
         </p>
     )
 }
-const NonPointerClicksSetting = ({
-    checked,
-    onChange,
-}: {
-    checked: boolean
-    onChange: (checked: boolean) => void
-}): JSX.Element => {
-    const [showInfo, setShowInfo] = useState(false)
-    return (
-        <div className="mb-2">
-            <div className="flex items-center gap-2">
-                <LemonSwitch
-                    className="flex-1"
-                    checked={checked}
-                    onChange={onChange}
-                    bordered
-                    fullWidth
-                    label="Hide non-pointer events"
-                />
-                <LemonButton
-                    icon={<IconInfo />}
-                    size="xsmall"
-                    active={showInfo}
-                    onClick={() => setShowInfo(!showInfo)}
-                    noPadding
-                />
-            </div>
-            {showInfo && (
-                <div className="text-sm mt-1">
-                    Keyboard (Enter/Space), programmatic (.click()), and screen reader clicks all report (0,0)
-                    coordinates.
-                </div>
-            )}
-        </div>
-    )
-}
-
 export const SectionSetting = ({
     children,
     title,
@@ -240,13 +202,6 @@ export const HeatmapsSettings = ({
                     onChange={setHeatmapColorPalette}
                 />
             </SectionSetting>
-
-            {heatmapFilters?.type !== 'scrolldepth' && (
-                <NonPointerClicksSetting
-                    checked={heatmapFilters?.hideZeroCoordinates ?? true}
-                    onChange={(checked) => patchHeatmapFilters?.({ hideZeroCoordinates: checked })}
-                />
-            )}
 
             {heatmapFilters?.type !== 'scrolldepth' && (
                 <SectionSetting
