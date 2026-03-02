@@ -36,8 +36,10 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer.base import HogQLPrinter
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
@@ -184,6 +186,15 @@ class EndpointPagination:
         result["hasMore"] = has_more
         result["limit"] = self.limit
         result["offset"] = self.offset
+
+
+class _PlaceholderPreservingPrinter(HogQLPrinter):
+    """HogQL printer that preserves {placeholder} syntax instead of raising on unresolved placeholders."""
+
+    def visit_placeholder(self, node: ast.Placeholder) -> str:
+        if node.field is None:
+            raise QueryError("You can not use placeholders here")
+        return f"{{{node.field}}}"
 
 
 @extend_schema(tags=[ProductKey.ENDPOINTS])
@@ -1373,11 +1384,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return value, None
 
     def _apply_pagination_to_query(self, query: dict, limit: int, offset: int) -> tuple[dict, EndpointPagination]:
-        """Apply pagination to a HogQL query. Returns (modified_query, pagination)."""
+        """Apply pagination to a HogQL query. Returns (modified_query, pagination).
+
+        Parses the HogQL AST, applies LIMIT/OFFSET, and reprints using a
+        placeholder-preserving printer so unresolved {variables.*} survive.
+        """
         query_kind = query.get("kind")
 
         if query_kind == "HogQLQuery":
-            parsed = parse_select(query.get("query", ""))
+            query_sql = query.get("query", "")
+            parsed = parse_select(query_sql)
             if not isinstance(parsed, ast.SelectQuery):
                 raise ValidationError(
                     "Pagination is not supported for UNION queries. Wrap the UNION in a subquery: SELECT * FROM (... UNION ALL ...) LIMIT n"
@@ -1385,10 +1401,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
             ceiling = parsed.limit.value if isinstance(parsed.limit, ast.Constant) else None
             pagination = EndpointPagination(limit=limit, offset=offset, ceiling=ceiling)
+
             pagination.apply_to(parsed)
 
+            ctx = HogQLContext(enable_select_queries=True, limit_top_select=False)
             query = query.copy()
-            query["query"] = parsed.to_hogql()
+            query["query"] = _PlaceholderPreservingPrinter(context=ctx, dialect="hogql").visit(parsed)
             return query, pagination
 
         raise ValidationError(f"Limit/offset parameters are only supported for HogQLQuery, not {query_kind}")

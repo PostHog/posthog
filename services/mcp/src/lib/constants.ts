@@ -65,6 +65,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'introspection',
     'action:read',
     'action:write',
+    'cohort:read',
+    'cohort:write',
     'dashboard:read',
     'dashboard:write',
     'error_tracking:read',

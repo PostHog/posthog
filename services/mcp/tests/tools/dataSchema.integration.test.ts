@@ -21,6 +21,7 @@ describe('read-data-schema', { concurrent: false }, () => {
         dashboards: [],
         surveys: [],
         actions: [],
+        cohorts: [],
     }
 
     beforeAll(async () => {

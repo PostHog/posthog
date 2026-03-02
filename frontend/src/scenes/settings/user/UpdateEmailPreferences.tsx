@@ -2,15 +2,17 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { NotificationSettings } from '~/types'
+import { NotificationSettings, TeamBasicType } from '~/types'
 
-type BooleanNotificationSettings = Omit<NotificationSettings, 'project_weekly_digest_disabled'>
+type BooleanNotificationSettings = Omit<
+    NotificationSettings,
+    'project_weekly_digest_disabled' | 'error_tracking_weekly_digest_project_enabled'
+>
 
 const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     plugin_disabled: true,
@@ -22,14 +24,102 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     materialized_view_sync_failed: false,
 }
 
+function ProjectDigestSelector({
+    keyPrefix,
+    dataAttrPrefix,
+    isTeamDisabled,
+    onToggleTeam,
+    onToggleAllTeams,
+    hint,
+}: {
+    keyPrefix: string
+    dataAttrPrefix: string
+    isTeamDisabled: (teamId: number) => boolean
+    onToggleTeam: (teamId: number, enabled: boolean) => void
+    onToggleAllTeams: (teamIds: number[], enabled: boolean) => void
+    hint?: string
+}): JSX.Element {
+    const { userLoading } = useValues(userLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const [expanded, setExpanded] = useState(true)
+
+    return (
+        <div>
+            <LemonButton
+                icon={expanded ? <IconChevronDown /> : <IconChevronRight />}
+                onClick={() => setExpanded(!expanded)}
+                size="small"
+                type="tertiary"
+                className="p-0"
+            >
+                Select projects ({currentOrganization?.teams?.length || 0} available)
+            </LemonButton>
+
+            {expanded && (
+                <div className="mt-3 ml-6 space-y-2">
+                    {hint && <span className="text-muted text-xs">{hint}</span>}
+                    <div className="flex flex-col gap-2">
+                        <div className="flex flex-row items-center gap-4">
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={() =>
+                                    onToggleAllTeams(
+                                        (currentOrganization?.teams || []).map((t: TeamBasicType) => t.id),
+                                        true
+                                    )
+                                }
+                            >
+                                Enable for all projects
+                            </LemonButton>
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={() =>
+                                    onToggleAllTeams(
+                                        (currentOrganization?.teams || []).map((t: TeamBasicType) => t.id),
+                                        false
+                                    )
+                                }
+                            >
+                                Disable for all projects
+                            </LemonButton>
+                        </div>
+
+                        {currentOrganization?.teams?.map((team) => (
+                            <LemonCheckbox
+                                key={`${keyPrefix}-${team.id}`}
+                                id={`${keyPrefix}-${team.id}`}
+                                data-attr={`${dataAttrPrefix}_${team.id}`}
+                                onChange={(checked) => onToggleTeam(team.id, checked)}
+                                checked={!isTeamDisabled(team.id)}
+                                disabled={userLoading}
+                                label={
+                                    <div className="flex items-center gap-2">
+                                        <span>{team.name}</span>
+                                        <LemonTag type="muted">id: {team.id.toString()}</LemonTag>
+                                    </div>
+                                }
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
 export function UpdateEmailPreferences(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
-    const { updateWeeklyDigestForTeam, updateWeeklyDigestForAllTeams, updateDataPipelineErrorThreshold } =
-        useActions(userLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-
+    const {
+        updateWeeklyDigestForTeam,
+        updateWeeklyDigestForAllTeams,
+        updateETWeeklyDigestForTeam,
+        updateETWeeklyDigestForAllTeams,
+        updateDataPipelineErrorThreshold,
+    } = useActions(userLogic)
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
-    const [weeklyDigestProjectsExpanded, setWeeklyDigestProjectsExpanded] = useState(weeklyDigestEnabled)
+    const etDigestEnabled = user?.notification_settings?.error_tracking_weekly_digest !== false
 
     const dataPipelineErrorThresholdValue = (user?.notification_settings?.data_pipeline_error_threshold ?? 0) * 100
     const [localDataPipelineErrorThreshold, setLocalDataPipelineErrorThreshold] = useState(
@@ -70,69 +160,15 @@ export function UpdateEmailPreferences(): JSX.Element {
                 />
 
                 {weeklyDigestEnabled && (
-                    <div>
-                        <LemonButton
-                            icon={weeklyDigestProjectsExpanded ? <IconChevronDown /> : <IconChevronRight />}
-                            onClick={() => setWeeklyDigestProjectsExpanded(!weeklyDigestProjectsExpanded)}
-                            size="small"
-                            type="tertiary"
-                            className="p-0"
-                        >
-                            Select projects ({currentOrganization?.teams?.length || 0} available)
-                        </LemonButton>
-
-                        {weeklyDigestProjectsExpanded && (
-                            <div className="mt-3 ml-6 space-y-2">
-                                <div className="flex flex-col gap-2">
-                                    <div className="flex flex-row items-center gap-4">
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={() => {
-                                                updateWeeklyDigestForAllTeams(
-                                                    (currentOrganization?.teams || []).map((t) => t.id),
-                                                    true
-                                                )
-                                            }}
-                                        >
-                                            Enable for all teams
-                                        </LemonButton>
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={() => {
-                                                updateWeeklyDigestForAllTeams(
-                                                    (currentOrganization?.teams || []).map((t) => t.id),
-                                                    false
-                                                )
-                                            }}
-                                        >
-                                            Disable for all teams
-                                        </LemonButton>
-                                    </div>
-
-                                    {currentOrganization?.teams?.map((team) => (
-                                        <LemonCheckbox
-                                            key={`weekly-digest-${team.id}`}
-                                            id={`weekly-digest-${team.id}`}
-                                            data-attr={`weekly_digest_${team.id}`}
-                                            onChange={(checked) => updateWeeklyDigestForTeam(team.id, checked)}
-                                            checked={
-                                                !user?.notification_settings.project_weekly_digest_disabled?.[team.id]
-                                            }
-                                            disabled={userLoading}
-                                            label={
-                                                <div className="flex items-center gap-2">
-                                                    <span>{team.name}</span>
-                                                    <LemonTag type="muted">id: {team.id.toString()}</LemonTag>
-                                                </div>
-                                            }
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                    <ProjectDigestSelector
+                        keyPrefix="weekly-digest"
+                        dataAttrPrefix="weekly_digest"
+                        isTeamDisabled={(teamId) =>
+                            !!user?.notification_settings.project_weekly_digest_disabled?.[teamId]
+                        }
+                        onToggleTeam={updateWeeklyDigestForTeam}
+                        onToggleAllTeams={updateWeeklyDigestForAllTeams}
+                    />
                 )}
             </div>
 
@@ -187,16 +223,35 @@ export function UpdateEmailPreferences(): JSX.Element {
                 />
             </div>
 
-            {useFeatureFlag('ERROR_TRACKING_WEEKLY_DIGEST') && (
-                <div className="border rounded p-4">
-                    <SimpleSwitch
-                        setting="error_tracking_weekly_digest"
-                        label="Error tracking weekly digest"
-                        description="Get a weekly summary of exceptions caught across your projects every Monday"
-                        dataAttr="error_tracking_weekly_digest_enabled"
-                    />
-                </div>
-            )}
+            <div className="border rounded p-4 space-y-3">
+                <SimpleSwitch
+                    setting="error_tracking_weekly_digest"
+                    label="Error tracking weekly digest"
+                    description="Get a weekly summary of exceptions caught across your projects every Monday"
+                    dataAttr="error_tracking_weekly_digest_enabled"
+                />
+
+                {etDigestEnabled && (
+                    <>
+                        {!user?.notification_settings.error_tracking_weekly_digest_project_enabled && (
+                            <LemonBanner type="info">
+                                You haven't selected any projects yet, so on the first digest run we'll automatically
+                                pick the one with the most exceptions. If you'd prefer to choose yourself, just select
+                                your projects below and we won't override your choice.
+                            </LemonBanner>
+                        )}
+                        <ProjectDigestSelector
+                            keyPrefix="et-digest"
+                            dataAttrPrefix="et_weekly_digest"
+                            isTeamDisabled={(teamId) =>
+                                !user?.notification_settings.error_tracking_weekly_digest_project_enabled?.[teamId]
+                            }
+                            onToggleTeam={updateETWeeklyDigestForTeam}
+                            onToggleAllTeams={updateETWeeklyDigestForAllTeams}
+                        />
+                    </>
+                )}
+            </div>
 
             <div className="border rounded p-4">
                 <SimpleSwitch

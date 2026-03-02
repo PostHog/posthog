@@ -9,7 +9,6 @@ from django.dispatch.dispatcher import receiver
 from django.http import HttpRequest
 from django.utils import timezone
 
-import requests
 import structlog
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -25,6 +24,7 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDTModel, execute_with_timeout
+from posthog.security.outbound_proxy import external_requests
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 from products.error_tracking.backend.models import ErrorTrackingAutoCaptureControls, ErrorTrackingSuppressionRule
@@ -482,7 +482,7 @@ class RemoteConfig(UUIDTModel):
         logger.info(f"Purging CDN for team {self.team_id}", {"data": data})
 
         try:
-            res = requests.post(
+            res = external_requests.post(
                 settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
                 headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
                 json=data,

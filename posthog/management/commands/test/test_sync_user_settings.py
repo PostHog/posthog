@@ -74,7 +74,7 @@ class TestSyncUserSettingsCommand(BaseTest):
 
         mock_get.side_effect = side_effect
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_all_settings(self, mock_get):
         """Test syncing all settings from cloud"""
         self._mock_cloud_api_responses(mock_get)
@@ -101,7 +101,7 @@ class TestSyncUserSettingsCommand(BaseTest):
         paths = {s.path for s in shortcuts}
         assert paths == {"cloud/path1", "cloud/path2"}
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_dry_run(self, mock_get):
         """Test that dry-run doesn't actually make changes"""
         self._mock_cloud_api_responses(mock_get)
@@ -116,7 +116,7 @@ class TestSyncUserSettingsCommand(BaseTest):
         assert not UserHomeSettings.objects.filter(user=self.user, team=self.team).exists()
         assert FileSystemShortcut.objects.filter(user=self.user, team=self.team).count() == 0
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_with_env_var_api_key(self, mock_get):
         """Test using API key from environment variable"""
         self._mock_cloud_api_responses(mock_get)
@@ -136,7 +136,7 @@ class TestSyncUserSettingsCommand(BaseTest):
 
         assert "Personal API key required" in str(cm.exception)
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_with_specific_local_email(self, mock_get):
         """Test syncing to a specific local user by email"""
         self._mock_cloud_api_responses(mock_get)
@@ -154,7 +154,7 @@ class TestSyncUserSettingsCommand(BaseTest):
         self.user.refresh_from_db()
         assert self.user.theme_mode == "light"
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_replaces_existing_shortcuts(self, mock_get):
         """Test that sync replaces existing shortcuts"""
         self._mock_cloud_api_responses(mock_get)
@@ -171,7 +171,7 @@ class TestSyncUserSettingsCommand(BaseTest):
         assert "local/path" not in paths
         assert "cloud/path1" in paths
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_updates_existing_home_settings(self, mock_get):
         """Test that sync updates existing home settings"""
         self._mock_cloud_api_responses(mock_get)
@@ -188,7 +188,7 @@ class TestSyncUserSettingsCommand(BaseTest):
         home_settings = UserHomeSettings.objects.get(user=self.user, team=self.team)
         assert home_settings.tabs[0]["id"] == "cloud_tab"
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_handles_missing_home_settings(self, mock_get):
         """Test sync when cloud has no home settings"""
 
@@ -217,7 +217,7 @@ class TestSyncUserSettingsCommand(BaseTest):
         # No home settings should be created
         assert not UserHomeSettings.objects.filter(user=self.user, team=self.team).exists()
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_handles_empty_shortcuts(self, mock_get):
         """Test sync when cloud has no shortcuts"""
 
@@ -241,7 +241,7 @@ class TestSyncUserSettingsCommand(BaseTest):
         # Should not create any shortcuts
         assert FileSystemShortcut.objects.filter(user=self.user, team=self.team).count() == 0
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_with_custom_host(self, mock_get):
         """Test syncing from a custom PostHog host"""
         self._mock_cloud_api_responses(mock_get)
@@ -260,7 +260,7 @@ class TestSyncUserSettingsCommand(BaseTest):
     )
     def test_sync_uses_configurable_cloud_team_id(self, _name, override, expected_id):
         """Cloud team ID defaults to 2 but can be overridden"""
-        with patch("posthog.management.commands.sync_user_settings.requests.get") as mock_get:
+        with patch("posthog.management.commands.sync_user_settings.external_requests.get") as mock_get:
             self._mock_cloud_api_responses(mock_get)
 
             kwargs = {"api_key": "test_key"}
@@ -274,7 +274,7 @@ class TestSyncUserSettingsCommand(BaseTest):
             assert any(f"{base}/user_home_settings/" in url for url in urls)
             assert any(f"{base}/file_system_shortcuts/" in url for url in urls)
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_handles_api_error(self, mock_get):
         """Test that sync handles API errors gracefully"""
         mock_response = MagicMock()
@@ -286,7 +286,7 @@ class TestSyncUserSettingsCommand(BaseTest):
 
         assert "Failed to fetch user settings" in str(cm.exception)
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_only_updates_changed_fields(self, mock_get):
         """Test that only changed fields are updated"""
         # Set user to have some values matching cloud
@@ -303,7 +303,7 @@ class TestSyncUserSettingsCommand(BaseTest):
         assert self.user.theme_mode == "dark"
         assert self.user.toolbar_mode == "disabled"
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_excludes_deprecated_fields(self, mock_get):
         """Test that deprecated fields are not synced"""
         user_response = MagicMock()
@@ -330,7 +330,7 @@ class TestSyncUserSettingsCommand(BaseTest):
         assert self.user.events_column_config == {"active": "LOCAL"}
         assert self.user.email_opt_in is False
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_all_users(self, mock_get):
         """Test syncing to all local users"""
         self._mock_cloud_api_responses(mock_get)
@@ -350,7 +350,7 @@ class TestSyncUserSettingsCommand(BaseTest):
         assert user2.theme_mode == "dark"
         assert user3.theme_mode == "dark"
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_all_users_with_team_specific_settings(self, mock_get):
         """Test that all users get team-specific settings synced"""
         self._mock_cloud_api_responses(mock_get)
@@ -369,7 +369,7 @@ class TestSyncUserSettingsCommand(BaseTest):
         assert home1.tabs[0]["id"] == "cloud_tab"
         assert home2.tabs[0]["id"] == "cloud_tab"
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_all_users_ignores_local_email(self, mock_get):
         """Test that --all-users ignores --local-email"""
         self._mock_cloud_api_responses(mock_get)
@@ -386,7 +386,7 @@ class TestSyncUserSettingsCommand(BaseTest):
         assert self.user.theme_mode == "dark"
         assert user2.theme_mode == "dark"
 
-    @patch("posthog.management.commands.sync_user_settings.requests.get")
+    @patch("posthog.management.commands.sync_user_settings.external_requests.get")
     def test_sync_all_users_dry_run(self, mock_get):
         """Test dry-run with all-users"""
         self._mock_cloud_api_responses(mock_get)
