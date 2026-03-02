@@ -25,9 +25,10 @@ type SessionRecordingConfig struct {
 }
 
 type RedisConfig struct {
-	Address string `mapstructure:"address"`
-	Port    string `mapstructure:"port"`
-	TLS     bool   `mapstructure:"tls"`
+	Address        string `mapstructure:"address"`
+	Port           string `mapstructure:"port"`
+	TLS            bool   `mapstructure:"tls"`
+	UsePubSub      bool   `mapstructure:"use_pubsub"`
 }
 
 type Config struct {
@@ -107,9 +108,10 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("session_recording.max_lru_entries") // LIVESTREAM_SESSION_RECORDING_MAX_LRU_ENTRIES
 
 	// Redis settings
-	_ = viper.BindEnv("redis.address") // LIVESTREAM_REDIS_ADDRESS
-	_ = viper.BindEnv("redis.port")    // LIVESTREAM_REDIS_PORT
-	_ = viper.BindEnv("redis.tls")     // LIVESTREAM_REDIS_TLS
+	_ = viper.BindEnv("redis.address")          // LIVESTREAM_REDIS_ADDRESS
+	_ = viper.BindEnv("redis.port")             // LIVESTREAM_REDIS_PORT
+	_ = viper.BindEnv("redis.tls")              // LIVESTREAM_REDIS_TLS
+	_ = viper.BindEnv("redis.use_pubsub")       // LIVESTREAM_REDIS_USE_PUBSUB
 }
 
 func LoadConfig() (*Config, error) {

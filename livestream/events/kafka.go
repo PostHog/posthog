@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -128,6 +129,7 @@ type PostHogKafkaConsumer struct {
 	outgoingChan chan PostHogEvent
 	statsChan    chan CountEvent
 	parallel     int
+	Broker       *RedisEventBroker
 }
 
 func NewPostHogKafkaConsumer(
@@ -210,6 +212,9 @@ func (c *PostHogKafkaConsumer) runParsing() {
 		phEvent := parse(c.geolocator, value)
 		c.outgoingChan <- phEvent
 		c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
+		if c.Broker != nil {
+			c.Broker.Publish(context.Background(), phEvent)
+		}
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -121,8 +122,27 @@ func main() {
 		}
 	}()
 
-	filter := events.NewFilter(subChan, unSubChan, phEventChan)
-	go filter.Run()
+	usePubSub := config.Redis.UsePubSub
+	if usePubSub {
+		cleanup, err := setupRedisPubSub(config.Redis, consumer, subChan, unSubChan, ctx)
+		if err != nil {
+			log.Printf("ERROR: Failed to set up Redis pub/sub, falling back to in-memory filter: %v", err)
+			usePubSub = false
+		} else {
+			defer cleanup()
+			// When Redis pub/sub is active, events get published to Redis by the broker instead of being routed through the in memory filter. 
+			// The Kafka consumer still writes to phEventChan, so if nothing reads from it, the channel buffer (10,000) fills up and the consumer blocks. 
+			// This goroutine keeps reading and discarding every event to prevent back pressure.
+			// This will be removed once the Livestream V2 migration is completed.
+			go func() { for range phEventChan {} }()
+			log.Printf("Redis pub/sub event transport enabled")
+		}
+	}
+
+	if !usePubSub {
+		filter := events.NewFilter(subChan, unSubChan, phEventChan)
+		go filter.Run()
+	}
 
 	// Echo instance
 	e := echo.New()
@@ -194,7 +214,7 @@ func main() {
 
 	e.GET("/stats", handlers.StatsHandler(stats, sessionStats, statsRedis))
 
-	e.GET("/events", handlers.StreamEventsHandler(e.Logger, subChan, filter))
+	e.GET("/events", handlers.StreamEventsHandler(e.Logger, subChan, unSubChan))
 
 	if config.Debug {
 		e.GET("/served", handlers.ServedHandler(stats))
@@ -261,4 +281,36 @@ func main() {
 		log.Printf("HTTP server shutdown error: %v", err)
 	}
 	log.Println("HTTP server stopped")
+}
+
+func setupRedisPubSub(
+	redisConfig configs.RedisConfig,
+	consumer *events.PostHogKafkaConsumer,
+	subChan, unSubChan chan events.Subscription,
+	ctx context.Context,
+) (cleanup func(), err error) {
+	broker, err := events.NewRedisEventBroker(redisConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create Redis event broker: %w", err)
+	}
+
+	subscriberClient, err := events.NewRedisUniversalClient(redisConfig)
+	if err != nil {
+		broker.Close()
+		return nil, fmt.Errorf("create Redis subscriber client: %w", err)
+	}
+
+	consumer.Broker = broker
+	tokenRouter := events.NewTokenRouter(subscriberClient, subChan, unSubChan)
+	go tokenRouter.Run(ctx)
+
+	cleanup = func() {
+		if err := subscriberClient.Close(); err != nil {
+			log.Printf("ERROR: Failed to close Redis subscriber client: %v", err)
+		}
+		if err := broker.Close(); err != nil {
+			log.Printf("ERROR: Failed to close Redis event broker: %v", err)
+		}
+	}
+	return cleanup, nil
 }

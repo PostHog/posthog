@@ -12,7 +12,6 @@ package events
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"time"
 
@@ -27,43 +26,15 @@ const (
 )
 
 type StatsInRedis struct {
-	client redis.Cmdable
+	client redis.UniversalClient
 }
 
 // Creates a Redis-backed stats store from the given config.
 func NewStatsInRedis(cfg configs.RedisConfig) (*StatsInRedis, error) {
-	if cfg.Address == "" {
-		return nil, fmt.Errorf("redis: address not configured")
+	client, err := newRedisClient(cfg)
+	if err != nil {
+		return nil, err
 	}
-
-	addr := fmt.Sprintf("%s:%s", cfg.Address, cfg.Port)
-
-	var client redis.Cmdable
-	if cfg.TLS {
-		client = redis.NewClusterClient(&redis.ClusterOptions{
-			Addrs:     []string{addr},
-			TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
-		})
-	} else {
-		client = redis.NewClient(&redis.Options{
-			Addr: addr,
-		})
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	var pingErr error
-	switch c := client.(type) {
-	case *redis.Client:
-		pingErr = c.Ping(ctx).Err()
-	case *redis.ClusterClient:
-		pingErr = c.Ping(ctx).Err()
-	}
-	if pingErr != nil {
-		return nil, fmt.Errorf("redis ping failed: %w", pingErr)
-	}
-
 	return &StatsInRedis{client: client}, nil
 }
 
@@ -93,12 +64,9 @@ func (s *StatsInRedis) GetSessionCount(ctx context.Context, token string) (int64
 	return s.getCount(ctx, key, sessionKeyTTL, "session_count")
 }
 
-// Close closes the underlying Redis connection if the client supports it.
+// Close closes the underlying Redis connection.
 func (s *StatsInRedis) Close() error {
-	if c, ok := s.client.(interface{ Close() error }); ok {
-		return c.Close()
-	}
-	return nil
+	return s.client.Close()
 }
 
 func userKey(token string) string {
@@ -144,6 +112,6 @@ func (s *StatsInRedis) getCount(ctx context.Context, key string, ttl time.Durati
 }
 
 // Testing helper
-func NewStatsInRedisFromClient(client redis.Cmdable) *StatsInRedis {
+func NewStatsInRedisFromClient(client redis.UniversalClient) *StatsInRedis {
 	return &StatsInRedis{client: client}
 }
