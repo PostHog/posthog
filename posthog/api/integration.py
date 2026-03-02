@@ -199,6 +199,17 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 )
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
+
+            # Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App
+            # can authenticate with PostHog APIs. Non-fatal: the integration is still
+            # usable for data imports even if the secret write fails.
+            if validated_data["kind"] == "stripe":
+                try:
+                    stripe_integration = StripeIntegration(instance)
+                    stripe_integration.write_posthog_secrets(request.user)
+                except Exception as e:
+                    capture_exception(e, {"integration_id": instance.id})
+
             return instance
 
         raise ValidationError("Kind not supported")
@@ -224,6 +235,12 @@ class IntegrationViewSet(
         ):
             return queryset.filter(kind="github")
         return queryset
+
+    def perform_destroy(self, instance):
+        # Make sure we clear secrets from Stripe when deleting the integration
+        if instance.kind == "stripe":
+            StripeIntegration(instance).clear_posthog_secrets()
+        instance.delete()
 
     @action(methods=["GET"], detail=False)
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
