@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -165,6 +166,73 @@ describe('Experiment component routing', () => {
         cleanup()
         expLogic.unmount()
         draftSceneLogic.unmount()
+
+        experimentsLogic.unmount()
+        featureFlagsLogic.unmount()
+        featureFlagLogic.unmount()
+    })
+
+    it.each([
+        {
+            experimentOverrides: { start_date: '2024-01-01T00:00:00Z' },
+            expectedHelpText: 'Add metrics to measure experiment results.',
+            description: 'running experiment',
+        },
+        {
+            experimentOverrides: {},
+            expectedHelpText: 'Add at least one primary metric to launch an experiment.',
+            description: 'draft',
+        },
+    ])('$description without metrics shows add metric buttons', async ({ experimentOverrides, expectedHelpText }) => {
+        localStorage.clear()
+        sessionStorage.clear()
+
+        const experimentData: ExperimentType = {
+            ...DRAFT_EXPERIMENT,
+            ...experimentOverrides,
+        }
+        useMocks({
+            ...apiMocks,
+            get: {
+                ...apiMocks.get,
+                '/api/projects/:team/experiments/123': () => [200, experimentData],
+            },
+        })
+        initKeaTests()
+
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]: 'test',
+        })
+
+        featureFlagsLogic.mount()
+        experimentsLogic.mount()
+
+        const tabId = 'test-tab-metrics'
+        // Set the URL so urlToAction initializes correctly
+        router.actions.push('/experiments/123')
+
+        const sceneLogic = experimentSceneLogic({
+            tabId,
+            experimentId: 123,
+            formMode: FORM_MODES.update,
+        })
+        sceneLogic.mount()
+        sceneLogic.actions.setSceneState(123, FORM_MODES.update)
+
+        const expLogicRef = sceneLogic.values.experimentLogicRef
+        expLogicRef!.logic.actions.loadExperimentSuccess(experimentData)
+
+        render(<Experiment tabId={tabId} />)
+
+        await waitFor(() => {
+            expect(screen.getByText('Add primary metric')).toBeInTheDocument()
+        })
+        expect(screen.getByText('Add secondary metric')).toBeInTheDocument()
+        expect(screen.getByText(expectedHelpText, { exact: false })).toBeInTheDocument()
+
+        cleanup()
+        sceneLogic.unmount()
 
         experimentsLogic.unmount()
         featureFlagsLogic.unmount()

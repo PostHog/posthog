@@ -22,6 +22,7 @@ import {
 } from '../components/ResultsBreakdown'
 import { SummarizeExperimentButton } from '../components/SummarizeExperimentButton'
 import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
+import { EmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/EmptyMetricsPanel'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
@@ -83,6 +84,8 @@ const MetricsTab = (): JSX.Element => {
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
         usesNewQueryRunner,
+        orderedPrimaryMetricsWithResults,
+        orderedSecondaryMetricsWithResults,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -207,6 +210,14 @@ const MetricsTab = (): JSX.Element => {
                     )}
                     <MetricsViewLegacy isSecondary={true} />
                 </>
+            ) : orderedPrimaryMetricsWithResults.length === 0 && orderedSecondaryMetricsWithResults.length === 0 ? (
+                <EmptyMetricsPanel
+                    helpText={
+                        experiment.start_date
+                            ? 'Add metrics to measure experiment results. You can always add or remove metrics later.'
+                            : undefined
+                    }
+                />
             ) : (
                 <>
                     <Metrics isSecondary={false} />

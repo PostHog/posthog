@@ -7,7 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { METRIC_CONTEXTS } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
 import { metricSourceModalLogic } from '~/scenes/experiments/Metrics/metricSourceModalLogic'
 
-export const EmptyMetricsPanel = (): JSX.Element => {
+export const EmptyMetricsPanel = ({ helpText }: { helpText?: string } = {}): JSX.Element => {
     const { openMetricSourceModal } = useActions(metricSourceModalLogic)
 
     return (
@@ -44,7 +44,8 @@ export const EmptyMetricsPanel = (): JSX.Element => {
             </div>
             <div className="max-w-md">
                 <p className="text-xs text-muted">
-                    Add at least one primary metric to launch an experiment. You can always add or remove metrics later.
+                    {helpText ??
+                        'Add at least one primary metric to launch an experiment. You can always add or remove metrics later.'}
                 </p>
             </div>
         </div>
