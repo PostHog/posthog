@@ -119,7 +119,9 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                                 <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
                             )
                             return source.latest_error && source.status === 'Error' ? (
-                                <Tooltip title={source.latest_error}>{tagContent}</Tooltip>
+                                <Tooltip title={source.latest_error} interactive>
+                                    {tagContent}
+                                </Tooltip>
                             ) : (
                                 tagContent
                             )
