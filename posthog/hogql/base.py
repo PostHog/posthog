@@ -88,6 +88,7 @@ class CTE(Expr):
     cte_type: Literal["column", "subquery"]
     columns: Optional[list[str]] = field(default=None)  # e.g. ["a", "b"] for `WITH x(a, b) AS (SELECT 1, 2)`
     recursive: bool = field(default=False)
+    materialized: Optional[bool] = field(default=None)
 
 
 @dataclass(kw_only=True)

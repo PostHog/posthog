@@ -5,6 +5,7 @@ import posthoganalytics
 from celery import shared_task
 from playwright.sync_api import (
     Page,
+    ProxySettings,
     TimeoutError as PlaywrightTimeoutError,
     sync_playwright,
 )
@@ -211,7 +212,7 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
         except Exception as e:
             screenshot.status = SavedHeatmap.Status.FAILED
             screenshot.exception = str(e)
-            screenshot.save()
+            screenshot.save(update_fields=["status", "exception"])
 
             logger.exception(
                 "heatmap_screenshot.failed",
@@ -256,12 +257,14 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
             "--no-sandbox",
             "--disable-gpu",
         ]
+        proxy_config: ProxySettings | None = None
         if settings.OUTBOUND_PROXY_ENABLED and settings.OUTBOUND_PROXY_URL:
-            launch_args.append(f"--proxy-server={settings.OUTBOUND_PROXY_URL}")
+            proxy_config = ProxySettings(server=settings.OUTBOUND_PROXY_URL)
 
         browser = p.chromium.launch(
             headless=True,  # TIP: for debugging, set to False
             args=launch_args,
+            proxy=proxy_config,
         )
         try:
             for w in widths:

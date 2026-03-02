@@ -17,7 +17,7 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
     const isNA = rawApplicable === false || rawApplicable === 'false'
     const reasoning = eventProperties.$ai_evaluation_reasoning
     const evaluationName = eventProperties.$ai_evaluation_name
-    const model = eventProperties.$ai_evaluation_model
+    const model = eventProperties.$ai_model ?? eventProperties.$ai_evaluation_model
     const traceId = eventProperties.$ai_trace_id
     const targetEventId = eventProperties.$ai_target_event_id
 

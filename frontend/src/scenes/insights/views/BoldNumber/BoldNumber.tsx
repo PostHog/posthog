@@ -109,6 +109,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
         <div className="BoldNumber">
             <div
                 className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
+                data-attr="bold-number-value"
                 onClick={
                     context?.onDataPointClick
                         ? () => context?.onDataPointClick?.({ compare: 'current' }, resultSeries)
@@ -189,6 +190,7 @@ function BoldNumberComparison({
                 )
             }
             className="BoldNumber__comparison"
+            data-attr="bold-number-comparison"
             fullWidth
             center
         >

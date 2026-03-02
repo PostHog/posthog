@@ -22,6 +22,7 @@ def register_all_admin():
         ExternalDataSchemaAdmin,
         FeatureFlagAdmin,
         GroupTypeMappingAdmin,
+        HogFlowAdmin,
         HogFunctionAdmin,
         InsightAdmin,
         InstanceSettingAdmin,
@@ -61,6 +62,7 @@ def register_all_admin():
         ExportedAsset,
         FeatureFlag,
         GroupTypeMapping,
+        HogFlow,
         HogFunction,
         Insight,
         InstanceSetting,
@@ -84,6 +86,8 @@ def register_all_admin():
 
     from products.desktop_recordings.backend.admin import DesktopRecordingAdmin
     from products.desktop_recordings.backend.models import DesktopRecording
+    from products.endpoints.backend.admin import EndpointAdmin, EndpointVersionAdmin
+    from products.endpoints.backend.models import Endpoint, EndpointVersion
     from products.signals.backend.admin import SignalReportAdmin
     from products.signals.backend.models import SignalReport
     from products.tasks.backend.admin import SandboxSnapshotAdmin, TaskAdmin, TaskRunAdmin
@@ -130,6 +134,7 @@ def register_all_admin():
     admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
     admin.site.register(DuckgresServer, DuckgresServerAdmin)
     admin.site.register(DuckLakeCatalog, DuckLakeCatalogAdmin)
+    admin.site.register(HogFlow, HogFlowAdmin)
     admin.site.register(HogFunction, HogFunctionAdmin)
     admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)
     admin.site.register(Link, LinkAdmin)
@@ -143,6 +148,9 @@ def register_all_admin():
     admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)
 
     admin.site.register(DesktopRecording, DesktopRecordingAdmin)
+
+    admin.site.register(Endpoint, EndpointAdmin)
+    admin.site.register(EndpointVersion, EndpointVersionAdmin)
 
     admin.site.register(SignalReport, SignalReportAdmin)
 

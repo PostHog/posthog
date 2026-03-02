@@ -8,17 +8,33 @@ from azure.ai.inference.aio import EmbeddingsClient as EmbeddingsClientAsync
 from azure.core.credentials import AzureKeyCredential
 
 
+def _validate_azure_config() -> tuple[str, str]:
+    endpoint = str(settings.AZURE_INFERENCE_ENDPOINT).strip()
+    credential = str(settings.AZURE_INFERENCE_CREDENTIAL).strip()
+    if not endpoint:
+        raise ValueError(
+            "AZURE_INFERENCE_ENDPOINT is not configured. The Azure embeddings client requires a valid endpoint URL."
+        )
+    if not credential:
+        raise ValueError(
+            "AZURE_INFERENCE_CREDENTIAL is not configured. The Azure embeddings client requires a valid API key."
+        )
+    return endpoint, credential
+
+
 def get_azure_embeddings_client() -> EmbeddingsClient:
+    endpoint, credential = _validate_azure_config()
     return EmbeddingsClient(
-        endpoint=settings.AZURE_INFERENCE_ENDPOINT,
-        credential=AzureKeyCredential(settings.AZURE_INFERENCE_CREDENTIAL),
+        endpoint=endpoint,
+        credential=AzureKeyCredential(credential),
     )
 
 
 def get_async_azure_embeddings_client() -> EmbeddingsClientAsync:
+    endpoint, credential = _validate_azure_config()
     return EmbeddingsClientAsync(
-        endpoint=settings.AZURE_INFERENCE_ENDPOINT,
-        credential=AzureKeyCredential(settings.AZURE_INFERENCE_CREDENTIAL),
+        endpoint=endpoint,
+        credential=AzureKeyCredential(credential),
     )
 
 

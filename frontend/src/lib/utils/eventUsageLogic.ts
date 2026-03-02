@@ -1484,6 +1484,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_id: experimentId,
                 team_id: teamId,
                 query_id: queryId,
+                ...getEventPropertiesForMetric(metric),
                 metric,
             })
         },
@@ -1494,6 +1495,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 query_id: queryId,
                 error_code: errorCode,
                 error_message: errorMessage,
+                ...getEventPropertiesForMetric(metric),
                 metric,
             })
         },
@@ -1502,6 +1504,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_id: experimentId,
                 team_id: teamId,
                 query_id: queryId,
+                ...getEventPropertiesForMetric(metric),
                 metric,
                 ...context,
             })
