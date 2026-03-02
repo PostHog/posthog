@@ -1077,6 +1077,7 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
         report_ctx = report_contexts_result.contexts.get(match_result.report_id)
         report_title = report_ctx.title if report_ctx else ""
 
+        # Hard requirement, no try-except wrapping, but could lead to the signal skip if the activity exceeds retries
         specificity_result: VerifyMatchSpecificityOutput = await workflow.execute_activity(
             verify_match_specificity_activity,
             VerifyMatchSpecificityInput(
