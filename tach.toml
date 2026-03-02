@@ -149,6 +149,7 @@ layer = "non_isolated"
 path = "products.endpoints"
 depends_on = [
     "posthog",
+    "products.data_modeling",
     "products.data_warehouse",
 ]
 layer = "non_isolated"
