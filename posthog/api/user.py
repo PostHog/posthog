@@ -993,7 +993,11 @@ def toolbar_oauth_callback(request):
     request.session.pop("toolbar_oauth_code_verifier", None)
     request.session.pop("toolbar_oauth_code_verifier_ts", None)
 
-    if error and not is_redirect_flow:
+    # Handle errors first regardless of flow type
+    if is_redirect_flow and error:
+        return HttpResponse(request.GET.get("error_description", error), status=400)
+
+    if error:
         payload = {
             "type": "toolbar_oauth_callback",
             "error": error,
@@ -1024,14 +1028,12 @@ def toolbar_oauth_callback(request):
             return HttpResponse(exc.detail, status=exc.status_code)
 
         app_url = state_payload["app_url"]
+        parsed = urllib.parse.urlparse(app_url)
+        base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
         quoted_code = urllib.parse.quote(code, safe="")
         quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
         fragment = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
-        separator = "&" if "#" in app_url else "#"
-        return redirect(f"{app_url}{separator}{fragment}")
-
-    if is_redirect_flow and error:
-        return HttpResponse(request.GET.get("error_description", error), status=400)
+        return redirect(f"{base_url}#{fragment}")
 
     # posthog-js flow: relay code/state for client-side exchange
     payload = {

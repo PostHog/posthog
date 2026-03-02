@@ -111,8 +111,17 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             actions.persistConfig()
 
-            const { verifier, challenge } = await generatePKCE()
-            localStorage.setItem(PKCE_LOCALSTORAGE_KEY, JSON.stringify({ verifier, ts: Date.now() }))
+            let verifier: string
+            let challenge: string
+            try {
+                const pkce = await generatePKCE()
+                verifier = pkce.verifier
+                challenge = pkce.challenge
+            } catch {
+                lemonToast.error('Failed to start authentication. Ensure you are on a secure (HTTPS) page.')
+                return
+            }
+            sessionStorage.setItem(PKCE_LOCALSTORAGE_KEY, JSON.stringify({ verifier, ts: Date.now() }))
 
             const redirect = encodeURIComponent(window.location.href)
             const codeChallenge = encodeURIComponent(challenge)
@@ -122,6 +131,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             toolbarPosthogJS.capture('toolbar logout')
             localStorage.removeItem(LOCALSTORAGE_KEY)
             localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
+            sessionStorage.removeItem(PKCE_LOCALSTORAGE_KEY)
         },
         tokenExpired: () => {
             toolbarPosthogJS.capture('toolbar token expired')
@@ -217,15 +227,28 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     }),
 ])
 
+const PKCE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+
 function exchangeCodeForTokens(
     uiHost: string,
     code: string,
     clientId: string,
     actions: { setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => void }
 ): void {
-    const pkceData = JSON.parse(localStorage.getItem(PKCE_LOCALSTORAGE_KEY) || '{}')
-    localStorage.removeItem(PKCE_LOCALSTORAGE_KEY)
+    let pkceData: { verifier?: string; ts?: number } = {}
+    try {
+        pkceData = JSON.parse(sessionStorage.getItem(PKCE_LOCALSTORAGE_KEY) || '{}')
+    } catch {
+        // corrupted data
+    }
+    sessionStorage.removeItem(PKCE_LOCALSTORAGE_KEY)
+
     if (!pkceData.verifier) {
+        console.warn('PostHog Toolbar: no PKCE verifier found, cannot exchange code')
+        return
+    }
+    if (pkceData.ts && Date.now() - pkceData.ts > PKCE_TTL_MS) {
+        console.warn('PostHog Toolbar: PKCE verifier expired')
         return
     }
 
@@ -246,9 +269,15 @@ function exchangeCodeForTokens(
         .then((data) => {
             if (data.access_token && data.refresh_token) {
                 actions.setOAuthTokens(data.access_token, data.refresh_token, clientId)
+            } else {
+                console.error('PostHog Toolbar: token exchange failed', data.error || data)
+                lemonToast.error('Authentication failed. Please try again.')
             }
         })
-        .catch(() => {})
+        .catch((err) => {
+            console.error('PostHog Toolbar: token exchange network error', err)
+            lemonToast.error('Authentication failed due to a network error. Please try again.')
+        })
 }
 
 export async function toolbarFetch(
