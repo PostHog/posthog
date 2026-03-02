@@ -1,5 +1,10 @@
+import { isEqual } from 'lodash'
+import { Counter } from 'prom-client'
+
 import { sanitizeString } from '~/utils/db/utils'
 import { LazyLoader } from '~/utils/lazy-loader'
+import { logger } from '~/utils/logger'
+import { captureException } from '~/utils/posthog'
 import { TeamManager } from '~/utils/team-manager'
 import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
@@ -8,6 +13,12 @@ import { GroupType, HogFunctionInvocationGlobals } from '../../types'
 
 export type GroupsMap = Record<string, GroupType>
 export type GroupsCache = Record<Team['id'], GroupsMap>
+
+const groupsCompareCounter = new Counter({
+    name: 'groups_compare_count',
+    help: 'Number of groups compared',
+    labelNames: ['result'],
+})
 
 // groupType -> groupTypeIndex for a single team
 type GroupTypeMapping = Record<string, number>
@@ -177,5 +188,42 @@ export class GroupsManagerServiceV2 {
         }
 
         return result
+    }
+
+    public async temporaryCompareGroups(globalsList: HogFunctionInvocationGlobals[]): Promise<void> {
+        // This is to safelty test the rollout. We load the groups again via this manager and compare the results to the old manager
+
+        try {
+            await Promise.all(
+                globalsList.map(async (globals) => {
+                    // Load the groups fresh
+                    const groups = await this.getGroupsForEvent(
+                        globals.project.id,
+                        globals.event.properties,
+                        globals.project.url
+                    )
+
+                    // Compare the results
+
+                    const match = isEqual(groups, globals.groups)
+
+                    groupsCompareCounter.labels({ result: match ? 'match' : 'different' }).inc()
+
+                    if (!match) {
+                        // Log out just the groups and keys
+
+                        const minimalGroupsV1 = Object.entries(globals.groups ?? {}).map(
+                            ([type, data]) => `${type}:${data.id}`
+                        )
+                        const minimalGroupsV2 = Object.entries(groups).map(([type, data]) => `${type}:${data.id}`)
+
+                        logger.error('Groups differ', { minimalGroupsV1, minimalGroupsV2 })
+                    }
+                })
+            )
+        } catch (error) {
+            logger.error('Error comparing groups', { error })
+            captureException(error)
+        }
     }
 }

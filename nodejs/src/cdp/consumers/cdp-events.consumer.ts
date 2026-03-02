@@ -94,10 +94,10 @@ export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsCons
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
         // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
+        await this.groupsManager.enrichGroups(invocationGlobals)
+
         if (this.hub.CDP_GROUPS_MANAGER_V2_ENABLED) {
-            await this.groupsManagerV2.addGroupsToGlobalsList(invocationGlobals)
-        } else {
-            await this.groupsManager.enrichGroups(invocationGlobals)
+            await this.groupsManagerV2.temporaryCompareGroups(invocationGlobals)
         }
 
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
