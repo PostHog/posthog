@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconChevronRight, IconFilter, IconGear, IconQuestion } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconGear, IconQuestion, IconStack } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -13,13 +13,13 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { ClusterCard } from './ClusterCard'
 import { ClusterDistributionBar } from './ClusterDistributionBar'
 import { ClusteringAdminModal } from './ClusteringAdminModal'
-import { clusteringConfigLogic, isValidFilter } from './clusteringConfigLogic'
-import { ClusteringSettingsPanel } from './ClusteringSettingsPanel'
+import { clusteringJobsLogic } from './clusteringJobsLogic'
+import { ClusteringJobsPanel } from './ClusteringJobsPanel'
 import { clustersAdminLogic } from './clustersAdminLogic'
 import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { clustersLogic } from './clustersLogic'
 import { NOISE_CLUSTER_ID } from './constants'
-import { Cluster, ClusteringLevel } from './types'
+import { Cluster, ClusteringLevel, getJobIdFromRunId } from './types'
 
 export function ClustersView(): JSX.Element {
     const {
@@ -41,11 +41,16 @@ export function ClustersView(): JSX.Element {
         useActions(clustersLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openModal } = useActions(clustersAdminLogic)
-    const { config } = useValues(clusteringConfigLogic)
-    const { openSettingsPanel } = useActions(clusteringConfigLogic)
+    const { jobs } = useValues(clusteringJobsLogic)
+    const { openJobsPanel } = useActions(clusteringJobsLogic)
 
     const showAdminPanel = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERING_ADMIN]
-    const activeFilterCount = config.event_filters.filter(isValidFilter).length
+
+    // Build a map from job_id to job name for run labels
+    const jobNameById: Record<number, string> = {}
+    for (const job of jobs) {
+        jobNameById[job.id] = job.name
+    }
 
     if (clusteringRunsLoading) {
         return (
@@ -125,10 +130,14 @@ export function ClustersView(): JSX.Element {
                             <LemonSelect
                                 value={effectiveRunId || undefined}
                                 onChange={(value) => setSelectedRunId(value || null)}
-                                options={clusteringRuns.map((run: { runId: string; label: string }) => ({
-                                    value: run.runId,
-                                    label: run.label,
-                                }))}
+                                options={clusteringRuns.map((run: { runId: string; label: string }) => {
+                                    const jobId = getJobIdFromRunId(run.runId)
+                                    const jobName = jobId ? jobNameById[jobId] : null
+                                    return {
+                                        value: run.runId,
+                                        label: jobName ? `${run.label} (${jobName})` : run.label,
+                                    }
+                                })}
                                 placeholder="Select a run"
                                 data-attr="clusters-run-select"
                             />
@@ -171,13 +180,13 @@ export function ClustersView(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         size="small"
-                        icon={<IconFilter />}
-                        onClick={openSettingsPanel}
-                        tooltip="Configure event filters applied to the next automated clustering run"
-                        data-attr="clusters-settings-button"
-                        status={activeFilterCount > 0 ? 'danger' : 'default'}
+                        icon={<IconStack />}
+                        onClick={openJobsPanel}
+                        tooltip="Manage clustering jobs"
+                        data-attr="clusters-jobs-button"
+                        status="default"
                     >
-                        {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}
+                        {jobs.length > 0 ? `Jobs (${jobs.length})` : 'Jobs'}
                     </LemonButton>
 
                     {showAdminPanel && (
@@ -298,8 +307,8 @@ export function ClustersView(): JSX.Element {
                 <div className="text-center p-8 text-muted">No clusters found in this run.</div>
             )}
 
-            {/* Settings Panel */}
-            <ClusteringSettingsPanel />
+            {/* Jobs Panel */}
+            <ClusteringJobsPanel />
 
             {/* Admin Modal */}
             {showAdminPanel && <ClusteringAdminModal />}
