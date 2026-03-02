@@ -1000,7 +1000,7 @@ def twig_event_handler(request: HttpRequest) -> HttpResponse:
 
     try:
         twig_config = SlackIntegration.twig_slack_config()
-        validate_slack_request(request, twig_config["SLACK_TWIG_SIGNING_SECRET"])
+        validate_slack_request(request, twig_config["SLACK_APP_SIGNING_SECRET"])
     except SlackIntegrationError as e:
         logger.warning("twig_event_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
@@ -1320,7 +1320,7 @@ def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
 
     try:
         twig_config = SlackIntegration.twig_slack_config()
-        validate_slack_request(request, twig_config["SLACK_TWIG_SIGNING_SECRET"])
+        validate_slack_request(request, twig_config["SLACK_APP_SIGNING_SECRET"])
     except SlackIntegrationError as e:
         logger.warning("twig_interactivity_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)

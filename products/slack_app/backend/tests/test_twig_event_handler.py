@@ -42,20 +42,20 @@ class TestTwigEventHandler(TestCase):
 
     @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
     def test_url_verification(self, mock_config):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         response = self._post_event({"type": "url_verification", "challenge": "test-challenge-123"})
         assert response.status_code == 200
         assert response.json() == {"challenge": "test-challenge-123"}
 
     @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
     def test_invalid_signature(self, mock_config):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": "different-secret"}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": "different-secret"}
         response = self._post_event({"type": "url_verification", "challenge": "test"})
         assert response.status_code == 403
 
     @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
     def test_retry_returns_200(self, mock_config):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         body = json.dumps({"type": "event_callback", "event": {"type": "app_mention"}}).encode()
         signature, ts = _sign_request(body, self.signing_secret)
         response = self.client.post(
@@ -71,7 +71,7 @@ class TestTwigEventHandler(TestCase):
     @patch("products.slack_app.backend.api.route_twig_event_to_relevant_region")
     @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
     def test_event_callback_routes(self, mock_config, mock_route):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_route.return_value = "handled_locally"
         payload = {
             "type": "event_callback",
@@ -89,7 +89,7 @@ class TestTwigEventHandler(TestCase):
     @patch("products.slack_app.backend.api.route_twig_event_to_relevant_region")
     @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
     def test_non_app_mention_event_is_ignored(self, mock_config, mock_route):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         payload = {
             "type": "event_callback",
             "team_id": "T12345",
@@ -102,7 +102,7 @@ class TestTwigEventHandler(TestCase):
     @patch("products.slack_app.backend.api.route_twig_event_to_relevant_region")
     @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
     def test_proxy_failure_returns_502(self, mock_config, mock_route):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_route.return_value = "proxy_failed"
         payload = {
             "type": "event_callback",
@@ -115,7 +115,7 @@ class TestTwigEventHandler(TestCase):
     @patch("products.slack_app.backend.api.route_twig_event_to_relevant_region")
     @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
     def test_no_integration_still_returns_202(self, mock_config, mock_route):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_route.return_value = "no_integration"
         payload = {
             "type": "event_callback",
