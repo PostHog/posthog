@@ -24,7 +24,7 @@ def backfill_endpoints_to_dags(apps, _):
         Node.objects.create(
             team_id=saved_query.team_id,
             saved_query=saved_query,
-            dag_id=get_dag_id(saved_query.team_id),
+            dag_id_text=get_dag_id(saved_query.team_id),
             name=saved_query.name,
             type=NodeType.ENDPOINT,
             properties={"endpoint_backfilled": True},
