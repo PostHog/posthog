@@ -81,6 +81,23 @@ def _empty_summarization_results() -> dict[str, Any]:
     }
 
 
+def _resolve_level_jobs_for_team(
+    team_jobs: list[JobConfig],
+    analysis_level: AnalysisLevel,
+    legacy_event_filters: list[dict[str, Any]],
+) -> list[JobConfig]:
+    level_jobs = [job for job in team_jobs if job.analysis_level == analysis_level]
+    if level_jobs:
+        return level_jobs
+
+    # Backward compatibility: only run the legacy path for teams that have
+    # no ClusteringJob rows configured at all.
+    if team_jobs:
+        return []
+
+    return [JobConfig(job_id=0, name="", analysis_level=analysis_level, event_filters=legacy_event_filters)]
+
+
 @dataclasses.dataclass
 class BatchTraceSummarizationCoordinatorInputs:
     """Inputs for the coordinator workflow."""
@@ -210,16 +227,19 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                 tuple[int, ChildWorkflowHandle[BatchTraceSummarizationWorkflow, BatchSummarizationResult]]
             ] = []
             for team_id in batch:
-                # Determine jobs for this team at the current analysis level
                 team_jobs = per_team_jobs.get(team_id, [])
-                level_jobs = [j for j in team_jobs if j.analysis_level == inputs.analysis_level]
-
+                level_jobs = _resolve_level_jobs_for_team(
+                    team_jobs=team_jobs,
+                    analysis_level=inputs.analysis_level,
+                    legacy_event_filters=per_team_filters.get(team_id, []),
+                )
                 if not level_jobs:
-                    # No jobs configured — run with legacy filters (backward compat)
-                    event_filters = per_team_filters.get(team_id, [])
-                    level_jobs = [
-                        JobConfig(job_id=0, name="", analysis_level=inputs.analysis_level, event_filters=event_filters)
-                    ]
+                    logger.info(
+                        "Skipping team for analysis level with no matching summarization jobs",
+                        team_id=team_id,
+                        analysis_level=inputs.analysis_level,
+                    )
+                    continue
 
                 for job in level_jobs:
                     child_suffix = f"-{team_id}-{job.job_id}" if job.job_id else f"-{team_id}"
