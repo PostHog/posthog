@@ -1476,13 +1476,10 @@
                                                         "not_icontains",
                                                         "regex",
                                                         "not_regex",
-                                                        "is_cleaned_path_exact",
                                                         "gt",
                                                         "gte",
                                                         "lt",
-                                                        "lte",
-                                                        "min",
-                                                        "max"
+                                                        "lte"
                                                     ]
                                                 }
                                             },
@@ -1663,13 +1660,10 @@
                                                                 "not_icontains",
                                                                 "regex",
                                                                 "not_regex",
-                                                                "is_cleaned_path_exact",
                                                                 "gt",
                                                                 "gte",
                                                                 "lt",
-                                                                "lte",
-                                                                "min",
-                                                                "max"
+                                                                "lte"
                                                             ]
                                                         }
                                                     },
@@ -4126,13 +4120,10 @@
                                                         "not_icontains",
                                                         "regex",
                                                         "not_regex",
-                                                        "is_cleaned_path_exact",
                                                         "gt",
                                                         "gte",
                                                         "lt",
-                                                        "lte",
-                                                        "min",
-                                                        "max"
+                                                        "lte"
                                                     ]
                                                 }
                                             },
@@ -5013,13 +5004,10 @@
                                                         "not_icontains",
                                                         "regex",
                                                         "not_regex",
-                                                        "is_cleaned_path_exact",
                                                         "gt",
                                                         "gte",
                                                         "lt",
-                                                        "lte",
-                                                        "min",
-                                                        "max"
+                                                        "lte"
                                                     ]
                                                 }
                                             },
