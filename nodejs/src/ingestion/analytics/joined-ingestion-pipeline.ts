@@ -29,7 +29,6 @@ import {
 } from './per-distinct-id-pipeline'
 import {
     PostTeamPreprocessingSubpipelineConfig,
-    PostTeamPreprocessingSubpipelineInput,
     createPostTeamPreprocessingSubpipeline,
 } from './post-team-preprocessing-subpipeline'
 import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-subpipeline'
@@ -73,8 +72,6 @@ export interface JoinedIngestionPipelineContext {
     message: Message
 }
 
-type PreprocessingOutput = PostTeamPreprocessingSubpipelineInput & BatchStores
-
 function addTeamToContext<T extends { team: Team }, C>(
     element: OkResultWithContext<T, C>
 ): OkResultWithContext<T, C & { team: Team }> {
@@ -91,12 +88,6 @@ function getTokenAndDistinctId(input: PerDistinctIdPipelineInput): string {
     const token = input.headers.token ?? ''
     const distinctId = input.event.distinct_id ?? ''
     return `${token}:${distinctId}`
-}
-
-function mapToPerEventInput<C>(
-    element: OkResultWithContext<PreprocessingOutput, C>
-): OkResultWithContext<PreprocessingOutput, C> {
-    return element
 }
 
 export function createJoinedIngestionPipeline<
@@ -183,16 +174,12 @@ export function createJoinedIngestionPipeline<
                                     createPostTeamPreprocessingSubpipeline(b, postTeamConfig)
                                         // Group by token:distinctId and process each group concurrently
                                         // Events within each group are processed sequentially
-                                        .filterMap(mapToPerEventInput, (b) =>
-                                            b
-                                                .groupBy(getTokenAndDistinctId)
-                                                .concurrently((eventsForDistinctId) =>
-                                                    eventsForDistinctId.sequentially((event) =>
-                                                        createPerDistinctIdPipeline(event, perEventConfig)
-                                                    )
-                                                )
+                                        .groupBy(getTokenAndDistinctId)
+                                        .concurrently((eventsForDistinctId) =>
+                                            eventsForDistinctId.sequentially((event) =>
+                                                createPerDistinctIdPipeline(event, perEventConfig)
+                                            )
                                         )
-                                        .gather()
                                 )
                                 .handleIngestionWarnings(kafkaProducer)
                         )
