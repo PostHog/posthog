@@ -2926,6 +2926,7 @@ export type FileSystemIconType =
     | 'pipeline_status'
     | 'llm_evaluations'
     | 'llm_datasets'
+    | 'llm_playground'
     | 'llm_prompts'
     | 'llm_clusters'
     | 'exports'
