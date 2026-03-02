@@ -111,4 +111,6 @@ class TestChatCompletionsEndpoint:
         )
 
         assert response.status_code == error_status
-        assert "error" in response.json()["detail"]
+        data = response.json()
+        assert data["error"]["message"] == error_message
+        assert data["error"]["type"] == error_type

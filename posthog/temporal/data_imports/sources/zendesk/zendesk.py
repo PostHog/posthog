@@ -2,10 +2,10 @@ import base64
 from typing import Any, Optional
 
 import dlt
-import requests
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator, JSONLinkPaginator
 
+from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
@@ -319,8 +319,9 @@ def zendesk_source(
 
 def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:
     basic_token = base64.b64encode(f"{email_address}/token:{api_key}".encode("ascii")).decode("ascii")
-    res = requests.get(
-        f"https://{subdomain}.zendesk.com/api/v2/tickets/count", headers={"Authorization": f"Basic {basic_token}"}
+    res = external_requests.get(
+        f"https://{subdomain}.zendesk.com/api/v2/tickets/count",
+        headers={"Authorization": f"Basic {basic_token}"},
     )
 
     return res.status_code == 200

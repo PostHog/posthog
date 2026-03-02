@@ -30,6 +30,7 @@ export function Trending(): JSX.Element {
                     insight={insight}
                     isExpanded={expandedInsightIds.has(insight.short_id)}
                     onToggle={() => toggleInsightExpanded(insight.short_id)}
+                    dataAttr="trending-insight-item"
                 />
             )}
             contentHeightBehavior="fit-content"

@@ -171,3 +171,223 @@
   LIMIT 100
   '''
 # ---
+# name: TestInlineCohortLeftjoin.test_inline_conjoined_mixed_static_and_dynamic
+  '''
+  -- ClickHouse
+  
+  SELECT events.event AS event 
+  FROM events LEFT JOIN (
+  SELECT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
+  FROM person_static_cohort 
+  WHERE and(equals(person_static_cohort.team_id, 99999), in(person_static_cohort.cohort_id, [1, 2, 3, 4, 5 /* ... */])) UNION ALL 
+  SELECT id AS cohort_person_id, 1 AS matched, 99999 AS cohort_id 
+  FROM ((
+  SELECT persons.id AS id 
+  FROM (
+  SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___test_prop, person.id AS id 
+  FROM person 
+  WHERE and(equals(person.team_id, 99999), in(id, (
+  SELECT where_optimization.id AS id 
+  FROM person AS where_optimization 
+  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0))))) 
+  GROUP BY person.id 
+  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_3)s)), person.version), 1), plus(now64(6, %(hogql_val_4)s), toIntervalDay(1))), 0))) AS persons 
+  WHERE ifNull(equals(persons.properties___test_prop, %(hogql_val_5)s), 0) ORDER BY persons.id ASC 
+  SETTINGS optimize_aggregation_in_order=1, join_algorithm='auto'))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 99999), equals(events.event, %(hogql_val_6)s), ifNull(equals(__in_cohort.matched, 1), 0)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  
+  SELECT event 
+  FROM events LEFT JOIN (
+  SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
+  FROM static_cohort_people 
+  WHERE in(cohort_id, [1, 2, 3, 4, 5 /* ... */]) UNION ALL 
+  SELECT id AS cohort_person_id, 1 AS matched, 99999 AS cohort_id 
+  FROM ((
+  SELECT id 
+  FROM persons 
+  WHERE equals(properties.test_prop, 'RANDOM_TEST_ID::UUID') ORDER BY id ASC))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
+  WHERE and(and(or(equals(1, 1), equals(1, 1)), equals(event, 'RANDOM_TEST_ID::UUID')), equals(__in_cohort.matched, 1)) 
+  LIMIT 100
+  '''
+# ---
+# name: TestInlineCohortLeftjoin.test_inline_conjoined_off_vs_always
+  '''
+  -- ClickHouse
+  
+  SELECT events.event AS event 
+  FROM events LEFT JOIN (
+  SELECT cohortpeople.person_id AS cohort_person_id, 1 AS matched, cohortpeople.cohort_id AS cohort_id 
+  FROM cohortpeople 
+  WHERE and(equals(cohortpeople.team_id, 99999), or(and(equals(cohortpeople.cohort_id, XX), equals(cohortpeople.version, 0)), and(equals(cohortpeople.cohort_id, XX), equals(cohortpeople.version, 0))))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 99999), equals(events.event, %(hogql_val_0)s), ifNull(equals(__in_cohort.matched, 1), 0)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  
+  SELECT event 
+  FROM events LEFT JOIN (
+  SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
+  FROM raw_cohort_people 
+  WHERE or(and(equals(cohort_id, XX), equals(version, 0)), and(equals(cohort_id, XX), equals(version, 0)))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
+  WHERE and(and(or(equals(1, 1), equals(1, 1)), equals(event, 'RANDOM_TEST_ID::UUID')), equals(__in_cohort.matched, 1)) 
+  LIMIT 100
+  '''
+# ---
+# name: TestInlineCohortLeftjoin.test_inline_conjoined_off_vs_always.1
+  '''
+  -- ClickHouse
+  
+  SELECT events.event AS event 
+  FROM events LEFT JOIN (
+  SELECT id AS cohort_person_id, 1 AS matched, 99999 AS cohort_id 
+  FROM ((
+  SELECT persons.id AS id 
+  FROM (
+  SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___test_prop, person.id AS id 
+  FROM person 
+  WHERE and(equals(person.team_id, 99999), in(id, (
+  SELECT where_optimization.id AS id 
+  FROM person AS where_optimization 
+  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0))))) 
+  GROUP BY person.id 
+  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_3)s)), person.version), 1), plus(now64(6, %(hogql_val_4)s), toIntervalDay(1))), 0))) AS persons 
+  WHERE ifNull(equals(persons.properties___test_prop, %(hogql_val_5)s), 0) ORDER BY persons.id ASC 
+  SETTINGS optimize_aggregation_in_order=1, join_algorithm='auto')) UNION ALL 
+  SELECT id AS cohort_person_id, 1 AS matched, 99999 AS cohort_id 
+  FROM ((
+  SELECT persons.id AS id 
+  FROM (
+  SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_6)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___test_prop, person.id AS id 
+  FROM person 
+  WHERE and(equals(person.team_id, 99999), in(id, (
+  SELECT where_optimization.id AS id 
+  FROM person AS where_optimization 
+  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, %(hogql_val_7)s), ''), 'null'), '^"|"$', ''), %(hogql_val_8)s), 0))))) 
+  GROUP BY person.id 
+  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_9)s)), person.version), 1), plus(now64(6, %(hogql_val_10)s), toIntervalDay(1))), 0))) AS persons 
+  WHERE ifNull(equals(persons.properties___test_prop, %(hogql_val_11)s), 0) ORDER BY persons.id ASC 
+  SETTINGS optimize_aggregation_in_order=1, join_algorithm='auto'))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 99999), equals(events.event, %(hogql_val_12)s), ifNull(equals(__in_cohort.matched, 1), 0)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  
+  SELECT event 
+  FROM events LEFT JOIN (
+  SELECT id AS cohort_person_id, 1 AS matched, 99999 AS cohort_id 
+  FROM ((
+  SELECT id 
+  FROM persons 
+  WHERE equals(properties.test_prop, 'RANDOM_TEST_ID::UUID') ORDER BY id ASC)) UNION ALL 
+  SELECT id AS cohort_person_id, 1 AS matched, 99999 AS cohort_id 
+  FROM ((
+  SELECT id 
+  FROM persons 
+  WHERE equals(properties.test_prop, 'RANDOM_TEST_ID::UUID') ORDER BY id ASC))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
+  WHERE and(and(or(equals(1, 1), equals(1, 1)), equals(event, 'RANDOM_TEST_ID::UUID')), equals(__in_cohort.matched, 1)) 
+  LIMIT 100
+  '''
+# ---
+# name: TestInlineCohortLeftjoin.test_inline_leftjoin_off_vs_always
+  '''
+  -- ClickHouse
+  
+  SELECT events.event AS event 
+  FROM events LEFT JOIN (
+  SELECT cohortpeople.person_id AS person_id, 1 AS matched 
+  FROM cohortpeople 
+  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, XX)) 
+  GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version 
+  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(in_cohort__XX.matched, 1), 0), equals(events.event, %(hogql_val_0)s)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  
+  SELECT event 
+  FROM events LEFT JOIN (
+  SELECT person_id, 1 AS matched 
+  FROM raw_cohort_people 
+  WHERE equals(cohort_id, XX) 
+  GROUP BY person_id, cohort_id, version 
+  HAVING greater(sum(sign), 0)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
+  WHERE and(equals(in_cohort__XX.matched, 1), equals(event, 'RANDOM_TEST_ID::UUID')) 
+  LIMIT 100
+  '''
+# ---
+# name: TestInlineCohortLeftjoin.test_inline_leftjoin_off_vs_always.1
+  '''
+  -- ClickHouse
+  
+  SELECT events.event AS event 
+  FROM events LEFT JOIN (
+  SELECT id AS person_id, 1 AS matched 
+  FROM ((
+  SELECT persons.id AS id 
+  FROM (
+  SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___test_prop, person.id AS id 
+  FROM person 
+  WHERE and(equals(person.team_id, 99999), in(id, (
+  SELECT where_optimization.id AS id 
+  FROM person AS where_optimization 
+  WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0))))) 
+  GROUP BY person.id 
+  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_3)s)), person.version), 1), plus(now64(6, %(hogql_val_4)s), toIntervalDay(1))), 0))) AS persons 
+  WHERE ifNull(equals(persons.properties___test_prop, %(hogql_val_5)s), 0) ORDER BY persons.id ASC 
+  SETTINGS optimize_aggregation_in_order=1, join_algorithm='auto'))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(in_cohort__XX.matched, 1), 0), equals(events.event, %(hogql_val_6)s)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  
+  SELECT event 
+  FROM events LEFT JOIN (
+  SELECT id AS person_id, 1 AS matched 
+  FROM ((
+  SELECT id 
+  FROM (
+  SELECT tupleElement(argMax(tuple(raw_persons.properties.test_prop), raw_persons.version), 1) AS properties___test_prop, raw_persons.id AS id 
+  FROM raw_persons 
+  WHERE in(id, (
+  SELECT id 
+  FROM raw_persons AS where_optimization 
+  WHERE equals(properties.test_prop, 'RANDOM_TEST_ID::UUID'))) 
+  GROUP BY raw_persons.id 
+  HAVING and(equals(tupleElement(argMax(tuple(raw_persons.is_deleted), raw_persons.version), 1), 0), less(tupleElement(argMax(tuple(raw_persons.created_at), raw_persons.version), 1), plus(now(), toIntervalDay(1))))) AS persons 
+  WHERE equals(properties.test_prop, 'RANDOM_TEST_ID::UUID') ORDER BY id ASC))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
+  WHERE and(equals(in_cohort__XX.matched, 1), equals(event, 'RANDOM_TEST_ID::UUID')) 
+  LIMIT 100
+  '''
+# ---
+# name: TestInlineCohortLeftjoin.test_inline_static_always_uses_cohortpeople
+  '''
+  -- ClickHouse
+  
+  SELECT events.event AS event 
+  FROM events LEFT JOIN (
+  SELECT person_static_cohort.person_id AS person_id, 1 AS matched 
+  FROM person_static_cohort 
+  WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(in_cohort__XX.matched, 1), 0), equals(events.event, %(hogql_val_0)s)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  
+  SELECT event 
+  FROM events LEFT JOIN (
+  SELECT person_id, 1 AS matched 
+  FROM static_cohort_people 
+  WHERE equals(cohort_id, XX)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
+  WHERE and(equals(in_cohort__XX.matched, 1), equals(event, 'RANDOM_TEST_ID::UUID')) 
+  LIMIT 100
+  '''
+# ---

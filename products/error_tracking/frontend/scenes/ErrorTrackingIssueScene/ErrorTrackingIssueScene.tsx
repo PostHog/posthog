@@ -86,7 +86,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     onNameChange={updateName}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
-                                    className="px-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0"
+                                    className="px-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0 mb-0"
                                     actions={
                                         <div className="flex items-center gap-1">
                                             <StatusIndicator status={issue.status} withTooltip />

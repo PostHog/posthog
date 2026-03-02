@@ -2,7 +2,10 @@
 Management command to verify flag definitions cache consistency.
 
 Compares cached flag definitions data against database to detect discrepancies.
-Verifies both cache variants (with and without cohorts) used for SDK local evaluation.
+By default verifies only the with-cohorts variant, which serves the vast majority of
+traffic (the without-cohorts variant is deprecated). Both variants derive from the same
+source data and share the same Celery update path, so checking one is a reliable
+indicator of overall cache health. Use --variant both to verify both explicitly.
 
 Usage:
     # Verify all teams
@@ -14,9 +17,9 @@ Usage:
     # Sample random teams
     python manage.py verify_flag_definitions_cache --sample 100
 
-    # Verify only one variant
-    python manage.py verify_flag_definitions_cache --variant with-cohorts
+    # Verify a specific variant (default: with-cohorts)
     python manage.py verify_flag_definitions_cache --variant without-cohorts
+    python manage.py verify_flag_definitions_cache --variant both
 
     # Verbose output (show full diffs)
     python manage.py verify_flag_definitions_cache --verbose
@@ -45,8 +48,9 @@ class Command(BaseHyperCacheCommand):
         parser.add_argument(
             "--variant",
             type=str,
-            choices=["with-cohorts", "without-cohorts"],
-            help="Verify only the specified variant (default: both)",
+            default="with-cohorts",
+            choices=["with-cohorts", "without-cohorts", "both"],
+            help="Which variant(s) to verify (default: with-cohorts)",
         )
 
     @override
@@ -93,13 +97,11 @@ class Command(BaseHyperCacheCommand):
                 return
 
         # Determine which configs to verify
-        configs_to_verify = []
         if variant == "with-cohorts":
             configs_to_verify = [(FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG, "with cohorts", True)]
         elif variant == "without-cohorts":
             configs_to_verify = [(FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG, "without cohorts", False)]
-        else:
-            # Verify both variants
+        else:  # "both"
             configs_to_verify = [
                 (FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG, "with cohorts", True),
                 (FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG, "without cohorts", False),

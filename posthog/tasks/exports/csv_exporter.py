@@ -27,6 +27,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content_from_file
+from posthog.security.outbound_proxy import external_requests
 from posthog.utils import absolute_uri
 
 from ...exceptions import ClickHouseQuerySizeExceeded
@@ -625,7 +626,7 @@ def make_api_call(
         request_url,
         {get_limit_param_key(request_url): str(limit), "is_csv_export": "1"},
     )
-    response = requests.request(
+    response = external_requests.request(
         method=method.lower(),
         url=url,
         json=body,
