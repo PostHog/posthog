@@ -13,14 +13,20 @@ import { execHog } from '../cdp/utils/hog-exec'
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { EvaluationManagerService } from '../llm-analytics/services/evaluation-manager.service'
-import { TemporalService, TemporalServiceHub } from '../llm-analytics/services/temporal.service'
+import { TemporalService, TemporalServiceConfig } from '../llm-analytics/services/temporal.service'
 import { Evaluation, EvaluationConditionSet } from '../llm-analytics/types'
-import { Hub, PluginServerService, RawKafkaEvent } from '../types'
+import { PluginServerService, RawKafkaEvent } from '../types'
+import { PostgresRouter } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
+import { PubSub } from '../utils/pubsub'
 
-/** Narrowed Hub type for evaluation scheduler */
-export type EvaluationSchedulerHub = TemporalServiceHub & Pick<Hub, 'postgres' | 'pubSub'>
+export type EvaluationSchedulerConfig = TemporalServiceConfig
+
+export interface EvaluationSchedulerDeps {
+    postgres: PostgresRouter
+    pubSub: PubSub
+}
 
 const evaluationSchedulerEventsProcessed = new Counter({
     name: 'evaluation_scheduler_events_processed',
@@ -199,11 +205,14 @@ export class EvaluationMatcher {
     }
 }
 
-export const startEvaluationScheduler = async (hub: EvaluationSchedulerHub): Promise<PluginServerService> => {
+export const startEvaluationScheduler = async (
+    config: EvaluationSchedulerConfig,
+    deps: EvaluationSchedulerDeps
+): Promise<PluginServerService> => {
     logger.info('🤖', 'Starting evaluation scheduler')
 
-    const temporalService = new TemporalService(hub)
-    const evaluationManager = new EvaluationManagerService(hub.postgres, hub.pubSub)
+    const temporalService = new TemporalService(config)
+    const evaluationManager = new EvaluationManagerService(deps.postgres, deps.pubSub)
 
     const kafkaConsumer = new KafkaConsumer({
         groupId: `${KAFKA_PREFIX}evaluation-scheduler`,

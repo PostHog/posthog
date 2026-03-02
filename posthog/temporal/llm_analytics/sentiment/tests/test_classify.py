@@ -1,5 +1,3 @@
-import json
-
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -8,7 +6,7 @@ from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentInp
 
 
 def _make_row(uuid: str, messages: list[dict], trace_id: str = "trace-1") -> tuple:
-    return (uuid, json.dumps({"$ai_input": messages, "$ai_trace_id": trace_id}), trace_id)
+    return (uuid, messages, trace_id)
 
 
 def _make_sentiment_result(label: str = "positive", score: float = 0.9) -> SentimentResult:
@@ -69,6 +67,9 @@ class TestClassifySentimentSingleTrace:
         assert result["trace-1"]["generation_count"] == 1
         assert result["trace-1"]["message_count"] == 1
         assert result["trace-1"]["label"] == "positive"
+        # message dict keys must be strings for orjson serialization
+        messages = result["trace-1"]["generations"]["gen-1"]["messages"]
+        assert all(isinstance(k, str) for k in messages.keys())
 
     @pytest.mark.asyncio
     @patch(_PATCH_CLASSIFY)

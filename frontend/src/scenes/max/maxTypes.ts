@@ -22,6 +22,7 @@ export interface MaxInsightContext {
     name?: string | null
     description?: string | null
     query: QuerySchema // The actual query node, e.g., TrendsQuery, HogQLQuery
+    result?: any // Pre-calculated query results, avoids re-execution on the backend
     filtersOverride?: DashboardFilter
     variablesOverride?: Record<string, HogQLVariable>
 }

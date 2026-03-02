@@ -36,6 +36,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         resetPanelLayout: (keyboardAction: boolean) => ({ keyboardAction }),
         setMainContentRect: (rect: DOMRect) => ({ rect }),
         setSidePanelWidth: (width: number) => ({ width }),
+        toggleNavSection: (section: string) => ({ section }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -136,6 +137,16 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             0,
             {
                 setSidePanelWidth: (_, { width }) => width,
+            },
+        ],
+        expandedNavSections: [
+            { ai: true, project: true, files: true, favorites: true } as Record<string, boolean>,
+            { persist: true },
+            {
+                toggleNavSection: (state, { section }) => ({
+                    ...state,
+                    [section]: !state[section],
+                }),
             },
         ],
     }),

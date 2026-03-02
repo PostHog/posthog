@@ -25,15 +25,15 @@ from .core_event import CoreEvent
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
 from .data_color_theme import DataColorTheme
-from ..ducklake.models import DuckLakeCatalog
+from ..ducklake.models import DuckgresServer, DuckLakeCatalog
 from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
 from .event.event import Event
 from .event_buffer import EventBuffer
-from .event_definition import EventDefinition
-from .event_property import EventProperty
+from products.event_definitions.backend.models import EventDefinition
+from products.event_definitions.backend.models import EventProperty
 from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, ExperimentToSavedMetric
 from .exported_asset import ExportedAsset
 from .exported_recording import ExportedRecording
@@ -76,13 +76,13 @@ from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry, Plug
 from .product_intent import ProductIntent
 from .project import Project
 from .property import Property
-from .property_definition import PropertyDefinition
+from products.event_definitions.backend.models import PropertyDefinition
 from .proxy_record import ProxyRecord
 from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
 from .resource_transfer.resource_transfer import ResourceTransfer
 from .scheduled_change import ScheduledChange
-from .schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
+from products.event_definitions.backend.models import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
@@ -129,6 +129,7 @@ __all__ = [
     "DashboardTemplate",
     "DataColorTheme",
     "DeletionType",
+    "DuckgresServer",
     "DuckLakeCatalog",
     "Element",
     "ElementGroup",

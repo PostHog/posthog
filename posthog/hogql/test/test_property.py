@@ -6,7 +6,13 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import EmptyPropertyFilter, HogQLPropertyFilter, RetentionEntity
+from posthog.schema import (
+    EmptyPropertyFilter,
+    FlagPropertyFilter,
+    HogQLPropertyFilter,
+    PropertyOperator,
+    RetentionEntity,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
@@ -25,9 +31,9 @@ from posthog.hogql.visitor import clear_locations
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
 from posthog.models import Cohort, Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
-from posthog.models.property_definition import PropertyType
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 from ee.clickhouse.materialized_columns.columns import materialize
 
@@ -1276,9 +1282,13 @@ class TestProperty(BaseTest):
         )
 
     def test_property_to_expr_semver_validation(self):
-        # Test tilde requires at least major.minor
-        with self.assertRaisesMessage(QueryError, "Tilde operator requires a valid semver string"):
-            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_tilde", "value": "1"})
+        # Test tilde with bare major (~1 means >=1.0.0 <2.0.0)
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_tilde", "value": "1"}),
+            self._parse_expr(
+                "(sortableSemver(person.properties.version) >= sortableSemver('1.0.0') AND sortableSemver(person.properties.version) < sortableSemver('2.0.0'))"
+            ),
+        )
 
         # Test caret requires valid semver
         with self.assertRaisesMessage(QueryError, "Caret operator requires a valid semver string"):
@@ -1381,10 +1391,13 @@ class TestProperty(BaseTest):
             self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.-2.3')"),
         )
 
-        # Range operators with edge cases also pass through to sortableSemver
-        # Tilde with minimal version (our code handles major.minor requirement)
-        with self.assertRaisesMessage(QueryError, "Tilde operator requires a valid semver string"):
-            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_tilde", "value": "0"})
+        # Tilde with bare major zero (~0 means >=0.0.0 <1.0.0)
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_tilde", "value": "0"}),
+            self._parse_expr(
+                "(sortableSemver(person.properties.version) >= sortableSemver('0.0.0') AND sortableSemver(person.properties.version) < sortableSemver('1.0.0'))"
+            ),
+        )
 
         # Caret with leading zeros should still work (our code extracts numeric values)
         self.assertEqual(
@@ -1405,6 +1418,43 @@ class TestProperty(BaseTest):
                 "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3.0') AND sortableSemver(person.properties.app_version) < sortableSemver('1.2.4.0'))"
             ),
         )
+
+    # -- Operator coverage: every PropertyOperator must be handled by property_to_expr --
+
+    # Test values appropriate for each operator type
+    OPERATOR_TEST_VALUES: dict[PropertyOperator, Any] = {
+        PropertyOperator.IS_SET: "",
+        PropertyOperator.IS_NOT_SET: "",
+        PropertyOperator.BETWEEN: [1, 10],
+        PropertyOperator.NOT_BETWEEN: [1, 10],
+        PropertyOperator.IN_: ["a", "b"],
+        PropertyOperator.NOT_IN: ["a", "b"],
+        PropertyOperator.SEMVER_EQ: "1.2.3",
+        PropertyOperator.SEMVER_NEQ: "1.2.3",
+        PropertyOperator.SEMVER_GT: "1.2.3",
+        PropertyOperator.SEMVER_GTE: "1.2.3",
+        PropertyOperator.SEMVER_LT: "1.2.3",
+        PropertyOperator.SEMVER_LTE: "1.2.3",
+        PropertyOperator.SEMVER_TILDE: "1.2.3",
+        PropertyOperator.SEMVER_CARET: "1.2.3",
+        PropertyOperator.SEMVER_WILDCARD: "1.*",
+        PropertyOperator.ICONTAINS_MULTI: ["a", "b"],
+        PropertyOperator.NOT_ICONTAINS_MULTI: ["a", "b"],
+    }
+
+    # FLAG_EVALUATES_TO is dispatched via FlagPropertyFilter, not _expr_to_compare_op
+    @parameterized.expand([(op.value,) for op in PropertyOperator if op not in {PropertyOperator.FLAG_EVALUATES_TO}])
+    def test_operator_coverage(self, operator_value: str):
+        value = self.OPERATOR_TEST_VALUES.get(PropertyOperator(operator_value), "test_value")
+        result = self._property_to_expr(
+            {"type": "event", "key": "test_prop", "value": value, "operator": operator_value}
+        )
+        self.assertIsInstance(result, ast.Expr)
+
+    def test_flag_evaluates_to_produces_neutral_expr(self):
+        prop = FlagPropertyFilter(type="flag", key="my-flag", value="true", operator="flag_evaluates_to")
+        result = property_to_expr([prop], self.team)
+        self.assertEqual(result, ast.Constant(value=1))
 
 
 class TestPropertyIsSetIsNotSetWithData(APIBaseTest):

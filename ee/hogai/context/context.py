@@ -198,6 +198,7 @@ class AssistantContextManager(AssistantContextMixin):
                             short_id=insight.id,
                             filters_override=filters_override,
                             variables_override=variables_override,
+                            result=insight.result,
                         )
                     )
 
@@ -345,6 +346,7 @@ class AssistantContextManager(AssistantContextMixin):
             dashboard_filters=dashboard_filters,
             filters_override=filters_override,
             variables_override=variables_override,
+            result=insight.result,
         )
 
     async def _execute_and_format_insight(self, context: InsightContext) -> str | None:

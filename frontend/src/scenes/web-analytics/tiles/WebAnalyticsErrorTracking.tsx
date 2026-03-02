@@ -2,17 +2,17 @@ import clsx from 'clsx'
 import { useActions } from 'kea'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { ErrorTrackingTile } from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { Query } from '~/queries/Query/Query'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { Query } from '~/queries/Query/Query'
 import { ErrorTrackingIssue, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
@@ -77,9 +77,9 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
         <div
             className={clsx(
                 'col-span-1 row-span-1 flex flex-col',
-                layout.colSpanClassName ?? '@4xl/main-content:col-span-6',
-                layout.rowSpanClassName ?? '@4xl/main-content:row-span-1',
-                layout.orderWhenLargeClassName ?? '@7xl/main-content:order-12',
+                layout.colSpanClassName ?? 'md:col-span-6',
+                layout.rowSpanClassName ?? 'md:row-span-1',
+                layout.orderWhenLargeClassName ?? 'xxl:order-12',
                 layout.className
             )}
         >

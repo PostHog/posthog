@@ -265,6 +265,8 @@ public:
 
     virtual std::any visitWithExprColumn(HogQLParser::WithExprColumnContext *context) = 0;
 
+    virtual std::any visitWithExprColumnNameList(HogQLParser::WithExprColumnNameListContext *context) = 0;
+
     virtual std::any visitColumnIdentifier(HogQLParser::ColumnIdentifierContext *context) = 0;
 
     virtual std::any visitNestedIdentifier(HogQLParser::NestedIdentifierContext *context) = 0;

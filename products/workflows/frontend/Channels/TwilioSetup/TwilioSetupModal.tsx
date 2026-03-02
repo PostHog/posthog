@@ -3,8 +3,8 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconTwilio } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { TwilioSetupModalLogicProps, twilioSetupModalLogic } from './twilioSetupModalLogic'
 

@@ -5,8 +5,8 @@ import { LemonBanner, LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import PasswordStrength from 'lib/components/PasswordStrength'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconKey } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { signupLogic } from '../signupLogic'
 

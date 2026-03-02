@@ -1,14 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
-import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
-import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
@@ -22,54 +19,44 @@ import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
 import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import {
     TEMPLATE_LINK_HEADING,
     TEMPLATE_LINK_PII_WARNING,
     TEMPLATE_LINK_TOOLTIP,
 } from 'lib/components/Sharing/templateLinkMessages'
-import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
-import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
-import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
+import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { insightsApi } from 'scenes/insights/utils/api'
-import { projectLogic } from 'scenes/projectLogic'
+import { useMaxTool } from 'scenes/max/useMaxTool'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
-import { HogQLQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -81,21 +68,17 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 
+import { insightModalsLogic } from './insightModalsLogic'
 import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from './utils'
 
 const RESOURCE_TYPE = 'insight'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
-    // insightSceneLogic
-    const { insightMode, itemId, alertId, filtersOverride, variablesOverride, dashboardId } =
-        useValues(insightSceneLogic)
-
+    const { insightMode, filtersOverride, variablesOverride, dashboardId } = useValues(insightSceneLogic)
     const { setInsightMode } = useActions(insightSceneLogic)
 
-    // insightLogic
     const {
         insightProps,
         canEditInsight,
@@ -105,12 +88,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         isSavingTags,
         hasDashboardItemId,
         insightLoading,
-        derivedName,
     } = useValues(insightLogic(insightLogicProps))
-    const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } =
+    const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight, duplicateInsight, deleteInsight } =
         useActions(insightLogic(insightLogicProps))
 
-    // insightDataLogic
     const {
         query,
         queryChanged,
@@ -120,7 +101,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         exportContext,
         hogQLVariables,
         insightQuery,
-        insightData,
         generatedInsightNameLoading,
     } = useValues(insightDataLogic(insightProps))
     const { toggleQueryEditorPanel, toggleDebugPanel, cancelChanges, generateInsightName } = useActions(
@@ -131,60 +111,18 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { featureFlags } = useValues(featureFlagLogic)
     const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
 
-    // endpointLogic
     const { openCreateFromInsightModal } = useActions(endpointLogic({ tabId: insightProps.tabId || '' }))
 
-    // other logics
+    const { openAddToDashboardModal, openTerraformModal } = useActions(insightModalsLogic(insightLogicProps))
+
     const { tags: allExistingTags } = useValues(tagsModel)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
-    const { currentProjectId } = useValues(projectLogic)
     const { push } = useActions(router)
-    const [tags, setTags] = useState(insight.tags)
-    const { posthogTablesMap, allTables } = useValues(databaseTableListLogic)
-
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1]
     const defaultInsightName =
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
-
-    const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
-    const [tablePreviewModalOpen, setTablePreviewModalOpen] = useState<boolean>(false)
-    const [terraformModalOpen, setTerraformModalOpen] = useState<boolean>(false)
-    const [selectedPreviewColumn, setSelectedPreviewColumn] = useState<string | null>('event_person_id')
-    const previewTable = posthogTablesMap.events ?? allTables[0]
-    const previewColumns = useMemo(
-        () => Object.values(previewTable?.fields || {}).filter((column) => column.type !== 'view'),
-        [previewTable?.fields]
-    )
-    const previewColumnOptions = useMemo(
-        () => [
-            { value: null, label: 'No selected column' },
-            ...previewColumns.map((column) => ({
-                value: column.name,
-                label: column.name,
-                labelInMenu: `${column.name} (${column.type})`,
-            })),
-        ],
-        [previewColumns]
-    )
-
-    useEffect(() => {
-        if (
-            previewColumns.length === 0 ||
-            selectedPreviewColumn === null ||
-            previewColumns.some((column) => column.name === selectedPreviewColumn)
-        ) {
-            return
-        }
-
-        const fallbackColumn =
-            previewTable?.name === 'events' && previewColumns.some((column) => column.name === 'event_person_id')
-                ? 'event_person_id'
-                : previewColumns[0].name
-
-        setSelectedPreviewColumn(fallbackColumn)
-    }, [previewColumns, previewTable?.name, selectedPreviewColumn])
 
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
@@ -193,120 +131,27 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
 
-    async function handleDuplicateInsight(): Promise<void> {
-        // We do not want to duplicate the dashboard filters that might be included in this insight
-        // Ideally we would store those separately and be able to remove them on duplicate or edit, but current we merge them
-        // irreversibly in apply_dashboard_filters and return that to the front-end
-        if (insight.short_id) {
-            const cleanInsight = await insightsApi.getByShortId(insight.short_id)
-            if (cleanInsight) {
-                duplicateInsight(cleanInsight, true)
-                return
-            }
-        }
-        // Fallback to original behavior if load failed
-        duplicateInsight(insight as QueryBasedInsightModel, true)
-    }
+    useMaxTool({
+        identifier: 'upsert_alert',
+        active: canCreateAlertForInsight && hasDashboardItemId && !!insight.id,
+        context: useMemo(
+            () => ({
+                insight_id: insight.id,
+                insight_short_id: insight.short_id,
+                insight_name: insight.name || insight.derived_name,
+            }),
+            [insight.id, insight.short_id, insight.name, insight.derived_name]
+        ),
+    })
 
     return (
         <>
-            {hasDashboardItemId && (
-                <>
-                    <SubscriptionsModal
-                        isOpen={insightMode === ItemMode.Subscriptions}
-                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
-                        insightShortId={insight.short_id}
-                        subscriptionId={typeof itemId === 'number' || itemId === 'new' ? itemId : null}
-                    />
-                    <SharingModal
-                        title="Insight sharing"
-                        isOpen={insightMode === ItemMode.Sharing}
-                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
-                        insightShortId={insight.short_id}
-                        insight={insight}
-                        cachedResults={insightData}
-                        previewIframe
-                        userAccessLevel={insight.user_access_level}
-                    />
-                    <AddToDashboardModal
-                        isOpen={addToDashboardModalOpen}
-                        closeModal={() => setAddToDashboardModalOpenModal(false)}
-                        insightProps={insightProps}
-                        canEditInsight={canEditInsight}
-                    />
-                    {insightMode === ItemMode.Alerts && (
-                        <ManageAlertsModal
-                            onClose={() => push(urls.insightView(insight.short_id as InsightShortId))}
-                            isOpen={insightMode === ItemMode.Alerts}
-                            insightLogicProps={insightLogicProps}
-                            insightId={insight.id as number}
-                            insightShortId={insight.short_id as InsightShortId}
-                            canCreateAlertForInsight={canCreateAlertForInsight}
-                        />
-                    )}
-
-                    {!!alertId && insight.id && (
-                        <EditAlertModal
-                            onClose={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
-                            isOpen={!!alertId}
-                            alertId={alertId === null || alertId === 'new' ? undefined : alertId}
-                            insightShortId={insight.short_id as InsightShortId}
-                            insightId={insight.id}
-                            onEditSuccess={() => {
-                                push(urls.insightAlerts(insight.short_id as InsightShortId))
-                            }}
-                            insightLogicProps={insightLogicProps}
-                        />
-                    )}
-                    <NewDashboardModal />
-                    <EndpointFromInsightModal
-                        tabId={insightProps.tabId || ''}
-                        insightQuery={insightQuery as HogQLQuery | InsightQueryNode}
-                        insightShortId={insight.short_id}
-                    />
-                </>
-            )}
-
-            <TerraformExportModal
-                isOpen={terraformModalOpen}
-                onClose={() => setTerraformModalOpen(false)}
-                resource={{ type: 'insight', data: { ...insight, query, derived_name: derivedName } }}
-            />
-            <LemonModal
-                isOpen={tablePreviewModalOpen}
-                onClose={() => setTablePreviewModalOpen(false)}
-                width={1000}
-                title={previewTable ? `Preview table data: ${previewTable.name}` : 'Preview table data'}
-                description="Showcasing the DatabaseTablePreview component on insights."
-            >
-                <div className="mb-2 w-80">
-                    <LemonSelect
-                        fullWidth
-                        value={selectedPreviewColumn}
-                        onChange={(newValue) => setSelectedPreviewColumn(newValue)}
-                        options={previewColumnOptions}
-                        placeholder="Select highlighted column"
-                    />
-                </div>
-                <DatabaseTablePreview
-                    table={previewTable}
-                    emptyMessage="No database tables available to preview."
-                    limit={15}
-                    whereClause={previewTable?.name === 'events' ? "event != '$identify'" : null}
-                    selectedKey={selectedPreviewColumn}
-                    bordered
-                />
-            </LemonModal>
-
             <ScenePanel>
                 <>
                     <ScenePanelInfoSection>
                         <SceneTags
-                            onSave={(tags) => {
-                                setInsightMetadata({ tags })
-                                setTags(tags)
-                            }}
-                            tags={tags}
+                            onSave={(tags) => setInsightMetadata({ tags })}
+                            tags={insight.tags}
                             tagsAvailable={allExistingTags}
                             dataAttrKey={RESOURCE_TYPE}
                             canEdit={canEditInsight}
@@ -324,7 +169,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <ScenePanelDivider />
 
                     <ScenePanelActionsSection>
-                        <SceneDuplicate dataAttrKey={RESOURCE_TYPE} onClick={() => void handleDuplicateInsight()} />
+                        <SceneDuplicate
+                            dataAttrKey={RESOURCE_TYPE}
+                            onClick={() => duplicateInsight(insight as QueryBasedInsightModel, true)}
+                        />
                         <SceneFavorite
                             dataAttrKey={RESOURCE_TYPE}
                             onClick={() => {
@@ -340,9 +188,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             dashboard={
                                 hasDashboardItemId
                                     ? {
-                                          onClick: () => {
-                                              setAddToDashboardModalOpenModal(true)
-                                          },
+                                          onClick: openAddToDashboardModal,
                                       }
                                     : undefined
                             }
@@ -433,7 +279,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         ) : null}
 
                         <ButtonPrimitive
-                            onClick={() => setTerraformModalOpen(true)}
+                            onClick={openTerraformModal}
                             menuItem
                             data-attr={`${RESOURCE_TYPE}-manage-terraform`}
                         >
@@ -452,15 +298,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 Create endpoint
                             </ButtonPrimitive>
                         ) : null}
-                        <ButtonPrimitive
-                            onClick={() => setTablePreviewModalOpen(true)}
-                            menuItem
-                            data-attr={`${RESOURCE_TYPE}-preview-table`}
-                        >
-                            <IconInfo />
-                            Preview table data
-                        </ButtonPrimitive>
-
                         {hogQL &&
                             !isHogQLQuery(query) &&
                             !(isDataVisualizationNode(query) && isHogQLQuery(query.source)) && (
@@ -577,16 +414,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             disabled={!!disabledReason}
                                             {...(disabledReason && { tooltip: disabledReason })}
                                             data-attr={`${RESOURCE_TYPE}-delete`}
-                                            onClick={() =>
-                                                void deleteInsightWithUndo({
-                                                    object: insight as QueryBasedInsightModel,
-                                                    endpoint: `projects/${currentProjectId}/insights`,
-                                                    callback: () => {
-                                                        reloadSavedInsights()
-                                                        push(urls.savedInsights())
-                                                    },
-                                                })
-                                            }
+                                            onClick={() => deleteInsight(dashboardId ?? null)}
                                         >
                                             <IconTrash />
                                             Delete insight
@@ -625,7 +453,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
                 renameDebounceMs={0}
-                // Use onBlur-only saves to prevent autosave while typing
                 saveOnBlur
                 actions={
                     <>

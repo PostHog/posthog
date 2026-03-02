@@ -3,6 +3,33 @@
 exports[`IngestionConsumer error handling should handle explicitly non retriable errors by sending to DLQ 1`] = `
 [
   {
+    "headers": undefined,
+    "key": null,
+    "topic": "clickhouse_person_test",
+    "value": {
+      "created_at": "2025-01-01 00:00:00",
+      "id": "<REPLACED-UUID-0>",
+      "is_deleted": 0,
+      "is_identified": 0,
+      "last_seen_at": "2025-01-01 00:00:00",
+      "properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-1>","$initial_current_url":"http://localhost:8000"}",
+      "team_id": 2,
+      "version": 0,
+    },
+  },
+  {
+    "headers": undefined,
+    "key": null,
+    "topic": "clickhouse_person_distinct_id_test",
+    "value": {
+      "distinct_id": "user-1",
+      "is_deleted": 0,
+      "person_id": "<REPLACED-UUID-0>",
+      "team_id": 2,
+      "version": 0,
+    },
+  },
+  {
     "headers": {
       "distinct_id": "user-1",
       "dlq_offset": "0",
@@ -14,17 +41,17 @@ exports[`IngestionConsumer error handling should handle explicitly non retriable
       "event": "$pageview",
       "now": "2025-01-01T00:00:00.000Z",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-      "uuid": "<REPLACED-UUID-0>",
+      "uuid": "<REPLACED-UUID-1>",
     },
     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
     "topic": "events_plugin_ingestion_dlq_test",
     "value": {
-      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-0>","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-1>","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
       "distinct_id": "user-1",
       "ip": "127.0.0.1",
       "now": "2025-01-01T00:00:00.000Z",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-      "uuid": "<REPLACED-UUID-0>",
+      "uuid": "<REPLACED-UUID-1>",
     },
   },
 ]
@@ -384,7 +411,7 @@ exports[`IngestionConsumer typical event processing ai event 1`] = `
       "person_mode": "full",
       "person_properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-1>","$initial_current_url":"http://localhost:8000"}",
       "project_id": 2,
-      "properties": "{"$current_url":"http://localhost:8000","$ai_model":"gpt-4","$ai_provider":"openai","$ai_input_tokens":100,"$ai_output_tokens":50,"$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"},"$ai_input_cost_usd":0.003,"$ai_output_cost_usd":0.003,"$ai_request_cost_usd":0,"$ai_web_search_cost_usd":0,"$ai_total_cost_usd":0.006,"$ai_model_cost_used":"openai/gpt-4","$ai_cost_model_source":"openrouter","$ai_cost_model_provider":"openai"}",
+      "properties": "{"$current_url":"http://localhost:8000","$ai_model":"gpt-4","$ai_provider":"openai","$ai_input_tokens":100,"$ai_output_tokens":50,"$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"},"$ai_cache_reporting_exclusive":false,"$ai_input_cost_usd":0.003,"$ai_output_cost_usd":0.003,"$ai_request_cost_usd":0,"$ai_web_search_cost_usd":0,"$ai_total_cost_usd":0.006,"$ai_model_cost_used":"openai/gpt-4","$ai_cost_model_source":"openrouter","$ai_cost_model_provider":"openai"}",
       "team_id": 2,
       "timestamp": "2025-01-01 00:00:00.000",
       "uuid": "<REPLACED-UUID-1>",

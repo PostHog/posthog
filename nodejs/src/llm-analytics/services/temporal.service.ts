@@ -6,8 +6,7 @@ import { PluginsServerConfig, RawKafkaEvent } from '../../types'
 import { isDevEnv } from '../../utils/env-utils'
 import { logger } from '../../utils/logger'
 
-/** Narrowed Hub type for TemporalService */
-export type TemporalServiceHub = Pick<
+export type TemporalServiceConfig = Pick<
     PluginsServerConfig,
     | 'TEMPORAL_CLIENT_ROOT_CA'
     | 'TEMPORAL_CLIENT_CERT'
@@ -29,7 +28,7 @@ export class TemporalService {
     private client?: Client
     private connecting?: Promise<Client>
 
-    constructor(private hub: TemporalServiceHub) {}
+    constructor(private config: TemporalServiceConfig) {}
 
     private async ensureConnected(): Promise<Client> {
         if (this.client) {
@@ -48,7 +47,7 @@ export class TemporalService {
     }
 
     private async buildTLSConfig(): Promise<TLSConfig | false> {
-        const { TEMPORAL_CLIENT_ROOT_CA, TEMPORAL_CLIENT_CERT, TEMPORAL_CLIENT_KEY } = this.hub
+        const { TEMPORAL_CLIENT_ROOT_CA, TEMPORAL_CLIENT_CERT, TEMPORAL_CLIENT_KEY } = this.config
 
         if (!(TEMPORAL_CLIENT_ROOT_CA && TEMPORAL_CLIENT_CERT && TEMPORAL_CLIENT_KEY)) {
             return false
@@ -85,19 +84,19 @@ export class TemporalService {
     private async createClient(): Promise<Client> {
         const tls = await this.buildTLSConfig()
 
-        const port = this.hub.TEMPORAL_PORT || '7233'
-        const address = `${this.hub.TEMPORAL_HOST}:${port}`
+        const port = this.config.TEMPORAL_PORT || '7233'
+        const address = `${this.config.TEMPORAL_HOST}:${port}`
 
         const connection = await Connection.connect({ address, tls })
 
         const client = new Client({
             connection,
-            namespace: this.hub.TEMPORAL_NAMESPACE || 'default',
+            namespace: this.config.TEMPORAL_NAMESPACE || 'default',
         })
 
         logger.info('✅ Connected to Temporal', {
             address,
-            namespace: this.hub.TEMPORAL_NAMESPACE,
+            namespace: this.config.TEMPORAL_NAMESPACE,
             tlsEnabled: tls !== false,
         })
 

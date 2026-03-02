@@ -19,13 +19,13 @@ describe('CleartextRecordingEncryptor', () => {
         await expect(encryptor.start()).resolves.toBeUndefined()
     })
 
-    it('should return clearText unchanged', async () => {
+    it('should return data unchanged with sessionState cleartext', async () => {
         const encryptor = new CleartextRecordingEncryptor(mockKeyStore)
         const clearText = Buffer.from('hello world')
 
         const result = await encryptor.encryptBlock('session-123', 1, clearText)
 
-        expect(result).toEqual(clearText)
+        expect(result).toEqual({ data: clearText, sessionState: 'cleartext' })
     })
 
     it('should return data unchanged in encryptBlockWithKey', () => {
@@ -39,6 +39,6 @@ describe('CleartextRecordingEncryptor', () => {
 
         const result = encryptor.encryptBlockWithKey('session-123', 1, blockData, mockSessionKey)
 
-        expect(result).toEqual(blockData)
+        expect(result).toEqual({ data: blockData, sessionState: 'cleartext' })
     })
 })
