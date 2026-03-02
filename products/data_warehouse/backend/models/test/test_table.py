@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -358,6 +359,8 @@ class TestTable(BaseTest):
         assert result is False
 
     def test_detect_csv_double_quotes_returns_true_when_without_quotes_fails(self):
+        from clickhouse_driver.errors import ServerException
+
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="test_csv",
@@ -369,7 +372,7 @@ class TestTable(BaseTest):
 
         def mock_sync_execute(query, args=None, settings=None):
             if settings and settings.get("format_csv_allow_double_quotes") == 0:
-                raise Exception("Rows have different amount of values")
+                raise ServerException("Rows have different amount of values")
             return [["col1", "String"], ["col2", "String"]]
 
         with patch("products.data_warehouse.backend.models.table.sync_execute", side_effect=mock_sync_execute):
@@ -378,6 +381,8 @@ class TestTable(BaseTest):
         assert result is True
 
     def test_detect_csv_double_quotes_returns_false_when_with_quotes_fails(self):
+        from clickhouse_driver.errors import ServerException
+
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="test_csv",
@@ -389,7 +394,7 @@ class TestTable(BaseTest):
 
         def mock_sync_execute(query, args=None, settings=None):
             if settings and settings.get("format_csv_allow_double_quotes") == 1:
-                raise Exception("Rows have different amount of values")
+                raise ServerException("Rows have different amount of values")
             return [["col1", "String"], ["col2", "String"]]
 
         with patch("products.data_warehouse.backend.models.table.sync_execute", side_effect=mock_sync_execute):
@@ -398,6 +403,8 @@ class TestTable(BaseTest):
         assert result is False
 
     def test_detect_csv_double_quotes_returns_none_when_both_fail(self):
+        from clickhouse_driver.errors import ServerException
+
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="test_csv",
@@ -409,11 +416,30 @@ class TestTable(BaseTest):
 
         with patch(
             "products.data_warehouse.backend.models.table.sync_execute",
-            side_effect=Exception("connection error"),
+            side_effect=ServerException("DB::Exception: Cannot parse CSV"),
         ):
             result = table._detect_csv_double_quotes_setting()
 
         assert result is None
+
+    def test_detect_csv_double_quotes_propagates_infra_errors(self):
+        from clickhouse_driver.errors import NetworkError
+
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+        )
+
+        with patch(
+            "products.data_warehouse.backend.models.table.sync_execute",
+            side_effect=NetworkError("connection refused"),
+        ):
+            with pytest.raises(NetworkError):
+                table._detect_csv_double_quotes_setting()
 
     def test_is_csv_format_for_non_csv(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)

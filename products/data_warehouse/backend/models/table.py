@@ -10,6 +10,7 @@ from django.db.models import Q
 
 import chdb
 import structlog
+from clickhouse_driver.errors import ServerException as ClickHouseServerException
 
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 
@@ -498,7 +499,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 settings={"format_csv_allow_double_quotes": 1},
             )
             ok_with_quotes = True
-        except Exception:
+        except ClickHouseServerException:
             pass
 
         # Try with =0 (literal quotes mode) — parse actual data rows
@@ -519,7 +520,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 settings={"format_csv_allow_double_quotes": 0},
             )
             ok_without_quotes = True
-        except Exception:
+        except ClickHouseServerException:
             pass
 
         if ok_with_quotes and not ok_without_quotes:
