@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { IconPencil, IconX } from '@posthog/icons'
+import { LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -47,6 +48,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourney
 
     useOnMountEffect(() => {
         setMenuItems([
+            {
+                label: 'Edit journeys',
+                onClick: () => router.actions.push(urls.customerAnalyticsJourneys()),
+                sideIcon: <IconPencil />,
+            },
             {
                 label: 'Remove',
                 onClick: () => removeNode(NotebookNodeType.CustomerJourney),
@@ -106,9 +112,6 @@ const Settings = ({
     return (
         <div className="flex items-center gap-2 p-2">
             <LemonSelect value={activeJourneyId} onChange={setActiveJourneyId} options={journeyOptions} size="small" />
-            <LemonButton type="tertiary" size="small" to={urls.customerAnalyticsJourneys()} targetBlank>
-                Edit journeys
-            </LemonButton>
         </div>
     )
 }
