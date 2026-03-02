@@ -3,6 +3,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DEFAULT_QUERY } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 
@@ -359,6 +360,22 @@ export function addGroupAttrsToNode({ attrs, node, children = [] }: AddAttrsToNo
                     nodeId,
                 },
             }
+        case NotebookNodeType.Query:
+            return {
+                ...node,
+                attrs: {
+                    ...attrs,
+                    query: {
+                        ...DEFAULT_QUERY,
+                        contextKey: 'group-profile-events',
+                        showTableViews: true,
+                        embedded: true,
+                    },
+                },
+                nodeId,
+                children,
+            }
+
         default:
             return {
                 ...node,
