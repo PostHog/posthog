@@ -9,8 +9,6 @@ import {
     LemonButton,
     LemonDivider,
     LemonInput,
-    LemonSearchableSelect,
-    LemonSelect,
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
@@ -30,15 +28,9 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { ByokModelPicker } from '../ByokModelPicker'
-import { byokModelPickerLogic } from '../byokModelPickerLogic'
-import { LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
-import { LLMProvider } from '../settings/llmProviderKeysLogic'
-import {
-    providerKeyStateIssueDescription,
-    providerKeyStateSuffix,
-    providerLabel,
-} from '../settings/providerKeyStateUtils'
+import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
+import { modelPickerLogic } from '../modelPickerLogic'
+import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
@@ -300,21 +292,25 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
 }
 
 function EvaluationModelPicker(): JSX.Element {
-    const { hasByokKeys, byokModels } = useValues(byokModelPickerLogic)
     const {
-        selectedProvider,
-        selectedKeyId,
-        selectedModel,
-        keysForSelectedProvider,
-        availableModels,
-        availableModelsLoading,
+        hasByokKeys,
+        byokModels,
+        trialModels,
+        providerModelGroups,
+        trialProviderModelGroups,
+        byokModelsLoading,
+        trialModelsLoading,
         providerKeysLoading,
-        selectedPickerProviderKeyId,
-    } = useValues(llmEvaluationLogic)
-    const { setSelectedProvider, setSelectedKeyId, setSelectedModel, selectModelFromPicker } =
-        useActions(llmEvaluationLogic)
+    } = useValues(modelPickerLogic)
+    const { selectedModel, selectedPickerProviderKeyId } = useValues(llmEvaluationLogic)
+    const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
-    const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
+    const allModels = hasByokKeys ? byokModels : trialModels
+    const selectedModelName = allModels.find((m) => m.id === selectedModel)?.name
+    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
+    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
+
+    const footerLink = getModelPickerFooterLink(hasByokKeys)
 
     return (
         <div className="bg-bg-light border rounded p-6">
@@ -324,80 +320,18 @@ function EvaluationModelPicker(): JSX.Element {
             </p>
 
             <div className="space-y-4">
-                {hasByokKeys ? (
-                    <Field name="model" label="Model">
-                        <ByokModelPicker
-                            model={selectedModel}
-                            selectedProviderKeyId={selectedPickerProviderKeyId}
-                            onSelect={selectModelFromPicker}
-                            selectedModelName={selectedModelName}
-                            data-attr="evaluation-model-selector"
-                        />
-                    </Field>
-                ) : (
-                    <>
-                        <Field name="provider" label="Provider">
-                            <LemonSelect
-                                value={selectedProvider}
-                                onChange={(value) => setSelectedProvider(value as LLMProvider)}
-                                options={LLM_PROVIDER_SELECT_OPTIONS}
-                                fullWidth
-                            />
-                        </Field>
-
-                        <Field
-                            name="provider_key"
-                            label={
-                                <div className="flex items-center gap-1">
-                                    <span>API key</span>
-                                    <span className="text-muted">-</span>
-                                    <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
-                                        Manage
-                                    </Link>
-                                </div>
-                            }
-                        >
-                            <LemonSelect
-                                value={selectedKeyId || 'posthog_default'}
-                                onChange={(value) => setSelectedKeyId(value === 'posthog_default' ? null : value)}
-                                options={[
-                                    ...(keysForSelectedProvider.length === 0
-                                        ? [{ value: 'posthog_default', label: 'PostHog default' }]
-                                        : []),
-                                    ...keysForSelectedProvider.map((key) => ({
-                                        value: key.id,
-                                        label: `${key.name}${providerKeyStateSuffix(key.state)}`,
-                                    })),
-                                ]}
-                                loading={providerKeysLoading}
-                                fullWidth
-                            />
-                        </Field>
-
-                        <Field name="model" label="Model">
-                            <>
-                                <LemonSearchableSelect
-                                    value={selectedModel || undefined}
-                                    onChange={(value) => setSelectedModel(value || '')}
-                                    options={availableModels.map((model) => ({
-                                        value: model.id,
-                                        label: model.id,
-                                        disabledReason:
-                                            !selectedKeyId && !model.posthog_available ? 'Requires API key' : undefined,
-                                    }))}
-                                    searchPlaceholder="Search models..."
-                                    loading={availableModelsLoading}
-                                    placeholder="Select a model"
-                                    fullWidth
-                                    disabledReason={!selectedKeyId ? 'Select a provider key first' : undefined}
-                                />
-                                {!selectedKeyId && (
-                                    <p className="text-xs text-muted mt-1">Add your own API key for model selection</p>
-                                )}
-                            </>
-                        </Field>
-                    </>
-                )}
+                <Field name="model" label="Model">
+                    <ModelPicker
+                        model={selectedModel}
+                        selectedProviderKeyId={selectedPickerProviderKeyId}
+                        onSelect={selectModelFromPicker}
+                        groups={groups}
+                        loading={loading}
+                        footerLink={footerLink}
+                        selectedModelName={selectedModelName}
+                        data-attr="evaluation-model-selector"
+                    />
+                </Field>
             </div>
         </div>
     )
