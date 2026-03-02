@@ -21,9 +21,17 @@ function AlertRow({ alert }: AlertRowProps): JSX.Element {
             title={alert.name}
             subtitle={
                 alert.last_checked_at ? (
-                    <>
-                        Last checked <TZLabel time={alert.last_checked_at} />
-                    </>
+                    <div className="flex items-center gap-1">
+                        {alert.last_value !== undefined && (
+                            <>
+                                <span className="font-medium">Value: {alert.last_value}</span>
+                                <span>•</span>
+                            </>
+                        )}
+                        <span>
+                            Last checked <TZLabel time={alert.last_checked_at} />
+                        </span>
+                    </div>
                 ) : (
                     'Not yet checked'
                 )

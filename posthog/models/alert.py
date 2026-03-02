@@ -104,6 +104,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
+    last_value = models.FloatField(null=True, blank=True)
     # UTC time for when next alert check is due
     next_check_at = models.DateTimeField(null=True, blank=True)
     # UTC time until when we shouldn't check alert/notify user
