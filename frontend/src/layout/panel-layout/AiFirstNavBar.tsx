@@ -24,10 +24,10 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
-import { AiChatListItem } from 'lib/ui/ai/AiChatListItem'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
+import { AiChatListItem } from 'scenes/max/components/List/AiChatListItem'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -133,7 +133,7 @@ export function AiFirstNavBar(): JSX.Element {
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const { toggleCommand } = useActions(commandLogic)
-    const { conversationHistory } = useValues(maxGlobalLogic)
+    const { conversationHistory, currentConversationId } = useValues(maxGlobalLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const recentChats = conversationHistory.slice(0, 3)
 
@@ -217,6 +217,7 @@ export function AiFirstNavBar(): JSX.Element {
                                             title={conversation.title}
                                             status={conversation.status}
                                             updatedAt={conversation.updated_at}
+                                            isActive={conversation.id === currentConversationId}
                                         />
                                     ))}
                             </Collapsible.Panel>

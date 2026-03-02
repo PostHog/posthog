@@ -9,7 +9,6 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Link } from 'lib/lemon-ui/Link'
-import { AiChatListItem } from 'lib/ui/ai/AiChatListItem'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 
@@ -17,6 +16,7 @@ import { ConversationDetail } from '~/types'
 
 import { maxLogic } from '../maxLogic'
 import { CHAT_HISTORY_COLLAPSE_THRESHOLD, maxPanelSizingLogic } from '../maxPanelSizingLogic'
+import { AiChatListItem } from './List/AiChatListItem'
 
 interface ChatHistoryPanelProps {
     tabId: string
@@ -158,6 +158,7 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                                                                         }
                                                                     >
                                                                         <AiChatListItem.Content
+                                                                            showIcon
                                                                             title={conversation.title}
                                                                             status={conversation.status}
                                                                             updatedAt={conversation.updated_at}

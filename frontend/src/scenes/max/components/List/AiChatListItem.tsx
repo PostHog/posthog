@@ -1,6 +1,7 @@
+import { useActions } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconEllipsis, IconMessage, IconShare } from '@posthog/icons'
+import { IconEllipsis, IconMessage, IconOpenSidebar, IconShare } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
@@ -21,7 +22,8 @@ import { urls } from 'scenes/urls'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { ConversationStatus } from '~/types'
 
-import { formatConversationDate } from '../../../scenes/max/utils'
+import { maxGlobalLogic } from '../../maxGlobalLogic'
+import { formatConversationDate } from '../../utils'
 
 function getHref(conversationId: string): string {
     return combineUrl(urls.ai(conversationId), { from: 'history' }).url
@@ -32,16 +34,31 @@ function getShareLink(conversationId: string): string {
 }
 
 function ContextMenuAction({ conversationId }: { conversationId: string }): JSX.Element {
+    const { openSidePanelMax } = useActions(maxGlobalLogic)
+
     return (
-        <ContextMenuItem asChild>
-            <ButtonPrimitive
-                menuItem
-                onClick={() => copyToClipboard(getShareLink(conversationId), 'conversation sharing link')}
-            >
-                <IconShare className="size-4 text-tertiary" />
-                Copy link to chat
-            </ButtonPrimitive>
-        </ContextMenuItem>
+        <>
+            <ContextMenuItem asChild>
+                <ButtonPrimitive
+                    menuItem
+                    onClick={() => copyToClipboard(getShareLink(conversationId), 'conversation sharing link')}
+                >
+                    <IconShare className="size-4 text-tertiary" />
+                    Copy link to chat
+                </ButtonPrimitive>
+            </ContextMenuItem>
+            <ContextMenuItem asChild>
+                <ButtonPrimitive
+                    menuItem
+                    onClick={() => {
+                        openSidePanelMax(conversationId ?? undefined)
+                    }}
+                >
+                    <IconOpenSidebar className="size-4 text-tertiary" />
+                    Open in context panel
+                </ButtonPrimitive>
+            </ContextMenuItem>
+        </>
     )
 }
 
@@ -107,6 +124,8 @@ function Group({ children }: { children: React.ReactNode }): JSX.Element {
 }
 
 function Actions({ conversationId }: { conversationId: string }): JSX.Element {
+    const { openSidePanelMax } = useActions(maxGlobalLogic)
+
     return (
         <DropdownMenuContent align="end" loop className="max-w-[250px]">
             <DropdownMenuGroup>
@@ -125,6 +144,17 @@ function Actions({ conversationId }: { conversationId: string }): JSX.Element {
                         Copy link to chat
                     </ButtonPrimitive>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                    <ButtonPrimitive
+                        menuItem
+                        onClick={() => {
+                            openSidePanelMax(conversationId ?? undefined)
+                        }}
+                    >
+                        <IconOpenSidebar className="size-4 text-tertiary" />
+                        Open in context panel
+                    </ButtonPrimitive>
+                </DropdownMenuItem>
             </DropdownMenuGroup>
         </DropdownMenuContent>
     )
@@ -138,6 +168,7 @@ interface AiChatListItemProps {
     isActive?: boolean
     onClick?: (e: React.MouseEvent) => void
     compact?: boolean
+    showIcon?: boolean
 }
 
 function AiChatListItemRoot({
