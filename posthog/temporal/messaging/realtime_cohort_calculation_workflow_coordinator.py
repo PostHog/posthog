@@ -205,6 +205,9 @@ async def get_query_percentile_thresholds_activity(
         from posthog.models.cohort.cohort import Cohort
 
         # Get cohorts with recent duration data (past 24 hours)
+        # NOTE: This queries ALL teams, not just the teams we're about to process.
+        # This provides stable percentile thresholds but may include teams with different
+        # performance characteristics than the ones we're currently processing.
         recent_cohorts = Cohort.objects.filter(
             last_calculation__gte=timezone.now() - dt.timedelta(hours=24),
             last_calculation_duration_ms__isnull=False,
@@ -220,6 +223,7 @@ async def get_query_percentile_thresholds_activity(
         import statistics
 
         durations_list = list(recent_cohorts)
+        LOGGER.info(f"Calculating percentiles from {len(durations_list)} cohorts (all teams, last 24h)")
 
         if len(durations_list) < 2:
             # Need at least 2 data points for meaningful percentiles
@@ -315,7 +319,7 @@ async def get_realtime_cohort_selection_activity(
                         team_cohort_queryset.order_by("id").values("id", "last_calculation_duration_ms")
                     )
                     LOGGER.info(
-                        f"Before duration filtering: {len(before_filter_cohorts)} cohorts with durations: {before_filter_cohorts}"
+                        f"Before duration filtering (teams {list(valid_team_ids)}): {len(before_filter_cohorts)} cohorts with durations: {before_filter_cohorts}"
                     )
 
                     team_cohort_queryset = _apply_duration_filtering(
