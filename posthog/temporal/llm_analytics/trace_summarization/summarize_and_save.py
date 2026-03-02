@@ -37,6 +37,8 @@ def _save_trace_summary_event(
     trace_first_timestamp: str,
     mode: str,
     batch_run_id: str,
+    job_id: int,
+    job_name: str,
     team: Team,
     team_id: int,
 ) -> None:
@@ -46,6 +48,8 @@ def _save_trace_summary_event(
     properties = {
         "$ai_trace_id": trace_id,
         "$ai_batch_run_id": batch_run_id,
+        "$ai_clustering_job_id": job_id,
+        "$ai_clustering_job_name": job_name,
         "$ai_summary_mode": mode,
         "$ai_summary_title": summary_result.title,
         "$ai_summary_flow_diagram": summary_result.flow_diagram,
@@ -73,6 +77,8 @@ def _save_generation_summary_event(
     trace_first_timestamp: str,
     mode: str,
     batch_run_id: str,
+    job_id: int,
+    job_name: str,
     team: Team,
     team_id: int,
 ) -> None:
@@ -83,6 +89,8 @@ def _save_generation_summary_event(
         "$ai_generation_id": generation_id,
         "$ai_trace_id": trace_id,
         "$ai_batch_run_id": batch_run_id,
+        "$ai_clustering_job_id": job_id,
+        "$ai_clustering_job_name": job_name,
         "$ai_summary_mode": mode,
         "$ai_summary_title": summary_result.title,
         "$ai_summary_flow_diagram": summary_result.flow_diagram,
@@ -204,6 +212,8 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
                 input.trace_first_timestamp,
                 input.mode,
                 input.batch_run_id,
+                input.job_id,
+                input.job_name,
                 team,
                 input.team_id,
             )
@@ -216,6 +226,8 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
                 input.trace_first_timestamp,
                 input.mode,
                 input.batch_run_id,
+                input.job_id,
+                input.job_name,
                 team,
                 input.team_id,
             )
