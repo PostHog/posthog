@@ -35,14 +35,12 @@ export class GroupsManagerService {
         this.groupTypesLoader = new LazyLoader({
             name: 'groups_manager_types',
             refreshAgeMs: 10 * 60 * 1000, // 10 minutes - group types rarely change
-            bufferMs: 0,
             loader: async (teamIds) => this.fetchGroupTypes(teamIds),
         })
 
         this.groupPropertiesLoader = new LazyLoader({
             name: 'groups_manager_properties',
             refreshAgeMs: 60 * 1000, // 1 minute
-            bufferMs: 0,
             loader: async (keys) => this.fetchGroupPropertiesBatch(keys),
         })
     }
@@ -63,14 +61,15 @@ export class GroupsManagerService {
             return
         }
 
-        const typeMapping = await this.groupTypesLoader.get(String(globals.project.id))
-        if (!typeMapping) {
+        // Early return - if there are no $groups on the event then we don't need to do anything
+        const groupsProperty = globals.event.properties['$groups']
+        if (typeof groupsProperty !== 'object' || groupsProperty === null || Object.keys(groupsProperty).length === 0) {
             globals.groups = {}
             return
         }
 
-        const groupsProperty = globals.event.properties['$groups']
-        if (typeof groupsProperty !== 'object' || groupsProperty === null) {
+        const typeMapping = await this.groupTypesLoader.get(String(globals.project.id))
+        if (!typeMapping) {
             globals.groups = {}
             return
         }
