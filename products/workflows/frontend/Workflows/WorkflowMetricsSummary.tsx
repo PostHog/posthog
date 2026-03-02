@@ -18,13 +18,12 @@ import { isOptOutEligibleAction } from './hogflows/steps/types'
 import { EXIT_NODE_ID, workflowLogic } from './workflowLogic'
 
 type WorkflowSummaryMetric = 'started' | 'in_progress' | 'persons_messaged' | 'completed'
-type MessageMetric = 'sent' | 'delivered' | 'opened' | 'unsubscribed'
+type MessageMetric = 'email_sent' | 'email_opened' | 'email_unsubscribed'
 
 type MessageMetricRow = {
     id: string
     message: string
     sent: number
-    delivered: number
     opened: number
     unsubscribed: number
 }
@@ -51,8 +50,8 @@ const WORKFLOW_SUMMARY_METRICS: Record<
         metricNames: ['in_progress'],
     },
     persons_messaged: {
-        name: 'Persons messaged',
-        description: 'Total number of persons messaged by this workflow',
+        name: 'Messages delivered',
+        description: 'Total number of messages delivered by this workflow',
         color: getColorVar('primary'),
         metricNames: ['email_sent'],
     },
@@ -64,7 +63,7 @@ const WORKFLOW_SUMMARY_METRICS: Record<
     },
 }
 
-const MESSAGE_METRICS: MessageMetric[] = ['sent', 'delivered', 'opened', 'unsubscribed']
+const MESSAGE_METRICS: MessageMetric[] = ['email_sent', 'email_opened', 'email_unsubscribed']
 
 export function WorkflowMetricsSummary({ logic }: { logic: ReturnType<typeof appMetricsLogic> }): JSX.Element {
     const { workflow } = useValues(workflowLogic)
@@ -168,10 +167,9 @@ export function WorkflowMetricsSummary({ logic }: { logic: ReturnType<typeof app
             return {
                 id: action.id,
                 message: action.name,
-                sent: totals.sent ?? 0,
-                delivered: totals.delivered ?? 0,
-                opened: totals.opened ?? 0,
-                unsubscribed: totals.unsubscribed ?? 0,
+                sent: totals.email_sent ?? 0,
+                opened: totals.email_opened ?? 0,
+                unsubscribed: totals.email_unsubscribed ?? 0,
             }
         })
     }, [messageActions, messageTotalsByActionId])
@@ -189,13 +187,6 @@ export function WorkflowMetricsSummary({ logic }: { logic: ReturnType<typeof app
                 key: 'sent',
                 align: 'right',
                 render: (_, row) => row.sent.toLocaleString(),
-            },
-            {
-                title: 'Delivered',
-                dataIndex: 'delivered',
-                key: 'delivered',
-                align: 'right',
-                render: (_, row) => row.delivered.toLocaleString(),
             },
             {
                 title: 'Opened',
@@ -225,8 +216,8 @@ export function WorkflowMetricsSummary({ logic }: { logic: ReturnType<typeof app
                 const request: AppMetricsTotalsRequest = {
                     appSource: params.appSource,
                     appSourceId: params.appSourceId,
-                    breakdownBy: ['instance_id', 'metric_name'],
-                    metricName: MESSAGE_METRICS,
+                    breakdownBy: ['metric_name'],
+                    metricName: [...MESSAGE_METRICS],
                     dateFrom: dateRange.dateFrom.toISOString(),
                     dateTo: dateRange.dateTo.toISOString(),
                 }

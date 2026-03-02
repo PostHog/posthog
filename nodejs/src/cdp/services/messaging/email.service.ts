@@ -8,6 +8,7 @@ import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
 import { addTrackingToEmail } from './email-tracking.service'
+import { EmailTrackingService } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
@@ -29,7 +30,8 @@ export class EmailService {
         private sesConfig: EmailServiceConfig,
         private integrationManager: IntegrationManagerService,
         encryptionSaltKeys: string,
-        siteUrl: string
+        siteUrl: string,
+        private emailTrackingService?: EmailTrackingService
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -143,6 +145,18 @@ export class EmailService {
         }
 
         result.logs.push(logEntry('debug', `Email sent to your local maildev server: ${mailDevWebUrl}`))
+
+        // For local/dev maildev delivery, also emit app metrics so monitoring mirrors SES flow
+        try {
+            await this.emailTrackingService?.trackMetric({
+                functionId: result.invocation.functionId,
+                invocationId: result.invocation.id,
+                metricName: 'email_sent',
+                source: 'direct',
+            })
+        } catch (err) {
+            result.logs.push(logEntry('warn', `Failed to emit maildev metric via EmailTrackingService: ${String(err)}`))
+        }
     }
 
     private async sendEmailWithSES(

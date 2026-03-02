@@ -9,6 +9,7 @@ import { HogFlowManagerService } from './services/hogflows/hogflow-manager.servi
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
+import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailService } from './services/messaging/email.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
@@ -123,6 +124,20 @@ export function createCdpCoreServices(hub: CdpCoreServicesDeps, redisName = 'cdp
     )
 
     const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+    const hogFunctionMonitoringService = new HogFunctionMonitoringService(
+        hub.kafkaProducer,
+        hub.internalCaptureService,
+        hub.teamManager,
+        hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+        hub.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC
+    )
+
+    const emailTrackingService = new EmailTrackingService(
+        hogFunctionManager,
+        hogFlowManager,
+        hogFunctionMonitoringService
+    )
+
     const emailService = new EmailService(
         {
             sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -132,8 +147,10 @@ export function createCdpCoreServices(hub: CdpCoreServicesDeps, redisName = 'cdp
         },
         hub.integrationManager,
         hub.ENCRYPTION_SALT_KEYS,
-        hub.SITE_URL
+        hub.SITE_URL,
+        emailTrackingService
     )
+
     const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
 
     const hogExecutor = new HogExecutorService(
@@ -156,14 +173,6 @@ export function createCdpCoreServices(hub: CdpCoreServicesDeps, redisName = 'cdp
     const recipientsManager = new RecipientsManagerService(hub.postgres)
     const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
     const hogFlowExecutor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService)
-
-    const hogFunctionMonitoringService = new HogFunctionMonitoringService(
-        hub.kafkaProducer,
-        hub.internalCaptureService,
-        hub.teamManager,
-        hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
-        hub.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC
-    )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(hub)
     const segmentDestinationExecutorService = new SegmentDestinationExecutorService(hub)
