@@ -25,7 +25,7 @@ from products.signals.backend.temporal.summary import (
 
 WORKFLOWS = [
     TeamSignalGroupingWorkflow,
-    EmitSignalWorkflow,  # kept for in-flight workflows during migration
+    EmitSignalWorkflow,  # Kept for in-flight workflows during migration
     SignalReportSummaryWorkflow,
     EmitEvalSignalWorkflow,
 ]
