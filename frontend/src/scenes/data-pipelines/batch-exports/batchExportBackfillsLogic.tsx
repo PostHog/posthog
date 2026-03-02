@@ -120,7 +120,7 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
                 actions.loadBackfills()
             }, 1000)
         },
-        backfillCreated: async ({ startAt, endAt }, breakpoint) => {
+        backfillCreated: async ({ backfillId }, breakpoint) => {
             const MAX_POLL_ATTEMPTS = 10
             const POLL_INTERVAL_MS = 1000
 
@@ -130,34 +130,22 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
                 breakpoint()
 
                 try {
-                    const response = await api.batchExports.listBackfills(props.id, {
-                        ordering: '-created_at',
-                    })
-                    // Match by submitted dates, taking the most recent (list is ordered by -created_at).
-                    // We compare parsed timestamps since the submitted format (e.g. "2024-01-15" or
-                    // "2024-01-15T00:00:00.000Z") may differ from the API response format.
-                    const submittedStart = startAt ? dayjs(startAt).valueOf() : null
-                    const submittedEnd = endAt ? dayjs(endAt).valueOf() : null
-                    const matchingBackfill = response.results.find((b) => {
-                        const bStart = b.start_at ? dayjs(b.start_at).valueOf() : null
-                        const bEnd = b.end_at ? dayjs(b.end_at).valueOf() : null
-                        return bStart === submittedStart && bEnd === submittedEnd
-                    })
+                    const backfill = await api.batchExports.getBackfill(props.id, backfillId)
 
-                    if (matchingBackfill?.total_records_count != null) {
-                        if (matchingBackfill.total_records_count === 0) {
+                    if (backfill?.total_records_count != null) {
+                        if (backfill.total_records_count === 0) {
                             lemonToast.warning(
                                 'No rows found to export for the selected time range. The backfill will finish with nothing to export.'
                             )
                         } else {
                             lemonToast.info(
-                                `Estimated ~${matchingBackfill.total_records_count.toLocaleString()} rows to export`,
+                                `Estimated ~${backfill.total_records_count.toLocaleString()} rows to export`,
                                 {
                                     button: {
                                         label: 'Cancel backfill',
                                         action: async () => {
                                             try {
-                                                await api.batchExports.cancelBackfill(props.id, matchingBackfill.id)
+                                                await api.batchExports.cancelBackfill(props.id, backfill.id)
                                                 lemonToast.success('Backfill cancelled')
                                                 actions.loadBackfills()
                                             } catch {

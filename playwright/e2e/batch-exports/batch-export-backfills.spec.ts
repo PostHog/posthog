@@ -6,7 +6,7 @@ async function setupBackfillRoutes(
     page: Page,
     mockExportId: string,
     options: {
-        backfillsOnList?: (callCount: number, submittedDates: { start_at: string; end_at: string }) => object
+        backfillOnGet?: (callCount: number) => object | null
     } = {}
 ): Promise<void> {
     const mockExport = {
@@ -27,14 +27,16 @@ async function setupBackfillRoutes(
         offset_day: null,
         offset_hour: null,
         paused: false,
-        created_at: '2024-01-01T00:00:00Z',
-        last_updated_at: '2024-01-01T00:00:00Z',
+        created_at: '2026-01-01T00:00:00Z',
+        last_updated_at: '2026-01-01T00:00:00Z',
         last_paused_at: null,
         start_at: null,
         end_at: null,
         latest_runs: [],
         filters: [],
     }
+
+    const mockBackfillId = 'backfill-001'
 
     await page.route(`**/api/environments/*/batch_exports/${mockExportId}/`, async (route) => {
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockExport) })
@@ -51,29 +53,51 @@ async function setupBackfillRoutes(
         }
     )
 
-    let submittedDates: { start_at: string; end_at: string } | null = null
-    let backfillListCallCount = 0
+    let backfillGetCallCount = 0
+    let backfillCreated = false
+
     await page.route(
         (url) => url.pathname.includes(`/batch_exports/${mockExportId}/backfills`),
         async (route) => {
+            const url = route.request().url()
+
             if (route.request().method() === 'POST') {
-                const postData = route.request().postDataJSON()
-                submittedDates = { start_at: postData.start_at, end_at: postData.end_at }
+                backfillCreated = true
                 await route.fulfill({
                     status: 201,
                     contentType: 'application/json',
-                    body: JSON.stringify({ backfill_id: 'temporal-workflow-id' }),
+                    body: JSON.stringify({ backfill_id: mockBackfillId }),
                 })
-            } else {
-                // Only return backfills after a backfill has been created
+            } else if (url.includes(`/backfills/${mockBackfillId}/`)) {
+                // Individual backfill GET (polling for estimate)
                 const response =
-                    submittedDates && options.backfillsOnList
-                        ? options.backfillsOnList(++backfillListCallCount, submittedDates)
-                        : { results: [], next: null }
+                    backfillCreated && options.backfillOnGet ? options.backfillOnGet(++backfillGetCallCount) : null
+                if (response) {
+                    await route.fulfill({
+                        status: 200,
+                        contentType: 'application/json',
+                        body: JSON.stringify(response),
+                    })
+                } else {
+                    await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' })
+                }
+            } else {
+                // List backfills
+                const results = backfillCreated
+                    ? [
+                          {
+                              id: mockBackfillId,
+                              status: 'Running',
+                              created_at: new Date().toISOString(),
+                              start_at: '2026-01-10T00:00:00Z',
+                              end_at: '2026-01-15T00:00:00Z',
+                          },
+                      ]
+                    : []
                 await route.fulfill({
                     status: 200,
                     contentType: 'application/json',
-                    body: JSON.stringify(response),
+                    body: JSON.stringify({ results, next: null }),
                 })
             }
         }
@@ -83,38 +107,27 @@ async function setupBackfillRoutes(
 test.describe('Batch export backfills', () => {
     test('Shows backfill estimate toast with cancel option after creating a backfill', async ({ page }) => {
         const mockExportId = '01234567-0123-0123-0123-0123456789ab'
-        const mockBackfillId = 'backfill-001'
 
         await setupBackfillRoutes(page, mockExportId, {
-            backfillsOnList: (callCount, { start_at, end_at }) => {
+            backfillOnGet: (callCount) => {
                 if (callCount <= 2) {
                     // First 2 calls: backfill exists but no estimate yet
                     return {
-                        results: [
-                            {
-                                id: mockBackfillId,
-                                status: 'Starting',
-                                created_at: new Date().toISOString(),
-                                start_at,
-                                end_at,
-                            },
-                        ],
-                        next: null,
+                        id: 'backfill-001',
+                        status: 'Starting',
+                        created_at: new Date().toISOString(),
+                        start_at: '2026-01-10T00:00:00Z',
+                        end_at: '2026-01-15T00:00:00Z',
                     }
                 }
                 // After 2 calls: estimate becomes available
                 return {
-                    results: [
-                        {
-                            id: mockBackfillId,
-                            status: 'Running',
-                            created_at: new Date().toISOString(),
-                            start_at,
-                            end_at,
-                            total_records_count: 42500,
-                        },
-                    ],
-                    next: null,
+                    id: 'backfill-001',
+                    status: 'Running',
+                    created_at: new Date().toISOString(),
+                    start_at: '2026-01-10T00:00:00Z',
+                    end_at: '2026-01-15T00:00:00Z',
+                    total_records_count: 42500,
                 }
             },
         })
