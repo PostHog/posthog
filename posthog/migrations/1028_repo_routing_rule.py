@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1021_user_repo_preference"),
+        ("posthog", "1027_user_repo_preference"),
     ]
 
     operations = [

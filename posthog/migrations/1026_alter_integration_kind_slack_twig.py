@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1019_alter_integration_kind_pinterest_ads"),
+        ("posthog", "1025_drop_team_session_recording_encryption_column"),
     ]
 
     operations = [

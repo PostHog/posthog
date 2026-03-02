@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1020_alter_integration_kind_slack_twig"),
+        ("posthog", "1026_alter_integration_kind_slack_twig"),
     ]
 
     operations = [
