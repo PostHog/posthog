@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 import requests
 
-from posthog.security.outbound_proxy import make_proxied_requests_session
+from posthog.security.outbound_proxy import external_requests_session
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class CustomerIOClient:
         self.api_key = app_api_key
         self.timeout = timeout
         self.BASE_URL = self.EU_BASE_URL if region.lower() == "eu" else self.US_BASE_URL
-        self.session = make_proxied_requests_session()
+        self.session = external_requests_session()
         # Don't store credentials in session headers - add them per request instead
         self.session.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
 

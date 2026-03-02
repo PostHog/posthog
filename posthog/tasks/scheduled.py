@@ -297,8 +297,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="send HogFunctions daily digest",
     )
 
+    # Send Error Tracking weekly digest at 8:30 AM UTC on Monday
     sender.add_periodic_task(
-        crontab(minute="0"),
+        crontab(hour="8", minute="30", day_of_week="mon"),
         send_error_tracking_weekly_digest.s(),
         name="send Error Tracking weekly digest",
     )

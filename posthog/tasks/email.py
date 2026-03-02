@@ -1490,7 +1490,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         else list(all_memberships)
     )
 
-    date_suffix = timezone.now().strftime("%Y-%W-%d-%H")
+    date_suffix = timezone.now().strftime("%Y-%W")
     sent_count = 0
 
     for membership in memberships:
@@ -1519,6 +1519,8 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
 
         if not user_team_sections:
             continue
+
+        user_team_sections.sort(key=lambda d: d["exception_count"], reverse=True)
 
         campaign_key = f"error_tracking_weekly_digest_{org_id}_{user.uuid}_{date_suffix}"
         message = EmailMessage(
