@@ -96,8 +96,6 @@ def _make_dynamodb_client(
 
 
 class _PatchContext:
-    """Holds mock references for sync_execute and SessionRecording.objects so tests can assert on them."""
-
     def __init__(self, sync_execute_mock: MagicMock, recording_objects_mock: MagicMock):
         self.sync_execute = sync_execute_mock
         self.recording_objects = recording_objects_mock

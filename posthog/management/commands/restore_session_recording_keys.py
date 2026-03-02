@@ -301,6 +301,7 @@ class Command(BaseCommand):
             WHERE session_id IN %(session_ids)s AND team_id IN %(team_ids)s
             """,
             {"session_ids": session_id_list, "team_ids": list(team_ids)},
+            settings={"mutations_sync": 2},
         )
         self.stdout.write(f"  ClickHouse: undeleted {len(session_id_list)} sessions")
 
