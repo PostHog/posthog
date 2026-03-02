@@ -1,0 +1,105 @@
+name: AI PostHog POC
+
+on:
+    workflow_dispatch:
+    pull_request:
+        types: [opened, synchronize, reopened, labeled, unlabeled]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    evals-posthog-poc:
+        name: AI evals PostHog POC
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+        if: |
+            github.repository == 'PostHog/posthog' && (
+                github.event_name == 'workflow_dispatch' ||
+                contains(github.event.pull_request.labels.*.name, 'posthog-evals-poc')
+            )
+
+        permissions:
+            contents: read
+
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+                  fetch-depth: 0
+                  filter: blob:none
+                  clean: false
+
+            - name: Clean up data directories with container permissions
+              run: |
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+
+            - name: Stop/Start stack with Docker Compose
+              run: |
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d
+
+            - name: Wait for Docker services
+              run: bin/wait-for-docker
+
+            - name: Set up Python
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+                  enable-cache: true
+
+            - name: Install python dependencies
+              shell: bash
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install sqlx-cli
+              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
+            - name: Add Kafka and ClickHouse to /etc/hosts
+              run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+
+            - name: Validate PostHog eval secrets
+              env:
+                  POSTHOG_EVALS_HOST: ${{ secrets.POSTHOG_EVALS_HOST }}
+                  POSTHOG_EVALS_PROJECT_API_KEY: ${{ secrets.POSTHOG_EVALS_PROJECT_API_KEY }}
+              run: |
+                  test -n "$POSTHOG_EVALS_HOST" || { echo "POSTHOG_EVALS_HOST is required"; exit 1; }
+                  test -n "$POSTHOG_EVALS_PROJECT_API_KEY" || { echo "POSTHOG_EVALS_PROJECT_API_KEY is required"; exit 1; }
+
+            - name: Run PostHog POC evals
+              run: pytest -c ee/hogai/eval/posthog_poc/pytest.ini ee/hogai/eval/posthog_poc -vv --junitxml=junit.xml
+              env:
+                  EXPORT_EVAL_RESULTS: true
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  POSTHOG_EVALS_HOST: ${{ secrets.POSTHOG_EVALS_HOST }}
+                  POSTHOG_EVALS_PROJECT_API_KEY: ${{ secrets.POSTHOG_EVALS_PROJECT_API_KEY }}
+
+            - name: Upload eval artifacts
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: posthog-evals-poc
+                  path: |
+                      junit.xml
+                      posthog_eval_results.jsonl
