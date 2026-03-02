@@ -145,18 +145,6 @@ export class EmailService {
         }
 
         result.logs.push(logEntry('debug', `Email sent to your local maildev server: ${mailDevWebUrl}`))
-
-        // For local/dev maildev delivery, also emit app metrics so monitoring mirrors SES flow
-        try {
-            await this.emailTrackingService?.trackMetric({
-                functionId: result.invocation.functionId,
-                invocationId: result.invocation.id,
-                metricName: 'email_sent',
-                source: 'direct',
-            })
-        } catch (err) {
-            result.logs.push(logEntry('warn', `Failed to emit maildev metric via EmailTrackingService: ${String(err)}`))
-        }
     }
 
     private async sendEmailWithSES(

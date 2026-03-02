@@ -120,7 +120,7 @@ export function WorkflowMetrics(props: WorkflowLogicProps): JSX.Element {
             </div>
 
             {!params.instanceId || params.instanceId === OVERVIEW_OPTION_VALUE ? (
-                <WorkflowMetricsSummary logic={logic} />
+                <WorkflowMetricsSummary logicKey={logicKey} id={props.id ?? ''} />
             ) : (
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">
