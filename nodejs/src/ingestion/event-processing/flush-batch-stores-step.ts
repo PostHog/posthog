@@ -54,13 +54,17 @@ export function createFlushBatchStoresStep<TOutput, COutput>(): AfterBatchStep<T
         const { personsStore, groupStore, kafkaProducer } = input.batchContext
 
         try {
+            // Flush both stores in parallel (DB operations, still blocking)
             const [_groupResults, personsStoreMessages] = await Promise.all([groupStore.flush(), personsStore.flush()])
 
+            // Create Kafka produce promises for all person/group store updates
             const producePromises = createProducePromises(personsStoreMessages, kafkaProducer)
 
+            // Report metrics for this batch
             personsStore.reportBatch()
             groupStore.reportBatch()
 
+            // Reset stores for next batch
             personsStore.reset()
             groupStore.reset()
 
@@ -94,6 +98,7 @@ function createProducePromises(
                     headers: message.headers,
                 })
                 .catch((error) => {
+                    // Handle message size errors gracefully by capturing a warning
                     if (error instanceof MessageSizeTooLarge) {
                         logger.warn('🪣', 'flushBatchStoresStep: Message size too large', {
                             topic: record.topicMessage.topic,
@@ -107,6 +112,7 @@ function createProducePromises(
                             step: 'flushBatchStoresStep',
                         })
                     } else {
+                        // Other errors should fail the side effect
                         logger.error('❌', 'flushBatchStoresStep: Failed to produce message', {
                             error,
                             topic: record.topicMessage.topic,
