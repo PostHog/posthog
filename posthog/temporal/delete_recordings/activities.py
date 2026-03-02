@@ -17,9 +17,12 @@ from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.delete_recordings import object_storage as chunk_storage
 from posthog.temporal.delete_recordings.types import (
+    CleanupChunksInput,
     DeleteRecordingsInput,
     DeleteRecordingsResult,
+    LoadChunkInput,
     LoadRecordingError,
     LoadRecordingsPage,
     PurgeDeletedMetadataInput,
@@ -223,3 +226,26 @@ async def delete_recordings(input: DeleteRecordingsInput) -> DeleteRecordingsRes
     )
 
     return DeleteRecordingsResult(deleted=deleted, failed_count=failed_count)
+
+
+@activity.defn(name="load-session-id-chunk")
+async def load_session_id_chunk(input: LoadChunkInput) -> LoadRecordingsPage:
+    logger = LOGGER.bind()
+    logger.info("Loading session ID chunk from S3", chunk_index=input.chunk_index, s3_prefix=input.s3_prefix)
+
+    session_ids = await chunk_storage.load_session_id_chunk(input.s3_prefix, input.chunk_index)
+
+    logger.info("Loaded session ID chunk", session_count=len(session_ids))
+    return LoadRecordingsPage(session_ids=session_ids)
+
+
+@activity.defn(name="cleanup-session-id-chunks")
+async def cleanup_session_id_chunks(input: CleanupChunksInput) -> None:
+    logger = LOGGER.bind()
+    logger.info("Cleaning up session ID chunks from S3", s3_prefix=input.s3_prefix, total_chunks=input.total_chunks)
+
+    try:
+        await chunk_storage.delete_session_id_chunks(input.s3_prefix, input.total_chunks)
+        logger.info("Cleanup completed")
+    except Exception as e:
+        logger.warning("Cleanup failed", error=str(e))

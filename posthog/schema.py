@@ -373,6 +373,7 @@ class AssistantTool(StrEnum):
     LIST_DATA = "list_data"
     UPSERT_ALERT = "upsert_alert"
     FINALIZE_PLAN = "finalize_plan"
+    CALL_MCP_SERVER = "call_mcp_server"
     RECOMMEND_PRODUCTS = "recommend_products"
     SEARCH_LLM_TRACES = "search_llm_traces"
 
@@ -1868,6 +1869,7 @@ class FileSystemIconType(StrEnum):
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_DATASETS = "llm_datasets"
+    LLM_PLAYGROUND = "llm_playground"
     LLM_PROMPTS = "llm_prompts"
     LLM_CLUSTERS = "llm_clusters"
     EXPORTS = "exports"
@@ -2113,6 +2115,12 @@ class InCohortVia(StrEnum):
     LEFTJOIN = "leftjoin"
     SUBQUERY = "subquery"
     LEFTJOIN_CONJOINED = "leftjoin_conjoined"
+
+
+class InlineCohortCalculation(StrEnum):
+    OFF = "off"
+    AUTO = "auto"
+    ALWAYS = "always"
 
 
 class MaterializationMode(StrEnum):
@@ -3446,6 +3454,11 @@ class RetentionDashboardDisplayType(StrEnum):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
+
+
+class AggregationPropertyType(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
 
 
 class AggregationType(StrEnum):
@@ -5480,6 +5493,7 @@ class HogQLQueryModifiers(BaseModel):
     )
     formatCsvAllowDoubleQuotes: bool | None = None
     inCohortVia: InCohortVia | None = None
+    inlineCohortCalculation: InlineCohortCalculation | None = None
     materializationMode: MaterializationMode | None = None
     materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
     optimizeJoinedFilters: bool | None = None
@@ -13999,6 +14013,10 @@ class RetentionFilter(BaseModel):
     aggregationProperty: str | None = Field(
         default=None,
         description="The property to aggregate when aggregationType is sum or avg",
+    )
+    aggregationPropertyType: AggregationPropertyType | None = Field(
+        default=AggregationPropertyType.EVENT,
+        description=("The type of property to aggregate on (event or person). Defaults to event."),
     )
     aggregationType: AggregationType | None = Field(
         default=AggregationType.COUNT,

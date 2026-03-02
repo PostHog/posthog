@@ -1,14 +1,18 @@
 import './SidePanel.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 
 import { IconBook, IconGear, IconInfo, IconLock, IconLogomark, IconNotebook } from '@posthog/icons'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
-import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
+
+const NotebookPanel = lazy(() =>
+    import('scenes/notebooks/NotebookPanel/NotebookPanel').then((m) => ({ default: m.NotebookPanel }))
+)
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import {
@@ -223,7 +227,9 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
             {PanelContent && (
                 <SidePanelNavigation activeTab={activeTab as SidePanelTab} onTabChange={(tab) => openSidePanel(tab)}>
                     <ErrorBoundary>
-                        <PanelContent />
+                        <Suspense fallback={<Spinner className="text-4xl mx-auto mt-16" />}>
+                            <PanelContent />
+                        </Suspense>
                     </ErrorBoundary>
                 </SidePanelNavigation>
             )}
