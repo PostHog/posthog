@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
-import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipelineResultWithContext, FeedResult } from './batch-pipeline.interface'
 import { FilterMapBatchPipeline, FilterMapMappingFunction } from './filter-map-batch-pipeline'
 import { createContext, createNewBatchPipeline } from './helpers'
 import { dlq, drop, ok, redirect } from './results'
@@ -280,11 +280,12 @@ describe('FilterMapBatchPipeline', () => {
             const subBatches: BatchPipelineResultWithContext<string, { message: Message }>[] = []
             let subIndex = 0
             const subPipeline = {
-                feed(elements: BatchPipelineResultWithContext<string, { message: Message }>) {
+                feed(elements: BatchPipelineResultWithContext<string, { message: Message }>): FeedResult {
                     subPipelineFeed(elements)
                     for (const el of elements) {
                         subBatches.push([el])
                     }
+                    return { ok: true }
                 },
                 next() {
                     if (subIndex >= subBatches.length) {
