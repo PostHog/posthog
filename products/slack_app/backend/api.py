@@ -75,7 +75,7 @@ class RepoDecision:
 
 @dataclass
 class RulesCommand:
-    action: Literal["list", "add", "remove"]
+    action: Literal["list", "add", "remove", "help"]
     rule_text: str | None = None
     repository: str | None = None
     rule_number: int | None = None
@@ -669,6 +669,9 @@ def _parse_rules_command(text: str) -> RulesCommand | None:
     remove_match = re.fullmatch(r"rules\s+remove\s+(\d+)", cleaned, flags=re.IGNORECASE)
     if remove_match:
         return RulesCommand(action="remove", rule_number=int(remove_match.group(1)))
+
+    if re.fullmatch(r"help", cleaned, flags=re.IGNORECASE):
+        return RulesCommand(action="help")
 
     return None
 

@@ -414,6 +414,9 @@ class TestParseRulesCommand:
                 "<@U123BOT> rules remove 1",
                 RulesCommand(action="remove", rule_number=1),
             ),
+            ("help", "help", RulesCommand(action="help")),
+            ("help_case_insensitive", "Help", RulesCommand(action="help")),
+            ("bot_mention_help", "<@U123BOT> help", RulesCommand(action="help")),
         ]
     )
     def test_parses_command(self, _name, text, expected):

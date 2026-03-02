@@ -260,7 +260,9 @@ def handle_twig_rules_command_activity(
     )
     slack = SlackIntegration(integration)
 
-    if command.action == "list":
+    if command.action == "help":
+        _handle_help(slack, channel, thread_ts)
+    elif command.action == "list":
         _handle_rules_list(slack, integration, channel, thread_ts)
     elif command.action == "add":
         if not command.repository:
@@ -270,6 +272,23 @@ def handle_twig_rules_command_activity(
         _handle_rules_remove(slack, integration, channel, thread_ts, command.rule_number)
 
     return TwigRulesCommandResult(status="handled")
+
+
+def _handle_help(slack: Any, channel: str, thread_ts: str) -> None:
+    slack.client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text=(
+            "*Available commands:*\n\n"
+            "`@Twig <task description>` — Create a task for the agent to work on\n"
+            "`@Twig rules list` — Show all routing rules\n"
+            '`@Twig rules add "description" org/repo` — Add a routing rule\n'
+            '`@Twig rules add "description"` — Add a routing rule (pick repo from list)\n'
+            "`@Twig rules remove <number>` — Remove a routing rule by number\n"
+            "`@Twig help` — Show this message\n\n"
+            "You can also reply in an active thread to send follow-up messages to the agent."
+        ),
+    )
 
 
 def _handle_rules_list(slack: Any, integration: Any, channel: str, thread_ts: str) -> None:
