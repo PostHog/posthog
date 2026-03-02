@@ -65,10 +65,12 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                 }
 
                 const unreachable = new Set<number>()
-                for (let i = 1; i < groups.length; i++) {
-                    const hasBroadPrior = groups.slice(0, i).some(isGroupBroad)
-                    if (hasBroadPrior) {
+                let foundBroad = false
+                for (let i = 0; i < groups.length; i++) {
+                    if (foundBroad) {
                         unreachable.add(i)
+                    } else if (isGroupBroad(groups[i])) {
+                        foundBroad = true
                     }
                 }
                 return unreachable
@@ -156,12 +158,8 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
         ],
 
         intentDocUrl: [
-            (s) => [s.flagIntent, s.enabledFeatures],
-            (flagIntent: FlagIntent | null, enabledFeatures: Record<string, boolean | string>): string | null => {
-                const intentsEnabled = !!enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS]
-                if (!intentsEnabled || !flagIntent) {
-                    return null
-                }
+            (s) => [s.flagIntent],
+            (flagIntent: FlagIntent | null): string | null => {
                 if (flagIntent === 'local-eval') {
                     return 'https://posthog.com/docs/feature-flags/local-evaluation#restriction-on-local-evaluation'
                 }

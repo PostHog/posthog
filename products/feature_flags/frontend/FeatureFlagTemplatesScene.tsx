@@ -2,23 +2,14 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import {
-    IconArrowLeft,
-    IconFlask,
-    IconPeople,
-    IconPlus,
-    IconRocket,
-    IconServer,
-    IconTestTube,
-    IconToggle,
-} from '@posthog/icons'
+import { IconArrowLeft, IconFlask, IconPeople, IconPlus, IconTestTube, IconToggle } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { FlagIntent } from 'scenes/feature-flags/featureFlagIntentWarningLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { INTENT_NAMES, TEMPLATE_NAMES, TemplateKey } from './featureFlagTemplateConstants'
+import { INTENT_KEYS, INTENT_METADATA, TEMPLATE_NAMES, TemplateKey } from './featureFlagTemplateConstants'
 import { featureFlagTemplatesSceneLogic, SelectedTemplate } from './featureFlagTemplatesSceneLogic'
 
 export const scene: SceneExport = {
@@ -52,25 +43,6 @@ const TEMPLATES: FeatureFlagTemplate[] = [
         key: 'targeted-multivariate',
         description: 'Test variants for specific user or group segments',
         icon: <IconFlask className="w-6 h-6 text-primary-3000" />,
-    },
-]
-
-interface EvaluationIntent {
-    key: FlagIntent
-    description: string
-    icon: JSX.Element
-}
-
-const INTENTS: EvaluationIntent[] = [
-    {
-        key: 'local-eval',
-        description: 'Evaluate flags server-side without network requests for fastest performance',
-        icon: <IconServer className="w-6 h-6 text-primary-3000" />,
-    },
-    {
-        key: 'first-page-load',
-        description: 'Avoid flags evaluating to false on first load, preventing content flicker',
-        icon: <IconRocket className="w-6 h-6 text-primary-3000" />,
     },
 ]
 
@@ -116,30 +88,32 @@ function TemplateCard({ template, onClick }: TemplateCardProps): JSX.Element {
     )
 }
 
-function IntentCard({ intent, template }: { intent: EvaluationIntent; template: SelectedTemplate }): JSX.Element {
+function IntentCard({ intentKey, template }: { intentKey: FlagIntent; template: SelectedTemplate }): JSX.Element {
     const { searchParams } = useValues(router)
+    const metadata = INTENT_METADATA[intentKey]
+    const IntentIcon = metadata.icon
 
     const handleClick = (): void => {
         posthog.capture('feature flag intent selected', {
-            intent: intent.key,
+            intent: intentKey,
             template,
         })
-        navigateToNewFlag(searchParams, template, intent.key)
+        navigateToNewFlag(searchParams, template, intentKey)
     }
 
     return (
         <button
             className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left group p-6 cursor-pointer min-h-[180px]"
-            data-attr={`feature-flag-intent-${intent.key}`}
+            data-attr={`feature-flag-intent-${intentKey}`}
             onClick={handleClick}
         >
             <div className="flex flex-col items-center text-center gap-4 h-full">
                 <div className="bg-primary-3000/10 rounded-lg flex-shrink-0 size-12 flex items-center justify-center">
-                    {intent.icon}
+                    <IntentIcon className="w-6 h-6 text-primary-3000" />
                 </div>
                 <div className="flex-1 flex flex-col justify-start">
-                    <h3 className="text-base font-semibold text-default mb-2">{INTENT_NAMES[intent.key]}</h3>
-                    <p className="text-sm text-secondary leading-relaxed">{intent.description}</p>
+                    <h3 className="text-base font-semibold text-default mb-2">{metadata.name}</h3>
+                    <p className="text-sm text-secondary leading-relaxed">{metadata.description}</p>
                 </div>
             </div>
         </button>
@@ -213,8 +187,8 @@ function IntentStep({ template }: { template: SelectedTemplate }): JSX.Element {
                     </p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
-                    {INTENTS.map((intent) => (
-                        <IntentCard key={intent.key} intent={intent} template={template} />
+                    {INTENT_KEYS.map((key) => (
+                        <IntentCard key={key} intentKey={key} template={template} />
                     ))}
                 </div>
                 <div className="text-center">
@@ -247,7 +221,7 @@ export function FeatureFlagTemplatesScene(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col items-center justify-center py-8" style={{ minHeight: '80vh' }}>
+        <div className="flex flex-col items-center justify-center py-8 min-h-[80vh]">
             <div className="w-full max-w-5xl px-4">
                 {selectedTemplate && intentsEnabled ? (
                     <IntentStep template={selectedTemplate} />

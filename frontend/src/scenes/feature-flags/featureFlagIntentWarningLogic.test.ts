@@ -2,8 +2,10 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 
 import { useMocks } from '~/mocks/jest'
+import { cohortsModel } from '~/models/cohortsModel'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -191,6 +193,80 @@ describe('featureFlagIntentWarningLogic', () => {
             expect(issues.some((s) => s.toLowerCase().includes(expectedIssueContains.toLowerCase()))).toBe(true)
         })
 
+        it('detects static cohort', async () => {
+            enableIntentsFeatureFlag()
+
+            cohortsModel.mount()
+            cohortsModel.actions.cohortCreated({
+                id: 1,
+                name: 'Static Cohort',
+                is_static: true,
+                filters: { properties: { type: 'AND', values: [] } },
+            } as any)
+
+            flagLogic.actions.setFlagIntent('local-eval')
+            flagLogic.actions.setFeatureFlag({
+                ...NEW_FLAG,
+                filters: {
+                    ...NEW_FLAG.filters,
+                    groups: [
+                        {
+                            properties: [
+                                { key: 'id', type: PropertyFilterType.Cohort, value: 1, operator: PropertyOperator.In },
+                            ] as AnyPropertyFilter[],
+                            rollout_percentage: 100,
+                            variant: null,
+                        },
+                    ],
+                },
+            })
+
+            const issues = warningLogic.values.intentIssues
+            expect(issues.some((s) => s.toLowerCase().includes('static cohort'))).toBe(true)
+        })
+
+        it('detects behavioral cohort', async () => {
+            enableIntentsFeatureFlag()
+
+            cohortsModel.mount()
+            cohortsModel.actions.cohortCreated({
+                id: 2,
+                name: 'Behavioral Cohort',
+                is_static: false,
+                filters: {
+                    properties: {
+                        type: 'AND',
+                        values: [
+                            {
+                                type: 'AND',
+                                values: [{ type: BehavioralFilterKey.Behavioral, key: 'performed_event' }],
+                            },
+                        ],
+                    },
+                },
+            } as any)
+
+            flagLogic.actions.setFlagIntent('local-eval')
+            flagLogic.actions.setFeatureFlag({
+                ...NEW_FLAG,
+                filters: {
+                    ...NEW_FLAG.filters,
+                    groups: [
+                        {
+                            properties: [
+                                { key: 'id', type: PropertyFilterType.Cohort, value: 2, operator: PropertyOperator.In },
+                            ] as AnyPropertyFilter[],
+                            rollout_percentage: 100,
+                            variant: null,
+                        },
+                    ],
+                },
+            })
+
+            const issues = warningLogic.values.intentIssues
+            expect(issues.some((s) => s.toLowerCase().includes('behavioral'))).toBe(true)
+        })
+
         it('multiple issues across groups are deduplicated', async () => {
             enableIntentsFeatureFlag()
 
@@ -309,6 +385,72 @@ describe('featureFlagIntentWarningLogic', () => {
             })
 
             expect(warningLogic.values.intentIssues).toHaveLength(expectedIssueCount)
+        })
+
+        it('single non-instant property names the property in the message', async () => {
+            enableIntentsFeatureFlag()
+
+            flagLogic.actions.setFlagIntent('first-page-load')
+            flagLogic.actions.setFeatureFlag({
+                ...NEW_FLAG,
+                filters: {
+                    ...NEW_FLAG.filters,
+                    groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'email',
+                                    type: PropertyFilterType.Person,
+                                    operator: PropertyOperator.Exact,
+                                    value: 'test',
+                                },
+                            ] as AnyPropertyFilter[],
+                            rollout_percentage: 100,
+                            variant: null,
+                        },
+                    ],
+                },
+            })
+
+            const issues = warningLogic.values.intentIssues
+            expect(issues).toHaveLength(1)
+            expect(issues[0]).toContain('"email"')
+        })
+
+        it('multiple non-instant properties shows count instead of names', async () => {
+            enableIntentsFeatureFlag()
+
+            flagLogic.actions.setFlagIntent('first-page-load')
+            flagLogic.actions.setFeatureFlag({
+                ...NEW_FLAG,
+                filters: {
+                    ...NEW_FLAG.filters,
+                    groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'email',
+                                    type: PropertyFilterType.Person,
+                                    operator: PropertyOperator.Exact,
+                                    value: 'test',
+                                },
+                                {
+                                    key: 'name',
+                                    type: PropertyFilterType.Person,
+                                    operator: PropertyOperator.Exact,
+                                    value: 'test',
+                                },
+                            ] as AnyPropertyFilter[],
+                            rollout_percentage: 100,
+                            variant: null,
+                        },
+                    ],
+                },
+            })
+
+            const issues = warningLogic.values.intentIssues
+            expect(issues).toHaveLength(1)
+            expect(issues[0]).toContain('2 properties')
         })
 
         it('no issues without intent set', async () => {

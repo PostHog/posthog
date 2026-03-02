@@ -6,8 +6,6 @@ import {
     IconCode,
     IconFlask,
     IconPeople,
-    IconRocket,
-    IconServer,
     IconSparkles,
     IconTestTube,
     IconToggle,
@@ -19,7 +17,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { FlagIntent } from 'scenes/feature-flags/featureFlagIntentWarningLogic'
 import { getToolDefinition } from 'scenes/max/max-constants'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { createSuggestionGroup } from 'scenes/max/utils'
@@ -28,6 +25,8 @@ import { urls } from 'scenes/urls'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
+
+import { INTENT_KEYS, INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
 type FeatureFlagTemplate = 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
 
@@ -62,28 +61,6 @@ const TEMPLATE_METADATA: Record<FeatureFlagTemplate, TemplateMetadata> = {
 
 const TEMPLATES: FeatureFlagTemplate[] = ['simple', 'targeted', 'multivariate', 'targeted-multivariate']
 
-interface IntentOption {
-    key: FlagIntent
-    name: string
-    description: string
-    icon: React.ComponentType
-}
-
-const INTENT_OPTIONS: IntentOption[] = [
-    {
-        key: 'local-eval',
-        name: 'Local evaluation',
-        description: 'Evaluate server-side without network requests',
-        icon: IconServer,
-    },
-    {
-        key: 'first-page-load',
-        name: 'Prevent flicker',
-        description: 'Avoid false evaluations on first load',
-        icon: IconRocket,
-    },
-]
-
 const AI_TOOL_DEFINITION = getToolDefinition('create_feature_flag')!
 const AI_SUGGESTIONS = [
     'Create a flag to gradually roll out…',
@@ -101,21 +78,24 @@ function IntentSubmenu({ template, onBack }: { template: FeatureFlagTemplate; on
                 <span className="text-xs text-secondary">{metadata.name}</span>
             </LemonButton>
             <LemonDivider className="my-1" />
-            {INTENT_OPTIONS.map((intent) => (
-                <LemonButton
-                    key={intent.key}
-                    icon={<intent.icon />}
-                    to={urls.featureFlagNew({ template, intent: intent.key })}
-                    data-attr="new-feature-flag-menu-intent"
-                    data-attr-intent={intent.key}
-                    fullWidth
-                >
-                    <div className="flex flex-col text-sm py-1">
-                        <strong>{intent.name}</strong>
-                        <span className="text-xs font-sans font-normal">{intent.description}</span>
-                    </div>
-                </LemonButton>
-            ))}
+            {INTENT_KEYS.map((intentKey) => {
+                const intentMeta = INTENT_METADATA[intentKey]
+                return (
+                    <LemonButton
+                        key={intentKey}
+                        icon={<intentMeta.icon />}
+                        to={urls.featureFlagNew({ template, intent: intentKey })}
+                        data-attr="new-feature-flag-menu-intent"
+                        data-attr-intent={intentKey}
+                        fullWidth
+                    >
+                        <div className="flex flex-col text-sm py-1">
+                            <strong>{intentMeta.name}</strong>
+                            <span className="text-xs font-sans font-normal">{intentMeta.description}</span>
+                        </div>
+                    </LemonButton>
+                )
+            })}
             <LemonDivider className="my-1" />
             <LemonButton
                 to={urls.featureFlagNew({ template })}
