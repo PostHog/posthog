@@ -41,6 +41,16 @@ Processing 3 signals typically takes 1-3 minutes depending on LLM response times
 Reports that aren't `ready` still appear in the output with their `error` field
 explaining why they were filtered, plus `artefacts` containing the full judge reasoning.
 
+## Session summary (video-based)
+
+Test the SummarizeSingleSessionWorkflow with full video validation:
+
+```bash
+python manage.py summarize_single_session <session_id> [--team-id N] [--user-id N]
+```
+
+Uses first team/user if omitted. Runs `execute_summarize_session` with `video_validation_enabled='full'`.
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`
