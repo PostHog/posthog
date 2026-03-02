@@ -1,45 +1,70 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import type { byokModelPickerLogicType } from './byokModelPickerLogicType'
-import { ModelOption, ProviderModelGroup } from './llmAnalyticsPlaygroundLogic'
+import type { modelPickerLogicType } from './modelPickerLogicType'
 import {
-    LLMProvider,
+    type LLMProvider,
     LLMProviderKey,
     LLM_PROVIDER_LABELS,
     llmProviderKeysLogic,
     providerSortIndex,
+    toLLMProvider,
 } from './settings/llmProviderKeysLogic'
 import { isUnhealthyProviderKeyState, providerKeyStateSuffix } from './settings/providerKeyStateUtils'
 
-export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
-    path(['products', 'llm_analytics', 'frontend', 'byokModelPickerLogic']),
+export interface ModelOption {
+    id: string
+    name: string
+    provider: string
+    description: string
+    providerKeyId?: string
+    isRecommended?: boolean
+}
+
+export interface ProviderModelGroup {
+    provider: LLMProvider
+    providerKeyId: string
+    label: string
+    models: ModelOption[]
+    disabled?: boolean
+}
+
+export function buildTrialProviderModelGroups(models: ModelOption[]): ProviderModelGroup[] {
+    const byProvider: Record<string, ModelOption[]> = {}
+    for (const model of models) {
+        const provider = model.provider || 'Unknown'
+        if (!byProvider[provider]) {
+            byProvider[provider] = []
+        }
+        byProvider[provider].push(model)
+    }
+    return Object.entries(byProvider)
+        .sort(([a], [b]) => providerSortIndex(a) - providerSortIndex(b))
+        .flatMap(([provider, providerModels]) => {
+            const llmProvider = toLLMProvider(provider)
+            if (!llmProvider) {
+                return []
+            }
+            return [
+                {
+                    provider: llmProvider,
+                    providerKeyId: `trial:${llmProvider}`,
+                    label: LLM_PROVIDER_LABELS[llmProvider] ?? provider,
+                    models: providerModels,
+                },
+            ]
+        })
+}
+
+export const modelPickerLogic = kea<modelPickerLogicType>([
+    path(['products', 'llm_analytics', 'frontend', 'modelPickerLogic']),
 
     connect(() => ({
         values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
         actions: [llmProviderKeysLogic, ['loadProviderKeysSuccess']],
     })),
-
-    actions({
-        setSearch: (search: string) => ({ search }),
-        clearSearch: true,
-        toggleProviderExpanded: (providerKeyId: string) => ({ providerKeyId }),
-    }),
-
-    reducers({
-        search: ['' as string, { setSearch: (_, { search }) => search, clearSearch: () => '' }],
-        expandedProviders: [
-            {} as Record<string, boolean>,
-            {
-                toggleProviderExpanded: (state, { providerKeyId }) => ({
-                    ...state,
-                    [providerKeyId]: !state[providerKeyId],
-                }),
-            },
-        ],
-    }),
 
     loaders(({ values }) => ({
         byokModels: {
@@ -82,6 +107,21 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
                 return Array.from(dedupedModels.values())
             },
         },
+        trialModels: {
+            __default: [] as ModelOption[],
+            loadTrialModels: async (): Promise<ModelOption[]> => {
+                const rawModels = (await api.get('/api/llm_proxy/models/')) as (Omit<ModelOption, 'isRecommended'> & {
+                    is_recommended?: boolean
+                })[]
+                return (rawModels ?? []).map((m) => ({
+                    id: m.id,
+                    name: m.name,
+                    provider: m.provider,
+                    description: m.description,
+                    isRecommended: m.is_recommended ?? false,
+                }))
+            },
+        },
     })),
 
     listeners(({ actions }) => ({
@@ -91,6 +131,7 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
+        actions.loadTrialModels()
         if (values.providerKeys.length > 0) {
             actions.loadByokModels()
         }
@@ -100,6 +141,11 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
         hasByokKeys: [
             (s) => [s.providerKeys],
             (providerKeys: LLMProviderKey[]): boolean => providerKeys.some((k) => k.state === 'ok'),
+        ],
+        trialProviderModelGroups: [
+            (s) => [s.trialModels],
+            (trialModels: ModelOption[]): ProviderModelGroup[] =>
+                buildTrialProviderModelGroups(Array.isArray(trialModels) ? trialModels : []),
         ],
         providerModelGroups: [
             (s) => [s.byokModels, s.providerKeys],
@@ -159,45 +205,6 @@ export const byokModelPickerLogic = kea<byokModelPickerLogicType>([
                     return a.label.localeCompare(b.label)
                 })
             },
-        ],
-        selectedProviderForModel: [
-            (s) => [s.providerModelGroups],
-            (groups: ProviderModelGroup[]) =>
-                (model: string, providerKeyId: string | null): LLMProvider | null => {
-                    const group = groups.find(
-                        (g) => g.providerKeyId === providerKeyId && g.models.some((m) => m.id === model)
-                    )
-                    return group?.provider ?? null
-                },
-        ],
-        filteredProviderModelGroups: [
-            (s) => [s.providerModelGroups, s.search],
-            (groups: ProviderModelGroup[], search: string): ProviderModelGroup[] => {
-                if (!search) {
-                    return groups
-                }
-                const lower = search.toLowerCase()
-                return groups
-                    .map((group) => ({
-                        ...group,
-                        models: group.models.filter(
-                            (m) => m.name.toLowerCase().includes(lower) || m.id.toLowerCase().includes(lower)
-                        ),
-                    }))
-                    .filter((group) => group.models.length > 0)
-            },
-        ],
-        isProviderExpanded: [
-            (s) => [s.expandedProviders],
-            (expandedProviders: Record<string, boolean>) =>
-                (providerKeyId: string): boolean =>
-                    !!expandedProviders[providerKeyId],
-        ],
-        hasExplicitExpandState: [
-            (s) => [s.expandedProviders],
-            (expandedProviders: Record<string, boolean>) =>
-                (providerKeyId: string): boolean =>
-                    providerKeyId in expandedProviders,
         ],
     }),
 ])

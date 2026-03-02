@@ -883,7 +883,26 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         saved_query.schedule_materialization()
 
-        # Update version with materialization info
+        from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
+
+        try:
+            sync_saved_query_to_dag(saved_query)
+        except Exception as e:
+            logger.exception(
+                "Failed to sync endpoint node to DAG",
+                endpoint_name=endpoint.name,
+                saved_query_id=version.saved_query.id if version and version.saved_query else None,
+            )
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team_id,
+                    "endpoint_name": endpoint.name,
+                    "saved_query_id": version.saved_query.id if version and version.saved_query else None,
+                },
+            )
+
         version.saved_query = saved_query
         version.save(update_fields=["saved_query"])
 
@@ -894,6 +913,26 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         """
         version = version or endpoint.get_version()
         if version:
+            if version.saved_query:
+                from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag
+
+                try:
+                    delete_node_from_dag(version.saved_query)
+                except Exception as e:
+                    logger.exception(
+                        "Failed to remove endpoint node from DAG",
+                        endpoint_name=endpoint.name,
+                        saved_query_id=version.saved_query.id if version and version.saved_query else None,
+                    )
+                    capture_exception(
+                        e,
+                        {
+                            "product": Product.ENDPOINTS,
+                            "team_id": self.team_id,
+                            "endpoint_name": endpoint.name,
+                            "saved_query_id": version.saved_query.id if version and version.saved_query else None,
+                        },
+                    )
             version.disable_materialization()
         clear_endpoint_materialization_cache(self.team_id, endpoint.name)
 
@@ -902,6 +941,29 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
         endpoint_id = str(endpoint.id)
         endpoint_name = endpoint.name
+
+        # Remove DAG nodes before soft_delete (which soft-deletes saved queries)
+        from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag
+
+        for version in endpoint.versions.filter(saved_query__isnull=False):
+            try:
+                if version.saved_query:
+                    delete_node_from_dag(version.saved_query)
+            except Exception as e:
+                logger.exception(
+                    "Failed to remove endpoint node from DAG on destroy",
+                    endpoint_name=endpoint.name,
+                    saved_query_id=version.saved_query.id if version.saved_query else None,
+                )
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team_id,
+                        "endpoint_name": endpoint.name,
+                        "saved_query_id": version.saved_query.id if version and version.saved_query else None,
+                    },
+                )
 
         endpoint.soft_delete()
         clear_endpoint_materialization_cache(self.team_id, endpoint.name)
