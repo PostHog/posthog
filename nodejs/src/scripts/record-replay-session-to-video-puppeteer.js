@@ -32,6 +32,8 @@ const MAX_DIMENSION = 1920
 const DEFAULT_WIDTH = 1920
 const DEFAULT_HEIGHT = 1080
 const RECORDING_BUFFER_SECONDS = 120
+// Default speed params below are just intended for human consumption of video,
+// but specific uses cases (like AI analysis) may provide their own values
 const DEFAULT_PLAYBACK_SPEED = 4
 const DEFAULT_FPS = 24 // 24 frames per 1 second of original real time, for human consumption
 

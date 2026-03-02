@@ -126,6 +126,7 @@ def _track_video_export_started(asset: ExportedAsset, build: dict[str, Any]) -> 
                 **asset.get_analytics_metadata(),
                 "recording_duration_s": build["duration"],
                 "playback_speed": build.get("playback_speed", 1),
+                "recording_fps": build.get("recording_fps"),
                 # Crucial to separate summaries from regular exports
                 "use_puppeteer": build.get("use_puppeteer", False),
             },
@@ -155,6 +156,7 @@ def _track_video_export_completed(asset: ExportedAsset, build: dict[str, Any], v
                 "video_duration_s": video_duration_s,
                 "inactivity_skip_ratio": inactivity_skip_ratio,
                 "playback_speed": build.get("playback_speed", 1),
+                "recording_fps": build.get("recording_fps"),
                 "file_size_bytes": file_size,
                 # Crucial to separate summaries from regular exports
                 "use_puppeteer": build.get("use_puppeteer", False),

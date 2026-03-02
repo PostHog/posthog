@@ -30,8 +30,8 @@ from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
-VIDEO_ANALYSIS_PLAYBACK_SPEED = 2
-VIDEO_ANALYSIS_RECORDING_FPS = 30  # 3 frames per 1 second of original real time
+VIDEO_ANALYSIS_PLAYBACK_SPEED = 8
+VIDEO_ANALYSIS_RECORDING_FPS = 3  # 3 frames per 1 second of original real time
 
 
 @temporalio.activity.defn
