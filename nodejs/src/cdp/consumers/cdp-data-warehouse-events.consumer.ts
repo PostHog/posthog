@@ -4,7 +4,7 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
 import { convertDataWarehouseEventToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { HealthCheckResult, Hub, PluginsServerConfig } from '../../types'
+import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
@@ -20,19 +20,11 @@ import {
     HogFunctionTypeType,
     MinimalAppMetric,
 } from '../types'
-import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterHogFunctionStateOnEvent, counterParseError, counterRateLimited } from './metrics'
 import { shouldBlockInvocationDueToQuota } from './quota-limiting-helper'
 
-/**
- * Hub type for CdpDatawarehouseEventsConsumer.
- * Similar to CdpEventsConsumerHub but for data warehouse events.
- */
-export type CdpDatawarehouseEventsConsumerHub = CdpConsumerBaseHub &
-    PluginsServerConfig & // For CyclotronJobQueue (to be narrowed later)
-    Pick<Hub, 'teamManager' | 'SITE_URL'>
-
-export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase<CdpDatawarehouseEventsConsumerHub> {
+export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase<PluginsServerConfig> {
     protected name = 'CdpDatawarehouseEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
     private cyclotronJobQueue: CyclotronJobQueue
@@ -41,18 +33,19 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase<CdpDatawareh
     private hogRateLimiter: HogRateLimiterService
 
     constructor(
-        hub: CdpDatawarehouseEventsConsumerHub,
+        config: PluginsServerConfig,
+        deps: CdpConsumerBaseDeps,
         topic: string = 'cdp_data_warehouse_source_table',
         groupId: string = 'cdp-data-warehouse-events-consumer'
     ) {
-        super(hub)
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'datawarehouse_table')
+        super(config, deps)
+        this.cyclotronJobQueue = new CyclotronJobQueue(config, 'datawarehouse_table')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
         this.hogRateLimiter = new HogRateLimiterService(
             {
-                bucketSize: hub.CDP_RATE_LIMITER_BUCKET_SIZE,
-                refillRate: hub.CDP_RATE_LIMITER_REFILL_RATE,
-                ttl: hub.CDP_RATE_LIMITER_TTL,
+                bucketSize: config.CDP_RATE_LIMITER_BUCKET_SIZE,
+                refillRate: config.CDP_RATE_LIMITER_REFILL_RATE,
+                ttl: config.CDP_RATE_LIMITER_TTL,
             },
             this.redis
         )
@@ -157,7 +150,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase<CdpDatawareh
                 }
 
                 const isQuotaLimited = await shouldBlockInvocationDueToQuota(item, {
-                    hub: this.hub,
+                    quotaLimiting: this.deps.quotaLimiting,
                     hogFunctionMonitoringService: this.hogFunctionMonitoringService,
                 })
 
@@ -190,7 +183,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase<CdpDatawareh
 
                 if (state === HogWatcherState.degraded) {
                     item.queuePriority = 2
-                    if (this.hub.CDP_OVERFLOW_QUEUE_ENABLED) {
+                    if (this.config.CDP_OVERFLOW_QUEUE_ENABLED) {
                         item.queue = 'hogoverflow'
                     }
                 }
@@ -388,14 +381,16 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase<CdpDatawareh
                     const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
                         this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, this.hogTypes),
                         this.hogFlowManager.getHogFlowsForTeam(event.team_id),
-                        this.hub.teamManager.getTeam(event.team_id),
+                        this.deps.teamManager.getTeam(event.team_id),
                     ])
 
                     if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
                         return
                     }
 
-                    events.push(convertDataWarehouseEventToHogFunctionInvocationGlobals(event, team, this.hub.SITE_URL))
+                    events.push(
+                        convertDataWarehouseEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL)
+                    )
                 } catch (e) {
                     logger.error('Error parsing message', e)
                     counterParseError.labels({ error: e.message }).inc()

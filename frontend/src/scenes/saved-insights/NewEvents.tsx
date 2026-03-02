@@ -25,6 +25,7 @@ function EventRow({ event }: { event: EventDefinition }): JSX.Element {
             title={event.name}
             subtitle={subtitle}
             prefix={<EventIcon className="text-lg" />}
+            dataAttr="new-event-item"
         />
     )
 }
