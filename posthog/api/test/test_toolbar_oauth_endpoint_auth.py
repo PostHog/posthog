@@ -305,19 +305,15 @@ class TestToolbarOAuthScopesConfig(APIBaseTest):
         "action:read",
         "action:write",
         "feature_flag:read",
-        "feature_flag:write",
         "experiment:read",
         "experiment:write",
         "product_tour:read",
         "product_tour:write",
         "query:read",
         "heatmap:read",
-        "heatmap:write",
         "element:read",
-        "uploaded_media:read",
         "uploaded_media:write",
         "user:read",
-        "user:write",
     ]
 
     @parameterized.expand([(s,) for s in EXPECTED_SCOPES])

@@ -1213,7 +1213,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions, asyncActions, cache }) => ({
         beforeUnmount: () => {
             actions.stopAutoRefreshInterval()
         },
@@ -1439,9 +1439,9 @@ export const experimentLogic = kea<experimentLogicType>([
             cache.refreshSummariesById[refreshId] = summaries
             try {
                 await Promise.all([
-                    actions.loadPrimaryMetricsResults(forceRefresh, refreshId),
-                    actions.loadSecondaryMetricsResults(forceRefresh, refreshId),
-                    actions.loadExposures(forceRefresh),
+                    asyncActions.loadPrimaryMetricsResults(forceRefresh, refreshId),
+                    asyncActions.loadSecondaryMetricsResults(forceRefresh, refreshId),
+                    asyncActions.loadExposures(forceRefresh),
                 ])
             } finally {
                 const totalDurationMs = Math.round(performance.now() - refreshStart)
@@ -1460,14 +1460,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     (values.experiment?.saved_metrics?.filter(
                         (m: { metadata: { type: string } }) => m.metadata.type === 'secondary'
                     ).length || 0)
-                const successfulCount =
-                    values.legacyPrimaryMetricsResults.filter(Boolean).length +
-                    values.primaryMetricsResults.filter(Boolean).length +
-                    values.legacySecondaryMetricsResults.filter(Boolean).length +
-                    values.secondaryMetricsResults.filter(Boolean).length
-                const erroredCount =
-                    values.primaryMetricsResultsErrors.filter(Boolean).length +
-                    values.secondaryMetricsResultsErrors.filter(Boolean).length
+                const successfulCount = refreshSummaries.reduce((sum, s) => sum + s.successfulCount, 0)
+                const erroredCount = refreshSummaries.reduce((sum, s) => sum + s.erroredCount, 0)
                 const cachedCount = refreshSummaries.reduce((sum, s) => sum + s.cachedCount, 0)
 
                 eventUsageLogic.actions.reportExperimentResultsRefreshCompleted(
@@ -2607,18 +2601,23 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (isExperimentRunning) {
                     if (!isFlagActive) {
                         return { key: 'running_but_flag_disabled' }
-                    } else if (singleVariantShipped) {
-                        return { key: 'running_but_single_variant_shipped', variantKey: shippedVariantKey }
                     } else if (hasZeroRollout(filters)) {
                         return { key: 'running_but_no_rollout' }
+                    } else if (singleVariantShipped) {
+                        return { key: 'running_but_single_variant_shipped', variantKey: shippedVariantKey }
                     }
                 } else if (hasEnded(experiment)) {
-                    if (isFlagActive && hasMultipleVariantsActive(filters) && !singleVariantShipped) {
+                    if (
+                        isFlagActive &&
+                        hasMultipleVariantsActive(filters) &&
+                        !hasZeroRollout(filters) &&
+                        !singleVariantShipped
+                    ) {
                         return { key: 'ended_but_multiple_variants_rolled_out' }
                     }
                 } else if (isExperimentDraft) {
                     // The draft state is also reached again when resetting experiment measurements
-                    if (isFlagActive && hasMultipleVariantsActive(filters)) {
+                    if (isFlagActive && hasMultipleVariantsActive(filters) && !hasZeroRollout(filters)) {
                         return { key: 'not_started_but_multiple_variants_rolled_out' }
                     }
                 }

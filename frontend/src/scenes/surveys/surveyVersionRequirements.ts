@@ -251,6 +251,33 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             ),
     },
     {
+        feature: 'Shuffle questions',
+        sdkVersions: { 'posthog-js': '1.131.5' },
+        unsupportedSdks: [
+            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3162' },
+            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/492' },
+            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/442' },
+            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/310' },
+        ],
+        check: (s) => s.appearance?.shuffleQuestions === true,
+    },
+    {
+        feature: 'Shuffle choice options',
+        sdkVersions: { 'posthog-js': '1.131.5' },
+        unsupportedSdks: [
+            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3162' },
+            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/492' },
+            { sdk: 'posthog-android', issue: false }, // delegate pattern - no built-in UI; flag exposed on display model
+            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/310' },
+        ],
+        check: (s) =>
+            s.questions.some(
+                (q) =>
+                    (q.type === SurveyQuestionType.SingleChoice || q.type === SurveyQuestionType.MultipleChoice) &&
+                    (q as MultipleSurveyQuestion).shuffleOptions === true
+            ),
+    },
+    {
         feature: 'Response length validation',
         sdkVersions: { 'posthog-js': '1.344.0', 'posthog-react-native': '4.31.0' },
         unsupportedSdks: [

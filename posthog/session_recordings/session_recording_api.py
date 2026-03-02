@@ -1359,7 +1359,7 @@ class SessionRecordingViewSet(
 
         return blocks
 
-    def _delete_via_recording_api(self, session_ids: builtins.list[str], deleted_by: str = "") -> builtins.list[str]:
+    def _delete_via_recording_api(self, session_ids: builtins.list[str], deleted_by: str) -> builtins.list[str]:
         """Delete recordings via recording-api.
 
         Returns list of session IDs that failed to delete.

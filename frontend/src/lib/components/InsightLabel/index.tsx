@@ -81,7 +81,7 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
                 <LemonTag>{(mathDefinitions as any)[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
                 {mathProperty && (
                     <>
-                        <span>of</span>
+                        <span className="shrink-0">of</span>
                         <PropertyKeyInfo disableIcon value={mathProperty} />
                     </>
                 )}

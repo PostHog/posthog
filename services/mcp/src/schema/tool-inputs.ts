@@ -171,11 +171,6 @@ export const ExperimentCreateSchema = z.object({
             'Feature flag key (letters, numbers, hyphens, underscores only). IMPORTANT: First search for existing feature flags that might be suitable using the feature-flags-get-all tool, then suggest reusing existing ones or creating a new key based on the experiment name'
         ),
 
-    type: z
-        .enum(['product', 'web'])
-        .default('product')
-        .describe("Experiment type: 'product' for backend/API changes, 'web' for frontend UI changes"),
-
     // Primary metrics with guidance
     primary_metrics: z
         .array(
