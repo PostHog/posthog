@@ -176,27 +176,25 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                 />
                             </Field>
 
-                            <Field name="evaluation_type" label="Evaluation type">
-                                <LemonSelect
-                                    value={evaluation.evaluation_type}
-                                    onChange={(value) => setEvaluationType(value as EvaluationType)}
-                                    options={[
-                                        {
-                                            value: 'llm_judge',
-                                            label: 'LLM as a judge',
-                                        },
-                                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_HOG_CODE]
-                                            ? [
-                                                  {
-                                                      value: 'hog',
-                                                      label: 'Hog code',
-                                                  },
-                                              ]
-                                            : []),
-                                    ]}
-                                    fullWidth
-                                />
-                            </Field>
+                            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_HOG_CODE] && (
+                                <Field name="evaluation_type" label="Evaluation type">
+                                    <LemonSelect
+                                        value={evaluation.evaluation_type}
+                                        onChange={(value) => setEvaluationType(value as EvaluationType)}
+                                        options={[
+                                            {
+                                                value: 'llm_judge',
+                                                label: 'LLM as a judge',
+                                            },
+                                            {
+                                                value: 'hog',
+                                                label: 'Hog code',
+                                            },
+                                        ]}
+                                        fullWidth
+                                    />
+                                </Field>
+                            )}
                             <p className="text-muted text-sm -mt-2">
                                 {isHog ? (
                                     <>
