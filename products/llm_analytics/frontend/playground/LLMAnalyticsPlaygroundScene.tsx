@@ -27,16 +27,10 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { sceneConfigurations } from 'scenes/scenes'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
-import { urls } from 'scenes/urls'
+import { SceneExport } from 'scenes/sceneTypes'
 
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
@@ -68,24 +62,18 @@ function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element 
 export const scene: SceneExport = {
     component: LLMAnalyticsPlaygroundScene,
     logic: llmPlaygroundRunLogic,
-    productKey: ProductKey.LLM_ANALYTICS,
 }
 
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     useMountedLogic(llmPlaygroundRunLogic)
 
     return (
-        <SceneContent className="h-full">
-            <SceneTitleSection
-                name={sceneConfigurations[Scene.LLMAnalyticsPlayground].name}
-                description="Test and experiment with LLM prompts in a sandbox environment."
-                resourceType={{ type: sceneConfigurations[Scene.LLMAnalyticsPlayground].iconType || 'llm_analytics' }}
-                actions={<PlaygroundHeaderActions />}
-            />
-            <div className="flex h-full flex-1 flex-col min-h-0">
-                <PlaygroundLayout />
+        <div className="flex flex-col h-[calc(100vh-300px)] min-h-[520px]">
+            <div className="flex items-center justify-end gap-2 mb-2">
+                <PlaygroundHeaderActions />
             </div>
-        </SceneContent>
+            <PlaygroundLayout />
+        </div>
     )
 }
 
@@ -135,7 +123,6 @@ function usePromptConfig(promptId: string): PromptConfig | null {
 
 function RateLimitBanner(): JSX.Element | null {
     const { rateLimitedUntil } = useValues(llmPlaygroundRunLogic)
-    const { hasByokKeys } = useValues(modelPickerLogic)
 
     if (rateLimitedUntil === null || Date.now() >= rateLimitedUntil) {
         return null
@@ -146,15 +133,6 @@ function RateLimitBanner(): JSX.Element | null {
             You've hit the playground request limit for shared keys. You can make another request in{' '}
             <strong>{humanFriendlyDuration(Math.ceil((rateLimitedUntil - Date.now()) / 1000), { maxUnits: 1 })}</strong>
             .
-            {!hasByokKeys && (
-                <>
-                    {' '}
-                    <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
-                        Add your own API key
-                    </Link>{' '}
-                    to get higher rate limits.
-                </>
-            )}
         </LemonBanner>
     )
 }
@@ -299,7 +277,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     const isStreaming = !!item && item.latencyMs == null && !item.error
 
     return (
-        <div className="mb-4 border rounded p-4 bg-transparent h-[30vh] min-w-0 flex flex-col">
+        <div className="border rounded p-4 bg-transparent h-[300px] min-w-0 flex flex-col">
             <div className="flex items-center justify-between gap-2 mb-3">
                 <LemonTag type="default" size="small">
                     Result
@@ -320,9 +298,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                         style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
                     >
                         {item.response ? (
-                            <LemonMarkdown className="whitespace-pre-wrap break-words [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded [&_img]:my-2">
-                                {item.response}
-                            </LemonMarkdown>
+                            <div className="whitespace-pre-wrap break-words">{item.response}</div>
                         ) : isStreaming ? (
                             <div className="h-full flex items-center justify-center text-xs text-muted">
                                 <div className="inline-flex items-center gap-2">
@@ -351,28 +327,11 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     )
 }
 
-function getTrialModelsErrorMessage(errorStatus: number | null): string | null {
-    if (errorStatus === null) {
-        return null
-    }
-    if (errorStatus === 429) {
-        return 'Too many requests. Please wait a moment and try again.'
-    }
-    return 'Failed to load models. Please refresh the page or try again later.'
-}
-
 function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { effectiveModelOptions, trialModelsErrorStatus } = useValues(llmPlaygroundModelLogic)
-    const {
-        hasByokKeys,
-        providerModelGroups,
-        trialProviderModelGroups,
-        byokModelsLoading,
-        trialModelsLoading,
-        providerKeysLoading,
-    } = useValues(modelPickerLogic)
-    const { loadTrialModels } = useActions(modelPickerLogic)
+    const { effectiveModelOptions } = useValues(llmPlaygroundModelLogic)
+    const { hasByokKeys, providerModelGroups, trialProviderModelGroups, byokModelsLoading, trialModelsLoading } =
+        useValues(modelPickerLogic)
     const { setModel } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
@@ -380,40 +339,23 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
     }
 
     const selectedModel = effectiveModelOptions.find((m) => m.id === prompt.model)
-
     const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
-    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
-    const errorMessage = !hasByokKeys ? getTrialModelsErrorMessage(trialModelsErrorStatus) : null
-    const showError = !hasByokKeys && effectiveModelOptions.length === 0 && !trialModelsLoading
+    const loading = hasByokKeys ? byokModelsLoading : trialModelsLoading
 
     return (
-        <>
-            <ModelPicker
-                model={prompt.model}
-                selectedProviderKeyId={prompt.selectedProviderKeyId}
-                onSelect={(modelId, providerKeyId) => {
-                    const trialProvider = parseTrialProviderKeyId(providerKeyId)
-                    setModel(modelId, trialProvider ? undefined : providerKeyId, promptId)
-                }}
-                groups={groups}
-                loading={loading}
-                footerLink={getModelPickerFooterLink(hasByokKeys)}
-                selectedModelName={selectedModel?.name}
-                data-attr={`playground-model-selector-${promptId}`}
-            />
-            {showError && (
-                <div className="mt-1">
-                    <p className="text-xs text-danger">{errorMessage || 'No models available.'}</p>
-                    <button
-                        type="button"
-                        className="text-xs text-link mt-1 underline"
-                        onClick={() => loadTrialModels()}
-                    >
-                        Retry
-                    </button>
-                </div>
-            )}
-        </>
+        <ModelPicker
+            model={prompt.model}
+            selectedProviderKeyId={prompt.selectedProviderKeyId}
+            onSelect={(modelId, providerKeyId) => {
+                const trialProvider = parseTrialProviderKeyId(providerKeyId)
+                setModel(modelId, trialProvider ? undefined : providerKeyId, promptId)
+            }}
+            groups={groups}
+            loading={loading}
+            footerLink={getModelPickerFooterLink(hasByokKeys)}
+            selectedModelName={selectedModel?.name}
+            data-attr={`playground-model-selector-${promptId}`}
+        />
     )
 }
 

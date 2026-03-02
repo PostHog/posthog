@@ -30,7 +30,6 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
     const handleTryInPlayground = (): void => {
         setupPlaygroundFromEvent({
             model: eventProperties.$ai_model,
-            provider: eventProperties.$ai_provider,
             input,
         })
     }
