@@ -10,7 +10,6 @@ import {
     IconFolder,
     IconHome,
     IconNotification,
-    IconPlus,
     IconSearch,
     IconSparkles,
     IconStar,
@@ -23,7 +22,6 @@ import { commandLogic } from 'lib/components/Command/commandLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
@@ -34,6 +32,7 @@ import { urls } from 'scenes/urls'
 import { AppsMenu } from '~/layout/panel-layout/ai-first/AppsMenu'
 import { DataMenu } from '~/layout/panel-layout/ai-first/DataMenu'
 import { FilesMenu } from '~/layout/panel-layout/ai-first/FilesMenu'
+import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
 import { RecentsMenu } from '~/layout/panel-layout/ai-first/RecentsMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
@@ -186,29 +185,40 @@ export function AiFirstNavBar(): JSX.Element {
                         <Collapsible.Root
                             open={expandedNavSections.ai ?? true}
                             onOpenChange={() => toggleNavSection('ai')}
-                            className="px-1 mt-2"
+                            className={cn('px-1 mt-2', isLayoutNavCollapsed && 'mt-0')}
                         >
-                            <SectionTrigger
-                                icon={<IconSparkles />}
-                                label={isLayoutNavCollapsed ? 'AI' : 'PostHog AI'}
-                                open={expandedNavSections.ai ?? true}
-                                isCollapsed={isLayoutNavCollapsed}
-                            />
+                            {!isLayoutNavCollapsed && (
+                                <SectionTrigger
+                                    icon={<IconSparkles />}
+                                    label={isLayoutNavCollapsed ? 'AI' : 'PostHog AI'}
+                                    open={expandedNavSections.ai ?? true}
+                                    isCollapsed={isLayoutNavCollapsed}
+                                />
+                            )}
                             <Collapsible.Panel
                                 className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}
                             >
-                                <Link
-                                    tooltip={isLayoutNavCollapsed ? 'New AI chat' : undefined}
-                                    tooltipPlacement="right"
+                                <NavLink
                                     to={urls.ai()}
-                                    buttonProps={{
-                                        menuItem: !isLayoutNavCollapsed,
-                                        iconOnly: isLayoutNavCollapsed,
-                                    }}
-                                >
-                                    <IconPlus className="size-4 text-ai" />
-                                    {!isLayoutNavCollapsed && <span className="flex-1 text-left">New chat</span>}
-                                </Link>
+                                    label="New chat"
+                                    icon={
+                                        <span className="text-ai">
+                                            <svg
+                                                width="24"
+                                                height="24"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                            >
+                                                <line x1="12" y1="5" x2="12" y2="19" />
+                                                <line x1="5" y1="12" x2="19" y2="12" />
+                                            </svg>
+                                        </span>
+                                    }
+                                    isCollapsed={isLayoutNavCollapsed}
+                                />
                                 {!isLayoutNavCollapsed &&
                                     recentChats.map((conversation) => (
                                         <AiChatListItem
@@ -237,46 +247,28 @@ export function AiFirstNavBar(): JSX.Element {
                             <Collapsible.Panel
                                 className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}
                             >
-                                <Link
-                                    buttonProps={{
-                                        menuItem: !isLayoutNavCollapsed,
-                                        iconOnly: isLayoutNavCollapsed,
-                                    }}
+                                <NavLink
                                     to={urls.projectRoot()}
-                                    tooltip={isLayoutNavCollapsed ? 'Home' : undefined}
-                                    tooltipPlacement="right"
-                                >
-                                    <IconHome className="size-4 text-secondary" />
-                                    {!isLayoutNavCollapsed && <span className="flex-1 text-left">Home</span>}
-                                </Link>
+                                    label="Home"
+                                    icon={<IconHome />}
+                                    isCollapsed={isLayoutNavCollapsed}
+                                />
 
                                 {isProductAutonomyEnabled && (
-                                    <Link
-                                        buttonProps={{
-                                            menuItem: !isLayoutNavCollapsed,
-                                            iconOnly: isLayoutNavCollapsed,
-                                        }}
-                                        tooltip={isLayoutNavCollapsed ? 'Inbox' : undefined}
-                                        tooltipPlacement="right"
+                                    <NavLink
                                         to={urls.inbox()}
-                                    >
-                                        <IconNotification className="size-4 text-secondary" />
-                                        {!isLayoutNavCollapsed && <span className="flex-1 text-left">Inbox</span>}
-                                    </Link>
+                                        label="Inbox"
+                                        icon={<IconNotification />}
+                                        isCollapsed={isLayoutNavCollapsed}
+                                    />
                                 )}
 
-                                <Link
-                                    buttonProps={{
-                                        menuItem: !isLayoutNavCollapsed,
-                                        iconOnly: isLayoutNavCollapsed,
-                                    }}
-                                    tooltip={isLayoutNavCollapsed ? 'Activity' : undefined}
-                                    tooltipPlacement="right"
+                                <NavLink
                                     to={urls.activity(ActivityTab.ExploreEvents)}
-                                >
-                                    <IconClock className="size-4 text-secondary" />
-                                    {!isLayoutNavCollapsed && <span className="flex-1 text-left">Activity</span>}
-                                </Link>
+                                    label="Activity"
+                                    icon={<IconClock />}
+                                    isCollapsed={isLayoutNavCollapsed}
+                                />
 
                                 <MenubarWithHoverCone
                                     orientation="vertical"

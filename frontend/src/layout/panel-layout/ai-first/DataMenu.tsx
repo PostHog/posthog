@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconChevronRight, IconDatabase, IconPeople } from '@posthog/icons'
+import { IconDatabase, IconPeople } from '@posthog/icons'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { FEATURE_FLAGS } from '~/lib/constants'
 
 import { MenuSearchInput } from '../ai-first/MenuSearchInput'
+import { MenuTrigger } from '../ai-first/MenuTrigger'
 import { iconForType } from '../ProjectTree/defaultTree'
 
 interface DataItem {
@@ -195,20 +196,7 @@ export function DataMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element
                 }
             }}
         >
-            <Menu.Trigger
-                render={
-                    <ButtonPrimitive
-                        menuItem={!isCollapsed}
-                        iconOnly={isCollapsed}
-                        tooltip={isCollapsed ? 'Data menu' : undefined}
-                        tooltipPlacement="right"
-                    >
-                        <IconDatabase className="size-4 text-secondary" />
-                        {!isCollapsed && <span className="flex-1 text-left">Data</span>}
-                        {!isCollapsed && <IconChevronRight className="size-3 text-secondary" />}
-                    </ButtonPrimitive>
-                }
-            />
+            <MenuTrigger label="Data" icon={<IconDatabase />} isCollapsed={isCollapsed} />
             <Menu.Portal>
                 <Menu.Positioner
                     className="z-[var(--z-popover)]"

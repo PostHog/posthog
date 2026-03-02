@@ -3,13 +3,14 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconChevronRight, IconClock, IconMessage } from '@posthog/icons'
+import { IconClock, IconMessage } from '@posthog/icons'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { urls } from 'scenes/urls'
 
 import { MenuSearchInput } from '~/layout/panel-layout/ai-first/MenuSearchInput'
+import { MenuTrigger } from '~/layout/panel-layout/ai-first/MenuTrigger'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { recentItemsMenuLogic } from '~/layout/panel-layout/ProjectTree/menus/recentItemsMenuLogic'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -96,20 +97,7 @@ export function RecentsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Elem
                 }
             }}
         >
-            <Menu.Trigger
-                render={
-                    <ButtonPrimitive
-                        menuItem={!isCollapsed}
-                        iconOnly={isCollapsed}
-                        tooltip={isCollapsed ? 'Recent menu' : undefined}
-                        tooltipPlacement="right"
-                    >
-                        <IconClock className="size-4 text-secondary" />
-                        {!isCollapsed && <span className="flex-1 text-left">Recents</span>}
-                        {!isCollapsed && <IconChevronRight className="size-3 text-secondary" />}
-                    </ButtonPrimitive>
-                }
-            />
+            <MenuTrigger label="Recents" icon={<IconClock />} isCollapsed={isCollapsed} />
             <Menu.Portal>
                 <Menu.Positioner
                     className="z-[var(--z-popover)]"

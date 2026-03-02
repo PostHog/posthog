@@ -76,7 +76,9 @@ function Content({
     const displayTitle = title || 'Untitled conversation'
     return (
         <>
-            {showIcon && <IconMessage className="size-4 text-secondary opacity-50" />}
+            {showIcon && (
+                <IconMessage className="size-4 text-secondary opacity-50 group-hover:opacity-100 transition-all duration-50" />
+            )}
             <span className="flex-1 line-clamp-1 text-primary">{displayTitle}</span>
             {status === ConversationStatus.InProgress && <Spinner className="h-3 w-3" />}
             <span
@@ -210,7 +212,7 @@ function AiChatListItemRoot({
                     buttonProps={{
                         active: isActive,
                         fullWidth: true,
-                        className: 'pr-0',
+                        className: 'pr-0 group',
                     }}
                     tooltip={displayTitle}
                     tooltipPlacement="right"

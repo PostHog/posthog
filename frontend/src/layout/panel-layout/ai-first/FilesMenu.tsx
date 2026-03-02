@@ -2,11 +2,11 @@ import { Menu } from '@base-ui/react/menu'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconChevronRight, IconFolder } from '@posthog/icons'
+import { IconFolder } from '@posthog/icons'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
+import { MenuTrigger } from '~/layout/panel-layout/ai-first/MenuTrigger'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
@@ -60,24 +60,7 @@ function FilesMenuContent(): JSX.Element {
 export function FilesMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element {
     return (
         <Menu.Root>
-            <Menu.Trigger
-                render={
-                    <ButtonPrimitive
-                        menuItem={!isCollapsed}
-                        iconOnly={isCollapsed}
-                        tooltip={isCollapsed ? 'Files menu' : undefined}
-                        tooltipPlacement="right"
-                    >
-                        <IconFolder className="size-4 text-secondary" />
-                        {!isCollapsed && (
-                            <>
-                                <span className="flex-1 text-left">Files</span>
-                                <IconChevronRight className="size-3 text-secondary" />
-                            </>
-                        )}
-                    </ButtonPrimitive>
-                }
-            />
+            <MenuTrigger label="Files" icon={<IconFolder />} isCollapsed={isCollapsed} />
             <Menu.Portal keepMounted>
                 <Menu.Positioner
                     className="z-[var(--z-popover)]"

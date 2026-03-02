@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconApps, IconChevronRight } from '@posthog/icons'
+import { IconApps } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
@@ -22,6 +22,7 @@ import {
 import { cn } from 'lib/utils/css-classes'
 
 import { MenuSearchInput } from '~/layout/panel-layout/ai-first/MenuSearchInput'
+import { MenuTrigger } from '~/layout/panel-layout/ai-first/MenuTrigger'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { DashboardsMenuItems } from '~/layout/panel-layout/ProjectTree/menus/DashboardsMenuItems'
@@ -146,27 +147,14 @@ export function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element
                 }
             }}
         >
-            <Menu.Trigger
-                render={
-                    <ButtonPrimitive
-                        iconOnly={isCollapsed}
-                        tooltip={
-                            <>
-                                <span>Apps menu</span> <RenderKeybind keybind={[keyBinds.allApps]} />
-                            </>
-                        }
-                        tooltipPlacement="right"
-                        menuItem={!isCollapsed}
-                        className={cn('flex', isCollapsed && 'items-center')}
-                    >
-                        <IconApps className="size-4 text-secondary" />
-                        {!isCollapsed && (
-                            <>
-                                <span className="flex-1 text-left">Apps</span>
-                                <IconChevronRight className="size-3 text-secondary" />
-                            </>
-                        )}
-                    </ButtonPrimitive>
+            <MenuTrigger
+                label="Apps"
+                icon={<IconApps />}
+                isCollapsed={isCollapsed}
+                tooltip={
+                    <>
+                        <span>Apps</span> <RenderKeybind keybind={[keyBinds.allApps]} />
+                    </>
                 }
             />
             <Menu.Portal>
