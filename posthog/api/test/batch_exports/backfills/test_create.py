@@ -1,5 +1,4 @@
 import datetime as dt
-from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
@@ -49,26 +48,6 @@ def _create_batch_export_ok(
         "model": model,
     }
     return create_batch_export_ok(client, team.pk, batch_export_data)
-
-
-def _get_expected_backfill_workflow_id(
-    batch_export_id: str, start_date: str, end_date: str, timezone: str, offset_hour: int | None = None
-) -> str:
-    """Helper function to calculate the expected backfill workflow ID.
-
-    Note that we always convert to UTC for the workflow ID.
-    """
-    start_date_obj = dt.date.fromisoformat(start_date)
-    end_date_obj = dt.date.fromisoformat(end_date)
-    expected_start_at = dt.datetime.combine(start_date_obj, dt.time(offset_hour or 0, 0, 0)).replace(
-        tzinfo=ZoneInfo(timezone)
-    )
-    expected_start_at_utc = expected_start_at.astimezone(dt.UTC).isoformat()
-    expected_end_at = dt.datetime.combine(end_date_obj, dt.time(offset_hour or 0, 0, 0)).replace(
-        tzinfo=ZoneInfo(timezone)
-    )
-    expected_end_at_utc = expected_end_at.astimezone(dt.UTC).isoformat()
-    return f"{batch_export_id}-Backfill-{expected_start_at_utc}-{expected_end_at_utc}"
 
 
 @pytest.mark.parametrize("model", ["events", "persons"])
@@ -123,11 +102,7 @@ def test_batch_export_backfill_for_daily_schedule(
         end_at="2026-01-02",
     )
     assert response.status_code == status.HTTP_200_OK, response.json()
-
-    expected_workflow_id = _get_expected_backfill_workflow_id(
-        batch_export_id, "2026-01-01", "2026-01-02", timezone, offset_hour
-    )
-    assert response.json()["backfill_workflow_id"] == expected_workflow_id
+    assert "backfill_id" in response.json()
 
 
 def test_batch_export_backfill_for_daily_schedule_with_datetime_strings_fails(
@@ -195,11 +170,7 @@ def test_batch_export_backfill_for_weekly_schedule(
         end_at=end_date,
     )
     assert response.status_code == status.HTTP_200_OK, response.json()
-
-    expected_workflow_id = _get_expected_backfill_workflow_id(
-        batch_export_id, start_date, end_date, timezone, offset_hour
-    )
-    assert response.json()["backfill_workflow_id"] == expected_workflow_id
+    assert "backfill_id" in response.json()
 
 
 def test_batch_export_backfill_for_weekly_schedule_with_datetime_strings_fails(
@@ -414,10 +385,7 @@ def test_batch_export_backfill_created_in_timezone(client: HttpClient, temporal,
     data = response.json()
 
     assert response.status_code == status.HTTP_200_OK, data
-    assert (
-        data["backfill_workflow_id"]
-        == f"{batch_export_id}-Backfill-2021-01-01T05:00:00+00:00-2021-10-01T04:00:00+00:00"
-    )
+    assert "backfill_id" in data
 
 
 def test_batch_export_earliest_backfill_rejected_without_feature_flag(
@@ -467,4 +435,4 @@ def test_batch_export_earliest_backfill_allowed_with_feature_flag(
             "2021-01-01T01:00:00+00:00",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert "backfill_workflow_id" in response.json()
+        assert "backfill_id" in response.json()

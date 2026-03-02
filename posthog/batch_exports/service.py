@@ -645,6 +645,7 @@ class BackfillBatchExportInputs:
     end_at: str | None
     buffer_limit: int = 1
     start_delay: float = 1.0
+    backfill_id: str | None = None
 
 
 def backfill_export(
@@ -653,6 +654,7 @@ def backfill_export(
     team_id: int,
     start_at: dt.datetime | None,
     end_at: dt.datetime | None,
+    backfill_id: str | None = None,
 ) -> str:
     """Starts a backfill for given team and batch export covering given date range.
 
@@ -663,6 +665,8 @@ def backfill_export(
         start_at: From when to backfill.
         end_at: Up to when to backfill, if None it will backfill until it has caught up with realtime
                 and then unpause the underlying BatchExport.
+        backfill_id: Pre-generated UUID for the backfill model. If provided, the Temporal workflow
+                     will use this ID when creating the BatchExportBackfill record.
     """
     try:
         batch_export = BatchExport.objects.select_related("destination").get(id=batch_export_id, team_id=team_id)
@@ -681,6 +685,7 @@ def backfill_export(
         team_id=team_id,
         start_at=start_at.isoformat() if start_at else None,
         end_at=end_at.isoformat() if end_at else None,
+        backfill_id=backfill_id,
     )
     start_at_utc_str = start_at.astimezone(tz=dt.UTC).isoformat() if start_at else "START"
     # TODO: Should we use another signal besides "None"? i.e. "Inf" or "END".
@@ -939,12 +944,13 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
     return batch_export
 
 
-def create_batch_export_backfill(
+async def acreate_batch_export_backfill(
     batch_export_id: UUID,
     team_id: int,
     start_at: str | None,
     end_at: str | None,
     status: str = BatchExportRun.Status.RUNNING,
+    backfill_id: str | None = None,
 ) -> BatchExportBackfill:
     """Create a BatchExportBackfill.
 
@@ -954,42 +960,18 @@ def create_batch_export_backfill(
         start_at: The start of the period to backfill in this BatchExportBackfill.
         end_at: The end of the period to backfill in this BatchExportBackfill.
         status: The initial status for the created BatchExportBackfill.
+        backfill_id: Pre-generated UUID for the backfill. If provided, will be used as the model's primary key.
     """
-    backfill = BatchExportBackfill(
-        batch_export_id=batch_export_id,
-        status=status,
-        start_at=dt.datetime.fromisoformat(start_at) if start_at else None,
-        end_at=dt.datetime.fromisoformat(end_at) if end_at else None,
-        team_id=team_id,
-    )
-    backfill.save()
-
-    return backfill
-
-
-async def acreate_batch_export_backfill(
-    batch_export_id: UUID,
-    team_id: int,
-    start_at: str,
-    end_at: str | None,
-    status: str = BatchExportRun.Status.RUNNING,
-) -> BatchExportBackfill:
-    """Create a BatchExportBackfill.
-
-    Args:
-        batch_export_id: The UUID of the BatchExport the BatchExportBackfill to create belongs to.
-        team_id: The id of the Team the BatchExportBackfill to create belongs to.
-        start_at: The start of the period to backfill in this BatchExportBackfill.
-        end_at: The end of the period to backfill in this BatchExportBackfill.
-        status: The initial status for the created BatchExportBackfill.
-    """
-    backfill = BatchExportBackfill(
-        batch_export_id=batch_export_id,
-        status=status,
-        start_at=dt.datetime.fromisoformat(start_at),
-        end_at=dt.datetime.fromisoformat(end_at) if end_at else None,
-        team_id=team_id,
-    )
+    kwargs: dict = {
+        "batch_export_id": batch_export_id,
+        "status": status,
+        "start_at": dt.datetime.fromisoformat(start_at) if start_at else None,
+        "end_at": dt.datetime.fromisoformat(end_at) if end_at else None,
+        "team_id": team_id,
+    }
+    if backfill_id is not None:
+        kwargs["id"] = backfill_id
+    backfill = BatchExportBackfill(**kwargs)
     await backfill.asave()
 
     return backfill
