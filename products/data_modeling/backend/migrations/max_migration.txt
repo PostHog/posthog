@@ -1,1 +1,1 @@
-0009_edge_dag_id_text_node_dag_id_text
+0010_add_endpoint_node_type
