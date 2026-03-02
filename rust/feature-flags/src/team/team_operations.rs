@@ -469,4 +469,47 @@ mod tests {
             Err(FlagError::DataParsingErrorWithContext(_))
         ));
     }
+
+    #[tokio::test]
+    async fn test_resolved_project_id_uses_explicit_value_when_present() {
+        let team_data = json!({
+            "id": 100,
+            "name": "Test Team",
+            "api_token": "phc_test",
+            "uuid": "00000000-0000-0000-0000-000000000001",
+            "project_id": 999,
+        });
+
+        let team = Team::from_hypercache_value(team_data).unwrap();
+        assert_eq!(team.resolved_project_id(), 999);
+    }
+
+    #[tokio::test]
+    async fn test_resolved_project_id_falls_back_to_team_id_when_absent() {
+        let team_data = json!({
+            "id": 100,
+            "name": "Test Team",
+            "api_token": "phc_test",
+            "uuid": "00000000-0000-0000-0000-000000000001",
+        });
+
+        let team = Team::from_hypercache_value(team_data).unwrap();
+        assert_eq!(team.project_id, None);
+        assert_eq!(team.resolved_project_id(), 100);
+    }
+
+    #[tokio::test]
+    async fn test_resolved_project_id_falls_back_to_team_id_when_null() {
+        let team_data = json!({
+            "id": 100,
+            "name": "Test Team",
+            "api_token": "phc_test",
+            "uuid": "00000000-0000-0000-0000-000000000001",
+            "project_id": null,
+        });
+
+        let team = Team::from_hypercache_value(team_data).unwrap();
+        assert_eq!(team.project_id, None);
+        assert_eq!(team.resolved_project_id(), 100);
+    }
 }

@@ -6,11 +6,14 @@ use serde_json::Value;
 use sqlx::FromRow;
 use tracing::{info, warn};
 
+use metrics::counter;
+
 use crate::{
     api::errors::FlagError,
     cohorts::cohort_models::Cohort,
     database::get_connection_with_metrics,
     flags::flag_models::{FeatureFlag, FeatureFlagRow},
+    metrics::consts::TOMBSTONE_COUNTER,
 };
 
 /// Build the flag definitions response from PostgreSQL, mirroring Django's
@@ -179,6 +182,13 @@ async fn load_flags_for_definitions(
                     team_id = row.team_id,
                     "Failed to deserialize filters: {e}"
                 );
+                counter!(
+                    TOMBSTONE_COUNTER,
+                    "namespace" => "feature_flags",
+                    "operation" => "flag_filter_deserialization_error",
+                    "component" => "flag_definitions_from_pg",
+                )
+                .increment(1);
                 None
             }
         })
@@ -227,13 +237,13 @@ async fn load_cohorts_with_dependencies(
     let mut ids_to_load: HashSet<i32> = initial_ids;
     let mut all_requested: HashSet<i32> = HashSet::new();
 
+    let mut conn =
+        get_connection_with_metrics(&client, "non_persons_reader", "fetch_cohorts_for_defs")
+            .await?;
+
     while !ids_to_load.is_empty() {
         let ids_vec: Vec<i32> = ids_to_load.iter().copied().collect();
         all_requested.extend(&ids_to_load);
-
-        let mut conn =
-            get_connection_with_metrics(&client, "non_persons_reader", "fetch_cohorts_for_defs")
-                .await?;
 
         let cohorts = sqlx::query_as::<_, Cohort>(
             r#"SELECT c.id, c.name, c.description, c.team_id, c.deleted, c.filters,
@@ -255,8 +265,18 @@ async fn load_cohorts_with_dependencies(
         // Extract nested IDs from newly loaded cohorts
         let mut nested_ids: HashSet<i32> = HashSet::new();
         for cohort in cohorts {
-            if let Ok(deps) = cohort.extract_dependencies() {
-                nested_ids.extend(deps);
+            match cohort.extract_dependencies() {
+                Ok(deps) => {
+                    nested_ids.extend(deps);
+                }
+                Err(e) => {
+                    warn!(
+                        cohort_id = cohort.id,
+                        team_id = cohort.team_id,
+                        error = %e,
+                        "Failed to extract cohort dependencies; nested resolution may be incomplete"
+                    );
+                }
             }
             loaded.insert(cohort.id, cohort);
         }

@@ -862,10 +862,12 @@ async fn test_personal_api_key_unscoped_removed_member() {
 }
 
 #[tokio::test]
-async fn test_cache_miss_returns_503() {
-    use feature_flags::{config::Config, utils::test_utils::TestContext};
+async fn test_cache_miss_falls_back_to_database() {
+    use feature_flags::{
+        config::Config, flags::flag_models::FeatureFlagRow, utils::test_utils::TestContext,
+    };
     use reqwest;
-    use serde_json::Value;
+    use serde_json::{json, Value};
 
     let config = Config::default_test_config();
     let context = TestContext::new(Some(&config)).await;
@@ -876,12 +878,39 @@ async fn test_cache_miss_returns_503() {
         .await
         .unwrap();
 
-    // DO NOT populate cache - we want to test cache miss behavior
+    // Insert a flag in the database so the fallback has data to return
+    let flag = context
+        .insert_flag(
+            team.id,
+            Some(FeatureFlagRow {
+                id: 0,
+                key: "db-fallback-flag".to_string(),
+                name: Some("DB Fallback Flag".to_string()),
+                active: true,
+                deleted: false,
+                ensure_experience_continuity: Some(false),
+                has_encrypted_payloads: None,
+                team_id: team.id,
+                filters: json!({
+                    "groups": [{
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    }],
+                }),
+                version: None,
+                evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
+                bucketing_identifier: None,
+            }),
+        )
+        .await
+        .unwrap();
+
+    // DO NOT populate cache - we want to test cache miss fallback
 
     let server = common::ServerHandle::for_config(config.clone()).await;
     let client = reqwest::Client::new();
 
-    // Request should return 503 when cache is empty
     let response = client
         .get(format!(
             "http://{}/flags/definitions?token={}",
@@ -896,28 +925,44 @@ async fn test_cache_miss_returns_503() {
     let body_text = response.text().await.unwrap();
 
     assert_eq!(
-        status, 503,
-        "Should return 503 on cache miss. Body: {body_text}"
+        status, 200,
+        "Should return 200 via DB fallback on cache miss. Body: {body_text}"
     );
 
-    // Verify the response body has proper error format (if JSON)
-    if let Ok(body) = serde_json::from_str::<Value>(&body_text) {
-        assert_eq!(body["type"], "server_error");
-        assert_eq!(body["code"], "service_unavailable");
-        assert!(
-            body["detail"]
-                .as_str()
-                .unwrap()
-                .contains("Required data not found in cache"),
-            "Error message should mention cache miss"
-        );
-    } else {
-        // If not JSON, verify the error message mentions cache
-        assert!(
-            body_text.contains("Required data not found in cache"),
-            "Body should mention cache miss. Got: {body_text}"
-        );
-    }
+    let body: Value = serde_json::from_str(&body_text).expect("Response should be valid JSON");
+
+    // Verify the response contains the expected structure
+    assert!(
+        body.get("flags").is_some(),
+        "Response should have a 'flags' key"
+    );
+    assert!(
+        body.get("group_type_mapping").is_some(),
+        "Response should have 'group_type_mapping'"
+    );
+    assert!(
+        body.get("cohorts").is_some(),
+        "Response should have 'cohorts'"
+    );
+
+    // Verify the flag we inserted is present
+    let flags = body["flags"].as_array().expect("flags should be an array");
+    let flag_keys: Vec<&str> = flags
+        .iter()
+        .filter_map(|f| f.get("key").and_then(|k| k.as_str()))
+        .collect();
+    assert!(
+        flag_keys.contains(&"db-fallback-flag"),
+        "Response should contain the flag inserted in the database. Got keys: {flag_keys:?}"
+    );
+
+    // Verify the returned flag has the expected structure
+    let returned_flag = flags
+        .iter()
+        .find(|f| f.get("key").and_then(|k| k.as_str()) == Some("db-fallback-flag"))
+        .expect("Flag should exist in response");
+    assert_eq!(returned_flag["id"], flag.id);
+    assert_eq!(returned_flag["active"], true);
 }
 
 #[tokio::test]

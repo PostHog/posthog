@@ -114,7 +114,7 @@ pub async fn flags_definitions(
             let result = load_flag_definitions_from_pg(
                 state.database_pools.non_persons_reader.clone(),
                 team.id,
-                team.project_id,
+                team.resolved_project_id(),
             )
             .await?;
             histogram!(FLAG_DEFINITIONS_DB_FALLBACK_DURATION)

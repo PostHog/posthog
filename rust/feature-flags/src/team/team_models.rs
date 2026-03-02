@@ -11,7 +11,7 @@ pub struct Team {
     pub uuid: Uuid,
     pub organization_id: Option<Uuid>,
     #[serde(default)]
-    pub project_id: i64,
+    pub project_id: Option<i64>,
     pub autocapture_opt_out: Option<bool>,
     pub autocapture_exceptions_opt_in: Option<bool>,
     pub autocapture_web_vitals_opt_in: Option<bool>,
@@ -68,6 +68,15 @@ mod option_i16_as_i16 {
         D: Deserializer<'de>,
     {
         Option::<i16>::deserialize(deserializer)
+    }
+}
+
+impl Team {
+    /// Returns the project ID, falling back to the team ID when absent.
+    /// Django backfills missing `project_id` to `id` in its cache reader,
+    /// so this mirrors that behavior to avoid downstream queries using 0.
+    pub fn resolved_project_id(&self) -> i64 {
+        self.project_id.unwrap_or(self.id as i64)
     }
 }
 
