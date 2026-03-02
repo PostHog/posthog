@@ -40,7 +40,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        setConnection: (connectionId: string | null, sourceId: string | null) => ({ connectionId, sourceId }),
+        setConnection: (connectionId: string | null) => ({ connectionId }),
     }),
     loaders(({ values }) => ({
         database: [
@@ -59,7 +59,6 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     reducers({
         searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
         connectionId: [null as string | null, { setConnection: (_, { connectionId }) => connectionId }],
-        selectedSourceId: [null as string | null, { setConnection: (_, { sourceId }) => sourceId }],
     }),
     selectors({
         allPosthogTables: [
@@ -96,9 +95,9 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         posthogTables: [
-            (s) => [s.allPosthogTables, s.selectedSourceId],
-            (allPosthogTables: DatabaseSchemaTable[], selectedSourceId: string | null): DatabaseSchemaTable[] => {
-                if (selectedSourceId) {
+            (s) => [s.allPosthogTables, s.connectionId],
+            (allPosthogTables: DatabaseSchemaTable[], connectionId: string | null): DatabaseSchemaTable[] => {
+                if (connectionId) {
                     return []
                 }
                 const visiblePosthogTableNames = new Set(['events', 'groups', 'persons', 'sessions'])
@@ -112,9 +111,9 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         systemTables: [
-            (s) => [s.allTables, s.selectedSourceId],
-            (allTables: DatabaseSchemaTable[], selectedSourceId: string | null): DatabaseSchemaTable[] => {
-                if (selectedSourceId) {
+            (s) => [s.allTables, s.connectionId],
+            (allTables: DatabaseSchemaTable[], connectionId: string | null): DatabaseSchemaTable[] => {
+                if (connectionId) {
                     return []
                 }
                 return allTables.filter((n) => n.type === 'system')
@@ -127,11 +126,11 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         dataWarehouseTables: [
-            (s) => [s.allTables, s.selectedSourceId],
-            (allTables: DatabaseSchemaTable[], selectedSourceId: string | null): DatabaseSchemaDataWarehouseTable[] => {
+            (s) => [s.allTables, s.connectionId],
+            (allTables: DatabaseSchemaTable[], connectionId: string | null): DatabaseSchemaDataWarehouseTable[] => {
                 return allTables.filter(
                     (n): n is DatabaseSchemaDataWarehouseTable =>
-                        n.type === 'data_warehouse' && (!selectedSourceId || n.source?.id === selectedSourceId)
+                        n.type === 'data_warehouse' && (!connectionId || n.source?.id === connectionId)
                 )
             },
             { resultEqualityCheck: objectsEqual },

@@ -83,9 +83,7 @@ export function ConnectionSelector(): JSX.Element {
                 }
 
                 const selectedConnectionId = nextValue
-                const selectedSource = directPostgresSources.find(
-                    (source) => source.connection_id === selectedConnectionId
-                )
+                const selectedSource = directPostgresSources.find((source) => source.id === selectedConnectionId)
 
                 setSourceQuery({
                     ...sourceQueryWithConnection,
@@ -95,7 +93,7 @@ export function ConnectionSelector(): JSX.Element {
                         connectionId: selectedConnectionId ?? undefined,
                     },
                 } as typeof sourceQuery)
-                setConnection(selectedConnectionId, selectedSource?.source_id ?? null)
+                setConnection(selectedConnectionId, selectedSource?.id ?? null)
                 loadDatabase()
             }}
             options={options}

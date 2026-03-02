@@ -1052,7 +1052,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'systemTablesMap',
                 'allTablesMap',
                 'latestEndpointTables',
-                'selectedSourceId',
+                'connectionId',
             ],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],

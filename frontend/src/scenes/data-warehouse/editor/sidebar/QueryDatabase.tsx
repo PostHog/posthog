@@ -45,7 +45,7 @@ export const QueryDatabase = (): JSX.Element => {
         searchTerm,
         joinsByFieldName,
         editingDraftId,
-        selectedSourceId,
+        connectionId,
     } = useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
@@ -185,7 +185,7 @@ export const QueryDatabase = (): JSX.Element => {
     const displayedTreeData = useMemo(() => {
         const sourceData = searchTerm ? searchTreeData : treeData
 
-        if (!selectedSourceId) {
+        if (!connectionId || connectionId === POSTHOG_WAREHOUSE) {
             return sourceData
         }
 
@@ -211,7 +211,7 @@ export const QueryDatabase = (): JSX.Element => {
                 children: flattenedTables,
             },
         ]
-    }, [searchTerm, searchTreeData, selectedSourceId, treeData])
+    }, [searchTerm, searchTreeData, connectionId, treeData])
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -224,7 +224,7 @@ export const QueryDatabase = (): JSX.Element => {
             // TODO: Can move this to treedata selector but selectors are maxed out on dependencies
             data={displayedTreeData}
             expandedItemIds={
-                selectedSourceId
+                connectionId
                     ? searchTerm
                         ? ['search-tables', ...expandedSearchFolders]
                         : ['tables', ...expandedFolders]
@@ -648,7 +648,7 @@ export const QueryDatabase = (): JSX.Element => {
                     <TreeNodeDisplayIcon
                         item={item}
                         expandedItemIds={
-                            selectedSourceId
+                            connectionId
                                 ? searchTerm
                                     ? ['search-tables', ...expandedSearchFolders]
                                     : ['tables', ...expandedFolders]
