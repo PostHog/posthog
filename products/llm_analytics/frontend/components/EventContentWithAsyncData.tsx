@@ -5,6 +5,8 @@ import { isObject } from 'lib/utils'
 
 import { ConversationMessagesDisplay } from '../ConversationDisplay/ConversationMessagesDisplay'
 import { useAIData } from '../hooks/useAIData'
+import type { DisplayOption } from '../llmAnalyticsTraceLogic'
+import { LLMInputOutput } from '../LLMInputOutput'
 import { normalizeMessage, normalizeMessages } from '../utils'
 import { AIDataLoading } from './AIDataLoading'
 
@@ -18,7 +20,7 @@ interface EventContentGenerationProps {
     httpStatus: unknown
     raisedError: boolean
     searchQuery?: string
-    displayOption?: 'expand_all' | 'collapse_except_output_and_last_input' | 'text_view'
+    displayOption?: DisplayOption
 }
 
 export function EventContentGeneration({
@@ -74,6 +76,53 @@ export function EventContentGeneration({
             displayOption={displayOption}
             traceId={traceId}
             generationEventId={eventId}
+        />
+    )
+}
+
+interface EventContentDisplayProps {
+    rawInput: unknown
+    rawOutput: unknown
+    raisedError?: boolean
+    searchQuery?: string
+}
+
+export function EventContentDisplay({
+    rawInput,
+    rawOutput,
+    raisedError,
+    searchQuery,
+}: EventContentDisplayProps): JSX.Element {
+    if (rawInput === undefined && rawOutput === undefined) {
+        return <></>
+    }
+
+    return (
+        <LLMInputOutput
+            inputDisplay={
+                <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-secondary)]">
+                    {isObject(rawInput) ? (
+                        <HighlightedJSONViewer src={rawInput} collapsed={4} searchQuery={searchQuery} />
+                    ) : (
+                        <span className="font-mono">{JSON.stringify(rawInput ?? null)}</span>
+                    )}
+                </div>
+            }
+            outputDisplay={
+                <div
+                    className={`p-2 text-xs border rounded ${
+                        !raisedError
+                            ? 'bg-[var(--color-bg-fill-success-tertiary)]'
+                            : 'bg-[var(--color-bg-fill-error-tertiary)]'
+                    }`}
+                >
+                    {isObject(rawOutput) ? (
+                        <HighlightedJSONViewer src={rawOutput} collapsed={4} searchQuery={searchQuery} />
+                    ) : (
+                        <span className="font-mono">{JSON.stringify(rawOutput ?? null)}</span>
+                    )}
+                </div>
+            }
         />
     )
 }

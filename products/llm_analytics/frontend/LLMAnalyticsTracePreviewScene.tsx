@@ -11,15 +11,16 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
-import { NoTopLevelTraceEmptyState } from './components/NoTopLevelTraceEmptyState'
+import { TraceAggregationInfo } from './components/TraceAggregationInfo'
+import { TraceConversationContent } from './components/TraceConversationContent'
+import { TraceEventMetadata } from './components/TraceEventMetadata'
 import { EventTypeTag, TraceSidebarBase } from './components/TraceSidebarBase'
-import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
-import { EnrichedTraceTreeNode, SpanAggregation } from './llmAnalyticsTraceDataLogic'
+import { EnrichedTraceTreeNode } from './llmAnalyticsTraceDataLogic'
 import { TraceViewMode } from './llmAnalyticsTraceLogic'
 import { llmAnalyticsTracePreviewLogic } from './llmAnalyticsTracePreviewLogic'
-import { formatLLMCost, formatLLMEventTitle, formatLLMLatency, isLLMEvent } from './utils'
+import { findNodeByEventId } from './traceViewUtils'
+import { formatLLMCost, formatLLMEventTitle, isLLMEvent } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsTracePreviewScene,
@@ -271,7 +272,7 @@ function PreviewEventContent({
         )
     }
 
-    const currentNode = findNode(tree, event.id)
+    const currentNode = findNodeByEventId(tree, event.id)
     const aggregation = currentNode?.aggregation
 
     return (
@@ -281,29 +282,9 @@ function PreviewEventContent({
                     <EventTypeTag event={event} />
                     <h3 className="text-lg font-semibold p-0 m-0 truncate flex-1">{formatLLMEventTitle(event)}</h3>
                 </div>
-                {isLLMEvent(event) ? (
-                    <MetadataHeader
-                        isError={event.properties.$ai_is_error}
-                        inputTokens={event.properties.$ai_input_tokens}
-                        outputTokens={event.properties.$ai_output_tokens}
-                        cacheReadTokens={event.properties.$ai_cache_read_input_tokens}
-                        cacheWriteTokens={event.properties.$ai_cache_creation_input_tokens}
-                        totalCostUsd={event.properties.$ai_total_cost_usd}
-                        model={event.properties.$ai_model}
-                        latency={event.properties.$ai_latency}
-                        timestamp={event.createdAt}
-                    />
-                ) : (
-                    <MetadataHeader
-                        inputTokens={event.inputTokens}
-                        outputTokens={event.outputTokens}
-                        totalCostUsd={event.totalCost}
-                        latency={event.totalLatency}
-                        timestamp={event.createdAt}
-                    />
-                )}
+                <TraceEventMetadata event={event} />
                 {isLLMEvent(event) && <ParametersHeader eventProperties={event.properties} />}
-                {aggregation && <AggregationInfo aggregation={aggregation} />}
+                {aggregation && <TraceAggregationInfo aggregation={aggregation} />}
             </header>
             <LemonTabs
                 activeKey={viewMode}
@@ -313,7 +294,7 @@ function PreviewEventContent({
                         key: TraceViewMode.Conversation,
                         label: 'Conversation',
                         'data-attr': 'llma-trace-conversation-tab',
-                        content: <ConversationTabContent event={event} searchQuery={searchQuery} />,
+                        content: <TraceConversationContent event={event} searchQuery={searchQuery} />,
                     },
                     {
                         key: TraceViewMode.Raw,
@@ -329,98 +310,4 @@ function PreviewEventContent({
             />
         </main>
     )
-}
-
-function AggregationInfo({ aggregation }: { aggregation: SpanAggregation }): JSX.Element {
-    return (
-        <div className="flex flex-row flex-wrap items-center gap-2">
-            {aggregation.totalCost > 0 && (
-                <LemonTag type="muted" size="small">
-                    Total Cost: {formatLLMCost(aggregation.totalCost)}
-                </LemonTag>
-            )}
-            {aggregation.totalLatency > 0 && (
-                <LemonTag type="muted" size="small">
-                    Total Latency: {formatLLMLatency(aggregation.totalLatency)}
-                </LemonTag>
-            )}
-            {(aggregation.inputTokens > 0 || aggregation.outputTokens > 0) && (
-                <LemonTag type="muted" size="small">
-                    Tokens: {aggregation.inputTokens} → {aggregation.outputTokens} (∑{' '}
-                    {aggregation.inputTokens + aggregation.outputTokens})
-                </LemonTag>
-            )}
-        </div>
-    )
-}
-
-function ConversationTabContent({
-    event,
-    searchQuery,
-}: {
-    event: LLMTrace | LLMTraceEvent
-    searchQuery?: string
-}): JSX.Element {
-    if (isLLMEvent(event)) {
-        if (event.event === '$ai_generation') {
-            return (
-                <EventContentGeneration
-                    eventId={event.id}
-                    rawInput={event.properties.$ai_input}
-                    rawOutput={event.properties.$ai_output_choices ?? event.properties.$ai_output}
-                    tools={event.properties.$ai_tools}
-                    errorData={event.properties.$ai_error}
-                    httpStatus={event.properties.$ai_http_status}
-                    raisedError={event.properties.$ai_is_error}
-                    searchQuery={searchQuery}
-                />
-            )
-        }
-
-        if (event.event === '$ai_embedding') {
-            return (
-                <EventContentDisplayAsync
-                    eventId={event.id}
-                    rawInput={event.properties.$ai_input}
-                    rawOutput="Embedding vector generated"
-                />
-            )
-        }
-
-        return (
-            <EventContentDisplayAsync
-                eventId={event.id}
-                rawInput={event.properties.$ai_input_state}
-                rawOutput={event.properties.$ai_output_state ?? event.properties.$ai_error}
-                raisedError={event.properties.$ai_is_error}
-            />
-        )
-    }
-
-    // Check if this is a top-level trace without actual content (no $ai_trace event)
-    const isTopLevelTraceWithoutContent = event.inputState === undefined && event.outputState === undefined
-
-    if (isTopLevelTraceWithoutContent) {
-        return <NoTopLevelTraceEmptyState />
-    }
-
-    return <EventContentDisplayAsync eventId={event.id} rawInput={event.inputState} rawOutput={event.outputState} />
-}
-
-function findNode(tree: EnrichedTraceTreeNode[], eventId: string): EnrichedTraceTreeNode | null {
-    for (const node of tree) {
-        if (node.event.id === eventId) {
-            return node
-        }
-
-        if (node.children) {
-            const found = findNode(node.children, eventId)
-
-            if (found) {
-                return found
-            }
-        }
-    }
-
-    return null
 }
