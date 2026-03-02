@@ -1,14 +1,7 @@
 import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import {
-    BaseMathType,
-    ChartDisplayType,
-    PropertyFilterType,
-    PropertyGroupFilter,
-    PropertyOperator,
-    UniversalFiltersGroup,
-} from '~/types'
+import { BaseMathType, ChartDisplayType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 export interface InsightQueryFilters {
     filterGroup: UniversalFiltersGroup
@@ -46,16 +39,8 @@ export function buildExceptionVolumeQuery(
             series: [
                 {
                     kind: NodeKind.EventsNode,
-                    event: null,
+                    event: '$exception',
                     custom_name: 'Exceptions',
-                    properties: [
-                        {
-                            key: 'event',
-                            type: PropertyFilterType.Event,
-                            value: '$exception',
-                            operator: PropertyOperator.Exact,
-                        },
-                    ],
                 },
             ],
             interval: 'day',
@@ -87,17 +72,9 @@ export function buildCrashFreeSessionsQuery(
                 },
                 {
                     kind: NodeKind.EventsNode,
-                    event: null,
+                    event: '$exception',
                     custom_name: 'Sessions with crash',
                     math: BaseMathType.UniqueSessions,
-                    properties: [
-                        {
-                            key: 'event',
-                            type: PropertyFilterType.Event,
-                            value: '$exception',
-                            operator: PropertyOperator.Exact,
-                        },
-                    ],
                 },
             ],
             interval: 'day',

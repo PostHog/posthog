@@ -1,14 +1,12 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonDivider } from '@posthog/lemon-ui'
-
 import { ChartCard } from './ChartCard'
+import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 import { InsightsFilters } from './InsightsFilters'
+import { buildCrashFreeSessionsQuery, buildExceptionVolumeQuery } from './queries'
 import { SummaryStats } from './SummaryStats'
 import { TimeRangeControls } from './TimeRangeControls'
-import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
-import { buildCrashFreeSessionsQuery, buildExceptionVolumeQuery } from './queries'
 
 export function ErrorTrackingInsights(): JSX.Element {
     const { dateFrom, chartDateTo, filterGroup, filterTestAccounts } = useValues(errorTrackingInsightsLogic)
@@ -28,7 +26,6 @@ export function ErrorTrackingInsights(): JSX.Element {
         <div className="space-y-4">
             <div className="border rounded bg-surface-primary p-2 space-y-2">
                 <TimeRangeControls />
-                <LemonDivider className="my-0" />
                 <InsightsFilters />
             </div>
             <SummaryStats />
