@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { memo, useMemo } from 'react'
 
-import { IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconGear, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -11,6 +11,7 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -65,16 +66,37 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
 
                 <div className="ml-auto flex items-center gap-2">
                     <FixErrorButton type="secondary" size="small" source="action-bar" />
-                    {vimModeFeatureEnabled && (
-                        <LemonSwitch
-                            checked={editorVimModeEnabled}
-                            onChange={setEditorVimModeEnabled}
-                            label="Vim"
-                            size="small"
-                            bordered
-                            data-attr="sql-editor-vim-toggle"
-                        />
-                    )}
+                    {vimModeFeatureEnabled ? (
+                        <LemonMenu
+                            items={[
+                                {
+                                    custom: true,
+                                    label: () => (
+                                        <div className="">
+                                            <LemonSwitch
+                                                checked={editorVimModeEnabled}
+                                                onChange={setEditorVimModeEnabled}
+                                                label="Vim mode"
+                                                size="small"
+                                                fullWidth
+                                                data-attr="sql-editor-vim-toggle"
+                                            />
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                            closeOnClickInside={false}
+                            placement="bottom-end"
+                        >
+                            <LemonButton
+                                icon={<IconGear />}
+                                type="secondary"
+                                size="small"
+                                tooltip="Editor settings"
+                                data-attr="sql-editor-settings-toggle"
+                            />
+                        </LemonMenu>
+                    ) : null}
                 </div>
             </div>
 
