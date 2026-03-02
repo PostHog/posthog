@@ -185,10 +185,14 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                             value: 'llm_judge',
                                             label: 'LLM as a judge',
                                         },
-                                        {
-                                            value: 'hog',
-                                            label: 'Hog',
-                                        },
+                                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_HOG_CODE]
+                                            ? [
+                                                  {
+                                                      value: 'hog',
+                                                      label: 'Hog code',
+                                                  },
+                                              ]
+                                            : []),
                                     ]}
                                     fullWidth
                                 />
