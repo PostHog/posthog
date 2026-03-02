@@ -643,6 +643,7 @@ function SceneDescription({
                         variant="default"
                         name="description"
                         value={description || ''}
+                        maxLength={400}
                         onChange={(e) => {
                             setDescription(e.target.value)
                             if (!saveOnBlur || forceEdit) {
