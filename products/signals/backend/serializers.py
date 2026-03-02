@@ -48,6 +48,20 @@ class SignalReportSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [f for f in fields if f != "status"]
 
+    def validate_status(self, value: str) -> str:
+        if self.instance is None:
+            return value
+        current = self.instance.status
+        allowed: dict[str, set[str]] = {
+            SignalReport.Status.READY: {SignalReport.Status.DISMISSED},
+            SignalReport.Status.DISMISSED: {SignalReport.Status.READY},
+        }
+        if value == current:
+            return value
+        if value not in allowed.get(current, set()):
+            raise serializers.ValidationError(f"Cannot transition from '{current}' to '{value}'.")
+        return value
+
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):
     content = serializers.SerializerMethodField()

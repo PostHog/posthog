@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team.team import Team
@@ -159,6 +160,24 @@ class TestSignalReportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         ids = [r["id"] for r in response.json()["results"]]
         assert ids.index(str(many.id)) < ids.index(str(few.id))
+
+    @parameterized.expand(
+        [
+            ("ready_to_dismissed", SignalReport.Status.READY, "dismissed", True),
+            ("dismissed_to_ready", SignalReport.Status.DISMISSED, "ready", True),
+            ("ready_noop", SignalReport.Status.READY, "ready", True),
+            ("dismissed_noop", SignalReport.Status.DISMISSED, "dismissed", True),
+            ("failed_to_dismissed", SignalReport.Status.FAILED, "dismissed", False),
+            ("ready_to_failed", SignalReport.Status.READY, "failed", False),
+            ("dismissed_to_failed", SignalReport.Status.DISMISSED, "failed", False),
+            ("candidate_to_dismissed", SignalReport.Status.CANDIDATE, "dismissed", False),
+        ]
+    )
+    def test_status_transition(self, _name, from_status, to_status, allowed):
+        report = self._make_report(status=from_status)
+        response = self.client.patch(self._url(str(report.id)), data={"status": to_status}, format="json")
+        expected = status.HTTP_200_OK if allowed else status.HTTP_400_BAD_REQUEST
+        assert response.status_code == expected, response.json()
 
     def test_unauthenticated_request_rejected(self):
         self.client.logout()
