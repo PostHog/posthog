@@ -18,7 +18,6 @@ import {
     LemonDropdown,
     LemonInput,
     LemonModal,
-    LemonSearchableSelect,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
@@ -33,7 +32,6 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { ByokModelPicker } from './ByokModelPicker'
 import { JSONEditor } from './components/JSONEditor'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import {
@@ -43,6 +41,8 @@ import {
     PromptConfig,
     llmAnalyticsPlaygroundLogic,
 } from './llmAnalyticsPlaygroundLogic'
+import { getModelPickerFooterLink, ModelPicker as ModelPickerDropdown } from './ModelPicker'
+import { modelPickerLogic } from './modelPickerLogic'
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460
@@ -296,15 +296,11 @@ function getModelOptionsErrorMessage(errorStatus: number | null): string | null 
 
 function ModelPicker({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const {
-        effectiveModelOptions,
-        hasByokKeys,
-        modelOptions,
-        modelOptionsLoading,
-        modelOptionsErrorStatus,
-        groupedModelOptions,
-    } = useValues(llmAnalyticsPlaygroundLogic)
+    const { effectiveModelOptions, hasByokKeys, modelOptions, modelOptionsLoading, modelOptionsErrorStatus } =
+        useValues(llmAnalyticsPlaygroundLogic)
     const { setModel, loadModelOptions } = useActions(llmAnalyticsPlaygroundLogic)
+    const { providerModelGroups, trialProviderModelGroups, byokModelsLoading, trialModelsLoading } =
+        useValues(modelPickerLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-10" />
@@ -315,10 +311,13 @@ function ModelPicker({ promptId }: { promptId: string }): JSX.Element {
         const selectedModel = options.find((m) => m.id === prompt.model)
 
         return (
-            <ByokModelPicker
+            <ModelPickerDropdown
                 model={prompt.model}
                 selectedProviderKeyId={prompt.selectedProviderKeyId}
                 onSelect={(modelId, providerKeyId) => setModel(modelId, providerKeyId, promptId)}
+                groups={providerModelGroups}
+                loading={byokModelsLoading}
+                footerLink={getModelPickerFooterLink(true)}
                 selectedModelName={selectedModel?.name}
                 data-attr={`playground-model-selector-${promptId}`}
             />
@@ -330,25 +329,24 @@ function ModelPicker({ promptId }: { promptId: string }): JSX.Element {
 
     return (
         <>
-            {modelOptionsLoading && !options.length ? (
-                <LemonSkeleton className="h-10" />
+            {trialModelsLoading && !options.length ? (
+                <ModelPickerDropdown
+                    model={prompt.model}
+                    selectedProviderKeyId={null}
+                    onSelect={(modelId, providerKeyId) => setModel(modelId, providerKeyId, promptId)}
+                    groups={trialProviderModelGroups}
+                    loading={trialModelsLoading}
+                    footerLink={getModelPickerFooterLink(false)}
+                    data-attr={`playground-model-selector-${promptId}`}
+                />
             ) : (
-                <LemonSearchableSelect
-                    className="w-full"
-                    placeholder="Select model"
-                    value={prompt.model}
-                    onChange={(value) => value && setModel(value, undefined, promptId)}
-                    options={groupedModelOptions}
-                    searchPlaceholder="Search models..."
-                    searchKeys={['label', 'value', 'tooltip']}
-                    loading={modelOptionsLoading}
-                    disabledReason={
-                        modelOptionsLoading
-                            ? 'Loading models...'
-                            : options.length === 0
-                              ? 'No models available'
-                              : undefined
-                    }
+                <ModelPickerDropdown
+                    model={prompt.model}
+                    selectedProviderKeyId={null}
+                    onSelect={(modelId, providerKeyId) => setModel(modelId, providerKeyId, promptId)}
+                    groups={trialProviderModelGroups}
+                    loading={trialModelsLoading}
+                    footerLink={getModelPickerFooterLink(false)}
                     data-attr={`playground-model-selector-${promptId}`}
                 />
             )}
