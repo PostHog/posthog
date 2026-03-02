@@ -15,8 +15,8 @@ export const DEFAULT_PERSON_PROFILE_SIDEBAR: JSONContent[] = [
     { type: NotebookNodeType.Person, attrs: { title: 'Info' } },
     // FIXME: Map bg image is broken
     // { type: NotebookNodeType.Map, attrs: { title: 'Map' } },
-    { type: NotebookNodeType.PersonProperties, attrs: { title: 'Properties' } },
     { type: NotebookNodeType.RelatedGroups, attrs: { title: 'Related groups' } },
+    { type: NotebookNodeType.PersonProperties, attrs: { title: 'Properties' } },
 ]
 
 export const DEFAULT_PERSON_PROFILE_CONTENT: JSONContent[] = [
@@ -29,8 +29,8 @@ export const DEFAULT_PERSON_PROFILE_CONTENT: JSONContent[] = [
 
 export const DEFAULT_GROUP_PROFILE_SIDEBAR: JSONContent[] = [
     { type: NotebookNodeType.Group, attrs: { title: 'Info' } },
-    { type: NotebookNodeType.GroupProperties, attrs: { title: 'Properties' } },
     { type: NotebookNodeType.RelatedGroups, attrs: { title: 'Related people', type: 'person' } },
+    { type: NotebookNodeType.GroupProperties, attrs: { title: 'Properties' } },
 ]
 
 export const DEFAULT_GROUP_PROFILE_CONTENT: JSONContent[] = [
