@@ -119,6 +119,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         help_text="Dict of all columns with Clickhouse type (including Nullable())",
     )
 
+    csv_allow_double_quotes = models.BooleanField(
+        null=True,
+        default=None,
+        help_text="Whether to use RFC 4180 CSV quoting. None = not yet detected.",
+    )
+
     row_count = models.IntegerField(null=True, help_text="How many rows are currently synced in this table")
     size_in_s3_mib = models.FloatField(null=True, help_text="The object size in S3 for this table in MiB")
 
@@ -178,6 +184,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self,
         safe_expose_ch_error: bool = True,
     ) -> DataWarehouseTableColumns:
+        # Run CSV double-quote detection before schema discovery so the result
+        # is stored for query-time use. Detection is side-effect-only here —
+        # we intentionally do NOT override the main DESCRIBE TABLE settings
+        # to preserve the original ClickHouse server-default behavior.
+        if self._is_csv_format() and self.csv_allow_double_quotes is None:
+            self.csv_allow_double_quotes = self._detect_csv_double_quotes_setting()
+
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
@@ -410,7 +423,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 del fields[PARTITION_KEY]
                 fields = {**fields, **default_fields}
 
-        return HogQLDataWarehouseTable(
+        table_def = HogQLDataWarehouseTable(
             name=self.name,
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
@@ -422,6 +435,17 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_id=str(self.id),
         )
 
+        effective = self.csv_allow_double_quotes
+        if effective is None and self._is_csv_format():
+            effective = False
+
+        if effective is not None:
+            table_def.raw_top_level_settings = {
+                "format_csv_allow_double_quotes": effective,
+            }
+
+        return table_def
+
     def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
         clickhouse_type = self.columns.get(column_name, None)
 
@@ -432,6 +456,83 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
 
         return clickhouse_type
+
+    def _is_csv_format(self) -> bool:
+        return self.format in (
+            DataWarehouseTable.TableFormat.CSV,
+            DataWarehouseTable.TableFormat.CSVWithNames,
+        )
+
+    def _detect_csv_double_quotes_setting(self) -> Optional[bool]:
+        """Detect whether the CSV uses RFC 4180 quoting by trying to parse data rows
+        with each setting. DESCRIBE TABLE only reads headers for CSVWithNames, so we
+        use SELECT to actually parse data rows and surface parsing errors."""
+        logger = structlog.get_logger(__name__)
+
+        tag_queries(
+            team_id=self.team.pk,
+            table_id=self.id,
+            warehouse_query=True,
+            name="detect_csv_double_quotes",
+            product=Product.WAREHOUSE,
+        )
+
+        ok_with_quotes = False
+        ok_without_quotes = False
+
+        # Try with =1 (RFC 4180 mode) — parse actual data rows
+        try:
+            ctx = HogQLContext(team_id=self.team.pk)
+            func = build_function_call(
+                url=self.url_pattern,
+                queryable_folder=self.queryable_folder,
+                format=self.format,
+                access_key=self.credential.access_key if self.credential else None,
+                access_secret=self.credential.access_secret if self.credential else None,
+                context=ctx,
+                table_size_mib=0,
+            )
+            sync_execute(
+                f"SELECT 1 FROM {func} LIMIT 100",
+                args=ctx.values,
+                settings={"format_csv_allow_double_quotes": 1},
+            )
+            ok_with_quotes = True
+        except Exception:
+            pass
+
+        # Try with =0 (literal quotes mode) — parse actual data rows
+        try:
+            ctx = HogQLContext(team_id=self.team.pk)
+            func = build_function_call(
+                url=self.url_pattern,
+                queryable_folder=self.queryable_folder,
+                format=self.format,
+                access_key=self.credential.access_key if self.credential else None,
+                access_secret=self.credential.access_secret if self.credential else None,
+                context=ctx,
+                table_size_mib=0,
+            )
+            sync_execute(
+                f"SELECT 1 FROM {func} LIMIT 100",
+                args=ctx.values,
+                settings={"format_csv_allow_double_quotes": 0},
+            )
+            ok_without_quotes = True
+        except Exception:
+            pass
+
+        if ok_with_quotes and not ok_without_quotes:
+            return True
+        if ok_without_quotes and not ok_with_quotes:
+            return False
+        if not ok_with_quotes and not ok_without_quotes:
+            logger.warning("CSV double-quote detection failed for both settings", table_id=str(self.id))
+            return None
+
+        # Both succeeded — default to False (legacy behavior, avoids silent corruption
+        # from stray quotes in non-RFC files)
+        return False
 
     def _safe_expose_ch_error(self, err):
         err = wrap_clickhouse_query_error(err)

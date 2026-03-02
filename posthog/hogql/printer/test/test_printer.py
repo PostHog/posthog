@@ -2336,28 +2336,28 @@ class TestPrinter(BaseTest):
             prepare_and_print_ast(query_both, context, "clickhouse")
         assert "Conflicting" in str(cm.exception)
 
-    def test_table_top_level_settings_conflict_with_query_settings(self):
+    def test_table_top_level_settings_override_query_settings(self):
         query = parse_select("SELECT job_id FROM preaggregation_results")
         assert isinstance(query, ast.SelectQuery)
         query.settings = HogQLQuerySettings(load_balancing="round_robin")
-        with self.assertRaises(QueryError) as cm:
-            prepare_and_print_ast(
-                query,
-                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-                "clickhouse",
-            )
-        assert "Conflicting" in str(cm.exception)
+        printed, _ = prepare_and_print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        assert "load_balancing='in_order'" in printed
+        assert "round_robin" not in printed
 
-    def test_table_top_level_settings_conflict_with_global_settings(self):
+    def test_table_top_level_settings_override_global_settings(self):
         query = parse_select("SELECT job_id FROM preaggregation_results")
-        with self.assertRaises(QueryError) as cm:
-            prepare_and_print_ast(
-                query,
-                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-                "clickhouse",
-                settings=HogQLGlobalSettings(load_balancing="round_robin"),
-            )
-        assert "Conflicting" in str(cm.exception)
+        printed, _ = prepare_and_print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+            settings=HogQLGlobalSettings(load_balancing="round_robin"),
+        )
+        assert "load_balancing='in_order'" in printed
+        assert "round_robin" not in printed
 
     def test_table_top_level_settings_same_value_in_query_settings(self):
         query = parse_select("SELECT job_id FROM preaggregation_results")
@@ -2386,6 +2386,27 @@ class TestPrinter(BaseTest):
     def test_subquery_table_settings_bubble_up(self):
         printed = self._print("SELECT job_id FROM (SELECT job_id FROM preaggregation_results)")
         assert "load_balancing='in_order'" in printed
+
+    def test_warehouse_csv_table_with_double_quotes_setting(self):
+        from posthog.hogql.database.models import TableNode
+        from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+
+        csv_table = HogQLDataWarehouseTable(
+            name="csv_table",
+            url="https://example.com/test.csv",
+            format="CSVWithNames",
+            fields={"col1": StringDatabaseField(name="col1")},
+            structure="`col1` String",
+            raw_top_level_settings={"format_csv_allow_double_quotes": True},
+        )
+        db = Database()
+        root = TableNode()
+        root.add_child(TableNode(name="csv_table", table=csv_table))
+        db._add_warehouse_tables(root)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query = parse_select("SELECT col1 FROM csv_table")
+        printed, _ = prepare_and_print_ast(query, context, "clickhouse")
+        assert "format_csv_allow_double_quotes=1" in printed
 
     def test_pretty_print(self):
         printed = self._pretty("SELECT 1, event FROM events")

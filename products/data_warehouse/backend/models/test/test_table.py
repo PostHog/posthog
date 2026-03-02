@@ -342,6 +342,186 @@ class TestTable(BaseTest):
             "`map_nullable` Nullable(Map(String, String))"
         )
 
+    def test_detect_csv_double_quotes_returns_false_when_both_succeed(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+        )
+
+        with patch("products.data_warehouse.backend.models.table.sync_execute", return_value=[]):
+            result = table._detect_csv_double_quotes_setting()
+
+        assert result is False
+
+    def test_detect_csv_double_quotes_returns_true_when_without_quotes_fails(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+        )
+
+        def mock_sync_execute(query, args=None, settings=None):
+            if settings and settings.get("format_csv_allow_double_quotes") == 0:
+                raise Exception("Rows have different amount of values")
+            return [["col1", "String"], ["col2", "String"]]
+
+        with patch("products.data_warehouse.backend.models.table.sync_execute", side_effect=mock_sync_execute):
+            result = table._detect_csv_double_quotes_setting()
+
+        assert result is True
+
+    def test_detect_csv_double_quotes_returns_false_when_with_quotes_fails(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+        )
+
+        def mock_sync_execute(query, args=None, settings=None):
+            if settings and settings.get("format_csv_allow_double_quotes") == 1:
+                raise Exception("Rows have different amount of values")
+            return [["col1", "String"], ["col2", "String"]]
+
+        with patch("products.data_warehouse.backend.models.table.sync_execute", side_effect=mock_sync_execute):
+            result = table._detect_csv_double_quotes_setting()
+
+        assert result is False
+
+    def test_detect_csv_double_quotes_returns_none_when_both_fail(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+        )
+
+        with patch(
+            "products.data_warehouse.backend.models.table.sync_execute",
+            side_effect=Exception("connection error"),
+        ):
+            result = table._detect_csv_double_quotes_setting()
+
+        assert result is None
+
+    def test_is_csv_format_for_non_csv(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_parquet",
+            url_pattern="https://example.com/test.parquet",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+        )
+        assert table._is_csv_format() is False
+
+    def test_is_csv_format_for_csv(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSV,
+            team=self.team,
+        )
+        assert table._is_csv_format() is True
+
+    def test_hogql_definition_sets_raw_settings_for_csv_with_double_quotes(self):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="rfc_csv",
+            url_pattern="https://example.com/test.csv",
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+            credential=credential,
+            csv_allow_double_quotes=True,
+        )
+
+        definition = table.hogql_definition()
+        assert definition.raw_top_level_settings == {"format_csv_allow_double_quotes": True}
+
+    def test_hogql_definition_sets_false_for_csv_with_none(self):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="legacy_csv",
+            url_pattern="https://example.com/test.csv",
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+            credential=credential,
+            csv_allow_double_quotes=None,
+        )
+
+        definition = table.hogql_definition()
+        assert definition.raw_top_level_settings == {"format_csv_allow_double_quotes": False}
+
+    def test_hogql_definition_no_raw_settings_for_parquet(self):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="parquet_table",
+            url_pattern="https://example.com/test.parquet",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+            credential=credential,
+        )
+
+        definition = table.hogql_definition()
+        assert definition.raw_top_level_settings == {}
+
+    def test_get_columns_runs_detection_first_for_csv(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+        )
+
+        calls = []
+
+        def mock_sync_execute(query, args=None, settings=None):
+            calls.append(settings)
+            return [["col1", "String"]]
+
+        with patch("products.data_warehouse.backend.models.table.sync_execute", side_effect=mock_sync_execute):
+            table.get_columns()
+
+        assert table.csv_allow_double_quotes is False
+        # 2 detection calls + 1 main DESCRIBE (no settings override)
+        assert len(calls) == 3
+        assert calls[2] is None
+
+    def test_get_columns_skips_detection_for_parquet(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_parquet",
+            url_pattern="https://example.com/test.parquet",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+        )
+
+        with patch("products.data_warehouse.backend.models.table.sync_execute") as mock_execute:
+            mock_execute.return_value = [["col1", "String"]]
+            table.get_columns()
+
+        assert table.csv_allow_double_quotes is None
+        assert mock_execute.call_count == 1
+
     def assert_raises_with_invalid_hog_column_type(self, column_type):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
