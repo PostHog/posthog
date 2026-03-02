@@ -7082,7 +7082,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(result["count"], sum(result["data"]), "Count should equal sum of data points")
 
     def test_hide_weekends_day_interval(self):
-        """With hideWeekends + day interval, weekend buckets (Sat/Sun) are removed from results."""
         self._create_test_events()
 
         response = self._run_trends_query(
@@ -7093,41 +7092,22 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             trends_filters=TrendsFilter(hideWeekends=True),
         )
 
-        # Original 11 days: Thu-Fri-Sat-Sun-Mon-Tue-Wed-Thu-Fri-Sat-Sun
-        # After filtering: Thu-Fri-Mon-Tue-Wed-Thu-Fri = 7 weekdays
-        self.assertEqual(7, len(response.results[0]["days"]))
-        self.assertEqual(7, len(response.results[0]["data"]))
-        self.assertEqual(7, len(response.results[0]["labels"]))
-
-        # Verify no weekends in days
-        self.assertEqual(
-            [
-                "2020-01-09",  # Thu
-                "2020-01-10",  # Fri
-                "2020-01-13",  # Mon
-                "2020-01-14",  # Tue
-                "2020-01-15",  # Wed
-                "2020-01-16",  # Thu
-                "2020-01-17",  # Fri
-            ],
-            response.results[0]["days"],
-        )
-
-        # Original data: [1, 0, 1, 3, 1, 0, 2, 0, 1, 0, 1]
-        # Weekend indices removed (Sat=2, Sun=3, Sat=8, Sun=9)
-        # Weekend events excluded by WHERE clause, so weekend data was 0 anyway
-        # Remaining weekday data should only count weekday events
-        self.assertEqual(
-            [1, 0, 1, 0, 2, 0, 1],
-            response.results[0]["data"],
-        )
-        self.assertEqual(5.0, response.results[0]["count"])
+        # 11 days Thu-Sun, weekend days removed leaves 7 weekdays
+        assert response.results[0]["days"] == [
+            "2020-01-09",  # Thu
+            "2020-01-10",  # Fri
+            "2020-01-13",  # Mon
+            "2020-01-14",  # Tue
+            "2020-01-15",  # Wed
+            "2020-01-16",  # Thu
+            "2020-01-17",  # Fri
+        ]
+        assert response.results[0]["data"] == [1, 0, 1, 0, 2, 0, 1]
+        assert response.results[0]["count"] == 5.0
 
     def test_hide_weekends_week_interval(self):
-        """With hideWeekends + week interval, all weekly buckets remain but values reflect weekday-only events."""
         self._create_test_events()
 
-        # First run without hideWeekends
         response_normal = self._run_trends_query(
             self.default_date_from,
             self.default_date_to,
@@ -7135,7 +7115,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview")],
         )
 
-        # Then run with hideWeekends
         response_hidden = self._run_trends_query(
             self.default_date_from,
             self.default_date_to,
@@ -7144,14 +7123,13 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             trends_filters=TrendsFilter(hideWeekends=True),
         )
 
-        # Same number of weekly buckets
-        self.assertEqual(len(response_normal.results[0]["days"]), len(response_hidden.results[0]["days"]))
-
-        # But the count should be lower (weekend events excluded)
-        self.assertLessEqual(response_hidden.results[0]["count"], response_normal.results[0]["count"])
+        # Weekly buckets are preserved, only event counts change
+        assert len(response_hidden.results[0]["days"]) == len(response_normal.results[0]["days"])
+        # 10 total events, 5 on weekends (Jan 11 Sat, Jan 12 Sun x3, Jan 19 Sun)
+        assert response_normal.results[0]["count"] == 10.0
+        assert response_hidden.results[0]["count"] == 5.0
 
     def test_hide_weekends_with_compare(self):
-        """With hideWeekends + compare mode, both current and previous periods have weekends filtered."""
         self._create_test_events()
 
         response = self._run_trends_query(
@@ -7163,15 +7141,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             compare_filters=CompareFilter(compare=True),
         )
 
-        # Should have both current and previous results
-        self.assertEqual(2, len(response.results))
-        self.assertEqual("current", response.results[0]["compare_label"])
-        self.assertEqual("previous", response.results[1]["compare_label"])
+        assert len(response.results) == 2
+        assert response.results[0]["compare_label"] == "current"
+        assert response.results[1]["compare_label"] == "previous"
 
-        # Both should have weekends removed
         for result in response.results:
-            for day in result["days"]:
-                from datetime import datetime as dt
-
-                parsed = dt.strptime(day[:10], "%Y-%m-%d")
-                self.assertLess(parsed.weekday(), 5, f"{day} is a weekend day but should be filtered out")
+            for day_str in result["days"]:
+                parsed = datetime.strptime(day_str[:10], "%Y-%m-%d")
+                assert parsed.weekday() < 5, f"{day_str} is a weekend day but should be filtered out"

@@ -487,11 +487,15 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 final_result = [item for item in final_result if not self._is_other_breakdown(item["breakdown_value"])]
             has_more = True
 
-        # Filter weekend buckets from results if hideWeekends is enabled
+        # Weekend filtering is two layers: the WHERE clause (in trends_query_builder) excludes
+        # weekend events from aggregation, and this post-processor removes weekend date buckets
+        # from the response so the chart x-axis shows only weekdays.
+        # For week/month intervals we keep all buckets since they span multiple days.
+        # For hour/minute intervals we skip bucket removal to avoid discarding all data on weekends.
         if (
             self.query.trendsFilter
             and self.query.trendsFilter.hideWeekends
-            and self.query_date_range.interval_name not in ("week", "month")
+            and self.query_date_range.interval_name not in ("hour", "minute", "week", "month")
         ):
             final_result = self._filter_weekend_buckets(final_result)
 
