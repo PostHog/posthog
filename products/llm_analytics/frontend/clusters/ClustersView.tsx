@@ -67,25 +67,59 @@ export function ClustersView(): JSX.Element {
     if (showEmptyState) {
         return (
             <div className="space-y-4">
-                {/* Level toggle is always visible so users can switch */}
-                <div className="flex items-center gap-3">
-                    <Tooltip
-                        title="Traces cluster entire conversations, while generations cluster individual LLM calls"
-                        placement="bottom"
-                    >
-                        <span>
-                            <LemonSegmentedButton
-                                value={clusteringLevel}
-                                onChange={(value) => setClusteringLevel(value as ClusteringLevel)}
-                                options={[
-                                    { value: 'trace', label: 'Traces' },
-                                    { value: 'generation', label: 'Generations' },
-                                ]}
-                                size="small"
-                                data-attr="clusters-level-toggle"
-                            />
-                        </span>
-                    </Tooltip>
+                <div className="flex items-center justify-between">
+                    {/* Level toggle is always visible so users can switch */}
+                    <div className="flex items-center gap-3">
+                        <Tooltip
+                            title="Traces cluster entire conversations, while generations cluster individual LLM calls"
+                            placement="bottom"
+                        >
+                            <span>
+                                <LemonSegmentedButton
+                                    value={clusteringLevel}
+                                    onChange={(value) => setClusteringLevel(value as ClusteringLevel)}
+                                    options={[
+                                        { value: 'trace', label: 'Traces' },
+                                        { value: 'generation', label: 'Generations' },
+                                    ]}
+                                    size="small"
+                                    data-attr="clusters-level-toggle"
+                                />
+                            </span>
+                        </Tooltip>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconStack />}
+                            onClick={openJobsPanel}
+                            tooltip="Manage clustering jobs"
+                            data-attr="clusters-jobs-button"
+                            status="default"
+                        >
+                            {jobs.length > 0 ? `Jobs (${jobs.length})` : 'Jobs'}
+                        </LemonButton>
+
+                        {showAdminPanel && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconGear />}
+                                    onClick={openModal}
+                                    tooltip="Run clustering with custom parameters"
+                                    data-attr="clusters-run-clustering-button"
+                                >
+                                    Run clustering
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
+                    </div>
                 </div>
 
                 <div className="flex flex-col items-center justify-center p-8 text-center">
@@ -98,6 +132,10 @@ export function ClustersView(): JSX.Element {
                             : 'Try switching to "Traces" to see trace-level clusters, or check back later once more data has been collected.'}
                     </p>
                 </div>
+
+                <ClusteringJobsPanel />
+
+                {showAdminPanel && <ClusteringAdminModal />}
             </div>
         )
     }

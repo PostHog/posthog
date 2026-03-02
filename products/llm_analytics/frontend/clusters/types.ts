@@ -124,9 +124,12 @@ export function getJobIdFromRunId(runId: string): number | null {
     const parts = runId.split('_')
     // Standard format has 4 parts. Job ID is at position 4 (5th element).
     if (parts.length >= 5) {
-        const candidate = parseInt(parts[4], 10)
-        if (!isNaN(candidate) && candidate > 0) {
-            return candidate
+        const jobIdToken = parts[4]
+        if (/^\d+$/.test(jobIdToken)) {
+            const candidate = Number(jobIdToken)
+            if (candidate > 0) {
+                return candidate
+            }
         }
     }
     return null

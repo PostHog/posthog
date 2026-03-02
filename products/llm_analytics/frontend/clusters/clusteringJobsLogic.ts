@@ -64,9 +64,13 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
 
     listeners(({ actions }) => ({
         deleteJob: async ({ jobId }) => {
-            await api.delete(API_PATH + '/' + jobId + '/')
-            lemonToast.success('Clustering job deleted')
-            actions.loadJobs()
+            try {
+                await api.delete(API_PATH + '/' + jobId + '/')
+                lemonToast.success('Clustering job deleted')
+                actions.loadJobs()
+            } catch {
+                lemonToast.error('Failed to delete clustering job')
+            }
         },
         createJobSuccess: () => {
             actions.setEditingJob(null)

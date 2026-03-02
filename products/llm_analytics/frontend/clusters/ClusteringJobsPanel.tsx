@@ -6,6 +6,7 @@ import {
     LemonBadge,
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonInput,
     LemonModal,
     LemonSegmentedButton,
@@ -156,7 +157,22 @@ export function ClusteringJobsPanel(): JSX.Element {
                                     type="secondary"
                                     status="danger"
                                     icon={<IconTrash />}
-                                    onClick={() => deleteJob(job.id)}
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Delete clustering job?',
+                                            description: `Are you sure you want to delete "${job.name}"? This cannot be undone.`,
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                type: 'primary',
+                                                status: 'danger',
+                                                onClick: () => deleteJob(job.id),
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'secondary',
+                                            },
+                                        })
+                                    }}
                                     tooltip="Delete job"
                                 />
                             </div>
