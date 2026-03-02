@@ -91,7 +91,6 @@ From my attempt to understand everything that Cymbal currently does (with much h
 | TeamService              | `src/session-replay/shared/teams/team-service.ts`               | Team lookup service                    |
 | Ingestion Warnings       | `handleIngestionWarnings()`                                     | Emit warnings to Kafka                 |
 | Result Handling          | `handleResults()`                                               | DLQ routing                            |
-| GeoIP Service            | `src/cdp/services/geoip-service.ts`                             | MaxMind lookup                         |
 | GroupTypeManager         | `src/worker/ingestion/group-type-manager.ts`                    | Group type resolution                  |
 | HogTransformerService    | `src/cdp/hog-transformations/hog-transformer.service.ts`        | Runs team transformations (inc. GeoIP) |
 
@@ -101,8 +100,9 @@ From my attempt to understand everything that Cymbal currently does (with much h
 | -------------------------------------- | ---------------------------------------------------------------- | ------ |
 | `createPersonPropertiesReadOnlyStep()` | Fetch person by distinct_id, attach to event. No updates/merges. | Small  |
 | `createGroupTypeMappingStep()`         | Wrap `GroupTypeManager` as pipeline step                         | Small  |
+| `createErrorTrackingPrepareEventStep()`| Convert PluginEvent to PreIngestionEvent for emission            | Small  |
 
-Note: No filtering step needed - the `exceptions_ingestion` topic only contains `$exception` events (routed by capture service).
+Note: No filtering step needed - the `error_tracking_ingestion` topic only contains `$exception` events (routed by capture service).
 
 ### New Components
 
@@ -126,26 +126,29 @@ const pipeline = newBatchPipelineBuilder<ErrorTrackingPipelineInput, ErrorTracki
         b
           // Parse and validate
           .pipe(createParseHeadersStep())
-          .pipe(
-            createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-              overflowEnabled,
-              overflowTopic,
-            })
-          )
+          .pipe(createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {...}))
           .pipe(createParseKafkaMessageStep())
-          .pipe(createResolveTeamStep(teamService))
+          .pipe(createResolveTeamStep(teamManager))
       )
       .teamAware((b) =>
         b
           .gather()
-          // Call Cymbal first - only needs raw exception data for symbolication/fingerprinting
+          // Rate limit to overflow (main lane only)
+          .pipeBatch(createRateLimitToOverflowStep(...))
+          // Refresh TTLs for overflow lane events
+          .pipeBatch(createOverflowLaneTTLRefreshStep(...))
+          // Call Cymbal - only needs raw exception data for symbolication/fingerprinting
           .pipeBatch(createCymbalProcessingStep(cymbalClient))
           .sequentially((b) =>
             b
               // Enrich after Cymbal returns
-              .pipe(createPersonPropertiesReadOnlyStep(personService))
+              .pipe(createPersonPropertiesReadOnlyStep(personRepository))
               .pipe(createHogTransformEventStep(hogTransformer))
               .pipe(createGroupTypeMappingStep(groupTypeManager))
+              // Prepare and emit
+              .pipe(createErrorTrackingPrepareEventStep())
+              .pipe(createCreateEventStep())
+              .pipe(createEmitEventStep({...}))
           )
       )
       .handleIngestionWarnings(ingestionWarningProducer)
@@ -210,15 +213,20 @@ src/ingestion/
 └── error-tracking/
     ├── PROPOSAL.md                       # This document
     ├── index.ts                          # Public exports
-    ├── error-tracking-consumer.ts                       # Error tracking consumer (NEW)
+    ├── error-tracking-consumer.ts        # Kafka consumer
     ├── error-tracking-consumer.test.ts
     ├── error-tracking-pipeline.ts        # Pipeline composition
     ├── error-tracking-pipeline.test.ts
-    ├── group-type-mapping-step.ts
-    ├── group-type-mapping-step.test.ts
     ├── cymbal-processing-step.ts         # Pipeline step calling Cymbal API
     ├── cymbal-processing-step.test.ts
+    ├── person-properties-step.ts         # Read-only person lookup
+    ├── person-properties-step.test.ts
+    ├── group-type-mapping-step.ts        # Group type resolution
+    ├── group-type-mapping-step.test.ts
+    ├── prepare-event-step.ts             # Prepare event for emission
+    ├── prepare-event-step.test.ts
     └── cymbal/
+        ├── index.ts                      # Re-exports
         ├── client.ts                     # HTTP client
         ├── client.test.ts
         └── types.ts                      # Request/response types
