@@ -15,6 +15,7 @@ from clickhouse_driver.errors import ServerException as ClickHouseServerExceptio
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FieldOrTable
 from posthog.hogql.database.s3_table import (
@@ -441,9 +442,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             effective = False
 
         if effective is not None:
-            table_def.raw_top_level_settings = {
-                "format_csv_allow_double_quotes": effective,
-            }
+            table_def.top_level_settings = HogQLQuerySettings(
+                format_csv_allow_double_quotes=effective,
+            )
 
         return table_def
 

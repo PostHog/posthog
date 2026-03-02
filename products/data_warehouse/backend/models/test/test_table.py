@@ -476,7 +476,8 @@ class TestTable(BaseTest):
         )
 
         definition = table.hogql_definition()
-        assert definition.raw_top_level_settings == {"format_csv_allow_double_quotes": True}
+        assert definition.top_level_settings is not None
+        assert definition.top_level_settings.format_csv_allow_double_quotes is True
 
     def test_hogql_definition_sets_false_for_csv_with_none(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
@@ -491,9 +492,10 @@ class TestTable(BaseTest):
         )
 
         definition = table.hogql_definition()
-        assert definition.raw_top_level_settings == {"format_csv_allow_double_quotes": False}
+        assert definition.top_level_settings is not None
+        assert definition.top_level_settings.format_csv_allow_double_quotes is False
 
-    def test_hogql_definition_no_raw_settings_for_parquet(self):
+    def test_hogql_definition_no_settings_for_parquet(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="parquet_table",
@@ -505,7 +507,7 @@ class TestTable(BaseTest):
         )
 
         definition = table.hogql_definition()
-        assert definition.raw_top_level_settings == {}
+        assert definition.top_level_settings is None
 
     def test_get_columns_runs_detection_first_for_csv(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)

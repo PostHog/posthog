@@ -2397,7 +2397,7 @@ class TestPrinter(BaseTest):
             format="CSVWithNames",
             fields={"col1": StringDatabaseField(name="col1")},
             structure="`col1` String",
-            raw_top_level_settings={"format_csv_allow_double_quotes": True},
+            top_level_settings=HogQLQuerySettings(format_csv_allow_double_quotes=True),
         )
         db = Database()
         root = TableNode()

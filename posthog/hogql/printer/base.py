@@ -1393,15 +1393,11 @@ class HogQLPrinter(Visitor[str]):
         return True
 
     def _collect_table_top_level_settings(self, table: Table) -> None:
-        settings_items: list[tuple[str, Any]] = []
-
-        if table.top_level_settings is not None:
-            settings_items.extend((k, v) for k, v in table.top_level_settings.model_dump().items() if v is not None)
-
-        if table.raw_top_level_settings:
-            settings_items.extend(table.raw_top_level_settings.items())
-
-        for key, value in settings_items:
+        if table.top_level_settings is None:
+            return
+        for key, value in table.top_level_settings.model_dump().items():
+            if value is None:
+                continue
             existing = self._table_top_level_settings.get(key)
             if existing is not None and existing != value:
                 raise QueryError(

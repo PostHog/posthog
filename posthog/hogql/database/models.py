@@ -168,7 +168,6 @@ class FieldTraverser(FieldOrTable):
 class Table(FieldOrTable):
     fields: dict[str, FieldOrTable]
     top_level_settings: Optional[HogQLQuerySettings] = None
-    raw_top_level_settings: dict[str, Any] = {}
     workload: Optional[Workload] = None
     model_config = ConfigDict(extra="forbid")
 
