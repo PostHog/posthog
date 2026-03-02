@@ -12,7 +12,7 @@ import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writ
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
-import { FlushBatchStoresStepConfig, flushBatchStores } from '../event-processing/flush-batch-stores-step'
+import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
 import { newBatchingPipeline } from '../pipelines/builders'
 import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
@@ -172,10 +172,10 @@ export function createJoinedIngestionPipeline<
         topHog: topHogWrapper,
     }
 
-    return newBatchingPipeline<TInput, void, TContext, FlushBatchStoresStepConfig, TContext>(
-        (_batchContext, elements) => ({ elements }),
-        (builder) =>
-            builder
+    return newBatchingPipeline<TInput, void, TContext>(
+        (beforeBatch) => beforeBatch.pipe(({ elements }) => Promise.resolve(ok({ elements, batchContext: {} }))),
+        (batch) =>
+            batch
                 .messageAware((b) =>
                     b
                         .sequentially((b) =>
@@ -209,7 +209,7 @@ export function createJoinedIngestionPipeline<
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(promiseScheduler, { await: false }),
-        (batchContext, _elements, _batchId) => flushBatchStores(batchContext),
+        (afterBatch) => afterBatch.pipe(createFlushBatchStoresStep({ personsStore, groupStore, kafkaProducer })),
         { concurrentBatches: 1 }
     )
 }

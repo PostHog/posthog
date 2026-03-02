@@ -1,9 +1,40 @@
 import { BatchPipeline, BatchPipelineResultWithContext, FeedResult } from './batch-pipeline.interface'
-import { PipelineResultWithContext } from './pipeline.interface'
+import { createContext } from './helpers'
+import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
+import { PipelineResult, isOkResult, ok } from './results'
 
 export interface BatchingContext {
     messageId: number
 }
+
+export interface BeforeBatchInput<TInput, CInput> {
+    elements: BatchPipelineResultWithContext<TInput, CInput>
+    batchId: number
+}
+
+export interface BeforeBatchOutput<TInput, CInput, CBatch> {
+    elements: BatchPipelineResultWithContext<TInput, CInput>
+    batchContext: CBatch
+}
+
+export interface AfterBatchInput<TOutput, COutput, CBatch> {
+    elements: BatchPipelineResultWithContext<TOutput, COutput>
+    batchContext: CBatch
+    batchId: number
+}
+
+export interface AfterBatchOutput<TOutput, COutput, CBatch> {
+    elements: BatchPipelineResultWithContext<TOutput, COutput>
+    batchContext: CBatch
+}
+
+export type BeforeBatchStep<TInput, CInput, CBatch> = (
+    input: BeforeBatchInput<TInput, CInput>
+) => Promise<PipelineResult<BeforeBatchOutput<TInput, CInput, CBatch>>>
+
+export type AfterBatchStep<TOutput, COutput, CBatch> = (
+    input: AfterBatchInput<TOutput, COutput, CBatch>
+) => Promise<PipelineResult<AfterBatchOutput<TOutput, COutput, CBatch>>>
 
 export interface BatchResult<T> {
     elements: T
@@ -18,11 +49,11 @@ const BATCHING_PIPELINE_DEFAULTS: BatchingPipelineOptions = {
     concurrentBatches: 1,
 }
 
-interface TrackedBatch<TOutput, CBatch, CSubOut> {
+interface TrackedBatch<TOutput, CBatch, COutput> {
     batchContext: CBatch
     messageIds: number[]
     inflight: Set<number>
-    results: Map<number, PipelineResultWithContext<TOutput, CSubOut>>
+    results: Map<number, PipelineResultWithContext<TOutput, COutput>>
     beforeSideEffects: Promise<unknown>[]
 }
 
@@ -54,7 +85,7 @@ interface TrackedBatch<TOutput, CBatch, CSubOut> {
  * - CBatch: opaque batch context passed to hooks
  * - CSubIn: context type fed to the sub-pipeline after beforeBatch maps elements.
  *   Must extend CInput & BatchingContext.
- * - CSubOut: context type returned by the sub-pipeline.
+ * - COutput: context type returned by the sub-pipeline.
  *   Must extend BatchingContext (messageId flows through the sub-pipeline).
  */
 export class BatchingPipeline<
@@ -63,48 +94,54 @@ export class BatchingPipeline<
     CInput,
     CBatch,
     CSubIn extends CInput & BatchingContext,
-    CSubOut extends BatchingContext,
+    COutput extends BatchingContext,
 > {
     private nextBatchId = 0
     private nextMessageId = 0
-    private batches = new Map<number, TrackedBatch<TOutput, CBatch, CSubOut>>()
+    private batches = new Map<number, TrackedBatch<TOutput, CBatch, COutput>>()
     private messageIdToBatchId = new Map<number, number>()
-    private completedResults: BatchResult<BatchPipelineResultWithContext<TOutput, CSubOut>>[] = []
+    private completedResults: BatchResult<BatchPipelineResultWithContext<TOutput, COutput>>[] = []
 
     private options: BatchingPipelineOptions
 
     constructor(
-        private subPipeline: BatchPipeline<TInput, TOutput, CSubIn, CSubOut>,
-        private hooks: {
-            beforeBatch: (
-                batchContext: CBatch,
-                elements: BatchPipelineResultWithContext<TInput, CInput>,
-                batchId: number
-            ) => BatchResult<BatchPipelineResultWithContext<TInput, CInput>>
-            afterBatch: (
-                batchContext: CBatch,
-                elements: BatchPipelineResultWithContext<TOutput, CSubOut>,
-                batchId: number
-            ) => Promise<BatchResult<BatchPipelineResultWithContext<TOutput, CSubOut>>>
-        },
+        private subPipeline: BatchPipeline<TInput, TOutput, CSubIn, COutput>,
+        private beforePipeline: Pipeline<
+            BeforeBatchInput<TInput, CInput>,
+            BeforeBatchOutput<TInput, CInput, CBatch>,
+            Record<string, never>
+        >,
+        private afterPipeline: Pipeline<
+            AfterBatchInput<TOutput, COutput, CBatch>,
+            AfterBatchOutput<TOutput, COutput, CBatch>,
+            Record<string, never>
+        >,
         options?: Partial<BatchingPipelineOptions>
     ) {
         this.options = { ...BATCHING_PIPELINE_DEFAULTS, ...options }
     }
 
-    feed(elements: BatchPipelineResultWithContext<TInput, CInput>, batchContext: CBatch): FeedResult {
+    async feed(elements: BatchPipelineResultWithContext<TInput, CInput>): Promise<FeedResult> {
         if (this.batches.size >= this.options.concurrentBatches) {
             return { ok: false, reason: `at concurrent batch capacity (${this.options.concurrentBatches})` }
         }
 
         const batchId = this.nextBatchId++
 
-        const beforeResult = this.hooks.beforeBatch(batchContext, elements, batchId)
+        const beforeInput: BeforeBatchInput<TInput, CInput> = { elements, batchId }
+        const beforeResult = await this.beforePipeline.process(createContext(ok(beforeInput)))
+
+        if (!isOkResult(beforeResult.result)) {
+            return { ok: false, reason: `beforeBatch hook returned non-ok result for batch ${batchId}` }
+        }
+
+        const { elements: mappedElements, batchContext } = beforeResult.result.value
+        const beforeSideEffects = beforeResult.context.sideEffects
 
         const messageIds: number[] = []
         const inflight = new Set<number>()
 
-        const taggedElements = beforeResult.elements.map((element) => {
+        const taggedElements = mappedElements.map((element) => {
             const messageId = this.nextMessageId++
             messageIds.push(messageId)
             inflight.add(messageId)
@@ -124,14 +161,14 @@ export class BatchingPipeline<
             messageIds,
             inflight,
             results: new Map(),
-            beforeSideEffects: beforeResult.sideEffects ?? [],
+            beforeSideEffects,
         })
 
         this.subPipeline.feed(taggedElements)
         return { ok: true }
     }
 
-    async next(): Promise<BatchResult<BatchPipelineResultWithContext<TOutput, CSubOut>> | null> {
+    async next(): Promise<BatchResult<BatchPipelineResultWithContext<TOutput, COutput>> | null> {
         if (this.completedResults.length > 0) {
             return this.completedResults.shift()!
         }
@@ -170,9 +207,21 @@ export class BatchingPipeline<
                     for (const id of batch.messageIds) {
                         this.messageIdToBatchId.delete(id)
                     }
-                    const afterResult = await this.hooks.afterBatch(batch.batchContext, orderedResults, batchId)
-                    const sideEffects = [...batch.beforeSideEffects, ...(afterResult.sideEffects ?? [])]
-                    this.completedResults.push({ elements: afterResult.elements, sideEffects })
+
+                    const afterInput: AfterBatchInput<TOutput, COutput, CBatch> = {
+                        elements: orderedResults,
+                        batchContext: batch.batchContext,
+                        batchId,
+                    }
+                    const afterResult = await this.afterPipeline.process(createContext(ok(afterInput)))
+
+                    if (!isOkResult(afterResult.result)) {
+                        throw new Error(`batching_pipeline afterBatch hook returned non-ok result for batch ${batchId}`)
+                    }
+
+                    const afterSideEffects = afterResult.context.sideEffects
+                    const sideEffects = [...batch.beforeSideEffects, ...afterSideEffects]
+                    this.completedResults.push({ elements: afterResult.result.value.elements, sideEffects })
                 }
             }
 

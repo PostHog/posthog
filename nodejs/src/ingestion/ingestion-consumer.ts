@@ -341,11 +341,7 @@ export class IngestionConsumer {
     private async runIngestionPipeline(messages: Message[]): Promise<void> {
         const batch = messages.map((message) => createContext(ok({ message }), { message }))
 
-        const feedResult = this.joinedPipeline.feed(batch, {
-            personsStore: this.personsStore,
-            groupStore: this.groupStore,
-            kafkaProducer: this.kafkaProducer!,
-        })
+        const feedResult = await this.joinedPipeline.feed(batch)
         if (!feedResult.ok) {
             throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
         }
