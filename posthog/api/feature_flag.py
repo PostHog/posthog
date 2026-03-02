@@ -1662,7 +1662,6 @@ class FeatureFlagViewSet(
     scope_object = "feature_flag"
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
-    authentication_classes = []
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         """Apply filters from request query params to queryset."""

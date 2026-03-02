@@ -246,9 +246,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["steps"]), 0)
 
-    # When we send a user to their own site, we give them a token.
-    # Make sure you can only create actions if that token is set,
-    # otherwise evil sites could create actions with a users' session.
     # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
     def test_http_to_https(self, *args):
         response = self.client.post(

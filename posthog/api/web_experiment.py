@@ -258,7 +258,6 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
 class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = WebExperimentsAPISerializer
-    authentication_classes = []
     queryset = WebExperiment.objects.select_related("feature_flag", "created_by").order_by("-created_at").all()
 
     def safely_get_queryset(self, queryset):

@@ -186,6 +186,12 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             }
         }
 
+        // Migrate users from the old temporaryToken flow to OAuth.
+        // TODO(@fcgomes): Remove after September 2026 — gives users 6 months to re-authenticate.
+        if (!values.accessToken && props.temporaryToken) {
+            actions.tokenExpired()
+        }
+
         if (props.instrument) {
             const distinctId = props.distinctId
 
