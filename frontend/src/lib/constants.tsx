@@ -407,13 +407,6 @@ export const FEATURE_FLAGS = {
     TASK_SUMMARIES: 'task-summaries', // owner: #team-llm-analytics
     TASK_TOOL: 'phai-task-tool', // owner: @kappa90 #team-posthog-ai
     TASKS: 'tasks', // owner: #team-llm-analytics
-    TAXONOMIC_QUICK_FILTER_AUTOCAPTURE_EVENTS: 'taxonomic-quick-filter-autocapture-events', // owner: @pauldambra #team-product-analytics
-    TAXONOMIC_QUICK_FILTER_EMAIL_ADDRESSES: 'taxonomic-quick-filter-email-addresses', // owner: @pauldambra #team-product-analytics
-    TAXONOMIC_QUICK_FILTER_PAGEVIEW_EVENTS: 'taxonomic-quick-filter-pageview-events', // owner: @pauldambra #team-product-analytics
-    TAXONOMIC_QUICK_FILTER_PAGEVIEW_URLS: 'taxonomic-quick-filter-pageview-urls', // owner: @pauldambra #team-product-analytics
-    TAXONOMIC_QUICK_FILTER_SCREEN_EVENTS: 'taxonomic-quick-filter-screen-events', // owner: @pauldambra #team-product-analytics
-    TAXONOMIC_QUICK_FILTER_SCREENS: 'taxonomic-quick-filter-screens', // owner: @pauldambra #team-product-analytics
-    TAXONOMIC_QUICK_FILTERS: 'taxonomic-quick-filters', // owner: @pauldambra #team-product-analytics multivariate=control,test
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
     UNIFIED_HEALTH_PAGE: 'unified-health-page', // owner: @jordanm-posthog #team-web-analytics
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik

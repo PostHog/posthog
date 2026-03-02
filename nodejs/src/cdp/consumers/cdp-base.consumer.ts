@@ -13,7 +13,6 @@ import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.se
 import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import { GroupsManagerServiceV2 } from '../services/managers/groups-manager-v2.service'
 import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
@@ -51,7 +50,6 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     hogWatcher: HogWatcherService
 
     groupsManager: GroupsManagerService
-    groupsManagerV2: GroupsManagerServiceV2
     hogFlowManager: HogFlowManagerService
     hogFunctionManager: HogFunctionManagerService
     hogFunctionTemplateManager: HogFunctionTemplateManagerService
@@ -94,7 +92,6 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.hogMasker = new HogMaskerService(services.redis)
         this.personsManager = new PersonsManagerService(deps.personRepository)
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
-        this.groupsManagerV2 = new GroupsManagerServiceV2(deps.teamManager, deps.groupRepository)
         this.pluginDestinationExecutorService = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
     }
 
