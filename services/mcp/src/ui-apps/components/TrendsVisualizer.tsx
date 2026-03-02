@@ -96,14 +96,14 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                     series={series}
                     labels={labels}
                     maxValue={maxValue}
-                    yAxisLabel={series.length === 1 ? series[0].label : undefined}
+                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
                 />
             ) : (
                 <LineChart
                     series={series}
                     labels={labels}
                     maxValue={maxValue}
-                    yAxisLabel={series.length === 1 ? series[0].label : undefined}
+                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
                 />
             )}
         </div>

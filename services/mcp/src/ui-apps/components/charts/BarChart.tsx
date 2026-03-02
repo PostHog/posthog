@@ -30,7 +30,7 @@ export interface BarChartProps {
     labels: string[]
     maxValue: number
     showLegend?: boolean
-    yAxisLabel?: string
+    yAxisLabel?: string | undefined
 }
 
 export function BarChart({ series, labels, maxValue, showLegend = true, yAxisLabel }: BarChartProps): ReactElement {

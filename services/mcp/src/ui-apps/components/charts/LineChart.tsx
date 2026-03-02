@@ -30,7 +30,7 @@ export interface LineChartProps {
     labels: string[]
     maxValue: number
     showLegend?: boolean
-    yAxisLabel?: string
+    yAxisLabel?: string | undefined
 }
 
 export function LineChart({ series, labels, maxValue, showLegend = true, yAxisLabel }: LineChartProps): ReactElement {
