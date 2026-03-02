@@ -183,7 +183,10 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                     embedded: true,
                     source: {
                         ...query.source,
-                        properties: [...(query.source.properties || []), entityFilter],
+                        properties: [
+                            ...(Array.isArray(query.source.properties) ? query.source.properties : []),
+                            entityFilter,
+                        ],
                     },
                 } as InsightVizNode<FunnelsQuery>
             },

@@ -325,10 +325,19 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 }
 
                 return querySource.series.map((node, index) => ({
-                    action_id: node.kind === NodeKind.ActionsNode ? String(node.id) : (node.event ?? ''),
+                    action_id:
+                        node.kind === NodeKind.ActionsNode
+                            ? String(node.id)
+                            : node.kind === NodeKind.EventsNode
+                              ? (node.event ?? '')
+                              : '',
                     name:
                         node.custom_name ||
-                        (node.kind === NodeKind.ActionsNode ? `Action ${node.id}` : (node.event ?? '')),
+                        (node.kind === NodeKind.ActionsNode
+                            ? `Action ${node.id}`
+                            : node.kind === NodeKind.EventsNode
+                              ? (node.event ?? '')
+                              : ''),
                     custom_name: node.custom_name ?? null,
                     order: index,
                     count: 0,
