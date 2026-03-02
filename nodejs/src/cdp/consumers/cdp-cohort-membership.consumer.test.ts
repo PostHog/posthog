@@ -22,7 +22,7 @@ describe('CdpCohortMembershipConsumer', () => {
     beforeEach(async () => {
         await resetKafka()
         hub = await createHub()
-        consumer = new CdpCohortMembershipConsumer(hub)
+        consumer = new CdpCohortMembershipConsumer(hub, hub)
         await consumer.start()
         await resetBehavioralCohortsDatabase(hub.postgres)
     })
