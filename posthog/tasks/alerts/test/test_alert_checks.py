@@ -858,12 +858,47 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             ("s3_error", CHQueryErrorS3Error),
         ]
     )
-    def test_transient_ch_errors_propagate_for_celery_retry(
+    @patch("posthog.tasks.alerts.checks.wait_exponential_jitter", return_value=lambda rs: 0)
+    def test_transient_ch_errors_retry_and_succeed(
         self,
-        mock_send_notifications_for_breaches: MagicMock,
-        mock_send_errors: MagicMock,
         _name: str,
         error_class: type[Exception],
+        _mock_wait: MagicMock,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
+            mock_calculate.side_effect = [
+                error_class("transient failure"),
+                error_class("transient failure"),
+                InsightResult(result=[], last_refresh=None, cache_key=None, is_cached=False, timezone=None),
+            ]
+
+            check_alert(self.alert["id"])
+
+        assert mock_calculate.call_count == 3
+
+        # Alert evaluated successfully after retries — breach notification sent (value 0 < lower 1)
+        assert mock_send_notifications_for_breaches.call_count == 1
+        assert mock_send_errors.call_count == 0
+
+    @parameterized.expand(
+        [
+            ("cannot_schedule", CHQueryErrorCannotScheduleTask),
+            ("too_many_queries", CHQueryErrorTooManySimultaneousQueries),
+            ("s3_error", CHQueryErrorS3Error),
+        ]
+    )
+    @patch("posthog.tasks.alerts.checks.wait_exponential_jitter", return_value=lambda rs: 0)
+    def test_transient_ch_errors_exhaust_retries(
+        self,
+        _name: str,
+        error_class: type[Exception],
+        _mock_wait: MagicMock,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
     ) -> None:
         self.set_thresholds(lower=1)
 
@@ -873,9 +908,12 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             with pytest.raises(error_class):
                 check_alert(self.alert["id"])
 
+        # 4 attempts (1 initial + 3 retries)
+        assert mock_calculate.call_count == 4
+
         assert mock_send_errors.call_count == 0
 
-        # No ERRORED alert check created — the error propagates for Celery to retry
+        # No ERRORED alert check — the error propagates after exhausting retries
         alert_checks = AlertCheck.objects.filter(alert_configuration=self.alert["id"])
         assert alert_checks.count() == 0
 
