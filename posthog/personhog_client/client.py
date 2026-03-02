@@ -171,7 +171,7 @@ def get_personhog_client() -> Optional[PersonHogClient]:
                     max_reconnect_backoff_ms=getattr(settings, "PERSONHOG_MAX_RECONNECT_BACKOFF_MS", 5_000),
                     initial_reconnect_backoff_ms=getattr(settings, "PERSONHOG_INITIAL_RECONNECT_BACKOFF_MS", 1_000),
                     max_send_message_length=getattr(settings, "PERSONHOG_MAX_SEND_MESSAGE_LENGTH", 4 * 1024 * 1024),
-                    max_recv_message_length=getattr(settings, "PERSONHOG_MAX_RECV_MESSAGE_LENGTH", 4 * 1024 * 1024),
+                    max_recv_message_length=getattr(settings, "PERSONHOG_MAX_RECV_MESSAGE_LENGTH", 128 * 1024 * 1024),
                 )
                 logger.info("personhog_client_initialized", addr=addr, timeout_ms=timeout_ms)
 
