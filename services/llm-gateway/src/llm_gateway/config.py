@@ -5,28 +5,42 @@ from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings
 
 
-class ProductCostLimit(BaseModel):
+class ProductCostLimit(BaseModel, frozen=True):
     limit_usd: float
     window_seconds: int
 
 
-class UserCostLimit(BaseModel):
+class UserCostLimit(BaseModel, frozen=True):
     burst_limit_usd: float
     burst_window_seconds: int
     sustained_limit_usd: float
     sustained_window_seconds: int
 
 
+DEFAULT_USER_COST_LIMIT = UserCostLimit(
+    burst_limit_usd=100.0,
+    burst_window_seconds=86400,
+    sustained_limit_usd=1000.0,
+    sustained_window_seconds=2592000,
+)
+
 DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "llm_gateway": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
     "wizard": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
     "twig": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
+    "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
     "twig": UserCostLimit(
         burst_limit_usd=100.0,
-        burst_window_seconds=18000,
+        burst_window_seconds=86400,
+        sustained_limit_usd=1000.0,
+        sustained_window_seconds=2592000,
+    ),
+    "background_agents": UserCostLimit(
+        burst_limit_usd=100.0,
+        burst_window_seconds=86400,
         sustained_limit_usd=1000.0,
         sustained_window_seconds=2592000,
     ),
