@@ -324,7 +324,7 @@ describe('Hog Executor', () => {
 
             expect(results.invocations[0].state.globals.source).toEqual({
                 name: 'Hog Function',
-                url: `http://localhost:8000/projects/1/pipeline/destinations/hog-${fn.id}/configuration/`,
+                url: `http://localhost:8000/projects/1/functions/${fn.id}/configuration/`,
             })
         })
 

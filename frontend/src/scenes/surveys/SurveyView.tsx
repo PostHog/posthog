@@ -106,7 +106,6 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
         type: 'survey',
         ref: surveyId,
         enabled: Boolean(surveyId && !surveyLoading),
-        deps: [surveyId, surveyLoading],
     })
 
     useEffect(() => {

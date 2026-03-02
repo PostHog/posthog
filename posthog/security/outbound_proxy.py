@@ -11,6 +11,10 @@ user-controlled URL:
     from posthog.security.outbound_proxy import external_httpx
     external_httpx.get("https://api.example.com/data")
 
+    from posthog.security.outbound_proxy import external_httpx_client
+    with external_httpx_client() as client:
+        client.get("https://api.example.com/data")
+
     from posthog.security.outbound_proxy import external_aiohttp_session
     async with external_aiohttp_session() as session:
         async with session.get("https://api.example.com/data") as resp: ...
@@ -49,7 +53,7 @@ def get_proxy_url() -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def make_proxied_requests_session() -> requests.Session:
+def external_requests_session() -> requests.Session:
     session = requests.Session()
     cfg = get_proxy_config()
     if cfg:
@@ -57,7 +61,7 @@ def make_proxied_requests_session() -> requests.Session:
     return session
 
 
-external_requests: requests.Session = make_proxied_requests_session()
+external_requests: requests.Session = external_requests_session()
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +87,24 @@ class _LazyExternalHttpx:
 
 
 external_httpx: Any = _LazyExternalHttpx()
+
+
+def external_httpx_client(**kwargs: Any) -> Any:
+    """Create a new ``httpx.Client`` that routes through the proxy.
+
+    Use this when you need a context-managed client with a distinct lifecycle
+    (e.g. connection pooling scoped to a task).  For simple one-off calls,
+    ``external_httpx.get(...)`` is sufficient.
+
+    Usage::
+
+        with external_httpx_client() as client:
+            resp = client.get("https://api.example.com/data")
+    """
+    import httpx
+
+    proxy_url = get_proxy_url()
+    return httpx.Client(proxy=proxy_url, **kwargs) if proxy_url else httpx.Client(**kwargs)
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconGear, IconPlus } from '@posthog/icons'
 
@@ -16,8 +16,8 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
-import { ProjectNoticeVariant, navigationLogic } from './navigationLogic'
-import { projectNoticeLogic } from './projectNoticeLogic'
+import { navigationLogic, ProjectNoticeVariant } from './navigationLogic'
+import { noEventsBannerLogic } from './noEventsBannerLogic'
 
 interface ProjectNoticeBlueprint {
     message: JSX.Element | string
@@ -33,18 +33,23 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
     const { closeProjectNotice } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
-    const { sceneConfig, activeSceneProductKey } = useValues(sceneLogic)
-
-    // Mount projectNoticeLogic to handle polling when "no events" banner is shown
-    useValues(projectNoticeLogic)
+    const { sceneConfig } = useValues(sceneLogic)
 
     if (!projectNoticeVariant) {
         return null
     }
 
+    const requiresHorizontalMargin =
+        sceneConfig?.layout && ['app-raw', 'app-raw-no-header'].includes(sceneConfig.layout)
+    const bannerClassName = cn('my-4', requiresHorizontalMargin && 'mx-4', className)
+
+    if (projectNoticeVariant === 'real_project_with_no_events') {
+        return <NoEventsBanner className={bannerClassName} onClose={() => closeProjectNotice(projectNoticeVariant)} />
+    }
+
     const altTeamForIngestion = currentOrganization?.teams?.find((team) => !team.is_demo && !team.ingested_event)
 
-    const NOTICES: Record<ProjectNoticeVariant, ProjectNoticeBlueprint> = {
+    const NOTICES: Record<Exclude<ProjectNoticeVariant, 'real_project_with_no_events'>, ProjectNoticeBlueprint> = {
         demo_project: {
             message: (
                 <>
@@ -65,40 +70,8 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
                 </>
             ),
         },
-
-        real_project_with_no_events: {
-            message: (
-                <>
-                    This project has no events yet. Go to the{' '}
-                    <Link
-                        to={urls.onboarding({
-                            productKey: activeSceneProductKey ?? ProductKey.PRODUCT_ANALYTICS,
-                            stepKey: OnboardingStepKey.INSTALL,
-                        })}
-                        data-attr="real_project_with_no_events-ingestion_link"
-                    >
-                        onboarding wizard
-                    </Link>{' '}
-                    or grab your project API key/HTML snippet from{' '}
-                    <Link to={urls.settings()} data-attr="real_project_with_no_events-settings">
-                        Project Settings
-                    </Link>{' '}
-                    to get things moving
-                </>
-            ),
-            action: {
-                to: urls.onboarding({
-                    productKey: activeSceneProductKey ?? ProductKey.PRODUCT_ANALYTICS,
-                    stepKey: OnboardingStepKey.INSTALL,
-                }),
-                'data-attr': 'demo-warning-cta',
-                icon: <IconGear />,
-                children: 'Go to wizard',
-            },
-            closeable: true,
-        },
         invite_teammates: {
-            message: 'Get more out of PostHog by inviting your team for free',
+            message: 'Get more out of PostHog by inviting your team for free',
             action: {
                 'data-attr': 'invite-warning-cta',
                 onClick: showInviteModal,
@@ -125,7 +98,6 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
                 children: 'Reload page',
             },
         },
-
         event_ingestion_restriction: {
             message:
                 'Event ingestion restrictions have been applied to a token in this project. Please contact support.',
@@ -135,17 +107,52 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
 
     const relevantNotice = NOTICES[projectNoticeVariant]
 
-    const requiresHorizontalMargin =
-        sceneConfig?.layout && ['app-raw', 'app-raw-no-header'].includes(sceneConfig.layout)
-
     return (
         <LemonBanner
             type={relevantNotice.type || 'info'}
-            className={cn('my-4', requiresHorizontalMargin && 'mx-4', className)}
+            className={bannerClassName}
             action={relevantNotice.action}
             onClose={relevantNotice.closeable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
         >
             {relevantNotice.message}
+        </LemonBanner>
+    )
+}
+
+function NoEventsBanner({ className, onClose }: { className?: string; onClose: () => void }): JSX.Element {
+    useMountedLogic(noEventsBannerLogic)
+    const { activeSceneProductKey } = useValues(sceneLogic)
+
+    return (
+        <LemonBanner
+            type="info"
+            className={className}
+            action={{
+                to: urls.onboarding({
+                    productKey: activeSceneProductKey ?? ProductKey.PRODUCT_ANALYTICS,
+                    stepKey: OnboardingStepKey.INSTALL,
+                }),
+                'data-attr': 'demo-warning-cta',
+                icon: <IconGear />,
+                children: 'Go to wizard',
+            }}
+            onClose={onClose}
+        >
+            This project has no events yet. Go to the{' '}
+            <Link
+                to={urls.onboarding({
+                    productKey: activeSceneProductKey ?? ProductKey.PRODUCT_ANALYTICS,
+                    stepKey: OnboardingStepKey.INSTALL,
+                })}
+                data-attr="real_project_with_no_events-ingestion_link"
+            >
+                onboarding wizard
+            </Link>{' '}
+            or grab your project API key/HTML snippet from{' '}
+            <Link to={urls.settings()} data-attr="real_project_with_no_events-settings">
+                Project Settings
+            </Link>{' '}
+            to get things moving
         </LemonBanner>
     )
 }

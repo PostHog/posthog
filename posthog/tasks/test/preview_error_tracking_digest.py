@@ -201,6 +201,7 @@ html = template.render(
         "organization": type("Organization", (), {"name": "PostHog"})(),
         "project_sections": [project_a, project_b],
         "disabled_project_names": ["Staging Environment", "Internal Tools", "Experiments Sandbox"],
+        "excluded_project_count": 4,
         "settings_url": "https://us.posthog.com/settings/user-notifications",
         "contact_support_url": "https://posthog.com/support",
         "feedback_survey_url": "https://us.posthog.com/external_surveys/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id=test@posthog.com",

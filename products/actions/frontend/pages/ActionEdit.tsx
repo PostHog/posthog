@@ -82,7 +82,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
         type: 'action',
         ref: actionId,
         enabled: Boolean(actionId && !actionLoading),
-        deps: [actionId, actionLoading],
     })
 
     // Handle 404 when loading is done and action is missing
