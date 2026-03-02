@@ -17,7 +17,7 @@ const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
 export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
 export const OAUTH_LOCALSTORAGE_KEY = '_postHogToolbarOAuth'
-export const PKCE_LOCALSTORAGE_KEY = '_postHogToolbarPKCE'
+export const PKCE_STORAGE_KEY = '_postHogToolbarPKCE'
 
 export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
     const bytes = new Uint8Array(48)

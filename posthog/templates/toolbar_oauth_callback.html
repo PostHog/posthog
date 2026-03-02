@@ -10,15 +10,15 @@
     {{ payload|json_script:"toolbar-oauth-payload" }}
     <script nonce="{{ request.csp_nonce }}">
         (function () {
-            var payloadElement = document.getElementById("toolbar-oauth-payload")
-            var statusElement = document.getElementById("toolbar-oauth-callback-status")
+            const payloadElement = document.getElementById("toolbar-oauth-payload")
+            const statusElement = document.getElementById("toolbar-oauth-callback-status")
             if (!payloadElement || !statusElement) {
                 return
             }
 
-            var payload = JSON.parse(payloadElement.textContent || "{}")
-            var openerWindow = window.opener
-            var targetOrigin = "{{ target_origin|escapejs }}"
+            const payload = JSON.parse(payloadElement.textContent || "{}")
+            const openerWindow = window.opener
+            const targetOrigin = "{{ target_origin|escapejs }}"
 
             if (openerWindow && !openerWindow.closed) {
                 openerWindow.postMessage(payload, targetOrigin)
