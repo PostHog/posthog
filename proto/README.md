@@ -6,45 +6,46 @@ Language-agnostic protobuf definitions for PostHog services.
 
 ```text
 proto/
-├── buf.yaml              # Linting and breaking change config
+├── buf.yaml
+├── kafka_assigner/       # Kafka partition assignment
 └── personhog/            # Person data service
-    ├── types/v1/         # Shared message types
-    ├── replica/v1/       # Read API
-    └── service/v1/       # Public API
+    ├── types/v1/
+    ├── replica/v1/
+    └── service/v1/
 ```
 
-## Language Bindings
+## Consumers
 
-| Language | Package                                                                        | Notes                                         |
-| -------- | ------------------------------------------------------------------------------ | --------------------------------------------- |
-| Rust     | [`rust/personhog-proto`](/rust/personhog-proto)                                | Generated at build time via tonic             |
-| Python   | [`posthog/personhog_client/proto/generated`](/posthog/personhog_client/proto/) | Checked-in stubs generated via `grpcio-tools` |
+| Proto             | Rust                                         | Python                                                   |
+| ----------------- | -------------------------------------------- | -------------------------------------------------------- |
+| `personhog/`      | `rust/personhog-proto` (auto via tonic)      | `posthog/personhog_client/proto/generated/` (checked in) |
+| `kafka_assigner/` | `rust/kafka-assigner-proto` (auto via tonic) | —                                                        |
 
-### Python (Django)
+## Updating protos
 
-Generated stubs live in `posthog/personhog_client/proto/generated/` and are checked into git.
-Regenerate after changing `.proto` files:
+1. Edit `.proto` files in the relevant directory
+2. Regenerate language bindings for affected consumers (see table above)
+3. Commit generated files — CI rejects stale stubs
+
+### Python stubs (personhog only)
 
 ```bash
-bash bin/generate_personhog_proto.sh
+bin/generate_personhog_proto.sh
 ```
 
-Requires `grpcio-tools` (`uv pip install grpcio-tools`).
+Only needed when `personhog/` protos change. Requires `grpcio-tools` and `protoletariat` (`uv sync`).
 
-The client wrapper is at `posthog/personhog_client/client.py` with a rollout gate at `posthog/personhog_client/gate.py`.
+If you added or removed **message types**, update the re-exports in `posthog/personhog_client/proto/__init__.py`.
+If you added or removed **RPCs**, update the wrapper methods in `posthog/personhog_client/client.py`.
 
-## CI Checks
+### Rust
 
-Proto changes trigger `.github/workflows/ci-proto.yml`:
+No action needed — Rust bindings regenerate on `cargo build`.
 
-- **Lint**: Style and naming conventions
-- **Breaking**: Detects backwards-incompatible changes against `master`
-- **Python codegen**: Verifies checked-in stubs match what the `.proto` files produce
+## CI
 
-## Adding a New Proto
+`.github/workflows/ci-proto.yml` runs on proto changes:
 
-1. Add/modify `.proto` files in the appropriate directory
-2. Run `buf lint proto/` locally (if buf installed) or let CI validate
-3. Regenerate Python stubs: `bash bin/generate_personhog_proto.sh`
-4. Commit the generated files — CI will reject stale stubs
-5. Rust bindings regenerate automatically on build
+- `buf lint` — style and naming
+- `buf breaking` — backwards compatibility against `master`
+- Python codegen staleness check
