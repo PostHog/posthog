@@ -69,7 +69,7 @@ jobs:
         name: Frontend formatting
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
-        runs-on: depot-ubuntu-24.04
+        runs-on: depot-ubuntu-latest
         steps:
             - uses: actions/checkout@v6
 
@@ -112,7 +112,7 @@ jobs:
         name: Frontend bundle size
         needs: [changes]
         if: needs.changes.outputs.frontend == 'true' && github.event_name != 'merge_group'
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: depot-ubuntu-latest
         steps:
             - uses: actions/checkout@v6
             - name: Install pnpm
@@ -181,7 +181,7 @@ jobs:
         name: Frontend typechecking
         needs: [changes]
         if: needs.changes.outputs.frontend == 'true'
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: depot-ubuntu-latest
         steps:
             - uses: actions/checkout@v6
 
@@ -243,7 +243,7 @@ jobs:
               run: node bin/validate-setup-tasks.mjs
 
     jest:
-        runs-on: depot-ubuntu-24.04
+        runs-on: depot-ubuntu-latest
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
