@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
     from posthog.hogql.transforms.property_types import PropertySwapper
 
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 
 @dataclass
@@ -32,6 +32,10 @@ class HogQLContext:
     team_id: Optional[int] = None
     # Team making the queries - if team is passed in, then the team isn't queried when creating the database
     team: Optional["Team"] = None
+
+    # User making the queries - used for access control on system tables
+    user: Optional["User"] = None
+
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
     # If set, will save string constants to this dict. Inlines strings into the query if None.

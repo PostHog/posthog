@@ -2001,6 +2001,7 @@
                 "list_data",
                 "upsert_alert",
                 "finalize_plan",
+                "call_mcp_server",
                 "recommend_products",
                 "search_llm_traces"
             ],
@@ -17550,6 +17551,10 @@
                     "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
                     "type": "string"
                 },
+                "inlineCohortCalculation": {
+                    "enum": ["off", "auto", "always"],
+                    "type": "string"
+                },
                 "materializationMode": {
                     "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
                     "type": "string"
@@ -18712,6 +18717,12 @@
                 },
                 "person": {
                     "$ref": "#/definitions/LLMTracePerson"
+                },
+                "tools": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "totalCost": {
                     "type": "number"

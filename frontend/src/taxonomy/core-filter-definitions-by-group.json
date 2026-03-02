@@ -128,6 +128,13 @@
             ],
             "label": "AI cache read input tokens (LLM)"
         },
+        "$ai_cache_reporting_exclusive": {
+            "description": "Whether cache tokens are excluded from the input token count. When true, cache tokens are separate from input tokens (Anthropic-style). When false, input tokens already include cache tokens. Auto-detected from provider when not set explicitly.",
+            "examples": [
+                true
+            ],
+            "label": "AI cache reporting exclusive (LLM)"
+        },
         "$ai_cost_model_provider": {
             "description": "The provider used to look up the cost for this model.",
             "examples": [
@@ -2781,6 +2788,13 @@
                 23
             ],
             "label": "AI cache read input tokens (LLM)"
+        },
+        "$ai_cache_reporting_exclusive": {
+            "description": "Whether cache tokens are excluded from the input token count. When true, cache tokens are separate from input tokens (Anthropic-style). When false, input tokens already include cache tokens. Auto-detected from provider when not set explicitly.",
+            "examples": [
+                true
+            ],
+            "label": "AI cache reporting exclusive (LLM)"
         },
         "$ai_cost_model_provider": {
             "description": "The provider used to look up the cost for this model.",

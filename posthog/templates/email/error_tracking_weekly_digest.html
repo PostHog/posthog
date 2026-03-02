@@ -193,7 +193,7 @@
 </div>
 {% endfor %}
 
-{% if disabled_project_names %}
+{% if disabled_project_names or excluded_project_count > 0 %}
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 12px;">
     <tr>
         <td style="width: 50%; vertical-align: middle;"><div style="height: 1px; background-color: #d1d5db;"></div></td>
@@ -204,16 +204,23 @@
     </tr>
 </table>
 <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
+    {% if disabled_project_names %}
     <p style="margin: 0 0 8px 0; font-size: 0.9em; color: #6b7280;">This report did not include the following projects because they are disabled in your settings:</p>
-    <ul style="margin: 0; padding-left: 20px; color: #6b7280; font-size: 0.9em;">
+    <ul style="margin: 0 0 {% if excluded_project_count > 0 %}16px{% else %}0{% endif %} 0; padding-left: 20px; color: #6b7280; font-size: 0.9em;">
         {% for name in disabled_project_names %}
         <li>{{ name }}</li>
         {% endfor %}
     </ul>
+    {% endif %}
+    {% if excluded_project_count > 0 %}
+    <p style="margin: 0; font-size: 0.9em; color: #6b7280;">{{ excluded_project_count }} other project{{ excluded_project_count|pluralize }} in your organization had no exceptions this week and {{ excluded_project_count|pluralize:"was,were" }} not included in this digest.</p>
+    {% endif %}
 </div>
+{% if disabled_project_names %}
 <div style="margin-bottom: 16px; text-align: center;">
     <a href="{{ settings_url }}" style="color: #6b7280; font-size: 0.85em; text-decoration: underline;">Change notification settings</a>
 </div>
+{% endif %}
 {% endif %}
 
 <div style="margin-bottom: 16px; text-align: center;">

@@ -205,3 +205,7 @@ pub const KAFKA_PRODUCER_SEND_DURATION_MS: &str = "kafka_producer_send_duration_
 
 /// Histogram for event parsing duration using rayon (in milliseconds)
 pub const EVENT_PARSING_DURATION_MS: &str = "event_parsing_duration_ms";
+
+// ==== Fail-open mode metrics ====
+/// Counter for events passed through in fail-open mode (deduplication bypassed)
+pub const FAIL_OPEN_EVENTS_PASSED_THROUGH: &str = "fail_open_events_passed_through_total";

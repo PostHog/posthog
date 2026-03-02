@@ -210,6 +210,7 @@ class TestFixAndRecord(BaseTest):
         mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, db_data)
         mock_config.update_fn.assert_not_called()
         assert result.cache_miss_fixed == 1
+        assert self.team.id in result.fixed_team_ids
 
     @parameterized.expand(
         [
@@ -237,6 +238,7 @@ class TestFixAndRecord(BaseTest):
         mock_config.update_fn.assert_called_once_with(self.team)
         mock_config.hypercache.set_cache_value.assert_not_called()
         assert result.cache_miss_fixed == 1
+        assert self.team.id in result.fixed_team_ids
 
     def test_db_data_set_cache_value_exception_increments_fix_failed(self):
         """Test that exceptions in set_cache_value (db_data path) increment fix_failed."""
@@ -470,6 +472,41 @@ class TestVerifyAndFixBatch(BaseTest):
         mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, {"flags": ["flag1", "flag2"]})
         mock_config.update_fn.assert_not_called()
         assert result.expiry_missing_fixed == 1
+
+    @parameterized.expand(
+        [
+            ("cache_miss", {"status": "miss", "issue": "CACHE_MISS"}, {}, "cache_miss_fixed"),
+            ("cache_mismatch", {"status": "mismatch", "issue": "DATA_MISMATCH"}, {}, "cache_mismatch_fixed"),
+        ]
+    )
+    def test_fix_uses_batch_data(self, _name, verification_result, expiry_status, result_attr):
+        """Test that fixes use preloaded batch data via set_cache_value when available."""
+        mock_config = MagicMock()
+        db_data = {"flags": ["flag1", "flag2"]}
+        mock_db_batch_data: dict = {self.team.id: db_data}
+        mock_config.hypercache.batch_load_fn.return_value = mock_db_batch_data
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.update_fn.return_value = True
+        mock_config.get_team_ids_to_skip_fix_fn = None
+
+        result = VerificationResult()
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            return verification_result
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value=expiry_status):
+            _verify_and_fix_batch(
+                teams=[self.team],
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                result=result,
+            )
+
+        # With batch data available, set_cache_value is used directly (avoiding redundant DB query)
+        mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, db_data)
+        mock_config.update_fn.assert_not_called()
+        assert getattr(result, result_attr) == 1
 
     def test_fix_falls_back_to_update_fn_without_batch_load(self):
         """Test that fixes fall back to update_fn when batch_load_fn is not available."""
