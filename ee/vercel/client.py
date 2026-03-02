@@ -8,7 +8,7 @@ import structlog
 from requests import HTTPError, RequestException, Timeout
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
-from posthog.security.outbound_proxy import make_proxied_requests_session
+from posthog.security.outbound_proxy import external_requests_session
 
 logger = structlog.get_logger(__name__)
 
@@ -51,7 +51,7 @@ class VercelAPIClient:
         self.bearer_token = bearer_token
         self.timeout = timeout
         self.base_url = base_url
-        self.session = make_proxied_requests_session()
+        self.session = external_requests_session()
 
         # Not all endpoints (Such as SSO token exchange) require authorization
         if bearer_token and bearer_token.strip():

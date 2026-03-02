@@ -83,7 +83,7 @@ from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
-from posthog.security.outbound_proxy import external_requests, make_proxied_requests_session
+from posthog.security.outbound_proxy import external_requests, external_requests_session
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
@@ -967,6 +967,7 @@ def toolbar_oauth_authorize(request):
         return HttpResponse(exc.detail, status=exc.status_code)
 
     request.session["toolbar_oauth_code_verifier"] = code_verifier
+    request.session["toolbar_oauth_code_verifier_ts"] = time.time()
 
     return redirect(authorization_url)
 
@@ -1004,6 +1005,9 @@ def toolbar_oauth_callback(request):
         code_verifier = None
     else:
         code_verifier = request.session.pop("toolbar_oauth_code_verifier", None)
+        verifier_ts = request.session.pop("toolbar_oauth_code_verifier_ts", None)
+        if code_verifier and (not verifier_ts or time.time() - verifier_ts > settings.TOOLBAR_OAUTH_STATE_TTL_SECONDS):
+            code_verifier = None
 
     if code_verifier and code and state:
         # Toolbar flow: exchange code for tokens on the server
@@ -1320,7 +1324,7 @@ def test_slack_webhook(request):
         return JsonResponse({"error": "no webhook URL"})
     message = {"text": "_Greetings_ from PostHog!"}
     try:
-        session = make_proxied_requests_session()
+        session = external_requests_session()
 
         if not settings.DEBUG:
             raise_if_user_provided_url_unsafe(webhook)
