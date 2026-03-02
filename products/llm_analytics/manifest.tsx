@@ -255,6 +255,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_playground' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsPlayground(),
+            flag: FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS,
             tags: ['beta'],
             sceneKey: 'LLMAnalyticsPlayground',
         },
