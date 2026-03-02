@@ -103,7 +103,6 @@ The service includes a fail-open mechanism as an emergency kill switch when the 
 
 Enable fail-open mode by setting `FAIL_OPEN=true`. This should only be used as a last resort when the deduplication system needs to be temporarily disabled.
 
-
 ## Architecture Components
 
 - **StatefulKafkaConsumer**: Main consumer orchestrating message processing
