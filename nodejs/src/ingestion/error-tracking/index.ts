@@ -5,6 +5,7 @@ export {
     ErrorTrackingConsumer,
     ErrorTrackingConsumerOptions,
     ErrorTrackingConsumerDeps,
+    ErrorTrackingHogTransformer,
 } from '../error-tracking-consumer'
 export { CymbalClient, CymbalClientConfig } from './cymbal'
 export {
@@ -17,6 +18,5 @@ export {
 
 // Steps
 export { createCymbalProcessingStep } from './cymbal-processing-step'
-export { createGeoIPEnrichmentStep } from './geoip-enrichment-step'
 export { createGroupTypeMappingStep } from './group-type-mapping-step'
 export { createPersonPropertiesReadOnlyStep } from './person-properties-step'

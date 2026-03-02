@@ -474,7 +474,7 @@ export class PluginServer {
                     const deps = {
                         kafkaProducer: hub.kafkaProducer,
                         teamManager: hub.teamManager,
-                        geoipService: hub.geoipService,
+                        hogTransformer: createHogTransformerService(hub, hub),
                         groupTypeManager: hub.groupTypeManager,
                         redisPool: hub.redisPool,
                         personRepository: hub.personRepository,

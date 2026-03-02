@@ -4,13 +4,14 @@ import { Message } from 'node-rdkafka'
 import { Counter, Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { PluginEvent } from '~/plugin-scaffold'
 
+import { TransformationResult } from '../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { HealthCheckResult, IngestionLane, PluginServerService } from '../types'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
-import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { TeamManager } from '../utils/team-manager'
@@ -51,13 +52,23 @@ export interface ErrorTrackingConsumerOptions {
 }
 
 /**
+ * Interface for the HogTransformerService methods used by the error tracking consumer.
+ * This allows for easier mocking in tests without needing the full service implementation.
+ */
+export interface ErrorTrackingHogTransformer {
+    start(): Promise<void>
+    stop(): Promise<void>
+    transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult>
+}
+
+/**
  * Dependencies for ErrorTrackingConsumer.
  * These are services and clients that are injected.
  */
 export interface ErrorTrackingConsumerDeps {
     kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
-    geoipService: GeoIPService
+    hogTransformer: ErrorTrackingHogTransformer
     groupTypeManager: GroupTypeManager
     redisPool: GenericPool<Redis>
     personRepository: PersonRepository
@@ -169,8 +180,8 @@ export class ErrorTrackingConsumer {
     }
 
     private async initializePipeline(): Promise<void> {
-        // Get GeoIP service
-        const geoip = await this.deps.geoipService.get()
+        // Start the Hog transformer service
+        await this.deps.hogTransformer.start()
 
         // Initialize TopHog for metrics
         this.topHog = new TopHog({
@@ -189,7 +200,7 @@ export class ErrorTrackingConsumer {
             promiseScheduler: this.promiseScheduler,
             teamManager: this.deps.teamManager,
             personRepository: this.deps.personRepository,
-            geoip,
+            hogTransformer: this.deps.hogTransformer,
             cymbalClient: this.cymbalClient,
             groupTypeManager: this.deps.groupTypeManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
@@ -222,6 +233,9 @@ export class ErrorTrackingConsumer {
         // Shutdown overflow services
         await this.overflowRedirectService?.shutdown()
         await this.overflowLaneTTLRefreshService?.shutdown()
+
+        // Stop Hog transformer service
+        await this.deps.hogTransformer.stop()
 
         // Stop TopHog metrics
         await this.topHog?.stop()

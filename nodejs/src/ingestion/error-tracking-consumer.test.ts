@@ -11,6 +11,7 @@ import { UUIDT } from '~/utils/utils'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { ErrorTrackingConsumer } from './error-tracking-consumer'
+import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
 
 jest.setTimeout(60000)
 
@@ -84,6 +85,15 @@ jest.mock('./error-tracking/cymbal', () => ({
     })),
 }))
 
+// Create a mock HogTransformerService that passes through events unchanged
+const createMockHogTransformer = (): jest.Mocked<ErrorTrackingHogTransformer> => ({
+    start: jest.fn().mockResolvedValue(undefined),
+    stop: jest.fn().mockResolvedValue(undefined),
+    transformEventAndProduceMessages: jest
+        .fn()
+        .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
+})
+
 let offsetIncrementer = 0
 
 const createKafkaMessage = (event: PipelineEvent, token: string): Message => {
@@ -118,6 +128,7 @@ describe('ErrorTrackingConsumer', () => {
     let hub: Hub
     let team: Team
     let fixedTime: DateTime
+    let mockHogTransformer: jest.Mocked<ErrorTrackingHogTransformer>
 
     const createConsumer = async (hub: Hub) => {
         const config = {
@@ -136,10 +147,12 @@ describe('ErrorTrackingConsumer', () => {
             statefulOverflowLocalCacheTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
             pipeline: hub.INGESTION_PIPELINE ?? 'error_tracking',
         }
+        // Create and store the mock so tests can configure it
+        mockHogTransformer = createMockHogTransformer()
         const deps = {
             kafkaProducer: hub.kafkaProducer,
             teamManager: hub.teamManager,
-            geoipService: hub.geoipService,
+            hogTransformer: mockHogTransformer,
             groupTypeManager: hub.groupTypeManager,
             redisPool: hub.redisPool,
             personRepository: hub.personRepository,
@@ -284,10 +297,25 @@ describe('ErrorTrackingConsumer', () => {
             expect(properties.$groups).toEqual({ company: 'acme-corp' })
         })
 
-        it('should handle events with GeoIP data', async () => {
+        it('should run Hog transformations on events', async () => {
+            // Configure the mock to add GeoIP properties (simulating the GeoIP transformation)
+            mockHogTransformer.transformEventAndProduceMessages.mockImplementation((event) =>
+                Promise.resolve({
+                    event: {
+                        ...event,
+                        properties: {
+                            ...event.properties,
+                            $geoip_country_code: 'SE',
+                            $geoip_city_name: 'Linköping',
+                        },
+                    },
+                    invocationResults: [],
+                })
+            )
+
             const messages = createKafkaMessages([
                 createEvent({
-                    ip: '89.160.20.129', // Test IP for GeoIP lookup
+                    ip: '89.160.20.129',
                 }),
             ])
             await consumer.handleKafkaBatch(messages)
@@ -296,9 +324,11 @@ describe('ErrorTrackingConsumer', () => {
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
             expect(producedMessages).toHaveLength(1)
 
+            // Verify Hog transformations were called and added GeoIP properties
+            expect(mockHogTransformer.transformEventAndProduceMessages).toHaveBeenCalledTimes(1)
             const properties = parseJSON(producedMessages[0].value.properties as string)
-            // GeoIP enrichment adds these properties
-            expect(properties.$geoip_country_code).toBeDefined()
+            expect(properties.$geoip_country_code).toBe('SE')
+            expect(properties.$geoip_city_name).toBe('Linköping')
         })
     })
 

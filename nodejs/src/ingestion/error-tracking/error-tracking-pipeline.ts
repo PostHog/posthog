@@ -2,12 +2,12 @@ import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { GeoIp } from '~/utils/geoip'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
+import { ErrorTrackingHogTransformer } from '../error-tracking-consumer'
 import {
     createApplyEventRestrictionsStep,
     createOverflowLaneTTLRefreshStep,
@@ -18,15 +18,15 @@ import {
 } from '../event-preprocessing'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
+import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '../pipelines/builders'
-import { TopHogRegistry, count, countResult, createTopHogWrapper, timer } from '../pipelines/extensions/tophog'
+import { TopHogRegistry, count, countOk, createTopHogWrapper, timer } from '../pipelines/extensions/tophog'
 import { createBatch, createUnwrapper } from '../pipelines/helpers'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
-import { createGeoIPEnrichmentStep } from './geoip-enrichment-step'
 import { createGroupTypeMappingStep } from './group-type-mapping-step'
 import { createPersonPropertiesReadOnlyStep } from './person-properties-step'
 import { createErrorTrackingPrepareEventStep } from './prepare-event-step'
@@ -50,7 +50,7 @@ export interface ErrorTrackingPipelineConfig {
     promiseScheduler: PromiseScheduler
     teamManager: TeamManager
     personRepository: PersonRepository
-    geoip: GeoIp
+    hogTransformer: ErrorTrackingHogTransformer | null
     cymbalClient: CymbalClient
     groupTypeManager: GroupTypeManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -76,7 +76,7 @@ export interface ErrorTrackingPipelineConfig {
  * 4. Resolve team - Look up team by token
  * 5. Cymbal processing - Symbolicate, fingerprint, and link issues
  * 6. Person properties - Fetch person by distinct_id (read-only)
- * 7. GeoIP enrichment - Enrich with geographic data based on IP
+ * 7. Hog transformations - Run team transformations (including GeoIP if enabled)
  * 8. Group type mapping - Map group types to indexes
  * 9. Prepare event - Convert to PreIngestionEvent format, track if person found
  * 10. Create event - Build ErrorTrackingKafkaEvent (matches Cymbal's output format)
@@ -97,7 +97,7 @@ export function createErrorTrackingPipeline(
         promiseScheduler,
         teamManager,
         personRepository,
-        geoip,
+        hogTransformer,
         cymbalClient,
         groupTypeManager,
         eventIngestionRestrictionManager,
@@ -137,7 +137,7 @@ export function createErrorTrackingPipeline(
                         // Resolve team from token [REUSE]
                         .pipe(
                             topHogWrapper(createResolveTeamStep(teamManager), [
-                                countResult('resolved_teams', (output) => ({
+                                countOk('resolved_teams', (output) => ({
                                     team_id: String(output.team.id),
                                 })),
                             ])
@@ -182,8 +182,8 @@ export function createErrorTrackingPipeline(
                                                     })),
                                                 ])
                                             )
-                                            // Enrich with GeoIP data
-                                            .pipe(createGeoIPEnrichmentStep(geoip))
+                                            // Run Hog transformations (including GeoIP if team has it enabled)
+                                            .pipe(createHogTransformEventStep(hogTransformer))
                                             // Map group types to indexes
                                             .pipe(createGroupTypeMappingStep(groupTypeManager))
                                             // Prepare event for emission
