@@ -933,7 +933,7 @@ def _is_insufficient_permissions_error(err: ServerOperationError) -> bool:
 
 
 def _is_warehouse_stopped_error(err: ServerOperationError) -> bool:
-    """Check if the error is a warehouse paused error."""
+    """Check if the error is a warehouse stopped error."""
     if err.message is None:
         return False
     return "warehouse" in err.message and "is stopped" in err.message
