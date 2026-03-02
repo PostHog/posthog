@@ -8,6 +8,7 @@ from django.conf import settings
 import grpc
 import structlog
 
+from posthog.personhog_client.interceptor import MetricsInterceptor
 from posthog.personhog_client.proto import (
     CheckCohortMembershipRequest,
     CohortMembershipResponse,
@@ -66,7 +67,8 @@ class PersonHogClient:
             ("grpc.max_receive_message_length", max_recv_message_length),
             ("grpc.enable_retries", 1),
         ]
-        self._channel = grpc.insecure_channel(addr, options=options)
+        channel = grpc.insecure_channel(addr, options=options)
+        self._channel = grpc.intercept_channel(channel, MetricsInterceptor())
         self._stub = PersonHogServiceStub(self._channel)
         self._timeout = timeout_ms / 1000.0
 
