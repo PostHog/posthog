@@ -124,6 +124,22 @@ describe('convertOtelEvent', () => {
             expect(event.properties!['$ai_output_state']).toEqual(structured)
         })
 
+        it.each([
+            ['number', '42'],
+            ['boolean', 'true'],
+            ['null', 'null'],
+        ])('keeps final_result as string when parsed value is a %s', (_label, value) => {
+            const event = createEvent('$ai_span', {
+                'pydantic_ai.all_messages': JSON.stringify([
+                    { role: 'user', parts: [{ type: 'text', content: 'Hello' }] },
+                ]),
+                final_result: value,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_output_state']).toBe(value)
+        })
+
         it('keeps final_result as plain string when not valid JSON', () => {
             const event = createEvent('$ai_span', {
                 'pydantic_ai.all_messages': JSON.stringify([
@@ -148,6 +164,24 @@ describe('convertOtelEvent', () => {
             convertOtelEvent(event)
 
             expect(event.properties!['$ai_output_state']).toBe('The answer is 42')
+        })
+
+        it('filters non-object items from pydantic_ai.all_messages', () => {
+            const messages = [
+                'not an object',
+                { role: 'user', parts: [{ type: 'text', content: 'Hello' }] },
+                42,
+                null,
+                [1, 2, 3],
+                { role: 'model-text-response', parts: [{ type: 'text', content: 'Hi!' }] },
+            ]
+            const event = createEvent('$ai_span', {
+                'pydantic_ai.all_messages': JSON.stringify(messages),
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_input_state']).toEqual(messages[1])
+            expect(event.properties!['$ai_output_state']).toEqual(messages[5])
         })
 
         it('uses agent_name as fallback for $ai_span_name', () => {

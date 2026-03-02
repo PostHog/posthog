@@ -36,7 +36,10 @@ function pydanticAiMiddleware(event: PluginEvent, next: () => void): void {
             try {
                 const parsed = parseJSON(allMessages)
                 if (Array.isArray(parsed)) {
-                    messages = parsed
+                    messages = parsed.filter(
+                        (item): item is Record<string, unknown> =>
+                            typeof item === 'object' && item !== null && !Array.isArray(item)
+                    )
                 }
             } catch {
                 // Keep as-is if parsing fails
@@ -54,7 +57,10 @@ function pydanticAiMiddleware(event: PluginEvent, next: () => void): void {
             let finalResult = props['final_result']
             if (typeof finalResult === 'string') {
                 try {
-                    finalResult = parseJSON(finalResult)
+                    const parsed = parseJSON(finalResult)
+                    if (typeof parsed === 'object' && parsed !== null) {
+                        finalResult = parsed
+                    }
                 } catch {
                     // Keep original string
                 }
