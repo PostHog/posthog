@@ -205,8 +205,12 @@ const YAxisSettings = z.object({
 })
 
 const GoalLine = z.object({
-    label: z.string().optional(),
-    value: z.number().optional(),
+    label: z.string(),
+    value: z.number(),
+    borderColor: z.string().optional(),
+    displayLabel: z.boolean().optional(),
+    displayIfCrossed: z.boolean().optional(),
+    position: z.enum(['start', 'end']).optional(),
 })
 
 const DataVizChartSettings = z.object({
@@ -223,19 +227,26 @@ const DataVizChartSettings = z.object({
     xAxis: ChartAxis.nullable().optional(),
     yAxis: z.array(ChartAxis).nullable().optional(),
     yAxisAtZero: z.boolean().nullable().optional(),
+    heatmap: z.object({
+        colorPalette: z.string().optional(),
+        showValues: z.boolean().optional(),
+    }).nullable().optional(),
 })
 
 const ConditionalFormattingRule = z.object({
-    bytecode: z.array(z.any()).optional(),
-    color: z.string().optional(),
-    colorMode: z.enum(['single', 'range']).optional(),
-    columnName: z.string().optional(),
-    input: z.string().optional(),
+    id: z.string(),
+    templateId: z.string(),
+    columnName: z.string(),
+    bytecode: z.array(z.any()),
+    input: z.string(),
+    color: z.string(),
+    colorMode: z.enum(['light', 'dark']).optional(),
 })
 
 const DataVizTableSettings = z.object({
     columns: z.array(ChartAxis).nullable().optional(),
     conditionalFormatting: z.array(ConditionalFormattingRule).nullable().optional(),
+    pinnedColumns: z.array(z.string()).nullable().optional(),
 })
 
 // Funnels filter
