@@ -5,7 +5,9 @@ import { useCallback, useMemo } from 'react'
 import { IconArrowRight, IconWrench } from '@posthog/icons'
 import { LemonSelect, LemonSelectSection, LemonTag } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { ConversationType } from '~/types'
@@ -108,22 +110,16 @@ interface GetModeOptionsParams {
     planModeEnabled: boolean
     researchEnabled: boolean
     webSearchEnabled: boolean
-    errorTrackingModeEnabled: boolean
-    surveyModeEnabled: boolean
-    llmAnalyticsModeEnabled: boolean
+    featureFlags: Record<string, boolean | string>
     hasExistingMessages: boolean
-    flagsModeEnabled: boolean
 }
 
 function getModeOptions({
     planModeEnabled,
     researchEnabled,
     webSearchEnabled,
-    errorTrackingModeEnabled,
-    surveyModeEnabled,
-    llmAnalyticsModeEnabled,
+    featureFlags,
     hasExistingMessages,
-    flagsModeEnabled,
 }: GetModeOptionsParams): LemonSelectSection<ModeValue>[] {
     const specialOptions = [
         {
@@ -169,17 +165,8 @@ function getModeOptions({
         })
     }
 
-    const modeEntries = Object.entries(MODE_DEFINITIONS).filter(([mode]) => {
-        if (mode === AgentMode.ErrorTracking && !errorTrackingModeEnabled) {
-            return false
-        }
-        if (mode === AgentMode.Survey && !surveyModeEnabled) {
-            return false
-        }
-        if (mode === AgentMode.Flags && !flagsModeEnabled) {
-            return false
-        }
-        if (mode === AgentMode.LLMAnalytics && !llmAnalyticsModeEnabled) {
+    const modeEntries = Object.entries(MODE_DEFINITIONS).filter(([_, def]) => {
+        if (def.flag && !featureFlags[FEATURE_FLAGS[def.flag]]) {
             return false
         }
         return true
@@ -210,13 +197,10 @@ function getModeOptions({
 export function ModeSelector(): JSX.Element | null {
     const { agentMode, contextDisabledReason, conversation, threadMessageCount } = useValues(maxThreadLogic)
     const { setAgentMode } = useActions(maxThreadLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const researchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
     const planModeEnabled = useFeatureFlag('PHAI_PLAN_MODE')
     const webSearchEnabled = useFeatureFlag('PHAI_WEB_SEARCH')
-    const errorTrackingModeEnabled = useFeatureFlag('PHAI_ERROR_TRACKING_MODE')
-    const llmAnalyticsModeEnabled = useFeatureFlag('PHAI_LLM_ANALYTICS_MODE')
-    const surveyModeEnabled = useFeatureFlag('PHAI_SURVEY_MODE')
-    const flagsModeEnabled = useFeatureFlag('POSTHOG_AI_FLAGS_MODE')
 
     const hasExistingMessages = threadMessageCount > 0
     const modeOptions = useMemo(
@@ -225,22 +209,10 @@ export function ModeSelector(): JSX.Element | null {
                 planModeEnabled,
                 researchEnabled,
                 webSearchEnabled,
-                errorTrackingModeEnabled,
-                flagsModeEnabled,
-                llmAnalyticsModeEnabled,
-                surveyModeEnabled,
+                featureFlags,
                 hasExistingMessages,
             }),
-        [
-            planModeEnabled,
-            researchEnabled,
-            webSearchEnabled,
-            errorTrackingModeEnabled,
-            surveyModeEnabled,
-            llmAnalyticsModeEnabled,
-            hasExistingMessages,
-            flagsModeEnabled,
-        ]
+        [planModeEnabled, researchEnabled, webSearchEnabled, featureFlags, hasExistingMessages]
     )
 
     const handleChange = useCallback(

@@ -3455,6 +3455,11 @@ class RetentionEntityKind(StrEnum):
     EVENTS_NODE = "EventsNode"
 
 
+class AggregationPropertyType(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+
+
 class AggregationType(StrEnum):
     COUNT = "count"
     SUM = "sum"
@@ -14007,6 +14012,10 @@ class RetentionFilter(BaseModel):
     aggregationProperty: str | None = Field(
         default=None,
         description="The property to aggregate when aggregationType is sum or avg",
+    )
+    aggregationPropertyType: AggregationPropertyType | None = Field(
+        default=AggregationPropertyType.EVENT,
+        description=("The type of property to aggregate on (event or person). Defaults to event."),
     )
     aggregationType: AggregationType | None = Field(
         default=AggregationType.COUNT,
