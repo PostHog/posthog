@@ -84,18 +84,28 @@ from posthog.dags.common.health.detectors import batch_detector
 detector = batch_detector(detect_fn)
 ```
 
-The optional `kind` parameter selects execution-policy defaults. Use `kind="clickhouse_batch"` for detectors that run ClickHouse queries (batch_size=250, max_concurrent=1):
+Spread a preset dict to control batching and concurrency:
 
 ```python
-detector = batch_detector(detect_fn, kind="clickhouse_batch")
+from posthog.dags.common.health.detectors import (
+    CLICKHOUSE_BATCH_EXECUTION_POLICY,
+    DEFAULT_EXECUTION_POLICY,
+    batch_detector,
+)
+
+detector = batch_detector(detect_fn)  # uses DEFAULT_EXECUTION_POLICY values
+detector = batch_detector(detect_fn, **CLICKHOUSE_BATCH_EXECUTION_POLICY)
+
+# Override a single field from a preset
+detector = batch_detector(detect_fn, **{**CLICKHOUSE_BATCH_EXECUTION_POLICY, "max_concurrent": 3})
 ```
 
 **Signature:** `(team_ids: list[int], context: OpExecutionContext) -> dict[int, list[HealthCheckResult]]`
 
-| `kind`                | batch_size | max_concurrent |
-| --------------------- | ---------- | -------------- |
-| `"default"` (default) | 1000       | 5              |
-| `"clickhouse_batch"`  | 250        | 1              |
+| Preset                              | batch_size | max_concurrent |
+| ----------------------------------- | ---------- | -------------- |
+| `DEFAULT_EXECUTION_POLICY`          | 1000       | 5              |
+| `CLICKHOUSE_BATCH_EXECUTION_POLICY` | 250        | 1              |
 
 ## HealthCheckResult
 
@@ -173,12 +183,12 @@ create_health_check(
 
 Teams are split into batches of `batch_size` IDs. Up to `max_concurrent` batches run in parallel as Dagster dynamic ops. Each batch has a retry policy (2 retries, exponential backoff with jitter).
 
-Defaults depend on detector type:
+Defaults depend on the detector's execution policy:
 
-| Detector kind        | batch_size | max_concurrent |
-| -------------------- | ---------- | -------------- |
-| `"default"`          | 1000       | 5              |
-| `"clickhouse_batch"` | 250        | 1              |
+| Preset                              | batch_size | max_concurrent |
+| ----------------------------------- | ---------- | -------------- |
+| `DEFAULT_EXECUTION_POLICY`          | 1000       | 5              |
+| `CLICKHOUSE_BATCH_EXECUTION_POLICY` | 250        | 1              |
 
 Override at the `create_health_check` call site if needed.
 

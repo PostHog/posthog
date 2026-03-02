@@ -4,7 +4,11 @@ from unittest.mock import MagicMock, patch
 import dagster
 from parameterized import parameterized
 
-from posthog.dags.common.health.detectors import batch_detector, resolve_execution_policy
+from posthog.dags.common.health.detectors import (
+    CLICKHOUSE_BATCH_EXECUTION_POLICY,
+    batch_detector,
+    resolve_execution_policy,
+)
 from posthog.dags.common.health.processing import _process_batch_detection
 from posthog.dags.common.health.types import HealthCheckResult
 from posthog.dags.common.ops import _filter_team_ids_for_rollout
@@ -33,14 +37,14 @@ class TestHealthExecutionPolicies:
         assert policy.max_concurrent == 5
 
     def test_default_policy_for_clickhouse_detector(self):
-        detector = batch_detector(_batch_detect_fn, kind="clickhouse_batch")
+        detector = batch_detector(_batch_detect_fn, **CLICKHOUSE_BATCH_EXECUTION_POLICY)
         policy = resolve_execution_policy(detector)
 
         assert policy.batch_size == 250
         assert policy.max_concurrent == 1
 
     def test_policy_overrides(self):
-        detector = batch_detector(_batch_detect_fn, kind="clickhouse_batch")
+        detector = batch_detector(_batch_detect_fn, **CLICKHOUSE_BATCH_EXECUTION_POLICY)
         policy = resolve_execution_policy(detector, batch_size=500, max_concurrent=2)
 
         assert policy.batch_size == 500

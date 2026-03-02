@@ -1,15 +1,6 @@
 from dataclasses import dataclass
-from typing import Literal
 
 from posthog.dags.common.health.types import BatchDetectFn
-
-DetectorKind = Literal["default", "clickhouse_batch"]
-
-
-@dataclass(frozen=True)
-class HealthDetector:
-    detect_fn: BatchDetectFn
-    kind: DetectorKind = "default"
 
 
 @dataclass(frozen=True)
@@ -18,14 +9,21 @@ class HealthExecutionPolicy:
     max_concurrent: int
 
 
-_DEFAULT_POLICY_BY_KIND: dict[DetectorKind, HealthExecutionPolicy] = {
-    "default": HealthExecutionPolicy(batch_size=1000, max_concurrent=5),
-    "clickhouse_batch": HealthExecutionPolicy(batch_size=250, max_concurrent=1),
-}
+DEFAULT_EXECUTION_POLICY = {"batch_size": 1000, "max_concurrent": 5}
+CLICKHOUSE_BATCH_EXECUTION_POLICY = {"batch_size": 250, "max_concurrent": 1}
 
 
-def batch_detector(detect_fn: BatchDetectFn, kind: DetectorKind = "default") -> HealthDetector:
-    return HealthDetector(detect_fn=detect_fn, kind=kind)
+@dataclass(frozen=True)
+class HealthDetector:
+    detect_fn: BatchDetectFn
+    execution_policy: HealthExecutionPolicy
+
+
+def batch_detector(detect_fn: BatchDetectFn, *, batch_size: int = 1000, max_concurrent: int = 5) -> HealthDetector:
+    return HealthDetector(
+        detect_fn=detect_fn,
+        execution_policy=HealthExecutionPolicy(batch_size=batch_size, max_concurrent=max_concurrent),
+    )
 
 
 def resolve_execution_policy(
@@ -34,7 +32,7 @@ def resolve_execution_policy(
     batch_size: int | None = None,
     max_concurrent: int | None = None,
 ) -> HealthExecutionPolicy:
-    base_policy = _DEFAULT_POLICY_BY_KIND[detector.kind]
+    base_policy = detector.execution_policy
     resolved = HealthExecutionPolicy(
         batch_size=batch_size if batch_size is not None else base_policy.batch_size,
         max_concurrent=max_concurrent if max_concurrent is not None else base_policy.max_concurrent,
