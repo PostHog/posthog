@@ -198,8 +198,6 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
 
         # Override with clustering job config if provided
         clustering_job_id = serializer.validated_data.get("clustering_job_id")
-        job_id = 0
-        job_name = ""
         analysis_level: AnalysisLevel = "trace"
         if clustering_job_id:
             from products.llm_analytics.backend.models.clustering_job import ClusteringJob
@@ -212,8 +210,6 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
                     status=status.HTTP_404_NOT_FOUND,
                 )
             event_filters = job.event_filters
-            job_id = job.id
-            job_name = job.name
             analysis_level = cast(AnalysisLevel, job.analysis_level)
 
         # Build method-specific params dict
@@ -243,8 +239,6 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
             clustering_method_params=clustering_method_params,
             visualization_method=visualization_method,
             event_filters=event_filters,
-            job_id=job_id,
-            job_name=job_name,
         )
 
         # Generate unique workflow ID (follows naming convention from trace_clustering constants)
