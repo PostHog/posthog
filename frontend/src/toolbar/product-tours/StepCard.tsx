@@ -34,7 +34,7 @@ export function StepCard({
     isDragging,
     isDropTarget,
 }: StepCardProps): JSX.Element {
-    const { uiHost, temporaryToken } = useValues(toolbarConfigLogic)
+    const { uiHost } = useValues(toolbarConfigLogic)
     const { selectingStepIndex, expandedStepRect } = useValues(productToursLogic)
     const { removeStep, updateStep, setEditorState } = useActions(productToursLogic)
 
@@ -52,7 +52,7 @@ export function StepCard({
         step.selector && step.selector.length > 25 ? step.selector.slice(0, 22) + '...' : step.selector
 
     const screenshotUrl = step.screenshotMediaId
-        ? joinWithUiHost(uiHost, `/uploaded_media/${step.screenshotMediaId}?token=${temporaryToken}`)
+        ? joinWithUiHost(uiHost, `/uploaded_media/${step.screenshotMediaId}`)
         : null
 
     return (

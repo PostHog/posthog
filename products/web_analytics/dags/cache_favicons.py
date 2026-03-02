@@ -9,6 +9,7 @@ from dagster_aws.s3 import S3Resource
 from posthog.clickhouse.client import sync_execute
 from posthog.dags.common import JobOwners
 from posthog.models.team import Team
+from posthog.security.outbound_proxy import external_httpx_client
 
 
 def get_last_cached_domains(context: dagster.AssetExecutionContext, asset_key: str) -> set[str]:
@@ -105,7 +106,7 @@ def _download_and_cache_favicons(
     all_cached_domains = previously_cached.copy()
     skipped_count = 0
 
-    with httpx.Client() as client:
+    with external_httpx_client() as client:
         for domain in domains:
             if domain in previously_cached:
                 context.log.debug(f"Skipping download for '{domain}' - already cached.")

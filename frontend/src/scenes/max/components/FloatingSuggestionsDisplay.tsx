@@ -57,6 +57,7 @@ function useSuggestionHandling(): {
 
 interface FloatingSuggestionsDisplayProps {
     dataProcessingAccepted: boolean
+    dataProcessingApprovalDisabledReason?: string | null
     suggestionsData: readonly SuggestionGroup[]
     type?: 'primary' | 'secondary' | 'tertiary'
     additionalSuggestions?: React.ReactNode[]
@@ -65,6 +66,7 @@ interface FloatingSuggestionsDisplayProps {
 export function FloatingSuggestionsDisplay({
     type = 'secondary',
     dataProcessingAccepted,
+    dataProcessingApprovalDisabledReason,
     suggestionsData,
     additionalSuggestions,
 }: FloatingSuggestionsDisplayProps): JSX.Element | null {
@@ -75,7 +77,13 @@ export function FloatingSuggestionsDisplay({
         <div className={cn('mt-1 mx-1', activeSuggestionGroup && 'fade-out pointer-events-none')}>
             {/* Main suggestion groups */}
             <>
-                <Tooltip title={!dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined}>
+                <Tooltip
+                    title={
+                        !dataProcessingAccepted
+                            ? dataProcessingApprovalDisabledReason || 'Please accept AI data processing'
+                            : undefined
+                    }
+                >
                     <ul className="flex items-center justify-center flex-wrap gap-1.5">
                         {suggestionsData.map((group) => (
                             <li key={group.label}>

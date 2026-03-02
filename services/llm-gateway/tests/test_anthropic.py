@@ -106,7 +106,9 @@ class TestAnthropicMessagesEndpoint:
         )
 
         assert response.status_code == error_status
-        assert "error" in response.json()["detail"]
+        data = response.json()
+        assert data["error"]["message"] == error_message
+        assert data["error"]["type"] == error_type
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     def test_product_prefix_route(

@@ -19,6 +19,12 @@ export class RecordingApiMetrics {
         this.getBlockDuration.labels({ result, session_state: sessionState }).observe(seconds)
     }
 
+    private static readonly recordingsDeleted = new Counter({
+        name: 'recording_api_recordings_deleted_total',
+        help: 'Number of recordings deleted via the recording API',
+        labelNames: ['status'],
+    })
+
     private static readonly cleanupFailures = new Counter({
         name: 'recording_api_delete_cleanup_failures_total',
         help: 'Cleanup step failures after successful key shred',
@@ -27,6 +33,13 @@ export class RecordingApiMetrics {
 
     public static observeDeleteRecordings(result: string, seconds: number): void {
         this.deleteRecordingsDuration.labels({ result }).observe(seconds)
+    }
+
+    public static incrementRecordingsDeleted(
+        status: 'deleted' | 'already_deleted' | 'failed',
+        count: number = 1
+    ): void {
+        this.recordingsDeleted.labels({ status }).inc(count)
     }
 
     public static incrementCleanupFailure(step: 'kafka' | 'postgres' | 'activity_log'): void {
