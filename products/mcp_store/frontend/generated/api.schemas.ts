@@ -32,6 +32,7 @@ export interface MCPServerInstallationApi {
     auth_type?: MCPServerInstallationAuthTypeEnumApi
     readonly needs_reauth: boolean
     readonly pending_oauth: boolean
+    readonly proxy_url: string
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
