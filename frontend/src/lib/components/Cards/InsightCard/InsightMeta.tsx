@@ -34,6 +34,7 @@ import { isSurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetec
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { insightsModel } from '~/models/insightsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 import {
@@ -112,6 +113,7 @@ export function InsightMeta({
     const { exportContext, insightData } = useValues(insightDataLogic(insightProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
+    const { updateInsightDirect } = useActions(insightsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showCompactTile =
@@ -263,6 +265,17 @@ export function InsightMeta({
                         {insight.description}
                     </LemonMarkdown>
                 ) : null
+            }
+            metaDescriptionText={insight.description || ''}
+            onMetaSave={
+                canEditInsight
+                    ? (updates) => {
+                          updateInsightDirect(insight, updates)
+                          if (updates.description && !tile?.show_description && toggleShowDescription) {
+                              toggleShowDescription()
+                          }
+                      }
+                    : undefined
             }
             metaDetails={
                 <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
