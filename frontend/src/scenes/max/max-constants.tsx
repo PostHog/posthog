@@ -927,7 +927,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             }
             return toolCall.args.query ? `Searching the web for **${toolCall.args.query}**...` : 'Searching the web...'
         },
-        flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
     },
     manage_memories: {
         name: 'Manage memories',
@@ -1111,12 +1110,10 @@ export function getToolsForMode(mode: AgentMode): ToolDefinition[] {
 }
 
 /** Get default tools available in auto mode */
-export function getDefaultTools({ webSearchEnabled }: { webSearchEnabled: boolean }): ToolDefinition[] {
+export function getDefaultTools(): ToolDefinition[] {
     const defaultTools = DEFAULT_TOOL_KEYS.map((key) => TOOL_DEFINITIONS[key])
-    if (webSearchEnabled) {
-        // Add web search after `search`
-        defaultTools.splice(defaultTools.indexOf(TOOL_DEFINITIONS.search) + 1, 0, TOOL_DEFINITIONS.web_search)
-    }
+    // Add web search after `search`
+    defaultTools.splice(defaultTools.indexOf(TOOL_DEFINITIONS.search) + 1, 0, TOOL_DEFINITIONS.web_search)
     return defaultTools
 }
 
