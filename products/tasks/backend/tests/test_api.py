@@ -1726,8 +1726,13 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         [
             ("docker_localhost", "http://localhost:47821"),
             ("docker_127", "http://127.0.0.1:47821"),
-            ("modal", "https://sb-abc123.modal.run"),
-            ("modal_subdomain", "https://test-sandbox-xyz.modal.run"),
+            ("modal_run", "https://sb-abc123.modal.run"),
+            ("modal_run_subdomain", "https://test-sandbox-xyz.modal.run"),
+            ("modal_host", "https://sb-abc123.w.modal.host"),
+            (
+                "modal_host_connect_token",
+                "https://a-ta-01kjnh54bc9wwbh7ydrk4yqq1d-b778iwq0t2a33tyjqdu6eyfjn.w.modal.host",
+            ),
         ]
     )
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)

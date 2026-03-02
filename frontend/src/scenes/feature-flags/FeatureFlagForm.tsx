@@ -50,7 +50,7 @@ import { FeatureFlagEvaluationRuntime } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
-import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
@@ -234,7 +234,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     {({ value, onChange }) => (
                                         <LemonInput
                                             value={value}
-                                            onChange={onChange}
+                                            onChange={(v) => onChange(slugifyFeatureFlagKey(v))}
                                             data-attr="feature-flag-key"
                                             className="ph-ignore-input"
                                             autoComplete="off"

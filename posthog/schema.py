@@ -373,6 +373,7 @@ class AssistantTool(StrEnum):
     LIST_DATA = "list_data"
     UPSERT_ALERT = "upsert_alert"
     FINALIZE_PLAN = "finalize_plan"
+    CALL_MCP_SERVER = "call_mcp_server"
     RECOMMEND_PRODUCTS = "recommend_products"
     SEARCH_LLM_TRACES = "search_llm_traces"
 
@@ -2113,6 +2114,12 @@ class InCohortVia(StrEnum):
     LEFTJOIN = "leftjoin"
     SUBQUERY = "subquery"
     LEFTJOIN_CONJOINED = "leftjoin_conjoined"
+
+
+class InlineCohortCalculation(StrEnum):
+    OFF = "off"
+    AUTO = "auto"
+    ALWAYS = "always"
 
 
 class MaterializationMode(StrEnum):
@@ -5480,6 +5487,7 @@ class HogQLQueryModifiers(BaseModel):
     )
     formatCsvAllowDoubleQuotes: bool | None = None
     inCohortVia: InCohortVia | None = None
+    inlineCohortCalculation: InlineCohortCalculation | None = None
     materializationMode: MaterializationMode | None = None
     materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
     optimizeJoinedFilters: bool | None = None
@@ -5547,6 +5555,7 @@ class LLMTrace(BaseModel):
     outputState: Any | None = None
     outputTokens: float | None = None
     person: LLMTracePerson | None = None
+    tools: list[str] | None = None
     totalCost: float | None = None
     totalLatency: float | None = None
     traceName: str | None = None

@@ -54,7 +54,6 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
         type: 'insight',
         ref: insight?.short_id,
         enabled: Boolean(currentTeamId && insight?.short_id && insight?.saved && !accessDeniedToInsight),
-        deps: [currentTeamId, insight?.short_id, insight?.saved, accessDeniedToInsight],
     })
 
     // other logics

@@ -797,6 +797,9 @@ export interface ToolbarParams {
     apiURL?: string
     token?: string /** public posthog-js token */
     temporaryToken?: string /** private temporary user token */
+    accessToken?: string /** OAuth access token (Bearer) */
+    refreshToken?: string /** OAuth refresh token */
+    clientId?: string /** OAuth client_id for token refresh */
     actionId?: number
     experimentId?: ExperimentIdType
     userIntent?: ToolbarUserIntent
@@ -2184,6 +2187,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
         message: string
     }
     filters_overrides?: TileFilters
+    show_description?: boolean | null
 }
 
 export interface DashboardTileBasicType {
@@ -3473,6 +3477,13 @@ export interface StepOrderVersion {
     created_at: string
 }
 
+export type EffectiveProductTourType = 'tour' | 'announcement' | 'banner'
+
+export interface ProductTourWaitPeriod {
+    days: number
+    types: EffectiveProductTourType[]
+}
+
 export interface ProductTourDisplayConditions {
     url?: string
     urlMatchType?: SurveyMatchType
@@ -3491,6 +3502,7 @@ export interface ProductTourDisplayConditions {
         values: SurveyEventsWithProperties[]
     } | null
     linkedFlagVariant?: string
+    seenTourWaitPeriod?: ProductTourWaitPeriod
 }
 
 export interface ProductTourAppearance {

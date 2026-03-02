@@ -18,6 +18,8 @@ import requests
 import structlog
 import posthoganalytics
 
+from posthog.security.outbound_proxy import external_requests
+
 if TYPE_CHECKING:
     from posthog.models.user import User
 
@@ -310,7 +312,7 @@ def _fetch_esp_suppression_from_api(email: str) -> ESPSuppressionAPIResponse:
     }
 
     try:
-        response = requests.get(
+        response = external_requests.get(
             f"{settings.CUSTOMER_IO_API_URL}/v1/esp/search_suppression/{quote(email, safe='')}",
             headers=headers,
             timeout=ESP_SUPPRESSION_API_TIMEOUT_IN_SECONDS,

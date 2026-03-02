@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.conf import settings
 
-import requests
 import structlog
 from rest_framework import viewsets
 from rest_framework.response import Response
@@ -11,6 +10,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration
+from posthog.security.outbound_proxy import external_requests
 
 logger = structlog.get_logger(__name__)
 
@@ -71,7 +71,7 @@ def get_github_file_url(code_sample: str, token: str, owner: str, repository: st
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = external_requests.get(url, headers=headers, timeout=10)
 
         if response.status_code == 200:
             data = response.json()
@@ -115,7 +115,7 @@ def get_gitlab_file_url(
         url = f"{gitlab_url}/api/v4/projects/{encoded_project_path}/search?scope={search_scope}&search={encoded_search}"
 
         try:
-            response = requests.get(url, headers=headers, timeout=10)
+            response = external_requests.get(url, headers=headers, timeout=10)
 
             if response.status_code == 200:
                 data = response.json()
