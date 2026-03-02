@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 import certifi
+import dns.resolver
 from bson import ObjectId
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from pymongo import MongoClient
@@ -184,6 +185,17 @@ def _parse_connection_string(connection_string: str) -> dict[str, Any]:
         "connection_string": connection_string,
         "is_srv": parsed.scheme == "mongodb+srv",
     }
+
+
+def _resolve_srv_hosts(hostname: str) -> list[str]:
+    """Resolve MongoDB SRV DNS records to get actual server hostnames.
+
+    SRV hostnames (used by mongodb+srv://) don't have A/AAAA records,
+    so we need to resolve the SRV records first to get the real hosts
+    for SSRF validation.
+    """
+    answers = dns.resolver.resolve(f"_mongodb._tcp.{hostname}", "SRV")
+    return [str(rdata.target).rstrip(".") for rdata in answers]
 
 
 def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:

@@ -16,6 +16,7 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 from posthog.temporal.data_imports.sources.mongodb.mongo import (
     _parse_connection_string,
+    _resolve_srv_hosts,
     filter_mongo_incremental_fields,
     get_collection_names,
     get_schemas as get_mongo_schemas,
@@ -77,9 +78,21 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         if not connection_params.get("database"):
             return False, "Database name is required in connection string"
 
-        valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id)
-        if not valid_host:
-            return False, host_errors
+        if connection_params["is_srv"]:
+            try:
+                srv_hosts = _resolve_srv_hosts(connection_params["host"])
+            except Exception:
+                return False, "Host could not be resolved"
+            if not srv_hosts:
+                return False, "Host could not be resolved"
+            for srv_host in srv_hosts:
+                valid_host, host_errors = self.is_database_host_valid(srv_host, team_id)
+                if not valid_host:
+                    return False, host_errors
+        else:
+            valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id)
+            if not valid_host:
+                return False, host_errors
 
         try:
             collection_names = get_collection_names(config)
