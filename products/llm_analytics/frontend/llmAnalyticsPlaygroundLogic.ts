@@ -10,27 +10,12 @@ import { isObject, uuid } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { byokModelPickerLogic } from './byokModelPickerLogic'
 import type { llmAnalyticsPlaygroundLogicType } from './llmAnalyticsPlaygroundLogicType'
-import { LLMProvider, LLMProviderKey, llmProviderKeysLogic, providerSortIndex } from './settings/llmProviderKeysLogic'
+import { type ModelOption, type ProviderModelGroup, modelPickerLogic } from './modelPickerLogic'
+import { LLMProviderKey, llmProviderKeysLogic, providerSortIndex } from './settings/llmProviderKeysLogic'
 import { normalizeRole } from './utils'
 
-export interface ModelOption {
-    id: string
-    name: string
-    provider: string
-    description: string
-    providerKeyId?: string
-    isRecommended?: boolean
-}
-
-export interface ProviderModelGroup {
-    provider: LLMProvider
-    providerKeyId: string
-    label: string
-    models: ModelOption[]
-    disabled?: boolean
-}
+export type { ModelOption, ProviderModelGroup }
 
 enum NormalizedMessageRole {
     User = 'user',
@@ -304,8 +289,8 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsPlaygroundLogic']),
 
     connect(() => ({
-        values: [byokModelPickerLogic, ['byokModels', 'hasByokKeys'], llmProviderKeysLogic, ['providerKeys']],
-        actions: [byokModelPickerLogic, ['loadByokModelsSuccess']],
+        values: [modelPickerLogic, ['byokModels', 'hasByokKeys'], llmProviderKeysLogic, ['providerKeys']],
+        actions: [modelPickerLogic, ['loadByokModelsSuccess']],
     })),
 
     actions({
