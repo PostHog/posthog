@@ -46,7 +46,6 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
@@ -408,20 +407,12 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
     const { productTab } = useValues(webAnalyticsLogic)
     switch (productTab) {
         case ProductTab.PAGE_REPORTS:
-            return (
-                <SceneStickyBar>
-                    <PageReportsFilters tabs={tabs} />
-                </SceneStickyBar>
-            )
+            return <PageReportsFilters tabs={tabs} />
         case ProductTab.HEALTH:
         case ProductTab.LIVE:
             return null
         default:
-            return (
-                <SceneStickyBar>
-                    <WebAnalyticsFilters tabs={tabs} />
-                </SceneStickyBar>
-            )
+            return <WebAnalyticsFilters tabs={tabs} />
     }
 }
 
