@@ -1,7 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
-    status: 'beta',
+    status: 'alpha',
     free: false,
     type: 'destination',
     id: 'template-klime',
