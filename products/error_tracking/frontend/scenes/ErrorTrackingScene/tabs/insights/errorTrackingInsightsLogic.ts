@@ -1,13 +1,22 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { errorTrackingInsightsLogicType } from './errorTrackingInsightsLogicType'
+
+function getPeriodStart(date: Dayjs, viewMode: InsightsViewMode, weekStartDay: number): Dayjs {
+    if (viewMode === 'month') {
+        return date.startOf('month')
+    }
+    dayjs.updateLocale('en', { weekStart: weekStartDay })
+    return date.startOf('week')
+}
 
 export type InsightsViewMode = 'week' | 'month'
 
@@ -34,6 +43,10 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         'errorTrackingInsightsLogic',
     ]),
 
+    connect(() => ({
+        values: [teamLogic, ['weekStartDay']],
+    })),
+
     actions({
         setViewMode: (mode: InsightsViewMode) => ({ mode }),
         setAnchorDate: (date: Dayjs) => ({ date }),
@@ -51,7 +64,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             },
         ],
         anchorDate: [
-            dayjs().startOf('isoWeek') as Dayjs,
+            dayjs().startOf('week') as Dayjs,
             {
                 setAnchorDate: (_, { date }) => date,
             },
@@ -100,11 +113,11 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             },
         ],
         relativeDateLabel: [
-            (s) => [s.anchorDate, s.viewMode],
-            (anchorDate, viewMode): string => {
+            (s) => [s.anchorDate, s.viewMode, s.weekStartDay],
+            (anchorDate, viewMode, weekStartDay): string => {
                 const now = dayjs()
                 const unit = viewMode === 'week' ? 'week' : 'month'
-                const currentPeriodStart = viewMode === 'week' ? now.startOf('isoWeek') : now.startOf('month')
+                const currentPeriodStart = getPeriodStart(now, viewMode, weekStartDay)
                 const diffPeriods = currentPeriodStart.diff(anchorDate, unit)
                 if (diffPeriods === 0) {
                     return viewMode === 'week' ? 'this week' : 'this month'
@@ -115,10 +128,10 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             },
         ],
         canNavigateForward: [
-            (s) => [s.anchorDate, s.viewMode],
-            (anchorDate, viewMode): boolean => {
+            (s) => [s.anchorDate, s.viewMode, s.weekStartDay],
+            (anchorDate, viewMode, weekStartDay): boolean => {
                 const now = dayjs()
-                const currentPeriodStart = viewMode === 'week' ? now.startOf('isoWeek') : now.startOf('month')
+                const currentPeriodStart = getPeriodStart(now, viewMode, weekStartDay)
                 return anchorDate.isBefore(currentPeriodStart)
             },
         ],
@@ -172,8 +185,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
 
     listeners(({ actions, values }) => ({
         setViewMode: ({ mode }) => {
-            const start = mode === 'week' ? dayjs().startOf('isoWeek') : dayjs().startOf('month')
-            actions.setAnchorDate(start)
+            actions.setAnchorDate(getPeriodStart(dayjs(), mode, values.weekStartDay))
         },
         navigateBack: () => {
             const unit = values.viewMode === 'week' ? 'week' : 'month'
@@ -182,8 +194,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         navigateForward: () => {
             const unit = values.viewMode === 'week' ? 'week' : 'month'
             const next = values.anchorDate.add(1, unit)
-            const now = dayjs()
-            const currentPeriodStart = values.viewMode === 'week' ? now.startOf('isoWeek') : now.startOf('month')
+            const currentPeriodStart = getPeriodStart(dayjs(), values.viewMode, values.weekStartDay)
             actions.setAnchorDate(next.isAfter(currentPeriodStart) ? currentPeriodStart : next)
         },
         setAnchorDate: () => {
@@ -197,7 +208,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
-        actions.loadSummaryStats()
+    afterMount(({ actions, values }) => {
+        actions.setAnchorDate(getPeriodStart(dayjs(), values.viewMode, values.weekStartDay))
     }),
 ])
