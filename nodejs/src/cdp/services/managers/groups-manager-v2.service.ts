@@ -78,6 +78,7 @@ export class GroupsManagerServiceV2 {
 
         const typeMapping = await this.groupTypesLoader.get(String(teamId))
         if (!typeMapping) {
+            logger.warn('No group types found for team', { teamId })
             return {}
         }
 
