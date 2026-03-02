@@ -17,13 +17,15 @@ export type ExtractHeatmapDataStepResult<TInput> = TInput & {
     preparedEvent: PreIngestionEvent
 }
 
-export function createExtractHeatmapDataStep<
-    TInput extends ExtractHeatmapDataStepInput & { kafkaProducer: KafkaProducerWrapper },
->(config: { CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string }): ProcessingStep<TInput, ExtractHeatmapDataStepResult<TInput>> {
+export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataStepInput>(config: {
+    kafkaProducer: KafkaProducerWrapper
+    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
+}): ProcessingStep<TInput, ExtractHeatmapDataStepResult<TInput>> {
     return async function extractHeatmapDataStep(
         input: TInput
     ): Promise<PipelineResult<ExtractHeatmapDataStepResult<TInput>>> {
-        const { preparedEvent, kafkaProducer } = input
+        const { preparedEvent } = input
+        const { kafkaProducer } = config
         const { eventUuid } = preparedEvent
         const acks: Promise<void>[] = []
         const warnings: PipelineWarning[] = []

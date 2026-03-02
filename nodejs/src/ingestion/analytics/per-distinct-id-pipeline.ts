@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
@@ -24,6 +25,7 @@ export interface PerDistinctIdPipelineConfig {
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
+    kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
@@ -53,7 +55,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PerDistinctIdPipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, hogTransformer, groupId, topHog } = config
+    const { options, kafkaProducer, teamManager, groupTypeManager, hogTransformer, groupId, topHog } = config
 
     return builder.retry(
         (e) =>
@@ -63,6 +65,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                     .branch('heatmap', (b) =>
                         createHeatmapSubpipeline(b, {
                             options,
+                            kafkaProducer,
                             teamManager,
                             groupTypeManager,
                         })
@@ -70,6 +73,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                     .branch('event', (b) =>
                         createEventSubpipeline(b, {
                             options,
+                            kafkaProducer,
                             teamManager,
                             groupTypeManager,
                             hogTransformer,

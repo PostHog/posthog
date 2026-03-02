@@ -146,6 +146,7 @@ export function createJoinedIngestionPipeline<
 
     const perEventConfig: PerDistinctIdPipelineConfig = {
         options: perDistinctIdOptions,
+        kafkaProducer,
         teamManager,
         groupTypeManager,
         hogTransformer,

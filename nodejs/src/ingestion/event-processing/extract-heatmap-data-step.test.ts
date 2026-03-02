@@ -51,6 +51,7 @@ describe('createExtractHeatmapDataStep', () => {
         } as any
 
         step = createExtractHeatmapDataStep({
+            kafkaProducer: mockProducer,
             CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: 'clickhouse_heatmaps_test',
         })
     })
@@ -60,7 +61,7 @@ describe('createExtractHeatmapDataStep', () => {
             const event = createTestEvent()
             delete event.properties.$heatmap_data
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
@@ -75,7 +76,7 @@ describe('createExtractHeatmapDataStep', () => {
             const event = createTestEvent()
             event.properties.$heatmap_data = null
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockProducer.queueMessages).not.toHaveBeenCalled()
@@ -85,7 +86,7 @@ describe('createExtractHeatmapDataStep', () => {
             const event = createTestEvent()
             event.properties.$heatmap_data = undefined
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockProducer.queueMessages).not.toHaveBeenCalled()
@@ -96,7 +97,7 @@ describe('createExtractHeatmapDataStep', () => {
         it('extracts and queues heatmap data', async () => {
             const event = createTestEvent()
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
@@ -152,7 +153,7 @@ describe('createExtractHeatmapDataStep', () => {
                 'http://localhost:3000/about': [{ x: 300, y: 400, target_fixed: true, type: 'mousemove' }],
             }
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
@@ -174,7 +175,7 @@ describe('createExtractHeatmapDataStep', () => {
                 $prev_pageview_max_scroll: 225,
             }
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
@@ -211,7 +212,7 @@ describe('createExtractHeatmapDataStep', () => {
                 $prev_pageview_max_scroll: 500,
             }
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
@@ -237,7 +238,7 @@ describe('createExtractHeatmapDataStep', () => {
             const event = createTestEvent()
             event.properties.$heatmap_data = {}
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
@@ -250,7 +251,7 @@ describe('createExtractHeatmapDataStep', () => {
         it('drops event with invalid distinct_id', async () => {
             const event = createTestEvent({ distinctId: '' })
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.DROP)
             if (result.type === PipelineResultType.DROP) {
@@ -262,7 +263,7 @@ describe('createExtractHeatmapDataStep', () => {
         it('drops event with illegal distinct_id', async () => {
             const event = createTestEvent({ distinctId: 'distinct_id' })
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.DROP)
             if (result.type === PipelineResultType.DROP) {
@@ -276,7 +277,7 @@ describe('createExtractHeatmapDataStep', () => {
             event.properties.$viewport_height = NaN
             event.properties.$viewport_width = 1071
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.DROP)
             if (result.type === PipelineResultType.DROP) {
@@ -289,7 +290,7 @@ describe('createExtractHeatmapDataStep', () => {
             const event = createTestEvent()
             delete event.properties.$viewport_height
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.DROP)
             if (result.type === PipelineResultType.DROP) {
@@ -303,7 +304,7 @@ describe('createExtractHeatmapDataStep', () => {
                 '   ': [{ x: 100, y: 200, target_fixed: false, type: 'click' }],
             }
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
@@ -326,7 +327,7 @@ describe('createExtractHeatmapDataStep', () => {
                 'http://localhost:3000/': 'not an array' as any,
             }
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
@@ -356,7 +357,7 @@ describe('createExtractHeatmapDataStep', () => {
                 ],
             }
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
@@ -372,7 +373,7 @@ describe('createExtractHeatmapDataStep', () => {
             const event = createTestEvent()
             const originalEvent = cloneObject(event)
 
-            await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            await step({ preparedEvent: event })
 
             expect(event).toEqual(originalEvent)
             expect(event.properties.$heatmap_data).toBeDefined()
@@ -408,7 +409,7 @@ describe('createExtractHeatmapDataStep', () => {
             }
             event.distinctId = null as any // This should cause an error
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             // The error should be caught and converted to a warning
             expect(result.type).toBe(PipelineResultType.DROP)
@@ -424,7 +425,7 @@ describe('createExtractHeatmapDataStep', () => {
             event.properties.$viewport_height = 1600
             event.properties.$viewport_width = 1280
 
-            const result = await step({ preparedEvent: event, kafkaProducer: mockProducer })
+            const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)

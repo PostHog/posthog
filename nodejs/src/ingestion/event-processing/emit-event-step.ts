@@ -10,6 +10,7 @@ import { PipelineResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface EmitEventStepConfig {
+    kafkaProducer: KafkaProducerWrapper
     clickhouseJsonEventsTopic: string
     groupId: string
 }
@@ -18,15 +19,14 @@ export interface EmitEventStepInput {
     eventToEmit: RawKafkaEvent
     headers: EventHeaders
     message: Message
-    kafkaProducer: KafkaProducerWrapper
 }
 
 export function createEmitEventStep<T extends EmitEventStepInput>(
     config: EmitEventStepConfig
 ): ProcessingStep<T, void> {
     return function emitEventStep(input: T): Promise<PipelineResult<void>> {
-        const { eventToEmit, headers, message, kafkaProducer } = input
-        const { clickhouseJsonEventsTopic, groupId } = config
+        const { eventToEmit, headers, message } = input
+        const { clickhouseJsonEventsTopic, groupId, kafkaProducer } = config
 
         // Record ingestion lag metric if we have the required data
         if (headers?.now && message?.topic !== undefined && message?.partition !== undefined) {

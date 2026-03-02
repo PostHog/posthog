@@ -62,6 +62,7 @@ describe('emit-event-step', () => {
         } as any
 
         config = {
+            kafkaProducer: mockKafkaProducer,
             clickhouseJsonEventsTopic: 'clickhouse_events_json',
             groupId: 'test-group-id',
         }
@@ -93,7 +94,6 @@ describe('emit-event-step', () => {
                 eventToEmit: mockRawEvent,
                 headers: mockHeaders,
                 message: mockMessage,
-                kafkaProducer: mockKafkaProducer,
             }
 
             const result = await step(input)
@@ -124,7 +124,6 @@ describe('emit-event-step', () => {
                 eventToEmit: mockRawEvent,
                 headers: mockHeaders,
                 message: mockMessage,
-                kafkaProducer: mockKafkaProducer,
             }
 
             const result = await step(input)
@@ -155,7 +154,6 @@ describe('emit-event-step', () => {
                 eventToEmit: mockRawEvent,
                 headers: mockHeaders,
                 message: mockMessage,
-                kafkaProducer: mockKafkaProducer,
             }
 
             const result = await step(input)
@@ -176,7 +174,6 @@ describe('emit-event-step', () => {
                 eventToEmit: mockRawEvent,
                 headers: mockHeaders,
                 message: mockMessage,
-                kafkaProducer: mockKafkaProducer,
             }
 
             await step(input)
@@ -199,7 +196,6 @@ describe('emit-event-step', () => {
                 eventToEmit: mockRawEvent,
                 headers: mockHeaders,
                 message: mockMessage,
-                kafkaProducer: mockKafkaProducer,
             }
 
             await step(input)
@@ -222,7 +218,6 @@ describe('emit-event-step', () => {
                 eventToEmit: eventWithDifferentUuid,
                 headers: mockHeaders,
                 message: mockMessage,
-                kafkaProducer: mockKafkaProducer,
             }
 
             await step(input)
@@ -240,7 +235,6 @@ describe('emit-event-step', () => {
                 eventToEmit: RawKafkaEvent
                 headers: EventHeaders
                 message: Message
-                kafkaProducer: KafkaProducerWrapper
                 customProperty: string
                 lastStep: string
             }
@@ -250,7 +244,6 @@ describe('emit-event-step', () => {
                 eventToEmit: mockRawEvent,
                 headers: mockHeaders,
                 message: mockMessage,
-                kafkaProducer: mockKafkaProducer,
                 customProperty: 'test',
                 lastStep: 'testStep',
             }
@@ -272,7 +265,6 @@ describe('emit-event-step', () => {
                 eventToEmit: RawKafkaEvent
                 headers: EventHeaders
                 message: Message
-                kafkaProducer: KafkaProducerWrapper
                 error?: string
             }
 
@@ -282,7 +274,6 @@ describe('emit-event-step', () => {
                 eventToEmit: mockRawEvent,
                 headers: mockHeaders,
                 message: mockMessage,
-                kafkaProducer: mockKafkaProducer,
             }
 
             const result = await step(input)
@@ -303,7 +294,6 @@ describe('emit-event-step', () => {
                     eventToEmit: mockRawEvent,
                     headers: mockHeaders,
                     message: mockMessage,
-                    kafkaProducer: mockKafkaProducer,
                 }
 
                 const result = await step(input)
@@ -327,7 +317,6 @@ describe('emit-event-step', () => {
                     eventToEmit: mockRawEvent,
                     headers: mockHeaders,
                     message: mockMessage,
-                    kafkaProducer: mockKafkaProducer,
                 }
 
                 const result = await step(input)
@@ -348,13 +337,11 @@ describe('emit-event-step', () => {
                     eventToEmit: mockRawEvent,
                     headers: mockHeaders,
                     message: mockMessage,
-                    kafkaProducer: mockKafkaProducer,
                 }
                 const input2 = {
                     eventToEmit: { ...mockRawEvent, uuid: 'different-uuid' },
                     headers: mockHeaders,
                     message: mockMessage,
-                    kafkaProducer: mockKafkaProducer,
                 }
 
                 // First emit
@@ -378,7 +365,6 @@ describe('emit-event-step', () => {
                 eventToEmit: aiEvent,
                 headers: mockHeaders,
                 message: mockMessage,
-                kafkaProducer: mockKafkaProducer,
             }
 
             await step(input)
@@ -454,7 +440,6 @@ describe('emit-event-step', () => {
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                kafkaProducer: mockKafkaProducer,
                 headers: createHeaders({ now: captureTime }),
                 message: createMessage(),
             }
@@ -474,7 +459,6 @@ describe('emit-event-step', () => {
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                kafkaProducer: mockKafkaProducer,
                 headers: createHeaders(),
                 message: createMessage(),
             }
@@ -489,7 +473,6 @@ describe('emit-event-step', () => {
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                kafkaProducer: mockKafkaProducer,
                 headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
                 message: createMessage({ topic: undefined as unknown as string }),
             }
@@ -504,7 +487,6 @@ describe('emit-event-step', () => {
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                kafkaProducer: mockKafkaProducer,
                 headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
                 message: createMessage({ partition: undefined as unknown as number }),
             }
@@ -520,7 +502,6 @@ describe('emit-event-step', () => {
             const step = createEmitEventStep(customConfig)
             const input = {
                 eventToEmit: mockRawEvent,
-                kafkaProducer: mockKafkaProducer,
                 headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
                 message: createMessage(),
             }
@@ -538,7 +519,6 @@ describe('emit-event-step', () => {
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                kafkaProducer: mockKafkaProducer,
                 headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
                 message: createMessage({ partition: 0 }),
             }
@@ -558,7 +538,6 @@ describe('emit-event-step', () => {
                 const step = createEmitEventStep(config)
                 const input = {
                     eventToEmit: mockRawEvent,
-                    kafkaProducer: mockKafkaProducer,
                     headers: createHeaders({ now: captureTime }),
                     message: createMessage(),
                 }
@@ -578,7 +557,6 @@ describe('emit-event-step', () => {
                 const step = createEmitEventStep(customConfig)
                 const input = {
                     eventToEmit: mockRawEvent,
-                    kafkaProducer: mockKafkaProducer,
                     headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
                     message: createMessage({ partition: 3 }),
                 }
@@ -596,7 +574,6 @@ describe('emit-event-step', () => {
                 const step = createEmitEventStep(config)
                 const input = {
                     eventToEmit: mockRawEvent,
-                    kafkaProducer: mockKafkaProducer,
                     headers: createHeaders(),
                     message: createMessage(),
                 }
@@ -611,7 +588,6 @@ describe('emit-event-step', () => {
                 const step = createEmitEventStep(config)
                 const input = {
                     eventToEmit: mockRawEvent,
-                    kafkaProducer: mockKafkaProducer,
                     headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
                     message: createMessage({ partition: undefined as unknown as number }),
                 }
@@ -626,7 +602,6 @@ describe('emit-event-step', () => {
                 const step = createEmitEventStep(config)
                 const input = {
                     eventToEmit: mockRawEvent,
-                    kafkaProducer: mockKafkaProducer,
                     headers: createHeaders({ now: new Date(FAKE_NOW_MS - 2500) }),
                     message: createMessage({ partition: 0 }),
                 }

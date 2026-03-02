@@ -145,10 +145,11 @@ describe('processEvent', () => {
 
             if (isOkResult(createResult)) {
                 const emitEventStep = createEmitEventStep({
+                    kafkaProducer: hub.kafkaProducer,
                     clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                     groupId: 'test-group-id',
                 })
-                const emitResult = await emitEventStep({ ...createResult.value, kafkaProducer: hub.kafkaProducer })
+                const emitResult = await emitEventStep(createResult.value)
 
                 if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
                     await Promise.allSettled(emitResult.sideEffects)

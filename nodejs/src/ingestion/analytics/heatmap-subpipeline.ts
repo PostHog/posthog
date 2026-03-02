@@ -1,5 +1,6 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
@@ -23,6 +24,7 @@ export interface HeatmapSubpipelineConfig {
     options: EventPipelineRunnerOptions & {
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
+    kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
 }
@@ -31,7 +33,7 @@ export function createHeatmapSubpipeline<TInput extends HeatmapSubpipelineInput 
     builder: StartPipelineBuilder<TInput, TContext>,
     config: HeatmapSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager } = config
+    const { options, kafkaProducer, teamManager, groupTypeManager } = config
 
     return builder
         .pipe(createCheckHeatmapOptInStep())
@@ -40,6 +42,7 @@ export function createHeatmapSubpipeline<TInput extends HeatmapSubpipelineInput 
         .pipe(createPrepareEventStep(teamManager, groupTypeManager, options))
         .pipe(
             createExtractHeatmapDataStep({
+                kafkaProducer,
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: options.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
             })
         )

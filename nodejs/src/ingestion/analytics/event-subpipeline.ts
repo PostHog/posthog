@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
@@ -32,6 +33,7 @@ export interface EventSubpipelineConfig {
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
+    kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
@@ -43,7 +45,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Ba
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, hogTransformer, groupId, topHog } = config
+    const { options, kafkaProducer, teamManager, groupTypeManager, hogTransformer, groupId, topHog } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -61,6 +63,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Ba
         .pipe(createPrepareEventStep(teamManager, groupTypeManager, options))
         .pipe(
             createExtractHeatmapDataStep({
+                kafkaProducer,
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: options.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
             })
         )
@@ -68,6 +71,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Ba
         .pipe(
             topHog(
                 createEmitEventStep({
+                    kafkaProducer,
                     clickhouseJsonEventsTopic: options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                     groupId,
                 }),
