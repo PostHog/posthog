@@ -2,13 +2,23 @@ import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconArrowLeft, IconFlask, IconPeople, IconPlus, IconTestTube, IconToggle } from '@posthog/icons'
+import {
+    IconArrowLeft,
+    IconFlask,
+    IconPeople,
+    IconPlus,
+    IconRocket,
+    IconServer,
+    IconTestTube,
+    IconToggle,
+} from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { FlagIntent } from 'scenes/feature-flags/featureFlagIntentWarningLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { TEMPLATE_NAMES, TemplateKey } from './featureFlagTemplateConstants'
+import { INTENT_NAMES, TEMPLATE_NAMES, TemplateKey } from './featureFlagTemplateConstants'
 import { featureFlagTemplatesSceneLogic } from './featureFlagTemplatesSceneLogic'
 
 export const scene: SceneExport = {
@@ -89,9 +99,56 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
     )
 }
 
+interface EvaluationIntent {
+    key: FlagIntent
+    description: string
+    icon: JSX.Element
+}
+
+const INTENTS: EvaluationIntent[] = [
+    {
+        key: 'local-eval',
+        description: 'Evaluate flags server-side without network requests for fastest performance',
+        icon: <IconServer className="w-6 h-6 text-primary-3000" />,
+    },
+    {
+        key: 'first-page-load',
+        description: 'Ensure flags are available instantly on the very first page load',
+        icon: <IconRocket className="w-6 h-6 text-primary-3000" />,
+    },
+]
+
+function IntentCard({ intent }: { intent: EvaluationIntent }): JSX.Element {
+    const { searchParams } = useValues(router)
+
+    const handleClick = (): void => {
+        posthog.capture('feature flag intent selected', { intent: intent.key })
+        const url = combineUrl(urls.featureFlag('new'), { ...searchParams, intent: intent.key }).url
+        router.actions.push(url)
+    }
+
+    return (
+        <button
+            className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left group p-6 cursor-pointer min-h-[180px]"
+            data-attr={`feature-flag-intent-${intent.key}`}
+            onClick={handleClick}
+        >
+            <div className="flex flex-col items-center text-center gap-4 h-full">
+                <div className="bg-primary-3000/10 rounded-lg flex-shrink-0 size-12 flex items-center justify-center">
+                    {intent.icon}
+                </div>
+                <div className="flex-1 flex flex-col justify-start">
+                    <h3 className="text-base font-semibold text-default mb-2">{INTENT_NAMES[intent.key]}</h3>
+                    <p className="text-sm text-secondary leading-relaxed">{intent.description}</p>
+                </div>
+            </div>
+        </button>
+    )
+}
+
 export function FeatureFlagTemplatesScene(): JSX.Element {
     const { searchParams } = useValues(router)
-    const { featureFlagsV2Enabled } = useValues(featureFlagTemplatesSceneLogic)
+    const { featureFlagsV2Enabled, intentsEnabled } = useValues(featureFlagTemplatesSceneLogic)
 
     // Show nothing while redirecting (redirect happens in logic afterMount)
     if (!featureFlagsV2Enabled) {
@@ -125,6 +182,23 @@ export function FeatureFlagTemplatesScene(): JSX.Element {
                             <TemplateCard key={template.key} template={template} />
                         ))}
                     </div>
+
+                    {intentsEnabled && (
+                        <>
+                            <div className="text-center space-y-3">
+                                <h2 className="text-xl font-semibold">Evaluation intents</h2>
+                                <p className="text-sm text-secondary max-w-2xl mx-auto">
+                                    Choose how you plan to evaluate this flag. We'll surface contextual warnings to help
+                                    you avoid misconfiguration.
+                                </p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
+                                {INTENTS.map((intent) => (
+                                    <IntentCard key={intent.key} intent={intent} />
+                                ))}
+                            </div>
+                        </>
+                    )}
                 </div>
             </div>
         </div>

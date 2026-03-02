@@ -33,12 +33,15 @@ import {
     PropertyFilterType,
 } from '~/types'
 
+import { ConditionWarning, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
+import { FeatureFlagLogicProps } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
 } from './featureFlagReleaseConditionsLogic'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
+    flagId?: FeatureFlagLogicProps['id']
     readOnly?: boolean
     variants?: MultivariateFlagVariant[]
     isDisabled?: boolean
@@ -180,8 +183,35 @@ function ConditionHeader({
     )
 }
 
+function ConditionWarnings({ warnings }: { warnings?: ConditionWarning[] }): JSX.Element | null {
+    if (!warnings || warnings.length === 0) {
+        return null
+    }
+    // Don't show unreachable_condition inside the expanded panel (it's shown above the collapse)
+    const filteredWarnings = warnings.filter((w) => w.type !== 'unreachable_condition')
+    if (filteredWarnings.length === 0) {
+        return null
+    }
+    return (
+        <>
+            {filteredWarnings.map((warning, i) => (
+                <LemonBanner key={i} type={warning.severity === 'warning' ? 'warning' : 'info'}>
+                    <strong>{warning.title}</strong>
+                    <p className="mb-0">{warning.description}</p>
+                    {warning.docUrl && (
+                        <Link to={warning.docUrl} target="_blank">
+                            Learn more
+                        </Link>
+                    )}
+                </LemonBanner>
+            ))}
+        </>
+    )
+}
+
 export function FeatureFlagReleaseConditionsCollapsible({
     id,
+    flagId,
     filters,
     onChange,
     readOnly,
@@ -208,6 +238,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
         groupTypes,
         openConditions,
     } = useValues(releaseConditionsLogic)
+
+    const { warningsByGroup } = useValues(featureFlagIntentWarningLogic({ id: flagId ?? 'new' }))
     const {
         updateConditionSet,
         removeConditionSet,
@@ -401,6 +433,12 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 or
                             </div>
                         )}
+                        {warningsByGroup[index]?.some((w: ConditionWarning) => w.type === 'unreachable_condition') && (
+                            <LemonBanner type="warning" className="mb-1">
+                                <strong>Unreachable condition</strong> — A previous condition matches all users at 100%
+                                rollout, so this condition will never be evaluated.
+                            </LemonBanner>
+                        )}
                         <LemonCollapse
                             multiple
                             activeKeys={openConditions}
@@ -430,6 +468,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     className: 'bg-bg-light',
                                     content: (
                                         <div className="flex flex-col gap-3 pt-2">
+                                            <ConditionWarnings warnings={warningsByGroup[index]} />
                                             <div className="max-w-md">
                                                 <EditableField
                                                     multiline

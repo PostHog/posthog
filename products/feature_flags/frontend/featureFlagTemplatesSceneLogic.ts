@@ -17,6 +17,10 @@ export const featureFlagTemplatesSceneLogic = kea<featureFlagTemplatesSceneLogic
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2],
         ],
+        intentsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS],
+        ],
     }),
     afterMount(({ values }) => {
         // Redirect to new flag page if V2 is not enabled
