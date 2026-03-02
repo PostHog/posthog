@@ -11,11 +11,12 @@ from posthog.rbac.user_access_control import UserAccessControlError
 
 
 class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "query"
-
     """
     Get web vitals for a specific pathname.
+    Toolbar accesses this via OAuth (handled by TeamAndOrgViewSetMixin.get_authenticators).
     """
+
+    scope_object = "query"
 
     @extend_schema(
         parameters=[

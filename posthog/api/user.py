@@ -1195,6 +1195,9 @@ def prepare_toolbar_preloaded_flags(request):
 
 @session_auth_required
 def redirect_to_site(request):
+    # TODO: Now that toolbar uses OAuth, this endpoint mostly just redirects with toolbar params
+    # (token, actionId, etc.) in the hash. The domain-restriction is handled by OAuth redirect_uris.
+    # Consider removing this in favor of building the redirect URL client-side.
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])

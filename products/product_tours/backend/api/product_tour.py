@@ -741,7 +741,6 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
     queryset = ProductTour.all_objects.select_related("internal_targeting_flag", "linked_flag", "created_by").all()
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
-    authentication_classes = []
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method in ("POST", "PATCH"):
