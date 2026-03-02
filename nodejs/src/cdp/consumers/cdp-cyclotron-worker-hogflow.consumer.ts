@@ -69,29 +69,34 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
 
                 let dbPerson: PersonManagerPerson | null = null
+                let personDisplayName = ''
 
                 if (hogFlowInvocationState.event?.distinct_id) {
                     dbPerson = await this.personsManager.get({
                         teamId: hogFlow.team_id,
                         id: hogFlowInvocationState.event.distinct_id,
                     })
+                    personDisplayName = getPersonDisplayName(
+                        team,
+                        hogFlowInvocationState.event.distinct_id,
+                        dbPerson?.properties ?? {}
+                    )
                 } else if (hogFlowInvocationState.personId) {
                     dbPerson = await this.personsByIdManager.get({
                         teamId: hogFlow.team_id,
                         id: hogFlowInvocationState.personId,
                     })
+                    personDisplayName = getPersonDisplayName(
+                        team,
+                        hogFlowInvocationState.personId,
+                        dbPerson?.properties ?? {}
+                    )
                 }
-
-                const personDisplayName = getPersonDisplayName(
-                    team,
-                    hogFlowInvocationState.event.distinct_id,
-                    dbPerson?.properties ?? {}
-                )
 
                 if (!dbPerson && hogFlow.trigger?.type === 'event') {
                     logger.warn('⚠️', 'Person not found for hog flow invocation', {
                         hogFlowId: hogFlow.id,
-                        distinctId: hogFlowInvocationState.event.distinct_id,
+                        distinctId: hogFlowInvocationState.event?.distinct_id || hogFlowInvocationState.personId,
                         invocationId: item.id,
                     })
                 }
@@ -102,7 +107,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
                           properties: dbPerson.properties,
                           name: personDisplayName,
                           url: `${this.hub.SITE_URL}/project/${hogFlow.team_id}/person/${encodeURIComponent(
-                              hogFlowInvocationState.event.distinct_id
+                              hogFlowInvocationState.event?.distinct_id || hogFlowInvocationState.personId!
                           )}`,
                       }
                     : undefined

@@ -916,8 +916,8 @@ describe('PostgresPersonRepository', () => {
                     : await createTestPerson(team1.id, 'pid-test-2', { name: 'Person 2' })
 
             const teamPersons = [
-                { teamId: team1.id, personId: person1.id },
-                { teamId: team2Id, personId: person2.id },
+                { teamId: team1.id, personId: person1.uuid },
+                { teamId: team2Id, personId: person2.uuid },
             ]
             const result = await repository.fetchPersonsByPersonIds(teamPersons)
 
