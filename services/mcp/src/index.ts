@@ -141,8 +141,8 @@ const handleRequest = async (
         resourceUrl.pathname = resourcePath
         resourceUrl.search = ''
 
-        // Determine authorization server based on hostname or region param.
-        // POSTHOG_API_BASE_URL takes precedence for self-hosted, otherwise routes to US/EU.
+        // Determine authorization server for OAuth.
+        // POSTHOG_API_BASE_URL takes precedence for self-hosted, otherwise routes to oauth.posthog.com.
         const authorizationServer = getAuthorizationServerUrl()
 
         return new Response(

@@ -35,46 +35,6 @@ describe('OAuth Region Routing', () => {
         })
     })
 
-    describe('Protected Resource Metadata', () => {
-        const testCases = [
-            {
-                name: 'defaults to US when no region param',
-                params: '',
-                expectedServer: 'https://us.posthog.com',
-            },
-            {
-                name: 'returns EU server when region=eu',
-                params: '?region=eu',
-                expectedServer: 'https://eu.posthog.com',
-            },
-            {
-                name: 'returns EU server when region=EU (case insensitive)',
-                params: '?region=EU',
-                expectedServer: 'https://eu.posthog.com',
-            },
-            {
-                name: 'returns US server when region=us',
-                params: '?region=us',
-                expectedServer: 'https://us.posthog.com',
-            },
-            {
-                name: 'defaults to US for unknown region',
-                params: '?region=unknown',
-                expectedServer: 'https://us.posthog.com',
-            },
-        ]
-
-        it.each(testCases)('$name', ({ params, expectedServer }) => {
-            const url = new URL(`https://mcp.posthog.com/.well-known/oauth-protected-resource${params}`)
-            const regionParam = url.searchParams.get('region')
-
-            // Uses actual helpers from constants.ts
-            const authorizationServer = getBaseUrlForRegion(toCloudRegion(regionParam))
-
-            expect(authorizationServer).toBe(expectedServer)
-        })
-    })
-
     describe('401 Response Metadata URL (RFC 9728)', () => {
         // Per RFC 9728, the well-known URL is constructed by inserting the well-known path
         // between the host and the resource path:

@@ -40,7 +40,7 @@ export const getBaseUrlForRegion = (region: CloudRegion): string => {
  */
 export const CUSTOM_API_BASE_URL = env.POSTHOG_API_BASE_URL
 
-export const OAUTH_PROXY_URL = 'https://oauth.posthog.com'
+const OAUTH_PROXY_URL = 'https://oauth.posthog.com'
 
 // Get the authorization server URL for OAuth
 // Uses the cross-region OAuth proxy for cloud, or CUSTOM_API_BASE_URL for self-hosted
