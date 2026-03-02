@@ -239,7 +239,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         openConditions,
     } = useValues(releaseConditionsLogic)
 
-    const { warningsByGroup } = useValues(featureFlagIntentWarningLogic({ id: flagId ?? 'new' }))
+    const { warningsByGroup, flagWarnings } = useValues(featureFlagIntentWarningLogic({ id: flagId ?? 'new' }))
     const {
         updateConditionSet,
         removeConditionSet,
@@ -424,6 +424,18 @@ export function FeatureFlagReleaseConditionsCollapsible({
                     )}
                 </div>
             )}
+
+            {flagWarnings.map((warning, i) => (
+                <LemonBanner key={i} type={warning.severity === 'warning' ? 'warning' : 'info'} className="mb-2">
+                    <strong>{warning.title}</strong>
+                    <p className="mb-0">{warning.description}</p>
+                    {warning.docUrl && (
+                        <Link to={warning.docUrl} target="_blank">
+                            Learn more
+                        </Link>
+                    )}
+                </LemonBanner>
+            ))}
 
             <div ref={collapseRef}>
                 {filterGroups.map((group, index) => (

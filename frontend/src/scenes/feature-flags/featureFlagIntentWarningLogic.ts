@@ -28,6 +28,7 @@ export interface ConditionWarning {
         | 'regex_unsupported'
         | 'flicker_risk'
         | 'unreachable_condition'
+        | 'experience_continuity'
     severity: 'warning' | 'info'
     title: string
     description: string
@@ -253,6 +254,35 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                 })
 
                 return result
+            },
+        ],
+
+        flagWarnings: [
+            (s) => [s.featureFlag, s.flagIntent, s.enabledFeatures],
+            (
+                featureFlag: FeatureFlagType,
+                flagIntent: FlagIntent | null,
+                enabledFeatures: Record<string, boolean | string>
+            ): ConditionWarning[] => {
+                const intentsEnabled = !!enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS]
+                if (!intentsEnabled || !flagIntent) {
+                    return []
+                }
+
+                const warnings: ConditionWarning[] = []
+
+                if (flagIntent === 'local-eval' && featureFlag?.ensure_experience_continuity) {
+                    warnings.push({
+                        type: 'experience_continuity',
+                        severity: 'warning',
+                        title: 'Persist flag across authentication not supported for local evaluation',
+                        description:
+                            'This setting requires server-side state to keep flag values consistent across login/logout. Local evaluation cannot access this state. Disable this setting or switch to server-side evaluation.',
+                        docUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
+                    })
+                }
+
+                return warnings
             },
         ],
     }),
