@@ -139,10 +139,11 @@ async def create_all_realtime_cohort_calculation_schedules(client: Client):
     """Create or update all three percentile-based schedules for realtime cohort calculation."""
     from posthog.temporal.common.schedule import a_delete_schedule, a_schedule_exists
 
-    # Clean up legacy schedule if it exists to prevent duplicate runs
-    if await a_schedule_exists(client, REALTIME_COHORT_CALCULATION_SCHEDULE_ID):
-        await a_delete_schedule(client, REALTIME_COHORT_CALCULATION_SCHEDULE_ID)
-
+    # First ensure all new percentile-based schedules are in place
     await create_realtime_cohort_calculation_p0_p90_schedule(client)
     await create_realtime_cohort_calculation_p90_p95_schedule(client)
     await create_realtime_cohort_calculation_p95_p100_schedule(client)
+
+    # Then clean up the legacy schedule if it exists to prevent duplicate runs
+    if await a_schedule_exists(client, REALTIME_COHORT_CALCULATION_SCHEDULE_ID):
+        await a_delete_schedule(client, REALTIME_COHORT_CALCULATION_SCHEDULE_ID)

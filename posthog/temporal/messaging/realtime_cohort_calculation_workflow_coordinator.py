@@ -223,7 +223,12 @@ async def get_query_percentile_thresholds_activity(
             return None
 
         # Convert percentiles to quantiles and calculate thresholds (keep in milliseconds)
-        quantiles = statistics.quantiles(durations_list, n=100)
+        # Use inclusive method which works with smaller sample sizes than the default exclusive method
+        try:
+            quantiles = statistics.quantiles(durations_list, n=100, method="inclusive")
+        except statistics.StatisticsError:
+            # Fall back to simple min/max if we don't have enough data for percentile calculation
+            return None
 
         # Special handling for p0: use 0 instead of calculating from data
         if min_percentile <= 0.0:

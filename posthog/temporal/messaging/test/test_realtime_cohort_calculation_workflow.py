@@ -871,8 +871,8 @@ class TestQueryPercentileThresholdsActivity:
             result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is not None
-        # p0 should be the minimum value (500), p100 should be the maximum value (5000)
-        assert result.min_threshold_ms == 500  # p0 (min value)
+        # p0 is treated as a lower bound of 0, p100 should be the maximum observed value (5000)
+        assert result.min_threshold_ms == 0  # p0 (lower bound)
         assert result.max_threshold_ms == 5000  # p100 (max value)
 
     @pytest.mark.asyncio
