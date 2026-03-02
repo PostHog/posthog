@@ -7,7 +7,7 @@ import { PipelineEvent, Team } from '~/types'
 import { ONE_HOUR } from '../../../config/constants'
 import { PersonsStore } from '../persons/persons-store'
 
-type ProcessPersonlessDistinctIdsBatchStepInput = { event: PipelineEvent; team: Team }
+type ProcessPersonlessDistinctIdsBatchStepInput = { event: PipelineEvent; team: Team; personsStore: PersonsStore }
 
 export const personlessDistinctIdCacheOperationsCounter = new Counter({
     name: 'personless_distinct_id_cache_operations_total',
@@ -32,11 +32,11 @@ const PERSONLESS_DISTINCT_ID_INSERTED_CACHE = new LRUCache<string, boolean>({
  * and consumed by processPersonlessStep to determine force_upgrade.
  */
 export function processPersonlessDistinctIdsBatchStep<T extends ProcessPersonlessDistinctIdsBatchStepInput>(
-    personsStore: PersonsStore,
     enabled: boolean
 ) {
     return async function processPersonlessDistinctIdsBatchStep(events: T[]): Promise<PipelineResult<T>[]> {
-        if (enabled) {
+        if (enabled && events.length > 0) {
+            const { personsStore } = events[0]
             // Deduplicate personless events within the batch first, then check cache
             const seenInBatch = new Set<string>()
             let cacheHits = 0

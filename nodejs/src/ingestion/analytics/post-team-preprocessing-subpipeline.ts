@@ -8,7 +8,6 @@ import { EventHeaders, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
@@ -21,6 +20,7 @@ import {
     createValidateEventUuidStep,
 } from '../event-preprocessing'
 import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
+import { BatchStores } from '../event-processing/flush-batch-stores-step'
 import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
@@ -41,16 +41,15 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     preservePartitionLocality: boolean
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
-    personsStore: PersonsStore
     personsPrefetchEnabled: boolean
     hogTransformer: HogTransformerService
     cdpHogWatcherSampleRate: number
 }
 
-export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPreprocessingSubpipelineInput, TContext>(
-    builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>,
-    config: PostTeamPreprocessingSubpipelineConfig
-) {
+export function createPostTeamPreprocessingSubpipeline<
+    TInput extends PostTeamPreprocessingSubpipelineInput & BatchStores,
+    TContext,
+>(builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>, config: PostTeamPreprocessingSubpipelineConfig) {
     const {
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
@@ -60,7 +59,6 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
-        personsStore,
         personsPrefetchEnabled,
         hogTransformer,
         cdpHogWatcherSampleRate,
@@ -92,9 +90,9 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             // Refresh TTLs for overflow lane events (keeps Redis flags alive)
             .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
             // Prefetch must run after cookieless, as cookieless changes distinct IDs
-            .pipeBatch(prefetchPersonsStep(personsStore, personsPrefetchEnabled))
+            .pipeBatch(prefetchPersonsStep(personsPrefetchEnabled))
             // Batch insert personless distinct IDs after prefetch (uses prefetch cache)
-            .pipeBatch(processPersonlessDistinctIdsBatchStep(personsStore, personsPrefetchEnabled))
+            .pipeBatch(processPersonlessDistinctIdsBatchStep(personsPrefetchEnabled))
             // Prefetch hog functions for all teams in the batch
             .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
     )

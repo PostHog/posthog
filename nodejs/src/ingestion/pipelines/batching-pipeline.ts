@@ -13,7 +13,7 @@ export interface BeforeBatchInput<TInput, CInput> {
 }
 
 export interface BeforeBatchOutput<TInput, CInput, CBatch> {
-    elements: BatchPipelineResultWithContext<TInput, CInput>
+    elements: BatchPipelineResultWithContext<TInput & CBatch, CInput>
     batchContext: CBatch
 }
 
@@ -105,7 +105,7 @@ export class BatchingPipeline<
     private options: BatchingPipelineOptions
 
     constructor(
-        private subPipeline: BatchPipeline<TInput, TOutput, CSubIn, COutput>,
+        private subPipeline: BatchPipeline<TInput & CBatch, TOutput, CSubIn, COutput>,
         private beforePipeline: Pipeline<
             BeforeBatchInput<TInput, CInput>,
             BeforeBatchOutput<TInput, CInput, CBatch>,
@@ -154,7 +154,7 @@ export class BatchingPipeline<
                     messageId,
                 },
             }
-        }) as unknown as BatchPipelineResultWithContext<TInput, CSubIn>
+        }) as unknown as BatchPipelineResultWithContext<TInput & CBatch, CSubIn>
 
         this.batches.set(batchId, {
             batchContext,

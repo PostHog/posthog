@@ -28,8 +28,13 @@ export function newBatchingPipeline<TInput, TOutput, CInput, CBatch = Record<str
         Record<string, never>
     >,
     callback: (
-        builder: BatchPipelineBuilder<TInput, TInput, CInput & BatchingContext, CInput & BatchingContext>
-    ) => BatchPipelineBuilder<TInput, TOutput, CInput & BatchingContext, COutput & BatchingContext>,
+        builder: BatchPipelineBuilder<
+            TInput & CBatch,
+            TInput & CBatch,
+            CInput & BatchingContext,
+            CInput & BatchingContext
+        >
+    ) => BatchPipelineBuilder<TInput & CBatch, TOutput, CInput & BatchingContext, COutput & BatchingContext>,
     afterBatch: (
         builder: StartPipelineBuilder<
             AfterBatchInput<TOutput, COutput & BatchingContext, CBatch>,
@@ -42,7 +47,9 @@ export function newBatchingPipeline<TInput, TOutput, CInput, CBatch = Record<str
     >,
     options?: Partial<BatchingPipelineOptions>
 ): BatchingPipeline<TInput, TOutput, CInput, CBatch, CInput & BatchingContext, COutput & BatchingContext> {
-    const startBuilder = new BatchPipelineBuilder(new BufferingBatchPipeline<TInput, CInput & BatchingContext>())
+    const startBuilder = new BatchPipelineBuilder(
+        new BufferingBatchPipeline<TInput & CBatch, CInput & BatchingContext>()
+    )
     const subPipeline = callback(startBuilder).build()
 
     const beforePipeline = beforeBatch(

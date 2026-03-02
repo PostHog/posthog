@@ -25,11 +25,9 @@ export type ProcessPersonsOutput = {
     person: Person
 }
 
-export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
-    options: EventPipelineRunnerOptions,
-    kafkaProducer: KafkaProducerWrapper,
-    personsStore: PersonsStore
-): ProcessingStep<TInput, TInput & ProcessPersonsOutput> {
+export function createProcessPersonsStep<
+    TInput extends ProcessPersonsInput & { kafkaProducer: KafkaProducerWrapper; personsStore: PersonsStore },
+>(options: EventPipelineRunnerOptions): ProcessingStep<TInput, TInput & ProcessPersonsOutput> {
     const mergeMode = determineMergeMode(
         options.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
         options.PERSON_MERGE_ASYNC_ENABLED,
@@ -38,7 +36,7 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
     )
 
     return async function processPersonsStep(input: TInput): Promise<PipelineResult<TInput & ProcessPersonsOutput>> {
-        const { normalizedEvent, team, timestamp, personlessPerson } = input
+        const { normalizedEvent, team, timestamp, personlessPerson, kafkaProducer, personsStore } = input
 
         if (personlessPerson && !personlessPerson.force_upgrade) {
             return ok({ ...input, person: personlessPerson })

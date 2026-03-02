@@ -41,6 +41,7 @@ type TestInput = {
     person: Person
     headers: EventHeaders
     message: Message
+    groupStore: BatchWritingGroupStore
 }
 
 describe('createPrepareEventStep', () => {
@@ -81,6 +82,7 @@ describe('createPrepareEventStep', () => {
         person: mockPerson,
         headers: mockHeaders,
         message: mockMessage,
+        groupStore: mockGroupStore,
         ...overrides,
     })
 
@@ -91,7 +93,7 @@ describe('createPrepareEventStep', () => {
         const preparedEvent = createTestPreIngestionEvent()
         mockProcessEvent.mockResolvedValue(preparedEvent)
 
-        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
+        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, {
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         })
         const input = createInput({ processPerson })
@@ -123,7 +125,7 @@ describe('createPrepareEventStep', () => {
         mockProcessEvent.mockResolvedValue(createTestPreIngestionEvent())
         const headers = createTestEventHeaders({ historical_migration })
 
-        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
+        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, {
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         })
         const result = await step(createInput({ headers }))
@@ -137,7 +139,7 @@ describe('createPrepareEventStep', () => {
     it('should strip normalizedEvent from the output', async () => {
         mockProcessEvent.mockResolvedValue(createTestPreIngestionEvent())
 
-        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
+        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, {
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         })
         const result = await step(createInput())
@@ -154,7 +156,7 @@ describe('createPrepareEventStep', () => {
         jest.mocked(processAiEvent).mockReturnValue(transformedEvent)
         mockProcessEvent.mockResolvedValue(createTestPreIngestionEvent())
 
-        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
+        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, {
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         })
         await step(createInput({ normalizedEvent: aiEvent }))
@@ -178,7 +180,7 @@ describe('createPrepareEventStep', () => {
         })
         mockProcessEvent.mockResolvedValue(createTestPreIngestionEvent())
 
-        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
+        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, {
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         })
         const result = await step(createInput({ normalizedEvent: aiEvent }))
@@ -202,7 +204,7 @@ describe('createPrepareEventStep', () => {
         })
         mockProcessEvent.mockResolvedValue(createTestPreIngestionEvent())
 
-        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
+        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, {
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         })
         const result = await step(createInput())
@@ -215,7 +217,7 @@ describe('createPrepareEventStep', () => {
         const error = new Error('Processing failed')
         mockProcessEvent.mockRejectedValue(error)
 
-        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
+        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, {
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         })
 

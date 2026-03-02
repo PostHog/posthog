@@ -14,24 +14,17 @@ export interface CreateEventStepInput {
     message: Message
 }
 
-export interface CreateEventStepResult {
+export type CreateEventStepResult<TInput = CreateEventStepInput> = TInput & {
     eventToEmit: RawKafkaEvent
-    headers: EventHeaders
-    message: Message
 }
 
-export function createCreateEventStep<T extends CreateEventStepInput>(): ProcessingStep<T, CreateEventStepResult> {
-    return function createEventStep(input: T): Promise<PipelineResult<CreateEventStepResult>> {
-        const { person, preparedEvent, processPerson, historicalMigration, headers, message } = input
+export function createCreateEventStep<T extends CreateEventStepInput>(): ProcessingStep<T, CreateEventStepResult<T>> {
+    return function createEventStep(input: T): Promise<PipelineResult<CreateEventStepResult<T>>> {
+        const { person, preparedEvent, processPerson, historicalMigration, headers } = input
 
         const capturedAt = headers.now ?? null
         const rawEvent = createEvent(preparedEvent, person, processPerson, historicalMigration, capturedAt)
-        const result: CreateEventStepResult = {
-            eventToEmit: rawEvent,
-            headers,
-            message,
-        }
 
-        return Promise.resolve(ok(result, []))
+        return Promise.resolve(ok({ ...input, eventToEmit: rawEvent }, []))
     }
 }

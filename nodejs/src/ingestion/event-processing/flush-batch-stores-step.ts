@@ -4,20 +4,41 @@ import { logger } from '../../utils/logger'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { FlushResult, PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
-import { AfterBatchStep } from '../pipelines/batching-pipeline'
-import { ok } from '../pipelines/results'
+import { AfterBatchStep, BeforeBatchStep } from '../pipelines/batching-pipeline'
+import { isOkResult, ok } from '../pipelines/results'
 
-export interface FlushBatchStoresStepConfig {
+export interface BatchStores {
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     kafkaProducer: KafkaProducerWrapper
 }
 
 /**
+ * Sets the batch stores in the batch context and adds them to each element's value.
+ *
+ * Used as the beforeBatch hook in the joined ingestion pipeline to make the
+ * stores available to:
+ * - Sub-pipeline steps via element values (runtime access)
+ * - The afterBatch flush step via the batch context
+ */
+export function createSetBatchStoresStep<TInput, CInput>(
+    config: BatchStores
+): BeforeBatchStep<TInput, CInput, BatchStores> {
+    return (input) => {
+        const elements = input.elements.map((el) => ({
+            ...el,
+            result: isOkResult(el.result) ? ok({ ...el.result.value, ...config }) : el.result,
+        }))
+        return Promise.resolve(ok({ elements, batchContext: config }))
+    }
+}
+
+/**
  * Flushes person and group stores and returns Kafka produce promises as side effects.
  *
  * Used as the afterBatch hook in the joined ingestion pipeline, called once
- * per batch after all events have been processed.
+ * per batch after all events have been processed. Reads the stores from the
+ * batch context set by createSetBatchStoresStep.
  *
  * The function:
  * 1. Flushes both person and group stores (blocking DB operations)
@@ -27,18 +48,11 @@ export interface FlushBatchStoresStepConfig {
  * This allows the pipeline to handle Kafka produces the same way it handles
  * event emission - as side effects that can be scheduled and awaited separately
  * from the consumer commit.
- *
- * @param config - Configuration containing the stores and Kafka producer
- * @param config.personsStore - The person store (singleton per consumer)
- * @param config.groupStore - The group store (singleton per consumer)
- * @param config.kafkaProducer - Kafka producer for sending store updates
  */
-export function createFlushBatchStoresStep<TOutput, COutput, CBatch>(
-    config: FlushBatchStoresStepConfig
-): AfterBatchStep<TOutput, COutput, CBatch> {
-    const { personsStore, groupStore, kafkaProducer } = config
-
+export function createFlushBatchStoresStep<TOutput, COutput>(): AfterBatchStep<TOutput, COutput, BatchStores> {
     return async (input) => {
+        const { personsStore, groupStore, kafkaProducer } = input.batchContext
+
         try {
             const [_groupResults, personsStoreMessages] = await Promise.all([groupStore.flush(), personsStore.flush()])
 

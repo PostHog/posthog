@@ -29,12 +29,13 @@ export type ProcessPersonlessOutput = {
  * 3. Calculates force_upgrade flag
  * 4. Returns person (real or fake) with potential force_upgrade flag
  */
-export function createProcessPersonlessStep<TInput extends ProcessPersonlessInput>(
-    personsStore: PersonsStore
-): ProcessingStep<TInput, TInput & ProcessPersonlessOutput> {
+export function createProcessPersonlessStep<
+    TInput extends ProcessPersonlessInput & { personsStore: PersonsStore },
+>(): ProcessingStep<TInput, TInput & ProcessPersonlessOutput> {
     return async function processPersonlessStep(
         input: TInput
     ): Promise<PipelineResult<TInput & ProcessPersonlessOutput>> {
+        const { personsStore } = input
         if (input.processPerson) {
             return ok(input)
         }

@@ -27,10 +27,9 @@ export type PrepareEventStepResult<TInput> = Omit<TInput, 'normalizedEvent'> & {
     historicalMigration: boolean
 }
 
-export function createPrepareEventStep<TInput extends PrepareEventStepInput>(
+export function createPrepareEventStep<TInput extends PrepareEventStepInput & { groupStore: BatchWritingGroupStore }>(
     teamManager: TeamManager,
     groupTypeManager: GroupTypeManager,
-    groupStore: BatchWritingGroupStore,
     options: Pick<EventPipelineRunnerOptions, 'SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP'>
 ): ProcessingStep<TInput, PrepareEventStepResult<TInput>> {
     const eventsProcessor = new EventsProcessor(
@@ -65,7 +64,7 @@ export function createPrepareEventStep<TInput extends PrepareEventStepInput>(
             parseEventTimestamp(event, invalidTimestampCallback),
             event.uuid,
             input.processPerson,
-            groupStore
+            input.groupStore
         )
         const historicalMigration = input.headers.historical_migration ?? false
 
