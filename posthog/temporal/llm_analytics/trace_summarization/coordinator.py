@@ -181,18 +181,17 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             except Exception:
                 logger.warning("Failed to fetch clustering jobs, falling back to filters", exc_info=True)
 
-            # Fall back to legacy filters for teams without jobs
+            # Always fetch legacy filters — used for teams without jobs
             per_team_filters = {}
-            if not per_team_jobs:
-                try:
-                    per_team_filters = await temporalio.workflow.execute_activity(
-                        fetch_all_clustering_filters_activity,
-                        FetchAllClusteringFiltersInput(team_ids=team_ids),
-                        start_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
-                    )
-                except Exception:
-                    logger.warning("Failed to fetch clustering filters, proceeding without filters", exc_info=True)
+            try:
+                per_team_filters = await temporalio.workflow.execute_activity(
+                    fetch_all_clustering_filters_activity,
+                    FetchAllClusteringFiltersInput(team_ids=team_ids),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
+                )
+            except Exception:
+                logger.warning("Failed to fetch clustering filters, proceeding without filters", exc_info=True)
 
             results_so_far = _empty_summarization_results()
 

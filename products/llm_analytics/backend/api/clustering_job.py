@@ -101,6 +101,14 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @llma_track_latency("llma_clustering_job_update")
     @monitor(feature=None, endpoint="llma_clustering_job_update", method="PATCH")
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        if "name" in request.data:
+            name = request.data["name"]
+            instance = self.get_object()
+            if name and ClusteringJob.objects.filter(team_id=self.team_id, name=name).exclude(id=instance.id).exists():
+                return Response(
+                    {"detail": "A clustering job with this name already exists."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         return super().partial_update(request, *args, **kwargs)
 
     def perform_update(self, serializer):

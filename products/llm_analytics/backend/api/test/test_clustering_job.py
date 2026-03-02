@@ -161,6 +161,26 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertFalse(default_trace.enabled)
         self.assertTrue(default_gen.enabled)
 
+    def test_update_enforces_unique_name_per_team(self):
+        self._create_job(name="Existing Name")
+        job = self._create_job(name="Original")
+        response = self.client.patch(
+            self._url(f"{job.id}/"),
+            {"name": "Existing Name"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already exists", response.json()["detail"])
+
+    def test_update_allows_keeping_same_name(self):
+        job = self._create_job(name="Keep Me")
+        response = self.client.patch(
+            self._url(f"{job.id}/"),
+            {"name": "Keep Me", "enabled": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_create_does_not_disable_non_default_jobs(self):
         custom = self._create_job(name="Custom Trace Job", analysis_level="trace", enabled=True)
 

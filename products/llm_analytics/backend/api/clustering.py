@@ -200,6 +200,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         clustering_job_id = serializer.validated_data.get("clustering_job_id")
         job_id = 0
         job_name = ""
+        analysis_level = "trace"
         if clustering_job_id:
             from products.llm_analytics.backend.models.clustering_job import ClusteringJob
 
@@ -213,6 +214,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
             event_filters = job.event_filters
             job_id = job.id
             job_name = job.name
+            analysis_level = job.analysis_level
 
         # Build method-specific params dict
         clustering_method_params: dict = {}
@@ -230,6 +232,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         # Build workflow inputs
         inputs = ClusteringWorkflowInputs(
             team_id=self.team_id,
+            analysis_level=analysis_level,
             lookback_days=lookback_days,
             max_samples=max_samples,
             embedding_normalization=embedding_normalization,
