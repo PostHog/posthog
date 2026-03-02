@@ -232,14 +232,74 @@ Only 2 keys per entity exist at any time (current + previous epoch).
 
 ### Configuration
 
+#### Rate limiting behavior
+
+| Parameter | Default | Env var (capture) | Description |
+|---|---|---|---|
+| `global_threshold` | 1,000,000 | `GLOBAL_RATE_LIMIT_THRESHOLD` | Default limit per window per entity |
+| `window_interval` | 60s | `GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS` | Sliding window size for the 2-epoch counter |
+| `sync_interval` | 15s | `GLOBAL_RATE_LIMIT_SYNC_INTERVAL_SECS` | Base staleness before re-sync (adaptive tiers multiply this) |
+| `tick_interval` | 1s | `GLOBAL_RATE_LIMIT_TICK_INTERVAL_MS` | Background pipeline cadence |
+| `custom_keys` | empty | `GLOBAL_RATE_LIMIT_OVERRIDES_CSV` | Per-key threshold overrides (`key=limit,...`) |
+
+#### Local cache (Moka)
+
+These use sensible defaults derived from the rate limiting behavior settings above.
+They are not exposed as env vars in capture — change them in the library defaults
+only if you're also changing the window/sync intervals.
+
 | Parameter | Default | Description |
 |---|---|---|
-| `window_interval` | 60s | Sliding window size |
-| `sync_interval` | 15s | Base staleness before re-sync |
-| `tick_interval` | 1s | Background pipeline cadence |
-| `global_threshold` | 1,000,000 | Default limit per window per entity |
+| `local_cache_max_entries` | 300,000 | Hard cap on entry count. ~400 bytes/entry → 300K ≈ 120 MB. Exposed as `GLOBAL_RATE_LIMIT_LOCAL_CACHE_MAX_ENTRIES` in capture |
+| `local_cache_ttl` | 600s | Absolute entry expiry. Should be long enough for leaky bucket decay to stay useful between syncs |
+| `local_cache_idle_timeout` | 300s | Entries not accessed within this window are evicted early. Hot keys are constantly re-inserted so they never idle-expire; cold keys reclaim slots faster than waiting for the full TTL |
+
+#### Redis
+
+| Parameter | Default | Description |
+|---|---|---|
+| `global_cache_ttl` | 120s (2 × window) | `EXPIRE` TTL on Redis epoch keys. Must be ≥ 2 × `window_interval` so both epoch keys survive for reads |
 | `global_read_timeout` | 100ms | Timeout for batched MGET reads |
 | `global_write_timeout` | 100ms | Timeout for batched INCRBY writes |
+| `redis_key_prefix` | `@posthog/global_rate_limiter` | Prefix for all Redis keys (capture derives from `capture_mode`) |
+
+#### Internal
+
+| Parameter | Default | Env var (capture) | Description |
+|---|---|---|---|
+| `channel_capacity` | 1,000,000 | — | mpsc channel buffer for async update requests |
+
+#### How the TTL settings relate
+
+```text
+  Time ──────────────────────────────────────────────────────────────────►
+
+  │◄── window_interval (60s) ──►│
+  │                              │
+  │  global_cache_ttl (120s = 2×window)                                  │
+  │  Redis epoch keys expire after this, ensuring old counters clean up  │
+  │◄─────────────────────────────────────────────────────────────────────►│
+  │                                                                      │
+  │  local_cache_idle_timeout (300s)                                     │
+  │  Cold keys (no traffic) evicted after this, reclaiming Moka slots   │
+  │◄─────────────────────────────────────────────────────────────────────►│
+  │                                                                      │
+  │  local_cache_ttl (600s)                                              │
+  │  Absolute expiry — even hot keys eventually re-sync from scratch    │
+  │◄─────────────────────────────────────────────────────────────────────►│
+```
+
+**Tuning guidance:**
+
+- `local_cache_idle_timeout` should be **shorter** than `local_cache_ttl`
+  but **longer** than `sync_interval × 4` (the slowest adaptive tier interval)
+  so that Low-tier keys aren't prematurely evicted between syncs.
+- Under high key cardinality with cold-skewed traffic,
+  a shorter idle timeout reclaims slots faster, keeping the cache responsive.
+- `local_cache_ttl` acts as an upper bound on how stale an entry can get
+  before being forced to re-sync from scratch on next access.
+- `global_cache_ttl` is Redis hygiene — it only needs to be ≥ 2 × `window_interval`.
+  Making it much larger wastes Redis memory on dead keys.
 
 ## Request Flow
 

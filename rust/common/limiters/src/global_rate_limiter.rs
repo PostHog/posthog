@@ -131,6 +131,10 @@ pub struct GlobalRateLimiterConfig {
     pub global_cache_ttl: Duration,
     /// How long to cache locally in the moka LRU
     pub local_cache_ttl: Duration,
+    /// Evict entries not accessed within this window. Hot keys are constantly
+    /// re-inserted so they never idle-expire; cold keys reclaim slots faster
+    /// than waiting for the full TTL.
+    pub local_cache_idle_timeout: Duration,
     /// Timeout for global cache read operations
     pub global_read_timeout: Duration,
     /// Timeout for global cache write operations
@@ -165,6 +169,7 @@ impl Default for GlobalRateLimiterConfig {
             tick_interval: Duration::from_secs(1),
             redis_key_prefix: "@posthog/global_rate_limiter".to_string(),
             local_cache_ttl: Duration::from_secs(600),
+            local_cache_idle_timeout: Duration::from_secs(300),
             global_cache_ttl: window_interval.mul_f64(2.0),
             global_read_timeout: Duration::from_millis(100),
             global_write_timeout: Duration::from_millis(100),
@@ -372,6 +377,7 @@ impl GlobalRateLimiterImpl {
         let cache = Cache::builder()
             .max_capacity(config.local_cache_max_entries)
             .time_to_live(config.local_cache_ttl)
+            .time_to_idle(config.local_cache_idle_timeout)
             .build();
 
         let (update_tx, update_rx) = mpsc::channel(config.channel_capacity);
@@ -909,6 +915,7 @@ mod tests {
             redis_key_prefix: "test:".to_string(),
             global_cache_ttl: Duration::from_secs(120),
             local_cache_ttl: Duration::from_secs(1),
+            local_cache_idle_timeout: Duration::from_millis(500),
             local_cache_max_entries: 100,
             channel_capacity: 100,
             custom_keys: HashMap::new(),
@@ -1074,6 +1081,7 @@ mod tests {
         assert_eq!(config.redis_key_prefix, "@posthog/global_rate_limiter");
         assert_eq!(config.global_cache_ttl, Duration::from_secs(120));
         assert_eq!(config.local_cache_ttl, Duration::from_secs(600));
+        assert_eq!(config.local_cache_idle_timeout, Duration::from_secs(300));
         assert_eq!(config.global_read_timeout, Duration::from_millis(100));
         assert_eq!(config.global_write_timeout, Duration::from_millis(100));
         assert_eq!(config.local_cache_max_entries, 300_000);
@@ -1553,6 +1561,7 @@ mod tests {
         let cache = Cache::builder()
             .max_capacity(100)
             .time_to_live(Duration::from_secs(60))
+            .time_to_idle(Duration::from_secs(30))
             .build();
 
         // Seed cache with an old entry
@@ -1597,6 +1606,7 @@ mod tests {
         let cache = Cache::builder()
             .max_capacity(100)
             .time_to_live(Duration::from_secs(60))
+            .time_to_idle(Duration::from_secs(30))
             .build();
 
         cache.insert(
@@ -1638,6 +1648,7 @@ mod tests {
             let cache = Cache::builder()
                 .max_capacity(100)
                 .time_to_live(Duration::from_secs(60))
+                .time_to_idle(Duration::from_secs(30))
                 .build();
 
             cache.insert(

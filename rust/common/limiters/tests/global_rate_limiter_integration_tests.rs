@@ -30,6 +30,7 @@ fn test_config(test_name: &str) -> GlobalRateLimiterConfig {
         redis_key_prefix: format!("test:grl:{test_name}"),
         global_cache_ttl: Duration::from_secs(120),
         local_cache_ttl: Duration::from_secs(60),
+        local_cache_idle_timeout: Duration::from_secs(30),
         local_cache_max_entries: 1000,
         channel_capacity: 10_000,
         custom_keys: HashMap::new(),

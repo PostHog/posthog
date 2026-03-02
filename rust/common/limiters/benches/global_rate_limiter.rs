@@ -77,6 +77,7 @@ fn bench_config() -> GlobalRateLimiterConfig {
         redis_key_prefix: "bench:grl".to_string(),
         global_cache_ttl: Duration::from_secs(300),
         local_cache_ttl: Duration::from_secs(1200),
+        local_cache_idle_timeout: Duration::from_secs(600),
         local_cache_max_entries: 100_000,
         channel_capacity: 100_000,
         custom_keys: HashMap::new(),
