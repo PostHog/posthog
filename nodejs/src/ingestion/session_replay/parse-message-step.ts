@@ -10,6 +10,7 @@ import {
     SnapshotEventSchema,
 } from '../../session-recording/kafka/types'
 import { parseJSON } from '../../utils/json-parse'
+import { UUID } from '../../utils/utils'
 import { dlq, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
@@ -119,10 +120,19 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
             return dlq('received_non_snapshot_message', eventResult.error)
         }
 
-        const { $snapshot_items, $session_id, $window_id, $snapshot_source, $lib } = eventResult.data.properties
+        const { $snapshot_items, $window_id, $snapshot_source, $lib } = eventResult.data.properties
+        let { $session_id } = eventResult.data.properties
 
         if (eventResult.data.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
             return dlq('received_non_snapshot_message')
+        }
+
+        // If the session ID is a UUID, we should lowercase it.
+        // This is because some mobile apps send an uppercase session ID, which can cause problems on some query paths
+        // where the session ID is parsed as a UUID and then converted back to a string.
+        // See https://github.com/PostHog/posthog/issues/46111
+        if (UUID.validateString($session_id, false)) {
+            $session_id = $session_id.toLowerCase()
         }
 
         const result = getValidEvents($snapshot_items)

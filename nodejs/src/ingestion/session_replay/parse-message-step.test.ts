@@ -499,6 +499,48 @@ describe('createParseMessageStep', () => {
         }
     })
 
+    it('should lowercase uppercase UUID session IDs', async () => {
+        const step = createParseMessageStep()
+        const uppercaseUuid = 'A1B2C3D4-E5F6-7890-ABCD-EF1234567890'
+        const payload = createValidSnapshotPayload(uppercaseUuid)
+        const input = createInput(0, 1, payload)
+
+        const result = await step(input)
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.value.parsedMessage.session_id).toBe(uppercaseUuid.toLowerCase())
+        }
+    })
+
+    it('should lowercase mixed-case UUID session IDs', async () => {
+        const step = createParseMessageStep()
+        const mixedCaseUuid = 'A1b2C3d4-E5f6-7890-AbCd-Ef1234567890'
+        const payload = createValidSnapshotPayload(mixedCaseUuid)
+        const input = createInput(0, 1, payload)
+
+        const result = await step(input)
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.value.parsedMessage.session_id).toBe(mixedCaseUuid.toLowerCase())
+        }
+    })
+
+    it('should not modify non-UUID session IDs', async () => {
+        const step = createParseMessageStep()
+        const nonUuidSessionId = 'My-Custom-Session-ID'
+        const payload = createValidSnapshotPayload(nonUuidSessionId)
+        const input = createInput(0, 1, payload)
+
+        const result = await step(input)
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.value.parsedMessage.session_id).toBe(nonUuidSessionId)
+        }
+    })
+
     it('should include ingestion warning when dropping messages with timestamp diff too large', async () => {
         jest.useFakeTimers()
         jest.setSystemTime(fixedTime)
