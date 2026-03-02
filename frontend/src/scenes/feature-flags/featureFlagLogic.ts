@@ -1719,7 +1719,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (featureFlag && featureFlag.filters.aggregation_group_type_index != null) {
                     return aggregationLabel(featureFlag.filters.aggregation_group_type_index).plural
                 }
-                return 'profiles'
+                return 'users'
             },
         ],
         breadcrumbs: [
