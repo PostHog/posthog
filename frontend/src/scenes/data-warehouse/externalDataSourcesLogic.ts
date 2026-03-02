@@ -13,6 +13,7 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
     path(['scenes', 'data-warehouse', 'externalDataSourcesLogic']),
     actions({
         abortAnyRunningQuery: true,
+        loadSources: true,
     }),
     loaders(({ cache, values, actions }) => ({
         dataWarehouseSources: [

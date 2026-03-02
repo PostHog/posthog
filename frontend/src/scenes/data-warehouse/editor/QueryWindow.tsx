@@ -55,8 +55,8 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
             >
                 <div className="flex items-center gap-2">
                     <ExpandDatabaseTreeButton />
-                    <CollapsedConnectionSelector mode={mode} />
                     <RunButton />
+                    <CollapsedConnectionSelector mode={mode} />
                     <LemonDivider vertical />
                     <QueryVariablesMenu
                         disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}

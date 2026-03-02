@@ -47,9 +47,10 @@ export function ConnectionSelector(): JSX.Element {
             : POSTHOG_WAREHOUSE
 
     return (
-        <LemonSelect<string>
+        <LemonSelect
             size="small"
-            className="min-w-64"
+            fullWidth
+            className="flex-1"
             value={selectedValue}
             onChange={(nextValue) => {
                 if (!nextValue || nextValue === POSTHOG_WAREHOUSE) {
