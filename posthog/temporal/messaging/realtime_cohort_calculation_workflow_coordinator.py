@@ -226,11 +226,18 @@ async def get_query_percentile_thresholds_activity(
             return None
 
         # Convert percentiles to quantiles and calculate thresholds (keep in milliseconds)
-        # Use min() to handle edge case where we don't have enough data points
         quantiles = statistics.quantiles(durations_list, n=100)
-        min_index = max(0, min(int(min_percentile) - 1, len(quantiles) - 1))
+
+        # Special handling for p0: use 0 instead of calculating from data
+        if min_percentile <= 0.0:
+            min_threshold = 0  # p0 means "duration > 0", not the minimum data value
+        else:
+            min_index = max(0, min(int(min_percentile) - 1, len(quantiles) - 1))
+            min_threshold = quantiles[min_index]
+
+        # Calculate max threshold from data percentiles
+        # Note: p100 is handled specially in _apply_duration_filtering() with is_p100=True
         max_index = max(0, min(int(max_percentile) - 1, len(quantiles) - 1))
-        min_threshold = quantiles[min_index]
         max_threshold = quantiles[max_index]
 
         try:
