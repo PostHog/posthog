@@ -32,6 +32,7 @@ export function RecentlyViewed(): JSX.Element {
                     insight={insight}
                     isExpanded={expandedInsightIds.has(insight.short_id)}
                     onToggle={() => toggleInsightExpanded(insight.short_id)}
+                    dataAttr="recently-viewed-insight-item"
                 />
             )}
             contentHeightBehavior="fit-content"
