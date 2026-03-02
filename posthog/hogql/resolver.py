@@ -247,6 +247,9 @@ class Resolver(CloningVisitor):
                         f"Available columns: {', '.join(sorted(valid_columns))}"
                     )
 
+        if cte_expr.type is None:
+            raise QueryError(f"Failed to resolve type for CTE '{node.name}'")
+
         # Create a new CTE node instead of modifying the input
         # This ensures we can resolve CTEs even if they appear multiple times
         new_node = ast.CTE(
