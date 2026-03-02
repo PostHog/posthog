@@ -16,7 +16,7 @@ import {
     useState,
 } from 'react'
 
-import { IconSearch, IconSparkles, IconX } from '@posthog/icons'
+import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -303,6 +303,25 @@ function SearchRoot({
         } else {
             // When not searching, show recents and apps
             items = allItems.filter((item) => item.category === 'recents' || item.category === 'apps')
+        }
+
+        // Add a direct shortcut to the theme setting when searching for dark/light/theme
+        const normalizedQuery = searchValue.trim().toLowerCase()
+        if (normalizedQuery && ['dark', 'light', 'theme'].some((keyword) => normalizedQuery.includes(keyword))) {
+            const isDark = normalizedQuery.includes('dark')
+            const themeItem: SearchItem = {
+                id: '__settings_theme__',
+                name: isDark ? 'Dark mode' : 'Light mode',
+                displayName: isDark ? 'Dark mode' : 'Light mode',
+                category: 'settings',
+                href: urls.settings('user-customization', 'theme'),
+                searchKeywords: ['dark', 'light', 'theme', 'appearance', 'color scheme'],
+                icon: isDark ? <IconNight /> : <IconDay />,
+            }
+            const hasThemeItemAlready = items.some((item) => item.id === themeItem.id)
+            if (!hasThemeItemAlready) {
+                items = [themeItem, ...items]
+            }
         }
 
         // Prepend "Ask PostHog AI" as the first result when there's a search query
