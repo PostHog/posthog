@@ -3,9 +3,17 @@ import { connect, kea, key, path, props, selectors } from 'kea'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { AnyPropertyFilter, CohortType, FeatureFlagGroupType, FeatureFlagType, PropertyFilterType } from '~/types'
+import {
+    AnyPropertyFilter,
+    CohortCriteriaGroupFilter,
+    CohortType,
+    FeatureFlagGroupType,
+    FeatureFlagType,
+    PropertyFilterType,
+} from '~/types'
 
 import type { featureFlagIntentWarningLogicType } from './featureFlagIntentWarningLogicType'
 import { featureFlagLogic, FeatureFlagLogicProps } from './featureFlagLogic'
@@ -29,6 +37,21 @@ export interface ConditionWarning {
 const REGEX_LOOKAHEAD = /(?<!\\)\(\?[=!]/
 const REGEX_LOOKBEHIND = /(?<!\\)\(\?<[=!]/
 const REGEX_BACKREFERENCE = /(?<!\\)\\[1-9]/
+
+function hasBehavioralCriteria(cohort: CohortType): boolean {
+    const values = cohort.filters?.properties?.values
+    if (!values) {
+        return false
+    }
+    return values.some((value) => {
+        if ('values' in value) {
+            // Nested group — check children
+            const nested = value as CohortCriteriaGroupFilter
+            return nested.values.some((v) => 'type' in v && v.type === BehavioralFilterKey.Behavioral)
+        }
+        return 'type' in value && value.type === BehavioralFilterKey.Behavioral
+    })
+}
 
 function isGroupBroad(group: FeatureFlagGroupType): boolean {
     const hasNoProperties = !group.properties || group.properties.length === 0
@@ -121,9 +144,10 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                                     const cohort = cohortsById[cohortId] ?? cohortsById[String(cohortId)]
                                     if (cohort?.is_static) {
                                         hasStaticCohort = true
-                                    } else {
+                                    } else if (cohort && hasBehavioralCriteria(cohort)) {
                                         hasNonStaticCohort = true
                                     }
+                                    // Property-only dynamic cohorts are fine for local eval
                                 }
 
                                 if (isPropertyFilterWithOperator(property) && property.operator === 'is_not_set') {
