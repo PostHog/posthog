@@ -584,6 +584,10 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # serializer.save() triggers post_save signal for worker reload
         serializer.save()
 
+        # Clear draft after successful publish
+        HogFlow.objects.filter(pk=hog_flow.pk).update(draft=None, draft_updated_at=None)
+        hog_flow.refresh_from_db()
+
         return Response(HogFlowSerializer(hog_flow, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=["POST"], url_path="discard_draft")
