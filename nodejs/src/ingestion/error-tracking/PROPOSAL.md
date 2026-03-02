@@ -43,23 +43,26 @@ Capture API
     ▼
 Capture Service (Rust)
     │
-    ├──► exceptions_ingestion ──► Error Tracking Pipeline (Node.js) ◄── NEW
-    │                             ├── Parse headers & message         [reuse]
-    │                             ├── Apply event restrictions        [reuse]
-    │                             ├── Resolve team                    [reuse]
-    │                             ├── Person properties (read-only)   [in progress]
-    │                             ├── GeoIP enrichment                [new - wrap existing]
-    │                             ├── Group type mapping              [new - wrap existing]
-    │                             ├── Call Cymbal HTTP API            [new]
-    │                             └── Emit to clickhouse_events_json  [reuse]
-    │                                          │
-    │                                          ▼
-    │                             Cymbal HTTP API `/process` (Rust)
-    │                             └── Exception processing only
-    │                                 ├── Stack trace resolution
-    │                                 ├── Fingerprinting
-    │                                 ├── Issue linking
-    │                                 └── Alerting
+    ├──► exceptions_ingestion ──────────────────► Cymbal Kafka Consumer (Rust)
+    │    (legacy)                                 └── Full processing (current)
+    │
+    ├──► error_tracking_ingestion ──► Error Tracking Pipeline (Node.js) ◄── NEW
+    │    (feature flagged)            ├── Parse headers & message         [reuse]
+    │                                 ├── Apply event restrictions        [reuse]
+    │                                 ├── Resolve team                    [reuse]
+    │                                 ├── Call Cymbal HTTP API            [new]
+    │                                 ├── Person properties (read-only)   [new]
+    │                                 ├── Hog transformations (GeoIP)     [reuse]
+    │                                 ├── Group type mapping              [new - wrap existing]
+    │                                 └── Emit to clickhouse_events_json  [reuse]
+    │                                              │
+    │                                              ▼
+    │                                 Cymbal HTTP API `/process` (Rust)
+    │                                 └── Exception processing only
+    │                                     ├── Stack trace resolution
+    │                                     ├── Fingerprinting
+    │                                     ├── Issue linking
+    │                                     └── Alerting
     │
     └──► events_plugin_ingestion ──► Analytics Pipeline (Node.js)
          (unchanged)
@@ -90,13 +93,13 @@ From my attempt to understand everything that Cymbal currently does (with much h
 | Result Handling          | `handleResults()`                                               | DLQ routing                            |
 | GeoIP Service            | `src/cdp/services/geoip-service.ts`                             | MaxMind lookup                         |
 | GroupTypeManager         | `src/worker/ingestion/group-type-manager.ts`                    | Group type resolution                  |
+| HogTransformerService    | `src/cdp/hog-transformations/hog-transformer.service.ts`        | Runs team transformations (inc. GeoIP) |
 
 ### New Steps (Wrap Existing Services)
 
 | Component                              | Description                                                      | Effort |
 | -------------------------------------- | ---------------------------------------------------------------- | ------ |
 | `createPersonPropertiesReadOnlyStep()` | Fetch person by distinct_id, attach to event. No updates/merges. | Small  |
-| `createGeoIPEnrichmentStep()`          | Wrap `GeoIPService` as pipeline step                             | Small  |
 | `createGroupTypeMappingStep()`         | Wrap `GroupTypeManager` as pipeline step                         | Small  |
 
 Note: No filtering step needed - the `exceptions_ingestion` topic only contains `$exception` events (routed by capture service).
@@ -115,7 +118,7 @@ Note: No filtering step needed - the `exceptions_ingestion` topic only contains 
 This is what the pipeline will look like at a high level - it won't be exactly this, we'll wrap some steps in TopHog, flesh out our overflow and DLQ behavior, etc. But the gist is -
 
 ```typescript
-// Consumer reads from "exceptions_ingestion" topic (only contains $exception events)
+// Consumer reads from "error_tracking_ingestion" topic (only contains $exception events)
 const pipeline = newBatchPipelineBuilder<ErrorTrackingPipelineInput, ErrorTrackingPipelineContext>()
   .messageAware((b) =>
     b
@@ -134,26 +137,29 @@ const pipeline = newBatchPipelineBuilder<ErrorTrackingPipelineInput, ErrorTracki
       )
       .teamAware((b) =>
         b
+          .gather()
+          // Call Cymbal first - only needs raw exception data for symbolication/fingerprinting
+          .pipeBatch(createCymbalProcessingStep(cymbalClient))
           .sequentially((b) =>
             b
-              // Enrich
+              // Enrich after Cymbal returns
               .pipe(createPersonPropertiesReadOnlyStep(personService))
-              .pipe(createGeoIPEnrichmentStep(geoipService))
+              .pipe(createHogTransformEventStep(hogTransformer))
               .pipe(createGroupTypeMappingStep(groupTypeManager))
           )
-          .gather()
-          // Call Cymbal for error-specific processing
-          .pipeBatch(createCymbalProcessingStep(cymbalClient))
       )
       .handleIngestionWarnings(ingestionWarningProducer)
   )
   .handleResults(pipelineConfig)
+  .handleSideEffects(promiseScheduler, { await: false })
   .build()
 ```
 
 ## Cymbal HTTP API Contract
 
 ### Request
+
+Cymbal receives raw event properties - enrichment (person, geoip, groups) happens after Cymbal returns.
 
 ```text
 POST /process
@@ -167,13 +173,6 @@ Content-Type: application/json
     "timestamp": "2024-01-01T00:00:00Z",
     "properties": {
       "$exception_list": [...],
-      // Person properties (pre-enriched)
-      "$person_id": "...",
-      "$person_properties": {...},
-      // GeoIP properties (pre-enriched)
-      "$geoip_city_name": "...",
-      // Group properties (pre-enriched)
-      "$group_0": "...",
       ...
     }
   }
@@ -208,14 +207,13 @@ The response array maintains 1:1 position correspondence with the request array.
 
 ```text
 src/ingestion/
-├── error-tracking-consumer.ts            # Error tracking consumer (NEW)
 └── error-tracking/
     ├── PROPOSAL.md                       # This document
     ├── index.ts                          # Public exports
+    ├── error-tracking-consumer.ts                       # Error tracking consumer (NEW)
+    ├── error-tracking-consumer.test.ts
     ├── error-tracking-pipeline.ts        # Pipeline composition
     ├── error-tracking-pipeline.test.ts
-    ├── geoip-enrichment-step.ts
-    ├── geoip-enrichment-step.test.ts
     ├── group-type-mapping-step.ts
     ├── group-type-mapping-step.test.ts
     ├── cymbal-processing-step.ts         # Pipeline step calling Cymbal API
@@ -237,22 +235,23 @@ The focus here is to quickly and iteratively build out a PoC. I don't think ther
 - Unit and integration tests
 - Verify in local dev environment
 
-### Phase 2: Shadow Mode
+### Phase 2: Deploy & Validate
 
 Once the PoC has been built, we should then roll it out in production so we can validate output compared to Cymbal, tune metrics / alerts, and observe behavior (especially around the HTTP interactions).
 
-- Deploy to production reading same topic (`exceptions_ingestion`) as Cymbal
-- Both consumers process events (different consumer groups)
-- Log and compare outputs (don't emit to ClickHouse from Node.js)
-- Fix any discrepancies
+- Create new input and output topics
+- Update Django for new event restrictions pipeline
+- Deploy Node.js pipeline consuming from `error_tracking_ingestion` (new topic)
+- Feature flag in capture dual writes traffic to new topic
+- Write to separate output topic for ClickHouse validation
+- Compare outputs between pipelines, fix any discrepancies
 
-### Phase 3: Team-Based Rollout
+### Phase 3: Gradual Rollout
 
 We'll want to slowly phase traffic from Cymbal consumer to the new ingestion pipeline.
 
-- Split traffic via feature flag
-- Both read from `exceptions_ingestion`, each processes their assigned teams
-- Gradually expand: 10% → 50% → 100% of teams
+- Update capture feature flag to split traffic to new topic, Node.js pipeline produces to standard output topic
+- Increase traffic via feature flag in capture: 10% → 50% → 100%
 - Monitor latency, error rates, output correctness
 
 ### Phase 4: Deprecate Cymbal Consumer
@@ -269,9 +268,10 @@ And lastly, clean up the old code.
 
 ## Metrics & Observability
 
-- Standard event count, processing / step latency, and kafak latency metrics for ingestion pipelines.
-- Cymbal call latency for separating out team concerns.
+- Standard event count, processing / step latency, and kafka latency metrics for ingestion pipelines
+- Cymbal call latency to distinguish error-tracking-specific issues from general ingestion issues
 - TopHog metrics for detailed breakdowns
+- Alerting based on lag correlation: high lag with high Cymbal latency routes to error tracking on-call, otherwise routes to ingestion on-call
 
 ## Open Questions
 
