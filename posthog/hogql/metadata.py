@@ -19,11 +19,13 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
+from posthog.models.user import User
 
 
 def get_hogql_metadata(
     query: HogQLMetadata,
     team: Team,
+    user: Optional[User] = None,
     hogql_ast: Optional[Union[ast.SelectQuery, ast.SelectSetQuery]] = None,
     clickhouse_prepared_ast: Optional[ast.AST] = None,
     clickhouse_sql: Optional[str] = None,
@@ -42,6 +44,7 @@ def get_hogql_metadata(
     try:
         context = HogQLContext(
             team_id=team.pk,
+            user=user,
             modifiers=query_modifiers,
             enable_select_queries=True,
             debug=query.debug or False,

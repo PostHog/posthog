@@ -366,7 +366,8 @@
                 "survey",
                 "onboarding",
                 "research",
-                "flags"
+                "flags",
+                "llm_analytics"
             ],
             "type": "string"
         },
@@ -1998,8 +1999,11 @@
                 "manage_memories",
                 "create_notebook",
                 "list_data",
+                "upsert_alert",
                 "finalize_plan",
-                "recommend_products"
+                "call_mcp_server",
+                "recommend_products",
+                "search_llm_traces"
             ],
             "type": "string"
         },
@@ -11902,6 +11906,13 @@
         "EndpointRequest": {
             "additionalProperties": false,
             "properties": {
+                "bucket_overrides": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).",
+                    "type": "object"
+                },
                 "cache_age_seconds": {
                     "type": "number"
                 },
@@ -17203,56 +17214,6 @@
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate", "liquid"],
             "type": "string"
         },
-        "HogQLASTQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "explain": {
-                    "deprecated": "use modifiers.debug instead",
-                    "type": "boolean"
-                },
-                "filters": {
-                    "$ref": "#/definitions/HogQLFilters"
-                },
-                "kind": {
-                    "const": "HogQLASTQuery",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "name": {
-                    "description": "Client provided name of the query",
-                    "type": "string"
-                },
-                "query": {
-                    "type": "object"
-                },
-                "response": {
-                    "$ref": "#/definitions/HogQLQueryResponse"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "values": {
-                    "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
-                    "type": "object"
-                },
-                "variables": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/HogQLVariable"
-                    },
-                    "description": "Variables to be substituted into the query",
-                    "type": "object"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["kind", "query"],
-            "type": "object"
-        },
         "HogQLAutocomplete": {
             "additionalProperties": false,
             "properties": {
@@ -17588,6 +17549,10 @@
                 },
                 "inCohortVia": {
                     "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
+                    "type": "string"
+                },
+                "inlineCohortCalculation": {
+                    "enum": ["off", "auto", "always"],
                     "type": "string"
                 },
                 "materializationMode": {
@@ -18753,6 +18718,12 @@
                 "person": {
                     "$ref": "#/definitions/LLMTracePerson"
                 },
+                "tools": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "totalCost": {
                     "type": "number"
                 },
@@ -19712,7 +19683,8 @@
                 "CTR",
                 "Reported Conversion",
                 "Reported Conversion Value",
-                "Reported ROAS"
+                "Reported ROAS",
+                "Cost per Reported Conversion"
             ],
             "type": "string"
         },
@@ -21978,7 +21950,6 @@
                 "PersonsNode",
                 "HogQuery",
                 "HogQLQuery",
-                "HogQLASTQuery",
                 "HogQLMetadata",
                 "HogQLAutocomplete",
                 "ActorsQuery",
@@ -27688,9 +27659,6 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLAutocomplete"
-                },
-                {
-                    "$ref": "#/definitions/HogQLASTQuery"
                 },
                 {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"

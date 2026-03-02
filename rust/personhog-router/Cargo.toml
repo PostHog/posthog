@@ -8,7 +8,7 @@ publish = false
 personhog-proto = { path = "../personhog-proto" }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
-health = { path = "../common/health" }
+lifecycle = { path = "../common/lifecycle" }
 
 async-trait = { workspace = true }
 axum = { workspace = true }

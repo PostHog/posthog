@@ -1,6 +1,6 @@
 from typing import Any
 
-import requests
+from posthog.security.outbound_proxy import external_requests
 
 
 class RecallAIClient:
@@ -16,7 +16,7 @@ class RecallAIClient:
         if recording_config:
             payload["recording_config"] = recording_config
 
-        response = requests.post(
+        response = external_requests.post(
             f"{self.base_url}/api/v1/sdk-upload/",
             json=payload,
             headers={"Authorization": f"Token {self.api_key}"},

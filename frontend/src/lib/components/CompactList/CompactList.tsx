@@ -19,7 +19,7 @@ interface CompactListProps {
     emptyMessage?: EmptyMessageProps
     renderRow: (rowData: any, index: number) => JSX.Element
     /** Whether the content should have a fixed height or shrink to fit the content, with a max of the fixed height. Defaults to 'fixed'. */
-    contentHeightBehavior?: 'fixed' | 'shrink'
+    contentHeightBehavior?: 'fixed' | 'shrink' | 'fit-content'
 }
 
 export function CompactList({
@@ -52,7 +52,12 @@ export function CompactList({
                     </div>
                 </>
             )}
-            <div className={clsx('CompactList__content', contentHeightBehavior === 'shrink' && 'max-h-[16rem] h-auto')}>
+            <div
+                className={clsx('CompactList__content', {
+                    'max-h-[16rem] h-auto': contentHeightBehavior === 'shrink',
+                    'h-auto': contentHeightBehavior === 'fit-content',
+                })}
+            >
                 {loading ? (
                     <div className="p-2 deprecated-space-y-6">
                         {Array.from({ length: 6 }, (_, index) => (
