@@ -29,6 +29,7 @@ function AlertRow({ alert }: AlertRowProps): JSX.Element {
                 )
             }
             to={urls.alert(alert.id)}
+            dataAttr="firing-alert-item"
         />
     )
 }

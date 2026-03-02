@@ -21,7 +21,7 @@ export function SidebarQuestionInputWithSuggestions({
 }: {
     hideSuggestions?: boolean
 }): JSX.Element {
-    const { dataProcessingAccepted, activeSuggestionGroup } = useValues(maxLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason, activeSuggestionGroup } = useValues(maxLogic)
     const { setActiveGroup } = useActions(maxLogic)
     const { agentMode } = useValues(maxThreadLogic)
     const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
@@ -60,6 +60,7 @@ export function SidebarQuestionInputWithSuggestions({
                 <FloatingSuggestionsDisplay
                     type="secondary"
                     dataProcessingAccepted={dataProcessingAccepted}
+                    dataProcessingApprovalDisabledReason={dataProcessingApprovalDisabledReason}
                     suggestionsData={
                         agentMode === AgentMode.Research ? RESEARCH_SUGGESTIONS_DATA : QUESTION_SUGGESTIONS_DATA
                     }
