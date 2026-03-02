@@ -1338,7 +1338,7 @@ class BatchExportBackfillViewSet(
             request.data.get("start_at"),
             request.data.get("end_at"),
         )
-        return response.Response({"backfill_id": backfill_id})
+        return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:

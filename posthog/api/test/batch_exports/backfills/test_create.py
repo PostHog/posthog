@@ -70,7 +70,7 @@ def test_batch_export_backfill_success(client: HttpClient, organization, team, u
         start_at="2021-01-01T00:00:00+00:00",
         end_at="2021-01-01T01:00:00+00:00",
     )
-    assert response.status_code == status.HTTP_200_OK, response.json()
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
 
 
 @pytest.mark.parametrize(
@@ -101,7 +101,7 @@ def test_batch_export_backfill_for_daily_schedule(
         start_at="2026-01-01",
         end_at="2026-01-02",
     )
-    assert response.status_code == status.HTTP_200_OK, response.json()
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
     assert "backfill_id" in response.json()
 
 
@@ -169,7 +169,7 @@ def test_batch_export_backfill_for_weekly_schedule(
         start_at=start_date,
         end_at=end_date,
     )
-    assert response.status_code == status.HTTP_200_OK, response.json()
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
     assert "backfill_id" in response.json()
 
 
@@ -384,7 +384,7 @@ def test_batch_export_backfill_created_in_timezone(client: HttpClient, temporal,
 
     data = response.json()
 
-    assert response.status_code == status.HTTP_200_OK, data
+    assert response.status_code == status.HTTP_201_CREATED, data
     assert "backfill_id" in data
 
 
@@ -434,5 +434,5 @@ def test_batch_export_earliest_backfill_allowed_with_feature_flag(
             None,
             "2021-01-01T01:00:00+00:00",
         )
-        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert "backfill_id" in response.json()
