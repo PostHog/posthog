@@ -20,6 +20,7 @@ from django.utils import timezone as tz
 from oauthlib.common import generate_token
 
 from posthog.models import Team, User
+from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 
 STRIPE_APP_NAME = "PostHog Stripe App"
@@ -102,31 +103,13 @@ class Command(BaseCommand):
         return access_token.token, refresh_token.token, access_token.expires
 
     def _create_tokens(self, oauth_app: OAuthApplication, team_id: int, user_id: int) -> tuple[str, str, object]:
-        scopes = " ".join(
-            [
-                "query:read",
-                "conversation:read",
-                "conversation:write",
-                "experiment:read",
-                "feature_flag:read",
-                "organization:read",
-                "person:read",
-                "project:read",
-                "ticket:read",
-                "ticket:write",
-                "user:read",
-                "hog_flow:read",
-                "hog_flow:write",
-            ]
-        )
-
         access_token_value = generate_token()
         access_token = OAuthAccessToken.objects.create(
             application=oauth_app,
             token=access_token_value,
             user_id=user_id,
-            expires=tz.now() + timedelta(hours=24),
-            scope=scopes,
+            expires=tz.now() + timedelta(minutes=20),  # Very short-lived to test refreshes locally
+            scope=StripeIntegration.SCOPES,
             scoped_teams=[team_id],
         )
 
