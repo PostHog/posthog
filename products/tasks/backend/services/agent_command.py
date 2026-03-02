@@ -196,6 +196,17 @@ def send_agent_command(
     except ValueError:
         data = None
 
+    if isinstance(data, dict) and "error" in data and "result" not in data:
+        rpc_error = data["error"]
+        error_msg = rpc_error.get("message", "Unknown agent error") if isinstance(rpc_error, dict) else str(rpc_error)
+        return CommandResult(
+            success=False,
+            status_code=resp.status_code,
+            data=data,
+            error=error_msg,
+            retryable=False,
+        )
+
     return CommandResult(
         success=True,
         status_code=resp.status_code,

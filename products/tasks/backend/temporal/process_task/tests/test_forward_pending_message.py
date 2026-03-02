@@ -77,7 +77,7 @@ class TestForwardPendingUserMessage(TestCase):
 
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
-    def test_retryable_failure_keeps_message_in_state(self, mock_send, mock_token):
+    def test_timeout_skips_retry_to_avoid_duplicate_delivery(self, mock_send, mock_token):
         run = self._make_run(
             state={
                 "pending_user_message": "fix the tests",
@@ -85,6 +85,25 @@ class TestForwardPendingUserMessage(TestCase):
             }
         )
         mock_send.return_value = _command_result(success=False, status_code=504, error="timeout", retryable=True)
+
+        forward_pending_user_message(str(run.id))
+
+        mock_send.assert_called_once()
+        run.refresh_from_db()
+        assert run.state.get("pending_user_message") == "fix the tests"
+
+    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt")
+    @patch("products.tasks.backend.services.agent_command.send_user_message")
+    def test_connection_error_retries_with_longer_timeout(self, mock_send, mock_token):
+        run = self._make_run(
+            state={
+                "pending_user_message": "fix the tests",
+                "sandbox_url": "https://sandbox.example.com/rpc",
+            }
+        )
+        mock_send.return_value = _command_result(
+            success=False, status_code=502, error="connection failed", retryable=True
+        )
 
         forward_pending_user_message(str(run.id))
 
@@ -109,18 +128,14 @@ class TestForwardPendingUserMessage(TestCase):
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
 
-    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
-    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
-    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.tasks.backend.temporal.client.execute_twig_agent_relay_workflow")
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
     def test_slack_origin_posts_reply_and_cleans_progress(
         self,
         mock_send,
         mock_token,
-        mock_post_thread,
-        mock_update_reaction,
-        mock_delete_progress,
+        mock_enqueue_relay,
     ):
         run = self._make_run(
             state={
@@ -150,24 +165,23 @@ class TestForwardPendingUserMessage(TestCase):
 
         forward_pending_user_message(str(run.id))
 
-        mock_post_thread.assert_called_once()
-        assert "Which license should I use?" in mock_post_thread.call_args.args[0]
-        mock_update_reaction.assert_called_once_with("white_check_mark")
-        mock_delete_progress.assert_called_once()
+        mock_enqueue_relay.assert_called_once_with(
+            run_id=str(run.id),
+            text="Which license should I use?",
+            user_message_ts="1234.5",
+        )
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
         assert "pending_user_message_ts" not in run.state
 
-    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
-    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.tasks.backend.temporal.client.execute_twig_agent_relay_workflow")
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
     def test_slack_origin_non_retryable_failure_posts_error(
         self,
         mock_send,
         mock_token,
-        mock_post_thread,
-        mock_update_reaction,
+        mock_enqueue_relay,
     ):
         run = self._make_run(
             state={
@@ -198,7 +212,32 @@ class TestForwardPendingUserMessage(TestCase):
 
         forward_pending_user_message(str(run.id))
 
-        mock_update_reaction.assert_called_once_with("x")
-        mock_post_thread.assert_called_once()
+        mock_enqueue_relay.assert_called_once()
+        assert mock_enqueue_relay.call_args.kwargs["run_id"] == str(run.id)
+        assert "couldn't deliver your follow-up" in mock_enqueue_relay.call_args.kwargs["text"]
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
+
+    @patch("products.tasks.backend.temporal.client.execute_twig_agent_relay_workflow")
+    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt")
+    @patch("products.tasks.backend.services.agent_command.send_user_message")
+    def test_slack_origin_posts_fallback_when_reply_text_missing(self, mock_send, mock_token, mock_enqueue_relay):
+        run = self._make_run(
+            state={
+                "pending_user_message": "fix the tests",
+                "pending_user_message_ts": "1234.5",
+                "interaction_origin": "slack",
+                "sandbox_url": "https://sandbox.example.com/rpc",
+            }
+        )
+
+        mock_send.return_value = _command_result(
+            success=True,
+            status_code=200,
+            data={"result": {}},
+        )
+
+        forward_pending_user_message(str(run.id))
+
+        mock_enqueue_relay.assert_called_once()
+        assert "couldn't fetch the reply text" in mock_enqueue_relay.call_args.kwargs["text"]

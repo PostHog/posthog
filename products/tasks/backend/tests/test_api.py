@@ -633,6 +633,41 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(input_arg.run_id, str(run.id))
         self.assertEqual(input_arg.slack_thread_context["integration_id"], integration.pk)
 
+    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
+    def test_relay_message_enqueues_slack_relay_workflow(self, mock_execute_relay):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        mock_execute_relay.return_value = "relay-1"
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Which license should I use?"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "accepted", "relay_id": "relay-1"})
+        mock_execute_relay.assert_called_once_with(
+            run_id=str(run.id),
+            text="Which license should I use?",
+            delete_progress=True,
+        )
+
+    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
+    def test_relay_message_skips_for_terminal_run(self, mock_execute_relay):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Done"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "skipped"})
+        mock_execute_relay.assert_not_called()
+
     def test_append_log_to_existing_entries(self):
         task = self.create_task()
         run = TaskRun.objects.create(
@@ -1135,6 +1170,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/", "POST"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/command/", "POST"),
         ]
 

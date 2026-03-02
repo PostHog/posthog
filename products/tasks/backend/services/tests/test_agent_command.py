@@ -245,6 +245,24 @@ class TestSendAgentCommand:
         assert not result.success
         assert not result.retryable
 
+    @patch("products.tasks.backend.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.services.agent_command.requests.post")
+    def test_jsonrpc_error_in_200_response_is_detected(self, mock_post, mock_validate):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": -32603, "message": "Output blocked by content filtering policy"},
+        }
+        mock_post.return_value = mock_resp
+
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc")
+        result = send_agent_command(task_run, "user_message", params={"content": "hi"})
+        assert not result.success
+        assert "content filtering" in (result.error or "")
+        assert not result.retryable
+
 
 class TestSendUserMessage:
     @patch("products.tasks.backend.services.agent_command.send_agent_command")

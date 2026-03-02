@@ -38,9 +38,9 @@ def forward_pending_user_message(run_id: str) -> None:
         distinct_id = created_by.distinct_id or f"user_{created_by.id}"
         auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
 
-    result = send_user_message(task_run, pending_message, auth_token=auth_token)
-    if not result.success and result.retryable:
-        result = send_user_message(task_run, pending_message, auth_token=auth_token, timeout=45)
+    result = send_user_message(task_run, pending_message, auth_token=auth_token, timeout=90)
+    if not result.success and result.retryable and result.status_code != 504:
+        result = send_user_message(task_run, pending_message, auth_token=auth_token, timeout=90)
 
     if not result.success and result.retryable:
         logger.warning(
@@ -54,9 +54,9 @@ def forward_pending_user_message(run_id: str) -> None:
 
     if state.get("interaction_origin") == "slack":
         if result.success:
-            _post_pending_reply_to_slack(task_run, pending_message_ts, result.data)
+            _enqueue_pending_reply_relay(task_run, pending_message_ts, result.data)
         else:
-            _post_pending_delivery_failure_to_slack(task_run, pending_message_ts, result.error)
+            _enqueue_pending_delivery_failure_relay(task_run, pending_message_ts, result.error)
 
     state.pop("pending_user_message", None)
     state.pop("pending_user_message_ts", None)
@@ -73,27 +73,24 @@ def forward_pending_user_message(run_id: str) -> None:
         )
 
 
-def _post_pending_delivery_failure_to_slack(task_run: Any, user_message_ts: str | None, error: str | None) -> None:
-    context = _get_slack_context_for_task_run(task_run, user_message_ts)
-    if context is None:
-        return
+def _enqueue_pending_delivery_failure_relay(task_run: Any, user_message_ts: str | None, error: str | None) -> None:
+    from products.tasks.backend.temporal.client import execute_twig_agent_relay_workflow
 
-    from products.slack_app.backend.slack_thread import SlackThreadHandler
-
-    handler = SlackThreadHandler(context)
-    handler.update_reaction("x")
     error_suffix = f" ({error})" if error else ""
-    handler.post_thread_message(f"I couldn't deliver your follow-up to the agent{error_suffix}. Please try again.")
+    try:
+        execute_twig_agent_relay_workflow(
+            run_id=str(task_run.id),
+            text=f"I couldn't deliver your follow-up to the agent{error_suffix}. Please try again.",
+            user_message_ts=user_message_ts,
+            reaction_emoji="x",
+        )
+    except Exception:
+        logger.exception("forward_pending_message_relay_failure_enqueue_failed", run_id=str(task_run.id))
 
 
-def _post_pending_reply_to_slack(task_run: Any, user_message_ts: str | None, command_result_data: Any) -> None:
-    context = _get_slack_context_for_task_run(task_run, user_message_ts)
-    if context is None:
-        return
+def _enqueue_pending_reply_relay(task_run: Any, user_message_ts: str | None, command_result_data: Any) -> None:
+    from products.tasks.backend.temporal.client import execute_twig_agent_relay_workflow
 
-    from products.slack_app.backend.slack_thread import SlackThreadHandler
-
-    handler = SlackThreadHandler(context)
     reply_text = _extract_assistant_text_from_command_result(
         command_result_data
     ) or _extract_recent_assistant_text_from_logs(task_run)
@@ -102,29 +99,16 @@ def _post_pending_reply_to_slack(task_run: Any, user_message_ts: str | None, com
         reply_text = "I need clarification before continuing. Please reply in this thread with your preferred option."
 
     if not reply_text:
-        return
+        reply_text = "I processed your message but couldn't fetch the reply text. Check the task logs for details."
 
-    mention_prefix = f"<@{context.mentioning_slack_user_id}> " if context.mentioning_slack_user_id else ""
-    handler.post_thread_message(f"{mention_prefix}{reply_text}")
-    handler.update_reaction("white_check_mark")
-    handler.delete_progress()
-
-
-def _get_slack_context_for_task_run(task_run: Any, user_message_ts: str | None):
-    from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.slack_app.backend.slack_thread import SlackThreadContext
-
-    mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
-    if not mapping:
-        return None
-
-    return SlackThreadContext(
-        integration_id=mapping.integration_id,
-        channel=mapping.channel,
-        thread_ts=mapping.thread_ts,
-        user_message_ts=user_message_ts,
-        mentioning_slack_user_id=mapping.mentioning_slack_user_id,
-    )
+    try:
+        execute_twig_agent_relay_workflow(
+            run_id=str(task_run.id),
+            text=reply_text,
+            user_message_ts=user_message_ts,
+        )
+    except Exception:
+        logger.exception("forward_pending_message_relay_enqueue_failed", run_id=str(task_run.id))
 
 
 def _extract_assistant_text_from_command_result(command_result_data: Any) -> str | None:

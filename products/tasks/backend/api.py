@@ -42,12 +42,13 @@ from .serializers import (
     TaskRunCommandResponseSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
+    TaskRunRelayMessageRequestSerializer,
     TaskRunSessionLogsQuerySerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
 )
 from .services.connection_token import create_sandbox_connection_token
-from .temporal.client import execute_task_processing_workflow
+from .temporal.client import execute_task_processing_workflow, execute_twig_agent_relay_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +232,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "partial_update",
             "set_output",
             "append_log",
+            "relay_message",
             "session_logs",
             "command",
         ]
@@ -443,6 +445,40 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response = Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
         response["Server-Timing"] = timer.to_header_string()
         return response
+
+    @validated_request(
+        request_serializer=TaskRunRelayMessageRequestSerializer,
+        responses={
+            200: OpenApiResponse(description="Relay accepted"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Relay run message to Slack",
+        description="Queue a Slack relay workflow to post a run message into the mapped Slack thread.",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="relay_message", required_scopes=["task:write"])
+    def relay_message(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        if task_run.is_terminal:
+            return Response({"status": "skipped"})
+
+        text = request.validated_data["text"].strip()
+        if not text:
+            return Response({"status": "skipped"})
+
+        try:
+            relay_id = execute_twig_agent_relay_workflow(
+                run_id=str(task_run.id),
+                text=text,
+                delete_progress=True,
+            )
+        except Exception:
+            logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(task_run.id)})
+            return Response(
+                ErrorResponseSerializer({"error": "Failed to queue Slack relay"}).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({"status": "accepted", "relay_id": relay_id})
 
     @validated_request(
         request_serializer=TaskRunArtifactsUploadRequestSerializer,

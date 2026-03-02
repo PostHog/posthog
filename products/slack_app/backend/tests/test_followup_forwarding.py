@@ -328,7 +328,7 @@ class TestForwardTwigFollowupActivity(TestCase):
 
         assert result is True
         mock_token.assert_called_once()
-        mock_send.assert_called_once_with(self.task_run, "do something", auth_token="jwt-token")
+        mock_send.assert_called_once_with(self.task_run, "do something", auth_token="jwt-token", timeout=90)
         assert mock_slack_instance.client.reactions_add.call_count == 2
         mock_slack_instance.client.reactions_remove.assert_any_call(channel="C123", timestamp="1234.5679", name="eyes")
         mock_slack_instance.client.reactions_remove.assert_any_call(
@@ -412,7 +412,7 @@ class TestForwardTwigFollowupActivity(TestCase):
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_retryable_timeout_posts_soft_message(self, mock_slack_cls, mock_send, mock_token):
+    def test_timeout_skips_retry_to_avoid_duplicate_delivery(self, mock_slack_cls, mock_send, mock_token):
         self._create_mapping()
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
@@ -426,7 +426,7 @@ class TestForwardTwigFollowupActivity(TestCase):
         )
 
         assert result is True
-        assert mock_send.call_count == 2
+        mock_send.assert_called_once()
         call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
         assert "timed out" in call_kwargs["text"]
         assert "may still be processing" in call_kwargs["text"]
@@ -467,12 +467,12 @@ class TestForwardTwigFollowupActivity(TestCase):
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_retryable_first_attempt_succeeds_on_retry(self, mock_slack_cls, mock_send, mock_token):
+    def test_connection_error_retries_and_succeeds(self, mock_slack_cls, mock_send, mock_token):
         self._create_mapping()
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
         mock_send.side_effect = [
-            _command_result(success=False, status_code=504, error="Sandbox request timed out", retryable=True),
+            _command_result(success=False, status_code=502, error="Connection to sandbox failed", retryable=True),
             _command_result(success=True, status_code=200),
         ]
 

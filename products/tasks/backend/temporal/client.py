@@ -1,3 +1,4 @@
+import uuid
 import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Optional
@@ -13,6 +14,7 @@ from posthog.temporal.common.client import async_connect, sync_connect
 
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
+from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -284,3 +286,35 @@ def execute_video_segment_clustering_workflow(team_id: int, skip_priming: bool =
     except Exception as e:
         logger.exception("video_clustering_workflow_failed", extra={"team_id": team_id, "error": str(e)})
         raise
+
+
+def execute_twig_agent_relay_workflow(
+    run_id: str,
+    text: str,
+    relay_id: str | None = None,
+    user_message_ts: str | None = None,
+    delete_progress: bool = True,
+    reaction_emoji: str = "white_check_mark",
+) -> str:
+    relay_id = relay_id or str(uuid.uuid4())
+    workflow_id = f"twig-agent-relay-{run_id}-{relay_id}"
+
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            "twig-agent-relay",
+            RelaySlackMessageInput(
+                run_id=run_id,
+                relay_id=relay_id,
+                text=text,
+                user_message_ts=user_message_ts,
+                delete_progress=delete_progress,
+                reaction_emoji=reaction_emoji,
+            ),
+            id=workflow_id,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            task_queue=settings.TASKS_TASK_QUEUE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+    )
+    return relay_id

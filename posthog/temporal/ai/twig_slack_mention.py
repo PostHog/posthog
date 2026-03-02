@@ -749,9 +749,9 @@ def forward_twig_followup_activity(
         distinct_id = created_by.distinct_id or f"user_{created_by.id}"
         auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
 
-    result = send_user_message(task_run, user_text, auth_token=auth_token)
-    if not result.success and result.retryable:
-        result = send_user_message(task_run, user_text, auth_token=auth_token, timeout=45)
+    result = send_user_message(task_run, user_text, auth_token=auth_token, timeout=90)
+    if not result.success and result.retryable and result.status_code != 504:
+        result = send_user_message(task_run, user_text, auth_token=auth_token, timeout=90)
 
     if not result.success:
         log.warning(
