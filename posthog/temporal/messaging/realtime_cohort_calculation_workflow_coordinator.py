@@ -6,6 +6,7 @@ import dataclasses
 from typing import Any, Optional, TypedDict
 
 from django.conf import settings
+from django.utils import timezone
 
 import temporalio.common
 import temporalio.activity
@@ -36,8 +37,21 @@ class QueryPercentileThresholdsInput:
 class QueryPercentileThresholds:
     """Query duration percentile thresholds for cohort filtering."""
 
-    min_threshold_seconds: float  # Threshold for the minimum percentile
-    max_threshold_seconds: float  # Threshold for the maximum percentile
+    min_threshold_ms: int = 0  # Threshold for the minimum percentile (milliseconds)
+    max_threshold_ms: int = 0  # Threshold for the maximum percentile (milliseconds)
+
+    # Backward compatibility fields for old field names
+    min_threshold_seconds: Optional[float] = dataclasses.field(default=None)
+    max_threshold_seconds: Optional[float] = dataclasses.field(default=None)
+
+    def __post_init__(self):
+        """Handle backward compatibility for old field names from Temporal deserialization."""
+        # If we have the old field names, convert them to the new format
+        if self.min_threshold_seconds is not None and self.min_threshold_ms == 0:
+            self.min_threshold_ms = int(self.min_threshold_seconds * 1000)
+
+        if self.max_threshold_seconds is not None and self.max_threshold_ms == 0:
+            self.max_threshold_ms = int(self.max_threshold_seconds * 1000)
 
 
 @dataclasses.dataclass
@@ -66,8 +80,12 @@ def _apply_duration_filtering(queryset, thresholds: QueryPercentileThresholds | 
         return queryset
 
     # Convert thresholds from seconds to milliseconds to match database field
-    min_threshold_ms = thresholds.min_threshold_seconds * 1000
-    max_threshold_ms = thresholds.max_threshold_seconds * 1000
+    min_threshold_ms = thresholds.min_threshold_ms
+    max_threshold_ms = thresholds.max_threshold_ms
+
+    LOGGER.info(
+        f"Applying duration filter: min_threshold_ms={min_threshold_ms}, max_threshold_ms={max_threshold_ms}, is_p100={is_p100}"
+    )
 
     # Special case: if this is p100 (no upper limit), only apply lower bound
     # and include cohorts without duration data (NULL values)
@@ -77,12 +95,15 @@ def _apply_duration_filtering(queryset, thresholds: QueryPercentileThresholds | 
         # 2. Have NULL duration (haven't been calculated yet)
         from django.db.models import Q
 
-        return queryset.filter(
-            Q(last_calculation_duration_ms__gte=min_threshold_ms) | Q(last_calculation_duration_ms__isnull=True)
+        filter_condition = Q(last_calculation_duration_ms__gte=min_threshold_ms) | Q(
+            last_calculation_duration_ms__isnull=True
         )
+        LOGGER.info(f"P100 filter: duration >= {min_threshold_ms} OR NULL")
+        return queryset.filter(filter_condition)
     else:
         # Normal case: apply both upper and lower bounds
         # Only include cohorts with duration data in the specified range
+        LOGGER.info(f"Normal filter: {min_threshold_ms} <= duration < {max_threshold_ms}")
         return queryset.filter(
             last_calculation_duration_ms__gte=min_threshold_ms, last_calculation_duration_ms__lt=max_threshold_ms
         )
@@ -151,60 +172,63 @@ class RealtimeCohortSelectionResult:
 async def get_query_percentile_thresholds_activity(
     inputs: QueryPercentileThresholdsInput,
 ) -> QueryPercentileThresholds | None:
-    """Get query duration percentile thresholds from ClickHouse for the last 24 hours."""
+    """Get query duration percentile thresholds from cohort database for the last 24 hours."""
 
     @database_sync_to_async
     def get_percentile_thresholds():
-        from posthog.clickhouse.client import sync_execute
-
         # Default percentiles if not specified
         min_percentile = inputs.min_percentile if inputs.min_percentile is not None else 0.0
         max_percentile = inputs.max_percentile if inputs.max_percentile is not None else 100.0
 
-        # Convert to decimal values for ClickHouse quantile function (0.0-1.0)
-        min_quantile = min_percentile / 100.0
-        max_quantile = max_percentile / 100.0
+        # Calculate percentiles directly from cohort last_calculation_duration_ms field
+        # This uses the same metric that we store during cohort calculation (Python timing)
 
-        query = f"""
-        SELECT
-            quantile({min_quantile})(query_duration_ms) / 1000 as min_threshold,
-            quantile({max_quantile})(query_duration_ms) / 1000 as max_threshold
-        FROM query_log_archive
-        WHERE lc_feature = 'behavioral_cohorts'
-            AND event_time >= now() - INTERVAL 1 DAY
-            AND type = 'QueryFinish'
-            AND query_duration_ms > 0
-        """
+        from posthog.models.cohort.cohort import Cohort
+
+        # Get cohorts with recent duration data (past 24 hours)
+        recent_cohorts = Cohort.objects.filter(
+            last_calculation__gte=timezone.now() - dt.timedelta(hours=24),
+            last_calculation_duration_ms__isnull=False,
+            last_calculation_duration_ms__gt=0,
+            deleted=False,
+        ).values_list("last_calculation_duration_ms", flat=True)
+
+        if not recent_cohorts:
+            # No historical data available - return None to disable duration filtering
+            return None
+
+        # Calculate percentiles using Python (since we're already in Python context)
+        import statistics
+
+        durations_list = list(recent_cohorts)
+
+        if len(durations_list) < 2:
+            # Need at least 2 data points for meaningful percentiles
+            return None
+
+        # Convert percentiles to quantiles and calculate thresholds (keep in milliseconds)
+        # Use min() to handle edge case where we don't have enough data points
+        quantiles = statistics.quantiles(durations_list, n=100)
+        min_index = max(0, min(int(min_percentile) - 1, len(quantiles) - 1))
+        max_index = max(0, min(int(max_percentile) - 1, len(quantiles) - 1))
+        min_threshold = quantiles[min_index]
+        max_threshold = quantiles[max_index]
 
         try:
-            result = sync_execute(query)
-
-            # ClickHouse sync_execute returns a list of rows, each row is a tuple
-            if not result or not isinstance(result, list) or len(result) == 0:
-                # No historical data available - return None to disable duration filtering
-                # When there's no query history, percentile-based filtering doesn't make sense
-                return None
-
-            first_row = result[0]
-            if not first_row or len(first_row) < 2:
-                return None
-
-            min_threshold, max_threshold = first_row[0], first_row[1]
-
             # Handle NULL/None values - if we can't get meaningful thresholds, disable filtering
             if min_threshold is None or max_threshold is None:
                 return None
 
-            # Ensure we can convert to float
+            # Ensure thresholds are valid numbers
             try:
-                final_min = float(min_threshold)
-                final_max = float(max_threshold)
+                float(min_threshold)
+                float(max_threshold)
             except (ValueError, TypeError):
                 return None
 
             return QueryPercentileThresholds(
-                min_threshold_seconds=final_min,
-                max_threshold_seconds=final_max,
+                min_threshold_ms=int(min_threshold),
+                max_threshold_ms=int(max_threshold),
             )
         except Exception as e:
             LOGGER.exception(f"Error querying percentile thresholds: {e}")
@@ -233,7 +257,7 @@ async def get_realtime_cohort_selection_activity(
             max_p = inputs.duration_percentile_max if inputs.duration_percentile_max is not None else 100.0
             LOGGER.info(
                 f"Duration percentile filtering with thresholds: "
-                f"p{min_p}={thresholds.min_threshold_seconds:.2f}s, p{max_p}={thresholds.max_threshold_seconds:.2f}s"
+                f"p{min_p}={thresholds.min_threshold_ms / 1000:.2f}s, p{max_p}={thresholds.max_threshold_ms / 1000:.2f}s"
             )
 
         # If cohort_id is specified, just return that specific cohort ID if it exists
@@ -260,10 +284,27 @@ async def get_realtime_cohort_selection_activity(
                 if thresholds and (
                     inputs.duration_percentile_min is not None or inputs.duration_percentile_max is not None
                 ):
+                    # Log before filtering to see what we're starting with
+                    before_filter_cohorts = list(
+                        team_cohort_queryset.order_by("id").values("id", "last_calculation_duration_ms")
+                    )
+                    LOGGER.info(
+                        f"Before duration filtering: {len(before_filter_cohorts)} cohorts with durations: {before_filter_cohorts}"
+                    )
+
                     team_cohort_queryset = _apply_duration_filtering(
                         team_cohort_queryset, thresholds, is_p100=(inputs.duration_percentile_max == 100.0)
                     )
                 team_cohort_ids = list(team_cohort_queryset.order_by("id").values_list("id", flat=True))
+
+                # Log which cohorts were selected after filtering
+                if thresholds and (
+                    inputs.duration_percentile_min is not None or inputs.duration_percentile_max is not None
+                ):
+                    min_p = inputs.duration_percentile_min if inputs.duration_percentile_min is not None else 0.0
+                    max_p = inputs.duration_percentile_max if inputs.duration_percentile_max is not None else 100.0
+                    LOGGER.info(f"After p{min_p}-p{max_p} filtering: {len(team_cohort_ids)} cohorts: {team_cohort_ids}")
+
                 selected_cohort_ids.extend(team_cohort_ids)
 
         # Step 2: Add sampled cohort IDs for global percentage (other teams)
@@ -346,8 +387,8 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
             )
             if thresholds:
                 workflow_logger.info(
-                    f"Query duration thresholds from last 24h: p{min_p}={thresholds.min_threshold_seconds:.2f}s, "
-                    f"p{max_p}={thresholds.max_threshold_seconds:.2f}s"
+                    f"Query duration thresholds from last 24h: p{min_p}={thresholds.min_threshold_ms / 1000:.2f}s, "
+                    f"p{max_p}={thresholds.max_threshold_ms / 1000:.2f}s"
                 )
             else:
                 workflow_logger.info(
