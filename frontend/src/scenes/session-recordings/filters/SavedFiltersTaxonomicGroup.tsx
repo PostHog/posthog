@@ -1,23 +1,28 @@
 import { useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { TaxonomicFilterRenderProps } from 'lib/components/TaxonomicFilter/types'
 
 import { SessionRecordingPlaylistType } from '~/types'
 
-import { sessionRecordingSavedFiltersLogic } from './sessionRecordingSavedFiltersLogic'
-
 export function SavedFiltersTaxonomicGroup({
     onChange,
     infiniteListLogicProps,
 }: Pick<TaxonomicFilterRenderProps, 'onChange' | 'infiniteListLogicProps'>): JSX.Element {
-    const { items, searchQuery } = useValues(infiniteListLogic(infiniteListLogicProps))
-    const { requestApplySavedFilter } = sessionRecordingSavedFiltersLogic.actions
+    const { items, searchQuery, isLoading } = useValues(infiniteListLogic(infiniteListLogicProps))
 
     const filters = items.results as unknown as SessionRecordingPlaylistType[]
     const hasResults = filters.length > 0
+
+    if (isLoading && !hasResults) {
+        return (
+            <div className="p-2 flex items-center justify-center">
+                <Spinner className="text-2xl" />
+            </div>
+        )
+    }
 
     return (
         <div className="px-1 pt-1.5 pb-2.5">
@@ -31,7 +36,6 @@ export function SavedFiltersTaxonomicGroup({
                                 size="small"
                                 fullWidth
                                 onClick={() => {
-                                    requestApplySavedFilter(filter)
                                     onChange(filter.short_id, filter)
                                 }}
                             >

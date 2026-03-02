@@ -48,7 +48,6 @@ import {
     replayTaxonomicFiltersProperties,
 } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/SavedFiltersTaxonomicGroup'
-import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -998,8 +997,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Saved filters',
                         searchPlaceholder: 'saved filters',
                         type: TaxonomicFilterGroupType.ReplaySavedFilters,
-                        logic: sessionRecordingSavedFiltersLogic,
-                        value: 'savedFilters',
+                        endpoint: combineUrl(`api/projects/${projectId}/session_recording_playlists/`, {
+                            type: 'filters',
+                            order: '-last_modified_at',
+                        }).url,
                         render: SavedFiltersTaxonomicGroup,
                         getName: (filter: SessionRecordingPlaylistType) =>
                             filter.name || filter.derived_name || 'Unnamed',

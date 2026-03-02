@@ -439,12 +439,17 @@ const ReplayFiltersTab = ({
     const { setActiveFilterTab } = useActions(playlistFiltersLogic)
 
     useEffect(() => {
-        if (pendingFilterApplication) {
+        if (!pendingFilterApplication) {
+            return
+        }
+
+        if (pendingFilterApplication.filters) {
             setFilters(pendingFilterApplication.filters as Partial<RecordingUniversalFilters>)
             setAppliedSavedFilter(pendingFilterApplication)
             setActiveFilterTab('filters')
-            clearPendingFilterApplication()
         }
+
+        clearPendingFilterApplication()
     }, [pendingFilterApplication, setFilters, setActiveFilterTab, setAppliedSavedFilter, clearPendingFilterApplication])
 
     const updateSavedFilter = async (): Promise<void> => {

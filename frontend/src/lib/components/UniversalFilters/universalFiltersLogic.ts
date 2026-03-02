@@ -31,6 +31,12 @@ import {
 } from '../TaxonomicFilter/types'
 import type { universalFiltersLogicType } from './universalFiltersLogicType'
 
+function isApplicableSavedFilter(
+    item: unknown
+): item is SessionRecordingPlaylistType & { filters: NonNullable<SessionRecordingPlaylistType['filters']> } {
+    return typeof item === 'object' && item !== null && 'short_id' in item && 'filters' in item && item.filters != null
+}
+
 export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {
     type: FilterLogicalOperator.And,
     values: [
@@ -144,9 +150,9 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
 
         addGroupFilter: ({ taxonomicGroup, propertyKey, item }) => {
             if (taxonomicGroup.type === TaxonomicFilterGroupType.ReplaySavedFilters) {
-                sessionRecordingSavedFiltersLogic
-                    .findMounted()
-                    ?.actions.requestApplySavedFilter(item as unknown as SessionRecordingPlaylistType)
+                if (isApplicableSavedFilter(item)) {
+                    sessionRecordingSavedFiltersLogic.findMounted()?.actions.requestApplySavedFilter(item)
+                }
                 return
             }
             const newValues = [...values.filterGroup.values]
