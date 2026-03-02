@@ -346,6 +346,8 @@ def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
         batch_run_ids=inputs.batch_run_ids,
         clustering_params=inputs.clustering_params,
         analysis_level=inputs.analysis_level,
+        job_id=inputs.job_id,
+        job_name=inputs.job_name,
     )
 
     return ClusteringResult(

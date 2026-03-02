@@ -241,6 +241,8 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                         visualization_method=inputs.visualization_method,
                         max_samples=inputs.max_samples,
                     ),
+                    job_id=inputs.job_id,
+                    job_name=inputs.job_name,
                 )
             ],
             start_to_close_timeout=EMIT_ACTIVITY_TIMEOUT,

@@ -234,6 +234,8 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                             window_minutes=inputs.window_minutes,
                             model=inputs.model,
                             event_filters=job.event_filters,
+                            job_id=job.job_id,
+                            job_name=job.name,
                         ),
                         id=f"{child_id_prefix}{child_suffix}-{temporalio.workflow.now().isoformat()}",
                         execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),

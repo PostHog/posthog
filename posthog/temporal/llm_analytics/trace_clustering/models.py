@@ -287,6 +287,8 @@ class EmitEventsActivityInputs:
     analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
     batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
     clustering_params: ClusteringParams | None = None  # Params used for this run
+    job_id: int = 0  # 0 = no job (legacy/manual run without a job)
+    job_name: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
