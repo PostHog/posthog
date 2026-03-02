@@ -201,6 +201,11 @@ type SceneMainTitleProps = {
     className?: string
 
     /**
+     * Additional class name for the description wrapper
+     */
+    descriptionClassName?: string
+
+    /**
      * Optional callback to generate a name using AI
      */
     onGenerateName?: () => void
@@ -233,6 +238,7 @@ export function SceneTitleSection({
     actions,
     forceBackTo,
     className,
+    descriptionClassName,
     onGenerateName,
     isGeneratingName,
     maxToolProps,
@@ -392,6 +398,7 @@ export function SceneTitleSection({
                         forceEdit={forceEdit}
                         renameDebounceMs={renameDebounceMs}
                         saveOnBlur={saveOnBlur}
+                        className={descriptionClassName}
                     />
                 </div>
             )}
@@ -588,6 +595,7 @@ type SceneDescriptionProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    className?: string
 }
 
 function SceneDescription({
@@ -599,6 +607,7 @@ function SceneDescription({
     forceEdit = false,
     renameDebounceMs = 100,
     saveOnBlur = false,
+    className: descriptionClassName,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -728,7 +737,7 @@ function SceneDescription({
     }
 
     return (
-        <div className="scene-description relative focus-within:z-50">
+        <div className={cn('scene-description relative focus-within:z-50', descriptionClassName)}>
             <div className="-mx-[var(--button-padding-x-sm)] flex items-center gap-0">{Element}</div>
         </div>
     )
