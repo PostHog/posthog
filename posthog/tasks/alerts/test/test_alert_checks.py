@@ -884,6 +884,9 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert mock_send_notifications_for_breaches.call_count == 1
         assert mock_send_errors.call_count == 0
 
+        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        assert alert_check.state == AlertState.FIRING
+
     @parameterized.expand(
         [
             ("cannot_schedule", CHQueryErrorCannotScheduleTask),
@@ -910,9 +913,8 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         # 4 attempts (1 initial + 3 retries)
         assert mock_calculate.call_count == 4
-
+        assert mock_send_notifications_for_breaches.call_count == 0
         assert mock_send_errors.call_count == 0
-
         # No ERRORED alert check — the error propagates after exhausting retries
         alert_checks = AlertCheck.objects.filter(alert_configuration=self.alert["id"])
         assert alert_checks.count() == 0
