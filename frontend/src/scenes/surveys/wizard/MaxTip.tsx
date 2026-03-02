@@ -37,20 +37,22 @@ const TIPS_BY_STEP: Record<WizardStep, Tip[]> = {
         { text: 'Every field is friction. Only ask what you truly need to know.', Hog: DetectiveHog },
     ],
     where: [
-        { text: 'Surveys work best after someone takes an action — signup, purchase, feature use.', Hog: StarHog },
         { text: "Landing pages are usually too early. Users haven't formed opinions yet.", Hog: DetectiveHog },
         { text: 'Returning visitors are more likely to respond than first-time visitors.', Hog: ProfessorHog },
         {
             text: 'Exit-intent surveys on pricing pages can capture valuable "why not buy" feedback.',
             Hog: DetectiveHog,
         },
-        { text: 'Show NPS surveys after users have experienced value, not immediately after signup.', Hog: StarHog },
         {
             text: 'Dashboard and settings pages catch users who are already engaged with your product.',
             Hog: MicrophoneHog,
         },
     ],
     when: [
+        {
+            text: 'Feedback buttons work great for always-available surveys. Pop-ups are better for targeted moments.',
+            Hog: ProfessorHog,
+        },
         {
             text: 'Give users a moment to orient before showing a survey. Immediate popups get dismissed reflexively.',
             Hog: ProfessorHog,

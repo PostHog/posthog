@@ -1,27 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonInputSelect, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonInputSelect } from '@posthog/lemon-ui'
 
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { PropertyDefinitionType, SurveyDisplayConditions, SurveyMatchType, SurveySchedule } from '~/types'
+import { PropertyDefinitionType, SurveyDisplayConditions, SurveyMatchType } from '~/types'
 
 import { surveyLogic } from '../../surveyLogic'
-import { surveyWizardLogic } from '../surveyWizardLogic'
-
-const FREQUENCY_OPTIONS: { value: string; days: number | undefined; label: string }[] = [
-    { value: 'once', days: undefined, label: 'Once ever' },
-    { value: 'yearly', days: 365, label: 'Every year' },
-    { value: 'quarterly', days: 90, label: 'Every 3 months' },
-    { value: 'monthly', days: 30, label: 'Every month' },
-]
 
 export function WhereStep(): JSX.Element {
     const { survey } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
-    const { recommendedFrequency } = useValues(surveyWizardLogic)
 
     const { options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -30,13 +21,6 @@ export function WhereStep(): JSX.Element {
     const conditions: Partial<SurveyDisplayConditions> = survey.conditions || {}
     const targetingMode = conditions.urlMatchType ? 'specific' : 'all'
     const urlPattern = conditions.url || ''
-
-    // Convert days to frequency string value
-    const daysToFrequency = (days: number | undefined): string => {
-        const option = FREQUENCY_OPTIONS.find((opt) => opt.days === days)
-        return option?.value || 'monthly'
-    }
-    const frequency = daysToFrequency(conditions.seenSurveyWaitPeriodInDays)
 
     useEffect(() => {
         if (targetingMode === 'specific' && urlOptions?.status !== 'loading' && urlOptions?.status !== 'loaded') {
@@ -61,13 +45,6 @@ export function WhereStep(): JSX.Element {
 
     const setUrlPattern = (pattern: string): void => {
         setSurveyValue('conditions', { ...conditions, url: pattern, urlMatchType: SurveyMatchType.Contains })
-    }
-
-    const setFrequency = (value: string): void => {
-        const option = FREQUENCY_OPTIONS.find((opt) => opt.value === value)
-        const isOnce = value === 'once'
-        setSurveyValue('schedule', isOnce ? SurveySchedule.Once : SurveySchedule.Always)
-        setSurveyValue('conditions', { ...conditions, seenSurveyWaitPeriodInDays: option?.days })
     }
 
     return (
@@ -141,27 +118,6 @@ export function WhereStep(): JSX.Element {
                             Select from your most visited pages or type a custom pattern
                         </p>
                     </div>
-                )}
-            </div>
-
-            {/* Frequency */}
-            <div>
-                <h2 className="text-xl font-semibold mb-2">How often can someone see this?</h2>
-                <p className="text-secondary mb-6">Control how frequently the same person can be shown this survey</p>
-
-                <LemonSegmentedButton
-                    value={frequency}
-                    onChange={setFrequency}
-                    options={FREQUENCY_OPTIONS.map((opt) => ({
-                        ...opt,
-                        tooltip:
-                            opt.value === recommendedFrequency.value ? `Recommended for this survey type` : undefined,
-                    }))}
-                    fullWidth
-                />
-
-                {recommendedFrequency.value === frequency && (
-                    <p className="text-sm text-success mt-3">{recommendedFrequency.reason}</p>
                 )}
             </div>
         </div>

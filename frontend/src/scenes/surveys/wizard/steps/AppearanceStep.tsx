@@ -18,6 +18,8 @@ import {
     SurveyPosition,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
+    SurveyTabPosition,
+    SurveyType,
 } from '~/types'
 
 import { NewSurvey, SurveyTheme, WEB_SAFE_FONTS, defaultSurveyAppearance, surveyThemes } from '../../constants'
@@ -78,12 +80,12 @@ export function AppearanceStep(): JSX.Element {
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left: Controls */}
-            <div className="lg:col-span-2 space-y-4">
+            <div className="lg:col-span-2 space-y-5">
                 <div>
                     <h2 className="text-xl font-semibold mb-1">How should it look?</h2>
                     <p className="text-secondary text-sm">
-                        Customize colors and styling. You can use CSS variables (e.g. var(--brand-color)) for dynamic
-                        theming.
+                        Customize colors and styling. You can use CSS variables (e.g.{' '}
+                        <code className="text-xs">var(--brand-color)</code>) for dynamic theming.
                     </p>
                 </div>
 
@@ -103,7 +105,6 @@ export function AppearanceStep(): JSX.Element {
 
                 {/* Color customization */}
                 <div className="space-y-2">
-                    <h3 className="font-medium m-0 text-sm">Fine-tune colors</h3>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                         <LemonField.Pure label="Background" className="gap-1">
                             <ColorInput
@@ -158,6 +159,15 @@ export function AppearanceStep(): JSX.Element {
                                 </LemonField.Pure>
                             </>
                         )}
+                        {survey.type === SurveyType.Widget && (
+                            <LemonField.Pure label="Button color" className="gap-1">
+                                <ColorInput
+                                    value={appearance.widgetColor}
+                                    onChange={(widgetColor) => onAppearanceChange({ widgetColor })}
+                                    disabled={!surveysStylingAvailable}
+                                />
+                            </LemonField.Pure>
+                        )}
                     </div>
                 </div>
 
@@ -186,24 +196,45 @@ export function AppearanceStep(): JSX.Element {
                             content: (
                                 <div className="space-y-4">
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                                        <LemonField.Pure label="Position" className="gap-1">
-                                            <LemonSelect
-                                                value={appearance.position}
-                                                onChange={(position) => onAppearanceChange({ position })}
-                                                options={[
-                                                    { label: 'Bottom right', value: SurveyPosition.Right },
-                                                    { label: 'Bottom left', value: SurveyPosition.Left },
-                                                    { label: 'Bottom center', value: SurveyPosition.Center },
-                                                    { label: 'Top right', value: SurveyPosition.TopRight },
-                                                    { label: 'Top left', value: SurveyPosition.TopLeft },
-                                                    { label: 'Top center', value: SurveyPosition.TopCenter },
-                                                    { label: 'Middle right', value: SurveyPosition.MiddleRight },
-                                                    { label: 'Middle left', value: SurveyPosition.MiddleLeft },
-                                                    { label: 'Middle center', value: SurveyPosition.MiddleCenter },
-                                                ]}
-                                                fullWidth
-                                                disabled={!surveysStylingAvailable}
-                                            />
+                                        <LemonField.Pure
+                                            label={survey.type === SurveyType.Widget ? 'Button position' : 'Position'}
+                                            className="gap-1"
+                                        >
+                                            {survey.type === SurveyType.Widget ? (
+                                                <LemonSelect
+                                                    value={appearance.tabPosition ?? SurveyTabPosition.Right}
+                                                    onChange={(tabPosition) => onAppearanceChange({ tabPosition })}
+                                                    options={[
+                                                        { label: 'Right', value: SurveyTabPosition.Right },
+                                                        { label: 'Left', value: SurveyTabPosition.Left },
+                                                        { label: 'Top', value: SurveyTabPosition.Top },
+                                                        { label: 'Bottom', value: SurveyTabPosition.Bottom },
+                                                    ]}
+                                                    fullWidth
+                                                    disabled={!surveysStylingAvailable}
+                                                />
+                                            ) : (
+                                                <LemonSelect
+                                                    value={appearance.position}
+                                                    onChange={(position) => onAppearanceChange({ position })}
+                                                    options={[
+                                                        { label: 'Bottom right', value: SurveyPosition.Right },
+                                                        { label: 'Bottom left', value: SurveyPosition.Left },
+                                                        { label: 'Bottom center', value: SurveyPosition.Center },
+                                                        { label: 'Top right', value: SurveyPosition.TopRight },
+                                                        { label: 'Top left', value: SurveyPosition.TopLeft },
+                                                        { label: 'Top center', value: SurveyPosition.TopCenter },
+                                                        { label: 'Middle right', value: SurveyPosition.MiddleRight },
+                                                        { label: 'Middle left', value: SurveyPosition.MiddleLeft },
+                                                        {
+                                                            label: 'Middle center',
+                                                            value: SurveyPosition.MiddleCenter,
+                                                        },
+                                                    ]}
+                                                    fullWidth
+                                                    disabled={!surveysStylingAvailable}
+                                                />
+                                            )}
                                         </LemonField.Pure>
                                         <LemonField.Pure label="Font family" className="gap-1">
                                             <LemonSelect

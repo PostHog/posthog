@@ -13,8 +13,8 @@ interface Step {
 
 const STEPS: Step[] = [
     { key: 'questions', label: 'Questions' },
-    { key: 'where', label: 'Where' },
-    { key: 'when', label: 'When' },
+    { key: 'where', label: 'Audience' },
+    { key: 'when', label: 'Presentation' },
     { key: 'appearance', label: 'Customize', optional: true },
 ]
 
