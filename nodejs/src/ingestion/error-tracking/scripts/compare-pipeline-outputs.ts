@@ -51,6 +51,62 @@ const IGNORED_FIELDS = new Set([
     '_partition',
 ])
 
+// Property fields to ignore - these are added by Hog transformer but not by Cymbal
+// They represent enhancements in the Node.js pipeline that we accept as expected differences
+const IGNORED_PROPERTY_FIELDS = new Set([
+    // Hog transformer metadata
+    '$transformations_succeeded',
+    // Extra GeoIP fields added by Hog transformer but not by Cymbal's GeoIP
+    // Cymbal only adds: country_name, city_name, country_code, continent_name, continent_code, postal_code, time_zone
+    '$geoip_latitude',
+    '$geoip_longitude',
+    '$geoip_accuracy_radius',
+    '$geoip_subdivision_1_code',
+    '$geoip_subdivision_1_name',
+    '$geoip_subdivision_2_code',
+    '$geoip_subdivision_2_name',
+    '$geoip_city_confidence',
+])
+
+// Path patterns to ignore - these are fields generated at processing time that will
+// always differ between pipelines (like UUIDs assigned to exception records)
+const IGNORED_PATH_PATTERNS = [
+    // Exception record IDs are generated during processing
+    /^properties\.\$exception_list\[\d+\]\.id$/,
+    /^properties\.\$exception_fingerprint_record\[\d+\]\.id$/,
+]
+
+// Arrays that should be compared as sets (order doesn't matter)
+// Cymbal uses HashSet which has non-deterministic iteration order, so these
+// arrays can have different ordering even within the same pipeline run
+const UNORDERED_ARRAY_PATHS = new Set([
+    'properties.$exception_types',
+    'properties.$exception_values',
+    'properties.$exception_sources',
+    'properties.$exception_functions',
+])
+
+function shouldIgnorePath(path: string): boolean {
+    return IGNORED_PATH_PATTERNS.some((pattern) => pattern.test(path))
+}
+
+function arraysEqualAsSet(a: unknown[], b: unknown[]): boolean {
+    if (a.length !== b.length) {
+        return false
+    }
+    const aSet = new Set(a.map((x) => JSON.stringify(x)))
+    const bSet = new Set(b.map((x) => JSON.stringify(x)))
+    if (aSet.size !== bSet.size) {
+        return false
+    }
+    for (const item of aSet) {
+        if (!bSet.has(item)) {
+            return false
+        }
+    }
+    return true
+}
+
 interface RawKafkaEvent {
     uuid: string
     event: string
@@ -221,6 +277,36 @@ function jsonStringsEqual(a: string, b: string): boolean {
 }
 
 /**
+ * Get differences between two JSON strings (for person_properties debugging).
+ */
+function getJsonDifferences(a: string, b: string): string[] {
+    const differences: string[] = []
+    try {
+        const aObj = parseJSON(a) as Record<string, unknown>
+        const bObj = parseJSON(b) as Record<string, unknown>
+        const allKeys = new Set([...Object.keys(aObj), ...Object.keys(bObj)])
+
+        for (const key of allKeys) {
+            const aVal = aObj[key]
+            const bVal = bObj[key]
+            const aHas = key in aObj
+            const bHas = key in bObj
+
+            if (!aHas && bHas) {
+                differences.push(`  + ${key}: ${JSON.stringify(bVal)}`)
+            } else if (aHas && !bHas) {
+                differences.push(`  - ${key}: ${JSON.stringify(aVal)}`)
+            } else if (JSON.stringify(aVal) !== JSON.stringify(bVal)) {
+                differences.push(`  ~ ${key}: ${JSON.stringify(aVal)} → ${JSON.stringify(bVal)}`)
+            }
+        }
+    } catch {
+        differences.push(`  (failed to parse JSON)`)
+    }
+    return differences
+}
+
+/**
  * Sort object keys recursively for consistent comparison.
  */
 function sortObjectKeys(obj: unknown): unknown {
@@ -242,6 +328,11 @@ function sortObjectKeys(obj: unknown): unknown {
  */
 function deepEqual(a: unknown, b: unknown, path: string, hasPersonInDb: boolean): string[] {
     const differences: string[] = []
+
+    // Skip paths that match ignored patterns (e.g., dynamically generated IDs)
+    if (shouldIgnorePath(path)) {
+        return differences
+    }
 
     if (a === b) {
         return differences
@@ -271,6 +362,15 @@ function deepEqual(a: unknown, b: unknown, path: string, hasPersonInDb: boolean)
     }
 
     if (Array.isArray(a) && Array.isArray(b)) {
+        // For unordered arrays (like $exception_types), compare as sets
+        // Cymbal uses HashSet which has non-deterministic iteration order
+        if (UNORDERED_ARRAY_PATHS.has(path)) {
+            if (!arraysEqualAsSet(a, b)) {
+                differences.push(`${path}: set contents differ: [${a.join(', ')}] vs [${b.join(', ')}]`)
+            }
+            return differences
+        }
+
         if (a.length !== b.length) {
             differences.push(`${path}: array length ${a.length} vs ${b.length}`)
         }
@@ -299,6 +399,16 @@ function deepEqual(a: unknown, b: unknown, path: string, hasPersonInDb: boolean)
             const aHasKey = key in aObj
             const bHasKey = key in bObj
 
+            // Skip ignored property fields (Hog transformer additions not in Cymbal)
+            // Only skip if missing in original (Cymbal) but present in nodejs
+            if (path === 'properties' && IGNORED_PROPERTY_FIELDS.has(key)) {
+                if (!aHasKey && bHasKey) {
+                    // Expected: Node.js has it, Cymbal doesn't - skip this difference
+                    continue
+                }
+                // If both have it or only Cymbal has it, still compare
+            }
+
             // Special handling for person fields
             if (PERSON_FIELDS.has(key)) {
                 if (hasPersonInDb) {
@@ -314,7 +424,9 @@ function deepEqual(a: unknown, b: unknown, path: string, hasPersonInDb: boolean)
                         // Special handling for person_properties (JSON string comparison)
                         if (key === 'person_properties' && typeof aVal === 'string' && typeof bVal === 'string') {
                             if (!jsonStringsEqual(aVal, bVal)) {
+                                const jsonDiffs = getJsonDifferences(aVal, bVal)
                                 differences.push(`${newPath}: JSON content differs`)
+                                differences.push(...jsonDiffs.map((d) => `${newPath}${d}`))
                             }
                         } else if (
                             key === 'person_created_at' &&
