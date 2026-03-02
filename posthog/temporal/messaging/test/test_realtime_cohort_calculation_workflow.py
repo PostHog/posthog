@@ -710,8 +710,8 @@ class TestDurationFiltering:
         mock_queryset.filter.return_value = mock_filtered_queryset
 
         thresholds = QueryPercentileThresholds(
-            min_threshold_seconds=5.0,  # 5 seconds
-            max_threshold_seconds=30.0,  # 30 seconds
+            min_threshold_ms=5000,  # 5 seconds
+            max_threshold_ms=30000,  # 30 seconds
         )
 
         result = _apply_duration_filtering(mock_queryset, thresholds, is_p100=False)
@@ -731,8 +731,8 @@ class TestDurationFiltering:
         mock_queryset.filter.return_value = mock_filtered_queryset
 
         thresholds = QueryPercentileThresholds(
-            min_threshold_seconds=60.0,  # 60 seconds minimum
-            max_threshold_seconds=120.0,  # This value doesn't matter for p100
+            min_threshold_ms=60000,  # 60 seconds minimum
+            max_threshold_ms=120000,  # This value doesn't matter for p100
         )
 
         result = _apply_duration_filtering(mock_queryset, thresholds, is_p100=True)
@@ -748,7 +748,7 @@ class TestDurationFiltering:
     def test_apply_duration_filtering_p100_vs_normal(self):
         """Should behave differently for p100 vs normal ranges with same thresholds."""
         mock_queryset = Mock()
-        thresholds = QueryPercentileThresholds(min_threshold_seconds=10.0, max_threshold_seconds=50.0)
+        thresholds = QueryPercentileThresholds(min_threshold_ms=10.0, max_threshold_ms=50.0)
 
         # Normal range (p90-p95)
         _apply_duration_filtering(mock_queryset, thresholds, is_p100=False)
@@ -763,74 +763,117 @@ class TestDurationFiltering:
         # Should use different filtering logic
         assert normal_call != p100_call
 
-    def test_apply_duration_filtering_converts_seconds_to_ms(self):
-        """Should convert threshold values from seconds to milliseconds."""
+    def test_apply_duration_filtering_uses_millisecond_values(self):
+        """Should use millisecond threshold values directly in filtering."""
         mock_queryset = Mock()
 
         thresholds = QueryPercentileThresholds(
-            min_threshold_seconds=2.5,  # 2.5 seconds
-            max_threshold_seconds=7.25,  # 7.25 seconds
+            min_threshold_ms=2500,  # 2.5 seconds in milliseconds
+            max_threshold_ms=7250,  # 7.25 seconds in milliseconds
         )
 
         _apply_duration_filtering(mock_queryset, thresholds, is_p100=False)
 
         mock_queryset.filter.assert_called_once_with(
-            last_calculation_duration_ms__gte=2500,  # 2.5s * 1000
-            last_calculation_duration_ms__lt=7250,  # 7.25s * 1000
+            last_calculation_duration_ms__gte=2500,
+            last_calculation_duration_ms__lt=7250,
         )
+
+    def test_query_percentile_thresholds_backward_compatibility(self):
+        """Test that QueryPercentileThresholds handles old field names correctly."""
+        # Test backward compatibility by creating instance with old field names
+        # This simulates what Temporal would do when deserializing old data
+        thresholds = QueryPercentileThresholds(min_threshold_ms=0, max_threshold_ms=0)
+
+        # Simulate Temporal setting the old field names
+        thresholds.min_threshold_seconds = 2.5
+        thresholds.max_threshold_seconds = 7.25
+
+        # Trigger post_init manually to simulate deserialization
+        thresholds.__post_init__()
+
+        # Should have converted to milliseconds
+        assert thresholds.min_threshold_ms == 2500
+        assert thresholds.max_threshold_ms == 7250
 
 
 class TestQueryPercentileThresholdsActivity:
     """Tests for ClickHouse percentile threshold calculation."""
 
     @pytest.mark.asyncio
+    @pytest.mark.django_db
     async def test_get_percentile_thresholds_success(self):
-        """Should successfully query and return percentile thresholds."""
+        """Should successfully calculate percentile thresholds from cohort data."""
         inputs = QueryPercentileThresholdsInput(
             min_percentile=90.0,  # p90
             max_percentile=95.0,  # p95
         )
 
-        # Mock ClickHouse result: [(min_threshold, max_threshold)]
-        mock_result = [(15.5, 45.2)]
+        # Mock cohort queryset with duration data (in milliseconds)
+        mock_durations = [
+            1000,
+            2000,
+            3000,
+            4000,
+            5000,
+            6000,
+            7000,
+            8000,
+            9000,
+            10000,
+            11000,
+            12000,
+            13000,
+            14000,
+            15000,
+            16000,
+            17000,
+            18000,
+            19000,
+            20000,
+        ]
 
-        with patch("posthog.clickhouse.client.sync_execute") as mock_execute:
-            mock_execute.return_value = mock_result
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            # Create a mock values_list queryset that behaves like an actual queryset
+            mock_values_list_qs = Mock()
+            mock_values_list_qs.__bool__ = Mock(return_value=True)  # Make it truthy for the `if not` check
+            mock_values_list_qs.__iter__ = Mock(return_value=iter(mock_durations))  # Make it iterable
+            mock_values_list_qs.__len__ = Mock(return_value=len(mock_durations))  # Support len()
+
+            # Create a filter queryset that returns the values_list queryset
+            mock_filter_qs = Mock()
+            mock_filter_qs.values_list.return_value = mock_values_list_qs
+
+            mock_cohort.objects.filter.return_value = mock_filter_qs
 
             result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is not None
-        assert result.min_threshold_seconds == 15.5
-        assert result.max_threshold_seconds == 45.2
-
-        # Verify query was called with correct percentiles
-        mock_execute.assert_called_once()
-        query_args = mock_execute.call_args[0][0]
-        assert "quantile(0.9)" in query_args  # 90.0 / 100.0
-        assert "quantile(0.95)" in query_args  # 95.0 / 100.0
-        assert "lc_feature = 'behavioral_cohorts'" in query_args
-        assert "INTERVAL 1 DAY" in query_args
+        # With 20 data points, p90 should be around 18000ms, p95 around 19000ms
+        assert result.min_threshold_ms >= 17000
+        assert result.min_threshold_ms <= 19000
+        assert result.max_threshold_ms >= 18000
+        assert result.max_threshold_ms <= 20000
 
     @pytest.mark.asyncio
     async def test_get_percentile_thresholds_defaults_to_p0_p100(self):
         """Should default to p0-p100 when percentiles not specified."""
         inputs = QueryPercentileThresholdsInput()  # No percentiles specified
 
-        mock_result = [(0.0, 120.5)]
+        # Mock cohort queryset with duration data (in milliseconds)
+        mock_durations = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
 
-        with patch("posthog.clickhouse.client.sync_execute") as mock_execute:
-            mock_execute.return_value = mock_result
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.values_list.return_value = mock_durations
+            mock_cohort.objects.filter.return_value = mock_queryset
 
             result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is not None
-        assert result.min_threshold_seconds == 0.0
-        assert result.max_threshold_seconds == 120.5
-
-        # Should use default percentiles 0.0 and 100.0
-        query_args = mock_execute.call_args[0][0]
-        assert "quantile(0.0)" in query_args
-        assert "quantile(1.0)" in query_args
+        # p0 should be the minimum value (500), p100 should be the maximum value (5000)
+        assert result.min_threshold_ms == 500  # p0 (min value)
+        assert result.max_threshold_ms == 5000  # p100 (max value)
 
     @pytest.mark.asyncio
     async def test_get_percentile_thresholds_no_historical_data(self):
@@ -931,8 +974,8 @@ class TestDurationFilteringIntegration:
         )
 
         thresholds = QueryPercentileThresholds(
-            min_threshold_seconds=10.0,  # 10 seconds
-            max_threshold_seconds=25.0,  # 25 seconds
+            min_threshold_ms=10000,  # 10 seconds
+            max_threshold_ms=25000,  # 25 seconds
         )
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
@@ -968,8 +1011,8 @@ class TestDurationFilteringIntegration:
         )
 
         thresholds = QueryPercentileThresholds(
-            min_threshold_seconds=30.0,  # 30 seconds minimum
-            max_threshold_seconds=60.0,  # Max doesn't matter for p100
+            min_threshold_ms=30000,  # 30 seconds minimum
+            max_threshold_ms=60000,  # Max doesn't matter for p100
         )
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
@@ -1029,7 +1072,7 @@ class TestDurationFilteringIntegration:
             # No duration_percentile_min or duration_percentile_max set
         )
 
-        thresholds = QueryPercentileThresholds(min_threshold_seconds=15.0, max_threshold_seconds=40.0)
+        thresholds = QueryPercentileThresholds(min_threshold_ms=15.0, max_threshold_ms=40.0)
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
             mock_queryset = Mock()
