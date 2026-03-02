@@ -66,7 +66,8 @@ DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
 # Quorum for INSERT queries. "auto" = majority of replicas must acknowledge writes before
 # the INSERT returns. This ensures data is replicated before the subsequent SELECT reads it,
 # preventing stale reads from hitting a replica that hasn't received the data yet.
-# Disabled in tests because the test ClickHouse instance uses non-replicated tables.
+# Disabled in tests to avoid quorum behavior (tests usually run against a single-node or simplified
+# ClickHouse setup and we want them to remain fast and deterministic).
 PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST else "auto"
 
 
