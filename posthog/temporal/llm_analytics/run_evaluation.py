@@ -550,8 +550,9 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
         return {"verdict": None, "reasoning": "", "error": "Memory limit exceeded"}
     except HogVMException as e:
         return {"verdict": None, "reasoning": "", "error": f"Runtime error: {e}"}
-    except Exception as e:
-        return {"verdict": None, "reasoning": "", "error": f"Unexpected error: {e}"}
+    except Exception:
+        logger.exception("Unexpected error executing Hog eval bytecode")
+        return {"verdict": None, "reasoning": "", "error": "Unexpected error during evaluation"}
 
     reasoning = "\n".join(response.stdout) if response.stdout else ""
 

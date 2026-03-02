@@ -366,8 +366,11 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
         try:
             bytecode = compile_hog(source, "destination")
-        except Exception as e:
-            return Response({"error": f"Compilation error: {e}"}, status=400)
+        except serializers.ValidationError as e:
+            return Response({"error": f"Compilation error: {e.detail}"}, status=400)
+        except Exception:
+            logger.exception("Unexpected error compiling Hog source")
+            return Response({"error": "Compilation failed due to an unexpected error"}, status=400)
 
         team = Team.objects.get(id=self.team_id)
 
