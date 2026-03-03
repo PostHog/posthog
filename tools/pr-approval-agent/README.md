@@ -1,9 +1,17 @@
 # PR approval agent
 
 AI-assisted PR approval for PostHog.
-Runs deterministic safety gates, then calls Claude for evidence-bundle review and second-pass audit on eligible PRs.
+Deterministic safety gates first, then Claude reviews for showstoppers.
 
-## Quick start
+## Usage
+
+Add the `stamphog` label to a non-draft PR.
+The GitHub Action runs the agent and posts an approval or comment.
+The label is auto-removed after the run so it can be re-applied.
+
+Only org members (`MEMBER`/`OWNER` association) can trigger reviews.
+
+### Local testing
 
 ```bash
 # run from anywhere inside the posthog repo
@@ -12,23 +20,20 @@ uv run tools/pr-approval-agent/review_pr.py 46594
 # dry run (gates only, no LLM calls)
 uv run tools/pr-approval-agent/review_pr.py 46594 --dry-run
 
-# save full evidence bundle as JSON
+# save full result as JSON
 uv run tools/pr-approval-agent/review_pr.py 46594 --output-json /tmp/review.json
 
-# different repo
-uv run tools/pr-approval-agent/review_pr.py 123 --repo PostHog/other-repo
+# verbose (show agent tool calls)
+uv run tools/pr-approval-agent/review_pr.py 46594 -v
 ```
 
 Requires `gh` CLI authenticated and `ANTHROPIC_API_KEY` in your environment.
-The script uses PEP 723 inline metadata so `uv run` handles the `anthropic` dependency automatically — no venv setup needed.
+Uses PEP 723 inline metadata so `uv run` handles dependencies automatically.
 
 ## How it works
 
-The agent evaluates PRs through a pipeline of deterministic gates followed by (optionally) two LLM passes.
-Any gate failure stops the pipeline early and refuses approval.
-
 ```text
-PR number
+"stamphog" label added to PR
   │
   ▼
 Prerequisites
@@ -39,101 +44,90 @@ Prerequisites
   ▼
 Deny-list
   - Checks file paths + PR title against sensitive categories
-  - Any match → REFUSE (see deny categories below)
+  - Any match → gates DENY
   │
   ▼
 Tier classification
-  - T0-deterministic → AUTO-APPROVE (docs/tests/config only)
-  - T1-agent → proceed to LLM review
-  - T2-never → REFUSE (caught by deny-list, but belt-and-suspenders)
+  - T0-deterministic: docs/tests/config only
+  - T1-agent: eligible for review (sub-classified by risk)
+  - T2-never: caught by deny-list
   │
   ▼
-LLM Review (T1 only)
-  - Claude produces a structured evidence bundle
-  - Includes: change manifest, ownership assessment, review comments, tests, security
-  - Ownership context from CODEOWNERS-soft is provided as input — the LLM decides
-    whether the change warrants the owning team's attention
-  - Verdict: APPROVE / REFUSE / ESCALATE
+LLM Review (always runs)
+  - Claude Agent SDK with Read/Grep/Glob/Bash tools
+  - Explores the repo via git diff, reads source files if needed
+  - Looks for showstoppers: production breakage, security, missed deps
+  - Gates are authoritative — LLM can tighten but never loosen
   │
   ▼
-LLM Audit (second pass)
-  - Independent model verifies the first reviewer's assessment
-  - Checks deny-list compliance, intent↔diff alignment, missed review comments
-  - Any disagreement → REFUSE
-  │
-  ▼
-Final verdict
+Final verdict → GitHub review (approve or comment)
 ```
 
-## Approval criteria
+The bot never posts request-changes — only approves or comments.
 
-Based on analysis of 356 historically stamped PRs over ~90 days.
-The criteria balance coverage (automating what humans fast-approved) with safety (never auto-approving high-blast-radius changes).
+## Tiers
 
-### Tier 0 — deterministic auto-approve
+### T0 — deterministic
 
-No LLM judgment needed. The PR touches only safe paths:
+No LLM judgment needed. PR touches only safe paths:
 
 - Allow-listed extensions: `.md`, `.mdx`, `.txt`, `.rst`, `.json`, `.yaml`, `.yml`, `.toml`, `.ini`, `.cfg`, `.csv`, `.svg`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.ico`, `.webp`, `.snap`, `.lock`
 - Allow-listed paths: `docs/`, `README`, `CHANGELOG`, `LICENSE`, `CONTRIBUTING`, `.github/CODEOWNERS`, `.gitignore`, `.editorconfig`, `generated/`, `__snapshots__/`
 - Test-only PRs (all changed files are test files)
 
-Coverage: ~4% of historically stamped PRs.
+### T1 — agent-reviewed
 
-### Tier 1 — agent-verified approval
+Sub-classified by risk to calibrate scrutiny:
 
-The LLM reviews the PR and must produce a verifiable evidence bundle before approving.
-Sub-classified by risk:
+| Sub-tier    | Lines       | Files | Breadth           |
+| ----------- | ----------- | ----- | ----------------- |
+| T1a-trivial | ≤20         | ≤3    | single-area       |
+| T1b-small   | ≤100        | ≤5    | not cross-cutting |
+| T1c-medium  | ≤300        | ≤15   | not cross-cutting |
+| T1d-complex | >300 or >15 | —     | any               |
 
-| Sub-tier    | Lines       | Files | Breadth           | Description                       |
-| ----------- | ----------- | ----- | ----------------- | --------------------------------- |
-| T1a-trivial | ≤20         | ≤3    | single-area       | Minimal changes, single component |
-| T1b-small   | ≤100        | ≤5    | not cross-cutting | Small focused changes             |
-| T1c-medium  | ≤300        | ≤15   | not cross-cutting | Moderate changes, still focused   |
-| T1d-complex | >300 or >15 | —     | any               | Large or diffuse changes          |
+### T2 — never AI-approved
 
-The LLM must produce:
+Deny-listed categories where even a small diff can have high blast radius:
 
-- **Change manifest** — what changed, why, which components, risk class, supporting diff hunks
-- **Review comment assessment** — whether existing review comments are addressed or unresolved
-- **Test assessment** — tests present, coverage adequate, recommended test commands
-- **Security assessment** — injection risk, auth impact, data risk
+| Category           | Patterns                                                                                     |
+| ------------------ | -------------------------------------------------------------------------------------------- |
+| **auth**           | auth, login, signup, session, token, oauth, saml, sso, permission, oidc, credential, etc.    |
+| **crypto_secrets** | crypto, encrypt, decrypt, secret, key, cert, signing, .env, vault                            |
+| **migrations**     | migrations/, migrate, backfill, schema_change                                                |
+| **infra_cicd**     | terraform, k8s, helm, dockerfile, .github/workflows, deploy, iam, cloudflare, etc.           |
+| **billing**        | billing, payment, stripe, invoice, subscription, pricing                                     |
+| **public_api**     | openapi, api_schema, swagger, public_api                                                     |
+| **deps_toolchain** | package.json, requirements.txt, pyproject.toml, pnpm-lock, uv.lock, Cargo.toml, go.mod, etc. |
 
-A second model independently audits the first reviewer's output for missed deny-list categories, intent↔diff misalignment, and overlooked review comments.
+### Ownership
 
-Coverage: ~69% of historically stamped PRs.
+Uses `.github/CODEOWNERS-soft` as context for the LLM (not a hard gate).
+Cross-team typo/test/comment fixes are fine; behavioral changes to business logic get escalated.
 
-### Tier 2 — never AI-approved
+## Evidence bundle
 
-Deny-listed categories where even a small diff can have high blast radius.
-Always requires human review.
+Every run produces a JSON evidence bundle (`--output-json` locally, uploaded as artifact in CI) containing:
 
-| Category           | Patterns                                                                                                                                                                |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **auth**           | auth, login, signup, session, token, oauth, saml, sso, permission, oidc, credential, password, 2fa, mfa                                                                 |
-| **crypto_secrets** | crypto, encrypt, decrypt, secret, key, cert, signing, .env, vault                                                                                                       |
-| **migrations**     | migrations/, migrate, backfill, schema_change                                                                                                                           |
-| **infra_cicd**     | terraform, k8s, kubernetes, helm, dockerfile, docker-compose, .github/workflows, deploy, iam, cloudflare, cdn, waf, routing                                             |
-| **billing**        | billing, payment, stripe, invoice, subscription, pricing                                                                                                                |
-| **public_api**     | openapi, api_schema, swagger, public_api                                                                                                                                |
-| **deps_toolchain** | package.json, requirements.txt, pyproject.toml, pnpm-lock, package-lock, yarn.lock, uv.lock, Cargo.toml, go.mod, Makefile, Dockerfile, tsconfig, .tool-versions, .nvmrc |
+- PR metadata (number, author, title)
+- Classification (tier, sub-tier, breadth, commit type, deny categories, ownership)
+- Gate results (each gate's pass/fail status and message)
+- Reviewer output (verdict, reasoning, risk, issues)
+- Final verdict
 
-Coverage: ~27% of historically stamped PRs.
+The GitHub Action uploads this as a build artifact with 30-day retention.
 
-### Ownership (LLM context, not a hard gate)
+## Architecture
 
-Uses `.github/CODEOWNERS-soft` to determine team ownership of changed files.
-This is provided as context to the LLM reviewer, not as a blocking gate — matching how CODEOWNERS-soft works in practice (alerts, doesn't block).
-
-The LLM is instructed to:
-
-- **Approve** cross-team changes that are clearly safe: typo fixes, log strings, test fixes, comment updates, mechanical refactors
-- **Escalate** cross-team changes with behavioral impact: business logic, API contracts, data models — anything the owning team would reasonably want to review
-- **Default to escalate** when ownership intent is ambiguous
+- `review_pr.py` — pipeline orchestrator (fetch → classify → gates → LLM)
+- `gates.py` — deterministic classification and deny-list logic
+- `github.py` — GitHub data fetching via `gh` CLI
+- `reviewer.py` — Claude Agent SDK reviewer (showstoppers prompt)
+- `.github/workflows/pr-approval-agent.yml` — GitHub Action (label trigger)
 
 ## Empirical basis
 
-The tier thresholds and deny categories were calibrated against 356 PRs that received quick human approval (stamp) in the PostHog repo over ~90 days:
+Tier thresholds and deny categories calibrated against 356 PRs that received quick human approval (stamp) in the PostHog repo over ~90 days:
 
 - 126 tiny (1-10 lines), 102 small (11-50 lines) — most quick approvals are small
 - 284/356 single-area — narrow scope dominates
@@ -144,45 +138,3 @@ The tier thresholds and deny categories were calibrated against 356 PRs that rec
 - Python-only cluster: median 13 lines/1 file, 3% has tests
 
 Key insight: size alone is not a safe proxy. Small PRs touching CI workflows, auth, or SAML should never be auto-approved regardless of size. The deny-list exists precisely for this.
-
-## Example output
-
-```text
-Reviewing PR #46594 (PostHog/posthog)
-
-  fix(workflows): use proper autocorrect in HogQL expressions
-  by @havenbarnes | closed | 1 files | 0 comments
-
-Gates
-  ✓ prerequisites: all clear
-  ✓ deny-list: no deny categories matched
-  ✓ tier: T1-agent / T1a-trivial (7L, 1F, single-area, fix)
-    ownership: no owned paths (CODEOWNERS-soft has no match)
-
-LLM Review
-  Verdict: APPROVE
-  Risk: low
-  Reasoning: Straightforward configuration fix...
-
-LLM Audit
-  Verdict: AGREE
-
-  ✓ APPROVED — both reviewer and auditor agree
-```
-
-## Tested PRs
-
-| PR     | Type                            | Result                                   |
-| ------ | ------------------------------- | ---------------------------------------- |
-| #43716 | CI workflow permissions         | REFUSED at deny-list (auth, infra_cicd)  |
-| #46594 | Tiny HogQL config fix (7L, 1F)  | APPROVED — reviewer + auditor agree      |
-| #49610 | Cross-team HogQL fix            | LLM decides — ownership context provided |
-| #45314 | Error tracking reload (32L, 3F) | ESCALATED — no tests for new state logic |
-
-## Next steps
-
-- Wire into a GitHub Action (trigger on `priority-review` label or `workflow_dispatch`)
-- Add batch mode to evaluate multiple PRs
-- Tune deny-list patterns (current keyword matching is broad, e.g. "key" matches too much)
-- Add AST-level checks for python-only changes without tests (prove no control-flow changes)
-- Track approval accuracy over time against human reviewer decisions
