@@ -198,11 +198,11 @@ pub fn router(
     // flags endpoint
     // IP rate limiting is now handled in the endpoint handler for better control and log-only mode support
     //
-    // Layer ordering (bottom-up execution, top-down in code):
-    // 1. TimeoutLayer (outermost): cancels the entire request after request_timeout_ms,
+    // Layer ordering (outermost to innermost, last .layer() call on Router is outermost):
+    // 1. HandleErrorLayer (outermost): converts timeout errors into 503 responses.
+    // 2. TimeoutLayer: cancels the entire request after request_timeout_ms,
     //    ensuring zombie tasks don't hold connections after Envoy kills the downstream.
-    // 2. HandleErrorLayer: converts timeout errors into 503 responses.
-    // 3. ConcurrencyLimitLayer: bounds in-flight requests.
+    // 3. ConcurrencyLimitLayer (innermost): bounds in-flight requests.
     let flags_router = Router::new()
         .route("/flags", any(endpoint::flags))
         .route("/flags/", any(endpoint::flags))
@@ -220,10 +220,10 @@ pub fn router(
         .layer(
             ServiceBuilder::new()
                 .layer(HandleErrorLayer::new(|err: tower::BoxError| async move {
-                    // Currently only TimeoutLayer can produce errors here
-                    // (ConcurrencyLimitLayer queues rather than rejecting).
                     tracing::warn!(error = %err, "Request aborted by tower layer");
-                    inc(FLAG_REQUEST_TIMEOUT_COUNTER, &[], 1);
+                    if err.is::<tower::timeout::error::Elapsed>() {
+                        inc(FLAG_REQUEST_TIMEOUT_COUNTER, &[], 1);
+                    }
                     (StatusCode::SERVICE_UNAVAILABLE, "Request timed out")
                 }))
                 .layer(TimeoutLayer::new(Duration::from_millis(
