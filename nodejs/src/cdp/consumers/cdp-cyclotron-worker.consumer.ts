@@ -84,9 +84,13 @@ export class CdpCyclotronWorker<
                     return null
                 }
 
+                const hogFuncState = item.state as CyclotronJobInvocationHogFunction['state']
+
+                await this.groupsManager.addGroupsToGlobals(hogFuncState.globals)
+
                 loadedInvocations.push({
                     ...item,
-                    state: item.state as CyclotronJobInvocationHogFunction['state'],
+                    state: hogFuncState,
                     hogFunction,
                 })
             })

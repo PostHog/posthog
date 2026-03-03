@@ -81,6 +81,8 @@ class TestAITemporalModuleIntegrity:
             "mark_report_pending_input_activity",
             "mark_report_ready_activity",
             "reset_report_to_potential_activity",
+            "fetch_report_contexts_activity",
+            "verify_match_specificity_activity",
             "run_signal_semantic_search_activity",
             "safety_judge_activity",
             "wait_for_signal_in_clickhouse_activity",
