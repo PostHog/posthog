@@ -232,10 +232,9 @@ export class CyclotronJobQueue {
     }
 
     public async queueInvocations(invocations: CyclotronJobInvocation[]) {
-        const sanitized = invocations.map((inv) => {
-            const stripPerson = this.stripPersonMatcher(inv.teamId)
-            return sanitizeInvocationForPersistence(inv, { stripGroups: true, stripPerson })
-        })
+        const sanitized = invocations.map((inv) =>
+            sanitizeInvocationForPersistence(inv, { stripPerson: this.stripPersonMatcher(inv.teamId) })
+        )
         const postgresInvocations: CyclotronJobInvocation[] = []
         const kafkaInvocations: CyclotronJobInvocation[] = []
 
@@ -299,7 +298,6 @@ export class CyclotronJobQueue {
         const sanitizedResults = invocationResults.map((result) => ({
             ...result,
             invocation: sanitizeInvocationForPersistence(result.invocation, {
-                stripGroups: true,
                 stripPerson: this.stripPersonMatcher(result.invocation.teamId),
             }),
         }))

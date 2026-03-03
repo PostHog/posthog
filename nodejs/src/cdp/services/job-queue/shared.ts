@@ -9,39 +9,32 @@ export const cdpJobSizeKb = new Histogram({
     labelNames: ['queue_kind'],
 })
 
-export type SanitizeOptions = {
-    stripGroups?: boolean
-    stripPerson?: boolean
-}
-
 /**
- * Strip transient data (e.g. groups, person) from invocation state before persisting.
+ * Strip transient data from invocation state before persisting.
+ * Groups are always stripped. Person is stripped when stripPerson is true.
  * These are large and easily reloaded by the worker, so we avoid storing them.
  * Returns a new object if modifications are needed, otherwise the original.
  */
 export function sanitizeInvocationForPersistence(
     invocation: CyclotronJobInvocation,
-    options: SanitizeOptions = { stripGroups: true }
+    { stripPerson }: { stripPerson?: boolean } = {}
 ): CyclotronJobInvocation {
     const globals = invocation.state?.globals
     if (!globals) {
         return invocation
     }
 
-    const shouldStripGroups = options.stripGroups && globals.groups && Object.keys(globals.groups).length > 0
-    const shouldStripPerson = options.stripPerson && globals.person
+    const hasGroups = globals.groups && Object.keys(globals.groups).length > 0
+    const hasPerson = stripPerson && globals.person
 
-    if (!shouldStripGroups && !shouldStripPerson) {
+    if (!hasGroups && !hasPerson) {
         return invocation
     }
 
     const { groups: _g, person: _p, ...restGlobals } = globals
     const newGlobals: typeof globals = { ...restGlobals }
 
-    if (!shouldStripGroups && globals.groups) {
-        newGlobals.groups = globals.groups
-    }
-    if (!shouldStripPerson && globals.person) {
+    if (!hasPerson && globals.person) {
         newGlobals.person = globals.person
     }
 
