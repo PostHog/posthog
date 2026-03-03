@@ -98,7 +98,7 @@ class CachedQuantiles:
             min_threshold = self.quantiles[min_index]
 
         # Calculate max threshold - fix p100 handling
-        if max_percentile is None or max_percentile >= 100.0:
+        if max_percentile is None or max_percentile >= 99.9:
             # p100 case - use actual maximum from data, not p99
             max_threshold = self.max_value
         else:
@@ -425,7 +425,7 @@ async def get_realtime_cohort_selection_activity(
                     inputs.duration_percentile_min is not None or inputs.duration_percentile_max is not None
                 ):
                     team_cohort_queryset = _apply_duration_filtering(
-                        team_cohort_queryset, thresholds, is_p100=(inputs.duration_percentile_max == 100.0)
+                        team_cohort_queryset, thresholds, is_p100=(inputs.duration_percentile_max >= 99.9)
                     )
                 team_cohort_ids = list(team_cohort_queryset.order_by("id").values_list("id", flat=True))
 
@@ -446,7 +446,7 @@ async def get_realtime_cohort_selection_activity(
                 inputs.duration_percentile_min is not None or inputs.duration_percentile_max is not None
             ):
                 other_teams_queryset = _apply_duration_filtering(
-                    other_teams_queryset, thresholds, is_p100=(inputs.duration_percentile_max == 100.0)
+                    other_teams_queryset, thresholds, is_p100=(inputs.duration_percentile_max >= 99.9)
                 )
             other_teams_cohort_ids = list(other_teams_queryset.order_by("id").values_list("id", flat=True))
 

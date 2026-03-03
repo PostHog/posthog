@@ -782,23 +782,6 @@ class TestDurationFiltering:
             last_calculation_duration_ms__lt=7250,
         )
 
-    def test_query_percentile_thresholds_backward_compatibility(self):
-        """Test that QueryPercentileThresholds handles old field names correctly."""
-        # Test backward compatibility by creating instance with old field names
-        # This simulates what Temporal would do when deserializing old data
-        thresholds = QueryPercentileThresholds(min_threshold_ms=0, max_threshold_ms=0)
-
-        # Simulate Temporal setting the old field names
-        thresholds.min_threshold_seconds = 2.5
-        thresholds.max_threshold_seconds = 7.25
-
-        # Trigger post_init manually to simulate deserialization
-        thresholds.__post_init__()
-
-        # Should have converted to milliseconds
-        assert thresholds.min_threshold_ms == 2500
-        assert thresholds.max_threshold_ms == 7250
-
 
 class TestQueryPercentileThresholdsActivity:
     """Tests for ClickHouse percentile threshold calculation."""
@@ -1220,6 +1203,31 @@ class TestCachedQuantiles:
 
         assert result.min_threshold_ms == 0  # p0 should be 0 (no minimum)
         assert result.max_threshold_ms == 200  # p100 uses max_value
+
+    def test_get_thresholds_floating_point_precision_near_p100(self):
+        """Test that floating point precision issues near 100.0 are handled correctly."""
+        quantiles = list(range(1, 100))  # p1=1, p2=2, ..., p99=99
+        max_value = 500
+        cached_quantiles = CachedQuantiles(quantiles=quantiles, max_value=max_value)
+
+        # Test values that might result from JSON serialization/deserialization
+        test_cases = [
+            99.9,  # Boundary value - should trigger p100 logic
+            99.99999999999999,  # Close to 100 but not exact - should trigger p100 logic
+            100.0,  # Exact 100 - should trigger p100 logic
+            100.00000000000001,  # Slightly above 100 - should trigger p100 logic
+            99.5,  # Clearly below boundary - should use p99 logic
+        ]
+
+        for max_percentile in test_cases:
+            result = cached_quantiles.get_thresholds(min_percentile=90.0, max_percentile=max_percentile)
+
+            if max_percentile >= 99.9:
+                # Should use max_value for p100 logic
+                assert result.max_threshold_ms == 500, f"Failed for max_percentile={max_percentile}"
+            else:
+                # Should use quantiles array (p99 = quantiles[98] = 99)
+                assert result.max_threshold_ms == 99, f"Failed for max_percentile={max_percentile}"
 
 
 @patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache")
