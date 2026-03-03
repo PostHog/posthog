@@ -46,7 +46,7 @@ export class CyclotronV2Janitor {
         this.cleanupIntervalMs = config.cleanupIntervalMs ?? 10000
         this.stallTimeoutMs = config.stallTimeoutMs ?? 30000
         this.maxTouchCount = config.maxTouchCount ?? 3
-        this.cleanupGraceMs = config.cleanupGraceMs ?? 300000
+        this.cleanupGraceMs = config.cleanupGraceMs ?? 10000
     }
 
     async start(): Promise<void> {
