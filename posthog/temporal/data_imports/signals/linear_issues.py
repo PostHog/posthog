@@ -65,11 +65,11 @@ def linear_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         description = record["description"]
     except KeyError as e:
         msg = f"Linear issue record missing required field {e}"
-        logger.exception(msg, record=record, team_id=team_id)
+        logger.exception(msg, record=record, team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg) from e
     if not issue_id or not title:
         msg = f"Linear issue record has empty required field: id={issue_id!r}, title={title!r}"
-        logger.exception(msg, record=record, team_id=team_id)
+        logger.exception(msg, record=record, team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg)
     if not description:
         return None
