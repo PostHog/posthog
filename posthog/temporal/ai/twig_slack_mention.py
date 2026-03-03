@@ -1,12 +1,25 @@
+import re
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from slack_sdk.errors import SlackApiError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
+
+
+def _safe_react(client: Any, channel: str, timestamp: str, name: str) -> None:
+    try:
+        client.reactions_add(channel=channel, timestamp=timestamp, name=name)
+    except SlackApiError as e:
+        if e.response.get("error") == "already_reacted":
+            pass
+        else:
+            raise
+
 
 TWIG_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 TWIG_SLACK_PICKER_TIMEOUT_MINUTES = 15
@@ -516,8 +529,6 @@ def create_twig_task_for_repo_activity(
     thread_messages: list[dict[str, str]],
     repository: str,
 ) -> None:
-    import re
-
     import structlog
 
     from posthog.models.integration import Integration, SlackIntegration
@@ -537,7 +548,7 @@ def create_twig_task_for_repo_activity(
     slack = SlackIntegration(integration)
     user_message_ts = event.get("ts")
     if user_message_ts:
-        slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name="seedling")
+        _safe_react(slack.client, channel, user_message_ts, "seedling")
 
     user_text = re.sub(r"<@[A-Z0-9]+>", "", event.get("text", "")).strip()
     title = user_text[:255] if user_text else "Task from Slack"
@@ -767,17 +778,12 @@ def forward_twig_followup_activity(
         )
         return True
 
-    import re
-
     user_text = re.sub(r"<@[A-Z0-9]+>", "", event_text).strip()
     if not user_text:
         return True
 
     if user_message_ts:
-        try:
-            slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name="eyes")
-        except Exception:
-            pass
+        _safe_react(slack.client, channel, user_message_ts, "eyes")
 
     auth_token = None
     created_by = mapping.task.created_by
@@ -872,7 +878,6 @@ def _resume_task_with_new_run(
     user_message_ts: str | None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
-    import re
 
     import structlog
 
@@ -953,10 +958,7 @@ def _resume_task_with_new_run(
     mapping.save(update_fields=["task_run", "updated_at"])
 
     if user_message_ts:
-        try:
-            slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name="eyes")
-        except Exception:
-            pass
+        _safe_react(slack.client, channel, user_message_ts, "eyes")
 
     slack.client.chat_postMessage(
         channel=channel,
@@ -1015,10 +1017,7 @@ def _set_followup_done_reaction(slack: Any, channel: str, user_message_ts: str |
         except Exception:
             pass
 
-    try:
-        slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name=done_emoji)
-    except Exception:
-        pass
+    _safe_react(slack.client, channel, user_message_ts, done_emoji)
 
 
 def _extract_assistant_text_from_command_result(command_result_data: Any) -> str | None:

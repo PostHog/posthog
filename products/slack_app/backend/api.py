@@ -1356,23 +1356,24 @@ def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
 
     local = False
     ctx_integration_id = context.get("integration_id") if context else None
+    # Slack webhook endpoint: no team context available; queries are scoped by PK + kind + workspace ID
     if slack_team_id and ctx_integration_id:
-        local = Integration.objects.filter(
-            id=ctx_integration_id,
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=ctx_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind="slack-twig",
-            integration_id=slack_team_id,  # nosemgrep: idor-taint-user-input-to-model-get — Slack webhook: scoped by PK + kind + workspace ID
+            integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and hinted_integration_id and hinted_user_id and requesting_user == hinted_user_id:
-        local = Integration.objects.filter(
-            id=hinted_integration_id,
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=hinted_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind="slack-twig",
-            integration_id=slack_team_id,  # nosemgrep: idor-taint-user-input-to-model-get — Slack webhook: scoped by PK + kind + workspace ID
+            integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
-        local = Integration.objects.filter(
-            id=terminate_integration_id,
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=terminate_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind="slack-twig",
-            integration_id=slack_team_id,  # nosemgrep: idor-taint-user-input-to-model-get — Slack webhook: scoped by PK + kind + workspace ID
+            integration_id=slack_team_id,
         ).exists()
 
     logger.info(
