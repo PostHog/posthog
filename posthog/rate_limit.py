@@ -698,6 +698,16 @@ class MCPOAuthSustainedThrottle(UserRateThrottle):
     rate = "50/hour"
 
 
+class MCPProxyBurstThrottle(UserRateThrottle):
+    scope = "mcp_proxy_burst"
+    rate = "60/minute"
+
+
+class MCPProxySustainedThrottle(UserRateThrottle):
+    scope = "mcp_proxy_sustained"
+    rate = "600/hour"
+
+
 class RestoreRequestThrottle(SimpleRateThrottle):
     """Rate limit restore link requests per email hash to prevent abuse."""
 
