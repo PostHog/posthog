@@ -1132,7 +1132,7 @@ class FeatureFlagSerializer(
         encrypt_flag_payloads(validated_data)
 
         try:
-            FeatureFlag.objects.filter(
+            FeatureFlag.objects_including_soft_deleted.filter(
                 key=validated_data["key"],
                 team__project_id=self.context["project_id"],
                 deleted=True,
@@ -2866,7 +2866,7 @@ class FeatureFlagViewSet(
         page = request.validated_query_data["page"]
 
         item_id = kwargs["pk"]
-        if not FeatureFlag.objects.filter(id=item_id, team__project_id=self.project_id).exists():
+        if not FeatureFlag.objects_including_soft_deleted.filter(id=item_id, team__project_id=self.project_id).exists():
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
