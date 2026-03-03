@@ -1,29 +1,24 @@
+import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+import { BaseMathType, ChartDisplayType, IntervalType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 export interface InsightQueryFilters {
     filterGroup: UniversalFiltersGroup
     filterTestAccounts: boolean
 }
 
-export function formatQueryForInsightEditor(query: InsightVizNode<TrendsQuery>): InsightVizNode<TrendsQuery> {
-    return {
-        ...query,
-        source: {
-            ...query.source,
-            dateRange: {
-                date_from: 'wStart',
-                date_to: null,
-            },
-        },
-        full: true,
-        showHeader: undefined,
-        showTable: undefined,
-        showFilters: undefined,
-        embedded: undefined,
+const MAX_HOURS_FOR_HOURLY_INTERVAL = 25
+
+export function getInterval(dateFrom: string | null, dateTo: string | null): IntervalType {
+    const from = dateStringToDayJs(dateFrom)
+    const to = dateStringToDayJs(dateTo) ?? dayjs()
+    if (from && to.diff(from, 'hour') < MAX_HOURS_FOR_HOURLY_INTERVAL) {
+        return 'hour'
     }
+    return 'day'
 }
 
 export function buildExceptionVolumeQuery(
@@ -31,6 +26,7 @@ export function buildExceptionVolumeQuery(
     dateTo: string | null,
     { filterGroup, filterTestAccounts }: InsightQueryFilters
 ): InsightVizNode<TrendsQuery> {
+    const interval = getInterval(dateFrom, dateTo)
     return {
         kind: NodeKind.InsightVizNode,
         source: {
@@ -42,7 +38,7 @@ export function buildExceptionVolumeQuery(
                     custom_name: 'Exceptions',
                 },
             ],
-            interval: 'day',
+            interval,
             dateRange: { date_from: dateFrom, date_to: dateTo },
             trendsFilter: { display: ChartDisplayType.ActionsBar },
             filterTestAccounts,
@@ -58,6 +54,7 @@ export function buildCrashFreeSessionsQuery(
     dateTo: string | null,
     { filterGroup, filterTestAccounts }: InsightQueryFilters
 ): InsightVizNode<TrendsQuery> {
+    const interval = getInterval(dateFrom, dateTo)
     return {
         kind: NodeKind.InsightVizNode,
         source: {
@@ -76,7 +73,7 @@ export function buildCrashFreeSessionsQuery(
                     math: BaseMathType.UniqueSessions,
                 },
             ],
-            interval: 'day',
+            interval,
             dateRange: { date_from: dateFrom, date_to: dateTo },
             trendsFilter: {
                 display: ChartDisplayType.ActionsLineGraph,
@@ -92,5 +89,14 @@ export function buildCrashFreeSessionsQuery(
 }
 
 export function insightNewUrl(query: InsightVizNode<TrendsQuery>): string {
-    return urls.insightNew({ query: formatQueryForInsightEditor(query) })
+    return urls.insightNew({
+        query: {
+            ...query,
+            full: true,
+            showHeader: undefined,
+            showTable: undefined,
+            showFilters: undefined,
+            embedded: undefined,
+        },
+    })
 }
