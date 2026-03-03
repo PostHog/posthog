@@ -120,7 +120,7 @@ class AlertSerializer(serializers.ModelSerializer):
         help_text="User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object.",
     )
     snoozed_until = RelativeDateTimeField(allow_null=True, required=False)
-    last_value = serializers.FloatField(read_only=True)
+    last_value = serializers.FloatField(read_only=True, allow_null=True)
 
     class Meta:
         model = AlertConfiguration
