@@ -3504,6 +3504,7 @@ export interface ProductTourDisplayConditions {
     } | null
     linkedFlagVariant?: string
     seenTourWaitPeriod?: ProductTourWaitPeriod
+    deviceTypes?: string[]
 }
 
 export interface ProductTourAppearance {
