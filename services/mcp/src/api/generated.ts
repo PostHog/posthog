@@ -4843,63 +4843,6 @@ export namespace Schemas {
         useSessionsTable?: (boolean | null) | undefined
         version?: (number | null) | undefined
     }
-    export type WebTrendsMetric =
-        | 'UniqueUsers'
-        | 'PageViews'
-        | 'Sessions'
-        | 'Bounces'
-        | 'SessionDuration'
-        | 'TotalSessions'
-    export type Metrics = Partial<{
-        Bounces: number | null
-        PageViews: number | null
-        SessionDuration: number | null
-        Sessions: number | null
-        TotalSessions: number | null
-        UniqueUsers: number | null
-    }>
-    export type WebTrendsItem = { bucket: string; metrics: Metrics }
-    export type WebTrendsQueryResponse = {
-        clickhouse?: (string | null) | undefined
-        columns?: (Array<unknown> | null) | undefined
-        error?: (string | null) | undefined
-        explain?: (Array<string> | null) | undefined
-        hasMore?: (boolean | null) | undefined
-        hogql?: (string | null) | undefined
-        limit?: (number | null) | undefined
-        metadata?: (HogQLMetadataResponse | null) | undefined
-        modifiers?: (HogQLQueryModifiers | null) | undefined
-        offset?: (number | null) | undefined
-        query?: (string | null) | undefined
-        query_status?: (QueryStatus | null) | undefined
-        resolved_date_range?: (ResolvedDateRangeResponse | null) | undefined
-        results: Array<WebTrendsItem>
-        samplingRate?: (SamplingRate | null) | undefined
-        timings?: (Array<QueryTiming> | null) | undefined
-        types?: (Array<unknown> | null) | undefined
-        usedPreAggregatedTables?: (boolean | null) | undefined
-    }
-    export type WebTrendsQuery = {
-        compareFilter?: (CompareFilter | null) | undefined
-        conversionGoal?: (ActionConversionGoal | CustomEventConversionGoal | null) | undefined
-        dateRange?: (DateRange | null) | undefined
-        doPathCleaning?: (boolean | null) | undefined
-        filterTestAccounts?: (boolean | null) | undefined
-        includeRevenue?: (boolean | null) | undefined
-        interval: IntervalType
-        kind?: string | undefined
-        limit?: (number | null) | undefined
-        metrics: Array<WebTrendsMetric>
-        modifiers?: (HogQLQueryModifiers | null) | undefined
-        offset?: (number | null) | undefined
-        orderBy?: (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null) | undefined
-        properties: Array<EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter>
-        response?: (WebTrendsQueryResponse | null) | undefined
-        sampling?: (WebAnalyticsSampling | null) | undefined
-        tags?: (QueryLogTags | null) | undefined
-        useSessionsTable?: (boolean | null) | undefined
-        version?: (number | null) | undefined
-    }
     export type WebAnalyticsExternalSummaryQueryResponse = {
         data: Record<string, unknown>
         error?: (ExternalQueryError | null) | undefined
@@ -5120,7 +5063,6 @@ export namespace Schemas {
                   | WebVitalsQuery
                   | WebVitalsPathBreakdownQuery
                   | WebPageURLSearchQuery
-                  | WebTrendsQuery
                   | WebAnalyticsExternalSummaryQuery
                   | SessionAttributionExplorerQuery
                   | RevenueExampleEventsQuery
@@ -5178,7 +5120,6 @@ export namespace Schemas {
                   | WebVitalsQuery
                   | WebVitalsPathBreakdownQuery
                   | WebPageURLSearchQuery
-                  | WebTrendsQuery
                   | WebAnalyticsExternalSummaryQuery
                   | SessionAttributionExplorerQuery
                   | RevenueExampleEventsQuery

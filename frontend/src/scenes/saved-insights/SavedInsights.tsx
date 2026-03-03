@@ -361,12 +361,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
-    [NodeKind.WebTrendsQuery]: {
-        name: 'Web Trends',
-        description: 'Analyze web trends and patterns over time.',
-        icon: IconTrends,
-        inMenu: true,
-    },
     [NodeKind.HogQuery]: {
         name: 'Hog',
         description: 'Hog query.',

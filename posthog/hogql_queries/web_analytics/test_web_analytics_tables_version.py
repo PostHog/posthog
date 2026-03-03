@@ -1,18 +1,9 @@
 from posthog.test.base import APIBaseTest
 
-from posthog.schema import (
-    DateRange,
-    IntervalType,
-    WebOverviewQuery,
-    WebStatsBreakdown,
-    WebStatsTableQuery,
-    WebTrendsMetric,
-    WebTrendsQuery,
-)
+from posthog.schema import DateRange, WebOverviewQuery, WebStatsBreakdown, WebStatsTableQuery
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.hogql_queries.web_analytics.web_trends_query_runner import WebTrendsQueryRunner
 
 
 class TestWebAnalyticsTablesVersion(APIBaseTest):
@@ -54,30 +45,6 @@ class TestWebAnalyticsTablesVersion(APIBaseTest):
         runner = WebStatsTableQueryRunner(query=query, team=self.team)
         self.assertFalse(runner.use_v2_tables)
         self.assertEqual(runner.preaggregated_query_builder.stats_table, "web_pre_aggregated_stats")
-
-    def test_web_trends_query_runner_uses_v2_tables(self):
-        # Test default behavior (v2 tables)
-        query = WebTrendsQuery(
-            interval=IntervalType.DAY,
-            metrics=[WebTrendsMetric.UNIQUE_USERS],
-            dateRange=DateRange(date_from="-7d"),
-            properties=[],
-        )
-        runner = WebTrendsQueryRunner(query=query, team=self.team)
-        self.assertTrue(runner.use_v2_tables)
-
-        # V1 tables have been removed - v1 setting still works but uses v2 tables
-        self.team.web_analytics_pre_aggregated_tables_version = "v1"
-        self.team.save()
-        runner = WebTrendsQueryRunner(query=query, team=self.team)
-        # use_v2_tables property still returns False for v1 setting (backwards compat)
-        self.assertFalse(runner.use_v2_tables)
-
-        # Test v2 setting (explicit)
-        self.team.web_analytics_pre_aggregated_tables_version = "v2"
-        self.team.save()
-        runner = WebTrendsQueryRunner(query=query, team=self.team)
-        self.assertTrue(runner.use_v2_tables)
 
     def test_backward_compatibility_with_none_value(self):
         # Test that None value defaults to v2 behavior
