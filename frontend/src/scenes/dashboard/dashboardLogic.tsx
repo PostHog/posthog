@@ -1819,13 +1819,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setDashboardMode: async ({ mode, source }) => {
             if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                 clearDOMTextSelection()
-                if (values.currentLayoutSize === 'xs') {
-                    lemonToast.warning(
-                        'Editing layout is disabled on smaller screens. Please zoom out or use a larger screen to move tiles.'
-                    )
-                } else {
-                    lemonToast.info('Now editing the dashboard – save to persist changes')
-                }
+                lemonToast.info('Now editing the dashboard – save to persist changes')
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
                 // cancel edit mode changesdashboardLogi
 
