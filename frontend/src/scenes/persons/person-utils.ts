@@ -107,6 +107,31 @@ export function asDisplay(
     return display ? midEllipsis(display, maxLength || 40) : 'Anonymous'
 }
 
+/**
+ * Coerce a property value from user input into its appropriate JS type.
+ * Numeric strings become numbers, "true"/"false"/"null" become their
+ * respective primitives, everything else passes through unchanged.
+ */
+export function coercePropertyValue(value: string | number | boolean | null): string | number | boolean | null {
+    if (value === null || value === '') {
+        return value
+    }
+
+    let result: string | number | boolean | null = value
+
+    const attemptedParsedNumber = Number(value)
+    if (!Number.isNaN(attemptedParsedNumber) && typeof value !== 'boolean') {
+        result = attemptedParsedNumber
+    }
+
+    const lowercaseValue = typeof result === 'string' && result.toLowerCase()
+    if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
+        result = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
+    }
+
+    return result
+}
+
 export const asLink = (person?: PersonPropType | null): string | undefined =>
     person?.distinct_id
         ? urls.personByDistinctId(person.distinct_id)
