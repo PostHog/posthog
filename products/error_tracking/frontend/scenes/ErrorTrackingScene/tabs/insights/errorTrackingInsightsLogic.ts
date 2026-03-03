@@ -15,8 +15,8 @@ function getPeriodStart(date: Dayjs, viewMode: InsightsViewMode, weekStartDay: n
     if (viewMode === 'month') {
         return date.startOf('month')
     }
-    dayjs.updateLocale('en', { weekStart: weekStartDay })
-    return date.startOf('week')
+    const daysFromWeekStart = (date.day() - weekStartDay + 7) % 7
+    return date.subtract(daysFromWeekStart, 'day').startOf('day')
 }
 
 export type InsightsViewMode = 'week' | 'month'
