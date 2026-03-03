@@ -31,7 +31,7 @@ export function resolveFrameTimestamp(
     }
 
     const isStuck = stuckFrames >= STUCK_FRAME_THRESHOLD
-    const shouldManuallyAdvance = (rrwebTimestamp == undefined && segmentKind === 'gap') || isStuck
+    const shouldManuallyAdvance = (rrwebTimestamp === undefined && segmentKind === 'gap') || isStuck
 
     let resolvedTimestamp = rrwebTimestamp
     if (shouldManuallyAdvance && currentTimestamp) {
