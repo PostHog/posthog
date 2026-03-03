@@ -718,65 +718,39 @@ function ConversionGoalSection(): JSX.Element {
             </span>
             <p>Define what a user must do to be considered converted.</p>
 
-            <div className="flex gap-1 max-w-240">
-                <div className="flex flex-col flex-2 gap-4">
-                    <LemonField.Pure label="Detect conversion from property changes">
-                        <PropertyFilters
-                            buttonText="Add property conversion"
-                            propertyFilters={workflow.conversion?.filters ?? []}
-                            taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.Cohorts,
-                                TaxonomicFilterGroupType.HogQLExpression,
-                            ]}
-                            onChange={(filters) => setWorkflowValue('conversion', { ...workflow.conversion, filters })}
-                            pageKey="workflow-conversion-properties"
-                            hideBehavioralCohorts
-                            operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
-                        />
-                    </LemonField.Pure>
-                    <div className="flex flex-col gap-1">
-                        <LemonLabel>
-                            Detect conversion from events
-                            <LemonTag>Coming soon</LemonTag>
-                        </LemonLabel>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconPlusSmall />}
-                            onClick={() => {
-                                posthog.capture('workflows workflow event conversion clicked')
-                                lemonToast.info('Event targeting coming soon!')
-                            }}
-                        >
-                            Add event conversion
-                        </LemonButton>
-                    </div>
+            <div className="flex flex-col gap-4 max-w-240">
+                <div className="flex flex-col gap-1 items-start">
+                    <LemonLabel>Detect conversion from property changes</LemonLabel>
+                    <PropertyFilters
+                        buttonText="Add property conversion"
+                        propertyFilters={workflow.conversion?.filters ?? []}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.HogQLExpression,
+                        ]}
+                        onChange={(filters) => setWorkflowValue('conversion', { ...workflow.conversion, filters })}
+                        pageKey="workflow-conversion-properties"
+                        hideBehavioralCohorts
+                        operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
+                    />
                 </div>
-                <LemonDivider vertical />
-                <div className="flex-1">
-                    <LemonField.Pure
-                        label="Conversion window"
-                        info="How long after entering the workflow should we check for conversion? After this window, users will be considered for conversion."
+
+                <div className="flex flex-col gap-1 items-start">
+                    <LemonLabel>
+                        Detect conversion from events
+                        <LemonTag>Coming soon</LemonTag>
+                    </LemonLabel>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconPlusSmall />}
+                        onClick={() => {
+                            posthog.capture('workflows workflow event conversion clicked')
+                            lemonToast.info('Event targeting coming soon!')
+                        }}
                     >
-                        <LemonSelect
-                            value={workflow.conversion?.window_minutes}
-                            onChange={(value) =>
-                                setWorkflowValue('conversion', {
-                                    ...workflow.conversion,
-                                    window_minutes: value,
-                                })
-                            }
-                            placeholder="No conversion window"
-                            allowClear
-                            options={[
-                                { value: 24 * 60 * 60, label: '24 hours' },
-                                { value: 7 * 24 * 60 * 60, label: '7 days' },
-                                { value: 14 * 24 * 60 * 60, label: '14 days' },
-                                { value: 30 * 24 * 60 * 60, label: '30 days' },
-                            ]}
-                        />
-                    </LemonField.Pure>
+                        Add event conversion
+                    </LemonButton>
                 </div>
             </div>
         </div>

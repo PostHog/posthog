@@ -11,7 +11,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS, PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, debounce, hasFormErrors, isObject, objectClean } from 'lib/utils'
+import { allOperatorsMapping, hasFormErrors, isObject, objectClean } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -543,6 +543,7 @@ export const surveyLogic = kea<surveyLogicType>([
             reloadResults,
         }),
         setDateRange: (dateRange: SurveyDateRange, reloadResults: boolean = true) => ({ dateRange, reloadResults }),
+        clearFilters: true,
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
@@ -926,11 +927,16 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     })),
     listeners(({ actions, values }) => {
-        const reloadAllSurveyResults = debounce((): void => {
-            // Load survey stats data
-            actions.loadSurveyBaseStats()
-            actions.loadSurveyDismissedAndSentCount()
-        }, 1000)
+        let reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null
+        const reloadAllSurveyResults = (): void => {
+            if (reloadDebounceTimer) {
+                clearTimeout(reloadDebounceTimer)
+            }
+            reloadDebounceTimer = setTimeout(() => {
+                actions.loadSurveyBaseStats()
+                actions.loadSurveyDismissedAndSentCount()
+            }, 300)
+        }
 
         return {
             createSurveySuccess: ({ survey }) => {
@@ -1067,6 +1073,15 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (reloadResults) {
                     reloadAllSurveyResults()
                 }
+            },
+            clearFilters: () => {
+                const survey = values.survey as Survey
+                actions.setAnswerFilters(values.defaultAnswerFilters)
+                actions.setPropertyFilters([])
+                actions.setDateRange({
+                    date_from: getSurveyStartDateForQuery(survey),
+                    date_to: getSurveyEndDateForQuery(survey),
+                })
             },
             setShowArchivedResponses: () => {
                 reloadAllSurveyResults()
@@ -1477,6 +1492,35 @@ export const surveyLogic = kea<surveyLogicType>([
                         value: [],
                     }
                 })
+            },
+        ],
+        hasActiveAnswerFilters: [
+            (s) => [s.answerFilters],
+            (answerFilters: EventPropertyFilter[]): boolean => {
+                return answerFilters.some((filter) => {
+                    if (!filter?.value) {
+                        return false
+                    }
+                    return Array.isArray(filter.value) ? filter.value.length > 0 : filter.value !== ''
+                })
+            },
+        ],
+        hasActiveDateRange: [
+            (s) => [s.dateRange, s.survey],
+            (dateRange: SurveyDateRange | null, survey: Survey): boolean => {
+                const surveyStartDate = getSurveyStartDateForQuery(survey)
+                const surveyEndDate = getSurveyEndDateForQuery(survey)
+                return !!dateRange && (dateRange.date_from !== surveyStartDate || dateRange.date_to !== surveyEndDate)
+            },
+        ],
+        hasActiveFilters: [
+            (s) => [s.hasActiveAnswerFilters, s.propertyFilters, s.hasActiveDateRange],
+            (
+                hasActiveAnswerFilters: boolean,
+                propertyFilters: AnyPropertyFilter[],
+                hasActiveDateRange: boolean
+            ): boolean => {
+                return hasActiveAnswerFilters || propertyFilters.length > 0 || hasActiveDateRange
             },
         ],
         isSurveyRunning: [

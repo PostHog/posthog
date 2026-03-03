@@ -107,7 +107,6 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         type: 'cohort',
         ref: cohortId,
         enabled: Boolean(cohortId && !cohortLoading && !cohortMissing && !cohort.deleted),
-        deps: [cohortId, cohortLoading, cohortMissing, cohort.deleted],
     })
 
     if (cohortMissing) {

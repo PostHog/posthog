@@ -3,10 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS, TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -32,7 +31,6 @@ export const BillingProductAddonActions = ({
 }: BillingProductAddonActionsProps): JSX.Element => {
     const { billing, billingError, currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading } =
         useValues(billingLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const {
         currentAndUpgradePlans,
         billingProductLoading,
@@ -50,8 +48,6 @@ export const BillingProductAddonActions = ({
     const { reportBillingAddonPlanSwitchStarted } = useActions(eventUsageLogic)
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const isTrialEligible = !!addon.trial
-    const isSwitchPlanEnabled = !!featureFlags[FEATURE_FLAGS.SWITCH_SUBSCRIPTION_PLAN]
-
     const renderSubscribedActions = (): JSX.Element | null => {
         if (addon.contact_support) {
             return null
@@ -194,7 +190,7 @@ export const BillingProductAddonActions = ({
         }
 
         // Upgrading from another add-on to this one
-        if (isSwitchPlanEnabled && isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon && isProrated) {
+        if (isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon && isProrated) {
             const amountDue = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
             return (
                 <p className="mt-2 text-xs text-secondary text-right">
@@ -283,9 +279,9 @@ export const BillingProductAddonActions = ({
         // We don't allow multiple add-ons to be subscribed to at the same time so this checks if the customer is subscribed to another add-on
         // TODO: add support for when a customer has a Paid Plan trial
         content = renderPurchaseActions()
-    } else if (!billing?.trial && isSubscribedToAnotherAddon && isLowerTierThanCurrentAddon && isSwitchPlanEnabled) {
+    } else if (!billing?.trial && isSubscribedToAnotherAddon && isLowerTierThanCurrentAddon) {
         content = renderDowngradeActions()
-    } else if (!billing?.trial && isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon && isSwitchPlanEnabled) {
+    } else if (!billing?.trial && isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon) {
         content = renderUpgradeActions()
     }
 

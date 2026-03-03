@@ -235,6 +235,7 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     "User": [
         "email",
         "password",
+        # No longer used but kept for backwards-compatibility with existing activity log entries
         "temporary_token",
         "pending_email",
     ],
@@ -312,6 +313,18 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
     {
         "scope": "User",
         "activities": ["created", "updated"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        "scope": "User",
+        "activities": ["scim_provisioned", "scim_replaced", "scim_updated", "scim_deprovisioned"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        "scope": "Role",
+        "activities": ["scim_provisioned", "scim_replaced", "scim_updated", "scim_deprovisioned"],
         "exclude_when": {},
         "allow_staff": True,
     },

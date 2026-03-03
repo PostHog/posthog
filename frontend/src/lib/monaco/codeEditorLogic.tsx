@@ -1,5 +1,5 @@
 import type { Monaco } from '@monaco-editor/react'
-import { actions, connect, kea, key, path, props, propsChanged, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 // Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
@@ -28,6 +28,7 @@ import { setLatestVersionsOnQuery } from '~/queries/utils'
 import type { codeEditorLogicType } from './codeEditorLogicType'
 
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
+const VIM_COMMAND_HISTORY_LIMIT = 50
 
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
@@ -55,6 +56,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
     key((props) => props.key),
     actions({
         reloadMetadata: true,
+        appendVimCommand: (command: string) => ({ command }),
     }),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
@@ -144,6 +146,21 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             },
         ],
     })),
+    reducers({
+        vimCommandHistory: [
+            [] as string[],
+            { persist: true, storageKey: 'posthog-vim-command-history' },
+            {
+                appendVimCommand: (state, { command }) => {
+                    if (!command) {
+                        return state
+                    }
+                    const deduped = state.filter((c) => c !== command)
+                    return [...deduped, command].slice(-VIM_COMMAND_HISTORY_LIMIT)
+                },
+            },
+        ],
+    }),
     selectors({
         hasErrors: [
             (s) => [s.modelMarkers],

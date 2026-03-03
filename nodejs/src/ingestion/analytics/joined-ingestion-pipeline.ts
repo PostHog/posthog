@@ -2,16 +2,18 @@ import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { Hub, Team } from '../../types'
+import { Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
-import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { CookielessManager } from '../cookieless/cookieless-manager'
+import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
+import { EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
@@ -30,39 +32,34 @@ import {
 } from './post-team-preprocessing-subpipeline'
 import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-subpipeline'
 
-export type PreprocessingHub = Pick<
-    Hub,
-    | 'teamManager'
-    | 'cookielessManager'
-    | 'INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY'
-    | 'PERSONS_PREFETCH_ENABLED'
-    | 'CDP_HOG_WATCHER_SAMPLE_RATE'
->
-
 export interface JoinedIngestionPipelineConfig {
-    hub: PreprocessingHub
+    eventSchemaEnforcementEnabled: boolean
+    overflowEnabled: boolean
+    overflowTopic: string
+    dlqTopic: string
+    preservePartitionLocality: boolean
+    personsPrefetchEnabled: boolean
+    cdpHogWatcherSampleRate: number
+    groupId: string
+    outputs: IngestionOutputs<EventOutput>
+    perDistinctIdOptions: EventPipelineRunnerOptions & {
+        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
+    }
+}
+
+export interface JoinedIngestionPipelineDeps {
     kafkaProducer: KafkaProducerWrapper
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
-    eventSchemaEnforcementEnabled: boolean
-    overflowEnabled: boolean
-    overflowTopic: string
-    dlqTopic: string
     promiseScheduler: PromiseScheduler
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
-
-    // Per-distinct-id config
-    perDistinctIdOptions: EventPipelineRunnerOptions & {
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
-        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
-    }
     teamManager: TeamManager
+    cookielessManager: CookielessManager
     groupTypeManager: GroupTypeManager
-    groupId: string
     topHog: TopHogRegistry
 }
 
@@ -112,28 +109,39 @@ function mapToPerEventInput<C>(
 export function createJoinedIngestionPipeline<
     TInput extends JoinedIngestionPipelineInput,
     TContext extends JoinedIngestionPipelineContext,
->(builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>, config: JoinedIngestionPipelineConfig) {
+>(
+    builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>,
+    config: JoinedIngestionPipelineConfig,
+    deps: JoinedIngestionPipelineDeps
+) {
     const {
-        hub,
+        eventSchemaEnforcementEnabled,
+        overflowEnabled,
+        overflowTopic,
+        dlqTopic,
+        preservePartitionLocality,
+        personsPrefetchEnabled,
+        cdpHogWatcherSampleRate,
+        groupId,
+        outputs,
+        perDistinctIdOptions,
+    } = config
+
+    const {
         kafkaProducer,
         personsStore,
         groupStore,
         hogTransformer,
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
-        eventSchemaEnforcementEnabled,
-        overflowEnabled,
-        overflowTopic,
-        dlqTopic,
         promiseScheduler,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
-        perDistinctIdOptions,
         teamManager,
+        cookielessManager,
         groupTypeManager,
-        groupId,
         topHog,
-    } = config
+    } = deps
 
     const topHogWrapper = createTopHogWrapper(topHog)
 
@@ -147,19 +155,20 @@ export function createJoinedIngestionPipeline<
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
-        cookielessManager: hub.cookielessManager,
+        cookielessManager,
         overflowTopic,
-        preservePartitionLocality: hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+        preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         personsStore,
-        personsPrefetchEnabled: hub.PERSONS_PREFETCH_ENABLED,
+        personsPrefetchEnabled,
         hogTransformer,
-        cdpHogWatcherSampleRate: hub.CDP_HOG_WATCHER_SAMPLE_RATE,
+        cdpHogWatcherSampleRate,
     }
 
     const perEventConfig: PerDistinctIdPipelineConfig = {
         options: perDistinctIdOptions,
+        outputs,
         teamManager,
         groupTypeManager,
         hogTransformer,
@@ -175,11 +184,11 @@ export function createJoinedIngestionPipeline<
             b
                 .sequentially((b) =>
                     createPreTeamPreprocessingSubpipeline(b, {
-                        teamManager: hub.teamManager,
+                        teamManager,
                         eventIngestionRestrictionManager,
                         overflowEnabled,
                         overflowTopic,
-                        preservePartitionLocality: hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+                        preservePartitionLocality,
                     })
                 )
                 .filterMap(addTeamToContext, (b) =>

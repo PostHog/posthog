@@ -202,7 +202,7 @@ class Backup:
             f"""
             SELECT hostname(), argMax(status, event_time_microseconds), argMax(left(error, 400), event_time_microseconds), max(event_time_microseconds)
             FROM system.backup_log
-            WHERE (start_time >= (now() - toIntervalDay(7))) AND name LIKE '%{self.path}%' AND status NOT IN ('RESTORING', 'RESTORED', 'RESTORE_FAILED')
+            WHERE (event_date >= (now() - toIntervalDay(30))) AND name LIKE '%{self.path}%' AND status NOT IN ('RESTORING', 'RESTORED', 'RESTORE_FAILED')
             GROUP BY hostname()
             """
         )
@@ -549,11 +549,18 @@ def cleanup_old_backups(
     for old_backup in backups_to_delete:
         context.log.info(f"Deleting backup {old_backup.path}.")
         paginator = s3_client.get_paginator("list_objects_v2")
+        deleted_count = 0
         for page in paginator.paginate(Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=f"{old_backup.path}/"):
             objects = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
-            if objects:
-                s3_client.delete_objects(Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Delete={"Objects": objects})
-        context.log.info(f"Deleted backup {old_backup.path}.")
+            if not objects:
+                continue
+            response = s3_client.delete_objects(Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Delete={"Objects": objects})
+            if errors := response.get("Errors"):
+                raise dagster.Failure(
+                    f"Failed to delete {len(errors)} object(s) from backup {old_backup.path}: {errors}"
+                )
+            deleted_count += len(response.get("Deleted", []))
+        context.log.info(f"Deleted backup {old_backup.path} ({deleted_count} objects).")
 
     context.log.info(f"Cleanup complete: deleted {len(backups_to_delete)} old backups.")
     context.add_output_metadata({"deleted_backups": dagster.MetadataValue.int(len(backups_to_delete))})

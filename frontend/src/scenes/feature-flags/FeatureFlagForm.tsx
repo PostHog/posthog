@@ -46,17 +46,18 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
-import { FeatureFlagEvaluationRuntime } from '~/types'
+import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
-import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
         props,
         featureFlag,
+        originalFeatureFlag,
         multivariateEnabled,
         variants,
         nonEmptyVariants,
@@ -78,11 +79,13 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setShowImplementation,
         setOpenVariants,
         setPayloadExpanded,
+        setBucketingIdentifier,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const hasEvaluationTags = useFeatureFlag('FLAG_EVALUATION_TAGS')
     const featureFlagsV2Enabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
+    const showBucketingIdentifierUI = !!featureFlags[FEATURE_FLAGS.FLAG_BUCKETING_IDENTIFIER]
 
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
@@ -214,12 +217,26 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <LemonField
                                     name="key"
                                     label="Flag key"
-                                    info="Unique identifier used in your code. Cannot be changed after creation."
+                                    info="Unique identifier used in your code."
+                                    help={
+                                        !isNewFeatureFlag &&
+                                        originalFeatureFlag &&
+                                        featureFlag.key !== originalFeatureFlag.key ? (
+                                            <span className="text-warning">
+                                                <b>Warning! </b>Changing this key will break any existing code that
+                                                references it (e.g.{' '}
+                                                <code className="text-xs bg-fill-secondary rounded px-1 py-0.5">
+                                                    getFeatureFlag('{originalFeatureFlag.key}')
+                                                </code>
+                                                ). Make sure to update all SDK calls and integrations.
+                                            </span>
+                                        ) : undefined
+                                    }
                                 >
                                     {({ value, onChange }) => (
                                         <LemonInput
                                             value={value}
-                                            onChange={onChange}
+                                            onChange={(v) => onChange(slugifyFeatureFlagKey(v))}
                                             data-attr="feature-flag-key"
                                             className="ph-ignore-input"
                                             autoComplete="off"
@@ -762,6 +779,16 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
+                                        isDisabled={!featureFlag.active}
+                                        bucketingIdentifier={
+                                            showBucketingIdentifierUI ? featureFlag.bucketing_identifier : undefined
+                                        }
+                                        onBucketingIdentifierChange={
+                                            showBucketingIdentifierUI
+                                                ? (value: FeatureFlagBucketingIdentifier | null) =>
+                                                      setBucketingIdentifier(value)
+                                                : undefined
+                                        }
                                     />
                                 </div>
                             )}

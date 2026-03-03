@@ -12,6 +12,7 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
 from posthog.temporal.llm_analytics.trace_summarization.coordinator import (
     BatchTraceSummarizationCoordinatorInputs,
     BatchTraceSummarizationCoordinatorWorkflow,
+    _empty_summarization_results,
 )
 
 from products.llm_analytics.backend.summarization.models import SummarizationMode
@@ -82,3 +83,46 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         assert result.mode == expected.mode
         assert result.window_minutes == expected.window_minutes
         assert result.model == expected.model
+
+    def test_continuation_fields_default_to_none(self):
+        inputs = BatchTraceSummarizationCoordinatorInputs()
+
+        assert inputs.remaining_team_ids is None
+        assert inputs.per_team_filters is None
+        assert inputs.results_so_far is None
+
+    def test_continuation_fields_can_be_set(self):
+        inputs = BatchTraceSummarizationCoordinatorInputs(
+            remaining_team_ids=[100, 200, 300],
+            per_team_filters={"100": [{"event": "$ai_generation"}]},
+            results_so_far={
+                "teams_succeeded": 5,
+                "teams_failed": 1,
+                "failed_team_ids": [99],
+                "total_items": 50,
+                "total_summaries": 40,
+            },
+        )
+
+        assert inputs.remaining_team_ids == [100, 200, 300]
+        assert inputs.per_team_filters == {"100": [{"event": "$ai_generation"}]}
+        assert inputs.results_so_far is not None
+        assert inputs.results_so_far["teams_succeeded"] == 5
+
+    def test_empty_summarization_results(self):
+        results = _empty_summarization_results()
+
+        assert results == {
+            "teams_succeeded": 0,
+            "teams_failed": 0,
+            "failed_team_ids": [],
+            "total_items": 0,
+            "total_summaries": 0,
+        }
+
+    def test_empty_results_returns_independent_instances(self):
+        r1 = _empty_summarization_results()
+        r2 = _empty_summarization_results()
+        r1["failed_team_ids"].append(123)
+
+        assert r2["failed_team_ids"] == []

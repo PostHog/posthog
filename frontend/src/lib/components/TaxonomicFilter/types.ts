@@ -4,6 +4,7 @@ import { ReactNode } from 'react'
 
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+// eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { ReplayTaxonomicFilterProperty } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 
@@ -60,9 +61,7 @@ export type AllowedProperties = TaxonomicFilterGroupValueMap
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
-    // sometimes the filter searches for a different value than provided e.g. a URL will be searched as $current_url
-    // in that case the original value is returned here as well as the property that the user chose
-    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any, originalQuery?: string) => void
+    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     onEnter?: (query: string) => void
     onClose?: () => void
     filter?: LocalFilter
@@ -170,6 +169,8 @@ export interface TaxonomicFilterGroup {
     componentProps?: Record<string, any>
     /** Minimum number of characters before a remote search is issued. */
     minSearchQueryLength?: number
+    /** Description shown in the empty state when minSearchQueryLength is set. */
+    searchDescription?: string
 }
 
 export enum TaxonomicFilterGroupType {
@@ -235,11 +236,7 @@ export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
 
 export interface ListStorage {
     results: TaxonomicDefinitionTypes[]
-    // Query used for the results currently in state
     searchQuery?: string
-    // some list logics alter the query to make it more useful
-    // the original query might be different to the search query
-    originalQuery?: string
     count: number
     expandedCount?: number
     queryChanged?: boolean

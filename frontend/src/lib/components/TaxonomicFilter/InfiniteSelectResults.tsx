@@ -192,7 +192,7 @@ export function InfiniteSelectResults({
 
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
 
-    const { totalListCount, items } = useValues(logic)
+    const { totalListCount } = useValues(logic)
 
     const RenderComponent = activeTaxonomicGroup?.render
 
@@ -202,7 +202,7 @@ export function InfiniteSelectResults({
         <RenderComponent
             {...(activeTaxonomicGroup?.componentProps ?? {})}
             value={value}
-            onChange={(newValue, item) => selectItem(activeTaxonomicGroup, newValue, item, items.originalQuery)}
+            onChange={(newValue, item) => selectItem(activeTaxonomicGroup, newValue, item)}
             infiniteListLogicProps={infiniteListLogicProps}
         />
     ) : (

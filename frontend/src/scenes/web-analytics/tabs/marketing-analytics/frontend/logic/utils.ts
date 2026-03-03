@@ -581,6 +581,42 @@ export function createMarketingTile(
         return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
 
+    // Handle Cost per Reported Conversion - calculated as cost / reported_conversions
+    if (tileColumnSelection === 'cost_per_reported_conversion') {
+        const mappings = tileConfig.columnMappings
+        const costColumn = mappings.cost
+        const needsDivision = mappings.costNeedsDivision
+
+        const costExpr = needsDivision ? `toFloat(${costColumn} / 1000000)` : `toFloat(${costColumn})`
+
+        let conversionExpr: string
+        const specialResult = tileConfig.specialConversionLogic?.(
+            table,
+            MarketingAnalyticsColumnsSchemaNames.ReportedConversion
+        )
+        if (specialResult?.math_hogql) {
+            conversionExpr = specialResult.math_hogql
+        } else {
+            const conversionColumn = mappings.reportedConversion
+            conversionExpr = table.fields && conversionColumn in table.fields ? sumSafeFloat(conversionColumn) : '0'
+        }
+
+        const mathHogql = conversionExpr === '0' ? '0' : `SUM(${costExpr}) / nullIf(${conversionExpr}, 0)`
+
+        return {
+            kind: NodeKind.DataWarehouseNode,
+            id: table.id,
+            name: integrationConfig.primarySource,
+            custom_name: `${table.name} cost_per_reported_conversion`,
+            id_field: tileConfig.idField,
+            distinct_id_field: tileConfig.idField,
+            timestamp_field: tileConfig.timestampField,
+            table_name: table.name,
+            math: HogQLMathType.HogQL,
+            math_hogql: mathHogql,
+        }
+    }
+
     const column = columnTileConfig[sourceType].columns[tileColumnSelection as rawColumnsForTiles]
     if (!column) {
         return null

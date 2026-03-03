@@ -9,11 +9,13 @@
  */
 /**
  * * `llm_judge` - LLM as a judge
+ * `hog` - Hog
  */
 export type EvaluationTypeEnumApi = (typeof EvaluationTypeEnumApi)[keyof typeof EvaluationTypeEnumApi]
 
 export const EvaluationTypeEnumApi = {
     LlmJudge: 'llm_judge',
+    Hog: 'hog',
 } as const
 
 /**
@@ -232,8 +234,8 @@ export interface ClusteringRunRequestApi {
 * `kmeans` - kmeans */
     clustering_method?: ClusteringMethodEnumApi
     /**
-     * Minimum cluster size as fraction of total samples (e.g., 0.05 = 5%)
-     * @minimum 0.05
+     * Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)
+     * @minimum 0.02
      * @maximum 0.5
      */
     min_cluster_size_fraction?: number
@@ -391,7 +393,7 @@ export interface PatchedLLMProviderKeyApi {
 export interface SentimentRequestApi {
     /**
      * @minItems 1
-     * @maxItems 25
+     * @maxItems 5
      */
     trace_ids: string[]
     force_refresh?: boolean

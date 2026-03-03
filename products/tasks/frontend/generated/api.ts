@@ -21,8 +21,11 @@ import type {
     TaskRunArtifactPresignResponseApi,
     TaskRunArtifactsUploadRequestApi,
     TaskRunArtifactsUploadResponseApi,
+    TaskRunCommandRequestApi,
+    TaskRunCommandResponseApi,
     TaskRunCreateRequestApi,
     TaskRunDetailApi,
+    TaskRunRelayMessageRequestApi,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
@@ -348,6 +351,29 @@ export const tasksRunsArtifactsPresignCreate = async (
 }
 
 /**
+ * Forward a JSON-RPC command to the agent server running in the sandbox. Supports user_message, cancel, and close commands.
+ * @summary Send command to agent server
+ */
+export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/command/`
+}
+
+export const tasksRunsCommandCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunCommandRequestApi: TaskRunCommandRequestApi,
+    options?: RequestInit
+): Promise<TaskRunCommandResponseApi> => {
+    return apiMutator<TaskRunCommandResponseApi>(getTasksRunsCommandCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunCommandRequestApi),
+    })
+}
+
+/**
  * Generate a JWT token for direct connection to the sandbox. Valid for 24 hours.
  * @summary Get sandbox connection token
  */
@@ -364,6 +390,29 @@ export const tasksRunsConnectionTokenRetrieve = async (
     return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Queue a Slack relay workflow to post a run message into the mapped Slack thread.
+ * @summary Relay run message to Slack
+ */
+export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/relay_message/`
+}
+
+export const tasksRunsRelayMessageCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunRelayMessageRequestApi: TaskRunRelayMessageRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsRelayMessageCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunRelayMessageRequestApi),
     })
 }
 

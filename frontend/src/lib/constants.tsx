@@ -4,6 +4,7 @@ import { ChartDisplayCategory, ChartDisplayType, Region, SDKKey, SSOProvider } f
 
 // Sync with backend DISPLAY_TYPES_TO_CATEGORIES
 export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayCategory> = {
+    [ChartDisplayType.Auto]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsLineGraph]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsBar]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsUnstackedBar]: ChartDisplayCategory.TimeSeries,
@@ -168,7 +169,7 @@ export const FEATURE_FLAGS = {
 
     // UX flags, used to control the UX of the app
     AI_FIRST: 'ai-first', // this a larger change, not released to team yet
-    UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // used to remove the sidepanel from the experience
+    SEARCH_AI_PREVIEW: 'search-ai-preview', // used to show AI preview on search when no results are found
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
@@ -244,6 +245,7 @@ export const FEATURE_FLAGS = {
     CDP_DWH_TABLE_SOURCE: 'cdp-dwh-table-source', // owner: #team-workflows-cdp
     COHORT_CALCULATION_HISTORY: 'cohort-calculation-history', // owner: @gustavo #team-feature-flags
     COHORT_EMAIL_LOOKUP_CLICKHOUSE: 'cohort-email-lookup-clickhouse', // owner: @gustavo #team-feature-flags
+    COHORT_INLINE_CALCULATION: 'inline-cohort-calculation', // owner: #team-analytics-platform, inlines fast dynamic cohort queries instead of using precomputed cohortpeople table
     CONDENSED_FILTER_BAR: 'condensed_filter_bar', // owner: @jordanm-posthog #team-web-analytics
     CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
@@ -267,12 +269,14 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_REVENUE_SORTING: 'error-tracking-revenue-sorting', // owner: @david #team-error-tracking
     ERROR_TRACKING_SPIKE_ALERTING: 'error-tracking-spike-alerting', // owner: #team-error-tracking
     ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
+    ERROR_TRACKING_ALERTS_WIZARD: 'error-tracking-alerts-wizard', // owner: @aleks #team-error-tracking
     EVENT_MEDIA_PREVIEWS: 'event-media-previews', // owner: @alexlider
     EXPERIMENT_AI_ANALYSIS_TAB: 'experiment-ai-analysis-tab', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_FF_CROSS_SELL: 'experiments-ff-cross-sell', // owner: @rodrigoi #team-experiments
     EXPERIMENT_QUERY_PREAGGREGATION: 'experiment-query-preaggregation', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_TEMPLATES: 'experiments-templates', // owner: @rodrigoi #team-experiments
+    EXPERIMENTS_WIZARD_CREATION_FORM: 'experiments-wizard-creation-form', // owner: @mp-hog #team-experiments
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: #team-feature-flags
     FEATURE_FLAGS_V2: 'feature-flags-v2', // owner: @dmarticus #team-feature-flags
     FEATURE_FLAG_USAGE_DASHBOARD_CHECKBOX: 'feature-flag-usage-dashboard-checkbox', // owner: #team-feature-flags, globally disabled, enables opt-out of auto dashboard creation
@@ -280,7 +284,9 @@ export const FEATURE_FLAGS = {
     FLAG_EVALUATION_RUNTIMES: 'flag-evaluation-runtimes', // owner: @dmarticus #team-feature-flags
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
+    GROUP_PROFILE_EXPERIMENT: 'group-profile-experiment', // owner: @arthurdedeus #team-customer-analytics
     INSIGHT_OPTIONS_PAGE: 'insight-options-page', // owner: @rafaeelaudibert #team-growth multivariate=true
+    PRODUCT_ANALYTICS_HOME_TAB: 'product-analytics-home-tab', // owner: @anirudhpillai #team-product-analytics
     INTER_PROJECT_TRANSFERS: 'inter-project-transfers', // owner: @reecejones #team-platform-features
     LINKS: 'links', // owner: @marconlp #team-link (team doesn't exist for now, maybe will come back in the future)
     LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
@@ -289,12 +295,14 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_DISCUSSIONS: 'llm-analytics-discussions', // owner: #team-llm-analytics
     LLM_ANALYTICS_EARLY_ADOPTERS: 'llm-analytics-early-adopters', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS: 'llm-analytics-evaluations', // owner: #team-llm-analytics
+    LLM_ANALYTICS_OFFLINE_EVALS: 'llm-analytics-offline-evals', // owner: #team-llm-analytics
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS: 'llm-analytics-evaluations-custom-models', // owner: #team-llm-analytics
-    LLM_ANALYTICS_EVALUATIONS_ONBOARDING_EXPERIMENT: 'llm-analytics-evaluations-onboarding-experiment', // owner: #team-llm-analytics, multivariate=control,test-b,test-c
+    LLM_ANALYTICS_EVALUATIONS_HOG_CODE: 'llm-analytics-evaluations-hog-code', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS_SUMMARY: 'llm-analytics-evaluations-summary', // owner: #team-llm-analytics
     LLM_ANALYTICS_SESSION_SUMMARIZATION: 'llm-analytics-session-summarization', // owner: #team-llm-analytics
     LLM_ANALYTICS_CLUSTERS_TAB: 'llm-analytics-clusters-tab', // owner: #team-llm-analytics
+    LLM_ANALYTICS_TOOLS_TAB: 'llm-analytics-tools-tab', // owner: #team-llm-analytics
     LLM_ANALYTICS_CLUSTERING_ADMIN: 'llm-analytics-clustering-admin', // owner: #team-llm-analytics
     LLM_ANALYTICS_SESSIONS_VIEW: 'llm-analytics-sessions-view', // owner: #team-llm-analytics
     LLM_ANALYTICS_SUMMARIZATION: 'llm-analytics-summarization', // owner: #team-llm-analytics
@@ -310,6 +318,7 @@ export const FEATURE_FLAGS = {
     LOGS_SETTINGS_JSON: 'logs-settings-json', // owner: #team-logs
     LOGS_SETTINGS_RETENTION: 'logs-settings-retention', // owner: #team-logs
     LOGS_SPARKLINE_SERVICE_BREAKDOWN: 'logs-sparkline-service-breakdown', // owner: #team-logs
+    MCP_SERVERS: 'mcp-servers', // owner: #team-posthog-ai
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
@@ -324,10 +333,10 @@ export const FEATURE_FLAGS = {
     NOTEBOOK_PYTHON: 'notebook-python', // owner: #team-data-tools
     PAGE_REPORTS_AVERAGE_PAGE_VIEW: 'page-reports-average-page-view', // owner: @jordanm-posthog #team-web-analytics
     PHAI_ERROR_TRACKING_MODE: 'posthog-ai-error-tracking-mode', // owner: #team-posthog-ai
+    PHAI_LLM_ANALYTICS_MODE: 'posthog-ai-llm-analytics-mode', // owner: #team-posthog-ai
     PHAI_PLAN_MODE: 'phai-plan-mode', // owner: #team-posthog-ai
     PHAI_SURVEY_MODE: 'posthog-ai-survey-mode', // owner: #team-posthog-ai
     PHAI_TASKS: 'phai-tasks', // owner: #team-array
-    PHAI_WEB_SEARCH: 'phai-web-search', // owner: @Twixes #team-posthog-ai
     PRODUCT_ANALYTICS_AI_INSIGHT_ANALYSIS: 'product-analytics-ai-insight-analysis', // owner: #team-analytics-platform, used to show AI analysis section in insights
     PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI: 'autoname-insights-with-ai', // owner: @gesh #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
@@ -336,17 +345,22 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_EVENTS_COMBINATION_IN_FUNNELS: 'events-combination-in-funnels', // owner: @gesh #team-product-analytics
     PRODUCT_ANALYTICS_FUNNEL_DWH_SUPPORT: 'funnel-dwh-support', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_FUNNEL_DWH_STEP_UI: 'funnel-dwh-step-ui', // owner: @thmsobrmlr #team-product-analytics multivariate=control,popover
+    PRODUCT_ANALYTICS_HIDE_WEEKENDS: 'product-analytics-hide-weekends', // owner: @kliment-slice #team-irl-events
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
+    PRODUCT_ANALYTICS_DASHBOARD_AI_ANALYSIS: 'product-analytics-dashboard-ai-analysis', // owner: @anirudhpillai #team-product-analytics
     PRODUCT_CONVERSATIONS: 'product-conversations', // owner: @veryayskiy #team-conversations
-    PRODUCT_SUPPORT: 'product-support', // owner: @veryayskiy #team-conversations
+    PRODUCT_SUPPORT: 'product-support-release', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_SIDE_PANEL: 'product-support-side-panel', // owner: @veryayskiy #team-conversations
     ONBOARDING_AI_PRODUCT_RECOMMENDATIONS: 'onboarding-ai-product-recommendations', // owner: @rafaeelaudibert #team-growth, AI-powered product recommendations in onboarding multivariate=control,test,chat
+    ONBOARDING_PRODUCT_SELECTION_HEADING: 'onboarding-product-selection-heading', // owner: #team-growth, payload overrides the heading copy on the first onboarding page
+    ONBOARDING_REVERSE_PROXY: 'onboarding-reverse-proxy', // owner: @rafaeelaudibert #team-growth
     ONBOARDING_SESSION_REPLAY_MEDIA: 'onboarding-session-replay-media', // owner: @fercgomes #team-growth multivariate=control,screenshot,demo
     ONBOARDING_SKIP_INSTALL_STEP: 'onboarding-skip-install-step', // owner: @rafaeelaudibert #team-growth multivariate=true
     PASSKEY_SIGNUP_ENABLED: 'passkey-signup-enabled', // owner: @reecejones #team-platform-features
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
+    DASHBOARD_TILE_REDESIGN: 'dashboard-tile-redesign', // owner: @sam #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
     PRODUCT_TOURS: 'product-tours-2025', // owner: @adboio #team-surveys
     PRODUCT_TOURS_LOCALIZATION: 'product-tours-localization', // owner: @adboio #team-surveys
@@ -367,6 +381,7 @@ export const FEATURE_FLAGS = {
     REPLAY_SNAPSHOT_STORE: 'replay-snapshot-store', // owner: @tue #team-replay multivariate=control,test
     REPLAY_WAIT_FOR_IFRAME_READY: 'replay-wait-for-full-snapshot-playback', // owner: @ksvat #team-replay
     REPLAY_X_LLM_ANALYTICS_CONVERSATION_VIEW: 'replay-x-llm-analytics-conversation-view', // owner: @pauldambra #team-replay
+    REPLAY_COLLAPSE_INSPECTOR_ITEMS: 'replay-collapse-inspector-items', // owner: @fasyy612 #team-replay
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
     REORDER_PLATFORM_ADDON_BILLING_SECTION: 'reorder-platform-addon-billing-section', // owner: @reece #team-platform-features
     REVENUE_ANALYTICS: 'revenue-analytics', // owner: @rafaeelaudibert #team-customer-analytics
@@ -386,23 +401,17 @@ export const FEATURE_FLAGS = {
     SQL_EDITOR_VIM_MODE: 'sql-editor-vim-mode', // owner: @arthurdedeus
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-analytics-platform
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
+    SURVEYS_FORM_BUILDER: 'surveys-form-builder', // owner: @adboio #team-surveys
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
     SURVEYS_INSIGHT_BUTTON_EXPERIMENT: 'ask-users-why-ai-vs-quickcreate', // owner: @adboio #team-surveys multivariate=true
     SURVEYS_WEB_ANALYTICS_CROSS_SELL: 'surveys-in-web-analytics', // owner: @adboio #team-surveys
-    SWITCH_SUBSCRIPTION_PLAN: 'switch-subscription-plan', // owner: @a-lider #team-platform-features
     TASK_SUMMARIES: 'task-summaries', // owner: #team-llm-analytics
     TASK_TOOL: 'phai-task-tool', // owner: @kappa90 #team-posthog-ai
     TASKS: 'tasks', // owner: #team-llm-analytics
-    TAXONOMIC_QUICK_FILTER_AUTOCAPTURE_EVENTS: 'taxonomic-quick-filter-autocapture-events', // owner: @pauldambra #team-product-analytics
-    TAXONOMIC_QUICK_FILTER_EMAIL_ADDRESSES: 'taxonomic-quick-filter-email-addresses', // owner: @pauldambra #team-product-analytics
-    TAXONOMIC_QUICK_FILTER_PAGEVIEW_EVENTS: 'taxonomic-quick-filter-pageview-events', // owner: @pauldambra #team-product-analytics
-    TAXONOMIC_QUICK_FILTER_PAGEVIEW_URLS: 'taxonomic-quick-filter-pageview-urls', // owner: @pauldambra #team-product-analytics
-    TAXONOMIC_QUICK_FILTER_SCREEN_EVENTS: 'taxonomic-quick-filter-screen-events', // owner: @pauldambra #team-product-analytics
-    TAXONOMIC_QUICK_FILTER_SCREENS: 'taxonomic-quick-filter-screens', // owner: @pauldambra #team-product-analytics
-    TAXONOMIC_QUICK_FILTERS: 'taxonomic-quick-filters', // owner: @pauldambra #team-product-analytics multivariate=control,test
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
     UNIFIED_HEALTH_PAGE: 'unified-health-page', // owner: @jordanm-posthog #team-web-analytics
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
+    UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_HEALTH_TAB: 'web_analytics_health_tab', // owner: @jordanm-posthog #team-web-analytics
@@ -427,7 +436,7 @@ export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
 export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
-    (flag) => flag !== FEATURE_FLAGS.AI_ONLY_MODE && flag !== FEATURE_FLAGS.UX_REMOVE_SIDEPANEL
+    (flag) => flag !== FEATURE_FLAGS.AI_ONLY_MODE
 )
 
 export const INSIGHT_VISUAL_ORDER = {
