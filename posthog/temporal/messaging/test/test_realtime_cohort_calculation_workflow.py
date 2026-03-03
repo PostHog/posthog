@@ -5,7 +5,6 @@ from unittest.mock import Mock, patch
 
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import flush_kafka_batch
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
-    CachedQuantiles,
     CohortSelectionActivityInput,
     QueryPercentileThresholds,
     QueryPercentileThresholdsInput,
@@ -337,33 +336,44 @@ class TestRealtimeCohortCalculationCoordinator:
         assert set(props["team_ids"]) == {42, 100}
         assert props["global_percentage"] == 0.3
 
-    def test_coordinator_workflow_inputs_uses_env_var_default(self):
-        """Should use env vars when no params provided."""
+    def test_coordinator_workflow_inputs_preserves_none_values(self):
+        """Should preserve None values for deterministic Temporal workflow behavior."""
+        # __post_init__ was removed to ensure Temporal workflow determinism
+        # Django settings are now loaded at schedule creation time, not during deserialization
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs()
+
+        # Should preserve explicit None values instead of auto-loading from settings
+        assert inputs.team_ids is None
+        assert inputs.global_percentage is None
+
+    def test_coordinator_workflow_inputs_explicit_values(self):
+        """Should preserve explicit values without auto-loading from settings."""
+        # __post_init__ was removed to ensure Temporal workflow determinism
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+            team_ids=set(),  # Explicitly empty (not None)
+            global_percentage=None,  # Explicitly None
+        )
+
+        # Should preserve user's explicit values without loading from Django settings
+        assert inputs.team_ids == set()  # User's explicit empty set
+        assert inputs.global_percentage is None  # User's explicit None
+
+    def test_parse_inputs_loads_django_settings(self):
+        """Should load Django settings when using parse_inputs for CLI usage."""
+        from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
+            RealtimeCohortCalculationCoordinatorWorkflow,
+        )
+
         with (
-            patch("posthog.settings.schedules.REALTIME_COHORT_CALCULATION_TEAMS", {2, 42}),
-            patch("posthog.settings.schedules.REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE", 0.5),
+            patch("posthog.settings.schedules.REALTIME_COHORT_CALCULATION_TEAMS", {42, 100}),
+            patch("posthog.settings.schedules.REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE", 0.75),
         ):
-            inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs()
+            # parse_inputs should load Django settings for CLI usage
+            inputs = RealtimeCohortCalculationCoordinatorWorkflow.parse_inputs([])
 
-            # Should use the env var defaults
-            assert inputs.team_ids == {2, 42}
-            assert inputs.global_percentage == 0.5
-
-    def test_coordinator_workflow_inputs_partial_env_var_defaults(self):
-        """Should only load env vars for fields that are None."""
-        with (
-            patch("posthog.settings.schedules.REALTIME_COHORT_CALCULATION_TEAMS", {999}),
-            patch("posthog.settings.schedules.REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE", 0.999),
-        ):
-            # User explicitly sets empty team_ids but wants env var for global_percentage
-            inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
-                team_ids=set(),  # Explicitly empty (not None)
-                global_percentage=None,  # Use env var default
-            )
-
-            # Should preserve user's explicit empty set and use env var for percentage
-            assert inputs.team_ids == set()  # User's explicit value, not env var {999}
-            assert inputs.global_percentage == 0.999  # From env var
+            # Should load settings values for CLI usage
+            assert inputs.team_ids == {42, 100}
+            assert inputs.global_percentage == 0.75
 
     def test_team_percentages_parsing_from_env_var(self):
         """Test parsing team percentages from environment variable using JSON format."""
@@ -782,6 +792,32 @@ class TestDurationFiltering:
             last_calculation_duration_ms__lt=7250,
         )
 
+    def test_apply_duration_filtering_identical_thresholds(self):
+        """Should use __lte instead of __lt when min and max thresholds are identical.
+
+        This handles the edge case where all cohorts have identical durations,
+        causing quantile boundaries to be the same value. Using __lt would match
+        zero rows, but __lte correctly matches cohorts at that exact duration.
+        """
+        mock_queryset = Mock()
+        mock_filtered_queryset = Mock()
+        mock_queryset.filter.return_value = mock_filtered_queryset
+
+        # Identical thresholds simulate the case where all cohorts have the same duration
+        thresholds = QueryPercentileThresholds(
+            min_threshold_ms=5000,  # Same value
+            max_threshold_ms=5000,  # Same value
+        )
+
+        result = _apply_duration_filtering(mock_queryset, thresholds, is_p100=False)
+
+        assert result is mock_filtered_queryset
+        # Should use __lte instead of __lt when thresholds are identical
+        mock_queryset.filter.assert_called_once_with(
+            last_calculation_duration_ms__gte=5000,
+            last_calculation_duration_ms__lte=5000,  # __lte instead of __lt
+        )
+
 
 class TestQueryPercentileThresholdsActivity:
     """Tests for ClickHouse percentile threshold calculation."""
@@ -868,15 +904,7 @@ class TestQueryPercentileThresholdsActivity:
         inputs = QueryPercentileThresholdsInput(min_percentile=0.0, max_percentile=90.0)
 
         # Empty result from Cohort queryset (no historical durations)
-        with (
-            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort,
-            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache") as mock_cache,
-        ):
-            # Ensure cache miss to force direct calculation
-            mock_cache.get.return_value = None
-            mock_cache.add.return_value = True
-            mock_cache.set.return_value = None
-
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
             mock_queryset = Mock()
             mock_queryset.values_list.return_value = []
             mock_cohort.objects.filter.return_value = mock_queryset
@@ -892,15 +920,7 @@ class TestQueryPercentileThresholdsActivity:
         inputs = QueryPercentileThresholdsInput(min_percentile=50.0, max_percentile=75.0)
 
         # Only one data point (need at least 2 for meaningful percentiles)
-        with (
-            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort,
-            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache") as mock_cache,
-        ):
-            # Ensure cache miss to force direct calculation
-            mock_cache.get.return_value = None
-            mock_cache.add.return_value = True
-            mock_cache.set.return_value = None
-
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
             mock_queryset = Mock()
             mock_queryset.values_list.return_value = [1000]
             mock_cohort.objects.filter.return_value = mock_queryset
@@ -916,15 +936,7 @@ class TestQueryPercentileThresholdsActivity:
         inputs = QueryPercentileThresholdsInput(min_percentile=75.0, max_percentile=90.0)
 
         # Mock data that will cause statistics error (too few points for percentile calculation)
-        with (
-            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort,
-            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache") as mock_cache,
-        ):
-            # Ensure cache miss to force direct calculation
-            mock_cache.get.return_value = None
-            mock_cache.add.return_value = True
-            mock_cache.set.return_value = None
-
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
             mock_queryset = Mock()
             mock_queryset.values_list.return_value = [100, 200]  # Valid data
             mock_cohort.objects.filter.return_value = mock_queryset
@@ -942,15 +954,7 @@ class TestQueryPercentileThresholdsActivity:
         inputs = QueryPercentileThresholdsInput(min_percentile=80.0, max_percentile=95.0)
 
         # Invalid duration data format (non-numeric values)
-        with (
-            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort,
-            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache") as mock_cache,
-        ):
-            # Ensure cache miss to force direct calculation
-            mock_cache.get.return_value = None
-            mock_cache.add.return_value = True
-            mock_cache.set.return_value = None
-
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
             mock_queryset = Mock()
             mock_queryset.values_list.return_value = ["invalid-duration", "another-invalid"]
             mock_cohort.objects.filter.return_value = mock_queryset
@@ -961,25 +965,35 @@ class TestQueryPercentileThresholdsActivity:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db
-    async def test_get_percentile_thresholds_database_error(self):
-        """Should return None when database query fails."""
+    async def test_get_percentile_thresholds_database_error_propagates(self):
+        """Should propagate database errors for Temporal retry instead of silently returning None."""
         inputs = QueryPercentileThresholdsInput(min_percentile=60.0, max_percentile=80.0)
 
         # Mock database error
-        with (
-            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort,
-            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache") as mock_cache,
-        ):
-            # Ensure cache miss to force direct calculation
-            mock_cache.get.return_value = None
-            mock_cache.add.return_value = True
-            mock_cache.set.return_value = None
-
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            # Simulate database connection error
             mock_cohort.objects.filter.side_effect = Exception("Database connection failed")
 
-            result = await get_query_percentile_thresholds_activity(inputs)
+            # Should propagate the database error instead of returning None
+            with pytest.raises(Exception, match="Database connection failed"):
+                await get_query_percentile_thresholds_activity(inputs)
 
-        assert result is None
+    @pytest.mark.asyncio
+    @pytest.mark.django_db
+    async def test_get_percentile_thresholds_django_db_error_propagates(self):
+        """Should propagate Django database errors for Temporal retry."""
+        from django.db import OperationalError
+
+        inputs = QueryPercentileThresholdsInput(min_percentile=50.0, max_percentile=90.0)
+
+        # Mock Django database error (connection timeout, etc.)
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            # Simulate Django OperationalError (connection timeout, server unavailable, etc.)
+            mock_cohort.objects.filter.side_effect = OperationalError("Connection to database lost")
+
+            # Should propagate the database error for Temporal retry
+            with pytest.raises(OperationalError, match="Connection to database lost"):
+                await get_query_percentile_thresholds_activity(inputs)
 
     @pytest.mark.asyncio
     @pytest.mark.django_db
@@ -988,15 +1002,7 @@ class TestQueryPercentileThresholdsActivity:
         inputs = QueryPercentileThresholdsInput(min_percentile=70.0, max_percentile=85.0)
 
         # Mock data that will cause TypeError during max() operation
-        with (
-            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort,
-            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache") as mock_cache,
-        ):
-            # Ensure cache miss to force direct calculation
-            mock_cache.get.return_value = None
-            mock_cache.add.return_value = True
-            mock_cache.set.return_value = None
-
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
             mock_queryset = Mock()
             # Mix of numbers and non-numeric data that will cause TypeError
             mock_queryset.values_list.return_value = [100, None, 200, 300]
@@ -1134,185 +1140,132 @@ class TestDurationFilteringIntegration:
         assert mock_queryset.filter.call_count == 0
 
 
-class TestCachedQuantiles:
-    """Tests for the CachedQuantiles dataclass and its edge cases."""
-
-    def test_get_thresholds_p0_edge_case(self):
-        """Test that p0 correctly returns 0 (no minimum threshold)."""
-        quantiles = list(range(100, 200))  # p1=100, p2=101, ..., p99=198
-        max_value = 250
-        cached_quantiles = CachedQuantiles(quantiles=quantiles, max_value=max_value)
-
-        result = cached_quantiles.get_thresholds(min_percentile=0.0, max_percentile=50.0)
-
-        assert result.min_threshold_ms == 0  # p0 should be 0 (no minimum threshold)
-        assert result.max_threshold_ms == 149  # p50 should use 50th quantile
-
-    def test_get_thresholds_p100_edge_case(self):
-        """Test that p100 correctly uses max_value instead of p99."""
-        quantiles = list(range(100, 200))  # p1=100, p2=101, ..., p99=198
-        max_value = 250
-        cached_quantiles = CachedQuantiles(quantiles=quantiles, max_value=max_value)
-
-        result = cached_quantiles.get_thresholds(min_percentile=50.0, max_percentile=100.0)
-
-        assert result.min_threshold_ms == 149  # p50 should use 50th quantile
-        assert result.max_threshold_ms == 250  # p100 should use max_value, not p99 (198)
-
-    def test_get_thresholds_p100_with_none_max_percentile(self):
-        """Test that None max_percentile is treated as p100."""
-        quantiles = list(range(100, 200))
-        max_value = 300
-        cached_quantiles = CachedQuantiles(quantiles=quantiles, max_value=max_value)
-
-        result = cached_quantiles.get_thresholds(min_percentile=90.0, max_percentile=None)
-
-        assert result.min_threshold_ms == 189  # p90
-        assert result.max_threshold_ms == 300  # Should use max_value for None (p100)
-
-    def test_get_thresholds_edge_percentiles_exactly_100(self):
-        """Test edge case where max_percentile is exactly 100.0."""
-        quantiles = list(range(1, 100))  # [1, 2, 3, ..., 99]
-        max_value = 500
-        cached_quantiles = CachedQuantiles(quantiles=quantiles, max_value=max_value)
-
-        result = cached_quantiles.get_thresholds(min_percentile=95.0, max_percentile=100.0)
-
-        assert result.min_threshold_ms == 95  # p95 (index 94 -> value 95)
-        assert result.max_threshold_ms == 500  # Should use max_value for exactly 100.0
-
-    def test_get_thresholds_single_value_dataset(self):
-        """Test edge case with single quantile value (all durations the same)."""
-        quantiles = [42] * 99  # All quantiles are the same value
-        max_value = 42
-        cached_quantiles = CachedQuantiles(quantiles=quantiles, max_value=max_value)
-
-        result = cached_quantiles.get_thresholds(min_percentile=10.0, max_percentile=90.0)
-
-        assert result.min_threshold_ms == 42
-        assert result.max_threshold_ms == 42
-        assert result.min_threshold_ms == result.max_threshold_ms
-
-    def test_get_thresholds_p0_to_p100_full_range(self):
-        """Test the full range from p0 to p100."""
-        quantiles = list(range(1, 100))  # p1=1, p2=2, ..., p99=99
-        max_value = 200
-        cached_quantiles = CachedQuantiles(quantiles=quantiles, max_value=max_value)
-
-        result = cached_quantiles.get_thresholds(min_percentile=0.0, max_percentile=100.0)
-
-        assert result.min_threshold_ms == 0  # p0 should be 0 (no minimum)
-        assert result.max_threshold_ms == 200  # p100 uses max_value
-
-    def test_get_thresholds_floating_point_precision_near_p100(self):
-        """Test that floating point precision issues near 100.0 are handled correctly."""
-        quantiles = list(range(1, 100))  # p1=1, p2=2, ..., p99=99
-        max_value = 500
-        cached_quantiles = CachedQuantiles(quantiles=quantiles, max_value=max_value)
-
-        # Test values that might result from JSON serialization/deserialization
-        test_cases = [
-            99.9,  # Boundary value - should trigger p100 logic
-            99.99999999999999,  # Close to 100 but not exact - should trigger p100 logic
-            100.0,  # Exact 100 - should trigger p100 logic
-            100.00000000000001,  # Slightly above 100 - should trigger p100 logic
-            99.5,  # Clearly below boundary - should use p99 logic
-        ]
-
-        for max_percentile in test_cases:
-            result = cached_quantiles.get_thresholds(min_percentile=90.0, max_percentile=max_percentile)
-
-            if max_percentile >= 99.9:
-                # Should use max_value for p100 logic
-                assert result.max_threshold_ms == 500, f"Failed for max_percentile={max_percentile}"
-            else:
-                # Should use quantiles array (p99 = quantiles[98] = 99)
-                assert result.max_threshold_ms == 99, f"Failed for max_percentile={max_percentile}"
-
-
-@patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache")
-class TestCacheLockEdgeCases:
-    """Tests for cache lock timeout and edge cases."""
+class TestCoordinatorWorkflowInsufficientData:
+    """Tests for coordinator workflow behavior when insufficient duration data exists."""
 
     @pytest.mark.asyncio
-    async def test_cache_available_no_lock_needed(self, mock_cache):
-        """Test that lock is not attempted when cache data is available."""
-        import json
+    async def test_coordinator_skips_p90_p95_schedule_when_insufficient_data(self):
+        """Should exit early for p90-p95 schedule when no duration data exists."""
+        from unittest.mock import AsyncMock
 
+        # Import the coordinator workflow
         from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
-            QueryPercentileThresholdsInput,
-            get_cached_percentile_thresholds,
+            RealtimeCohortCalculationCoordinatorWorkflow,
+            RealtimeCohortCalculationCoordinatorWorkflowInputs,
         )
 
-        # Mock cached data available
-        cached_data = json.dumps({"quantiles": list(range(100, 200)), "max_value": 250})
-        mock_cache.get.return_value = cached_data
+        # Create coordinator workflow instance
+        workflow = RealtimeCohortCalculationCoordinatorWorkflow()
 
-        inputs = QueryPercentileThresholdsInput(min_percentile=90.0, max_percentile=95.0)
-        result = await get_cached_percentile_thresholds(inputs)
+        # Mock workflow execute_activity to return None (insufficient data)
+        workflow_logger = Mock()
 
-        assert result is not None
-        assert result.min_threshold_ms == 189  # p90
-        assert result.max_threshold_ms == 194  # p95
-        # Should only check cache, no lock or calculation needed
-        mock_cache.get.assert_called_once()
-        mock_cache.add.assert_not_called()
+        with (
+            patch("temporalio.workflow.logger", workflow_logger),
+            patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
+        ):
+            # Mock the get_query_percentile_thresholds_activity to return None
+            mock_execute_activity.return_value = None
+
+            inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+                duration_percentile_min=90.0,  # p90-p95 schedule
+                duration_percentile_max=95.0,
+            )
+
+            # Should exit early without calling get_realtime_cohort_selection_activity
+            await workflow.run(inputs)
+
+            # Should only call get_query_percentile_thresholds_activity, not cohort selection
+            assert mock_execute_activity.call_count == 1
+
+            # Verify the correct log message was generated
+            workflow_logger.info.assert_any_call(
+                "Skipping p90.0-p95.0 schedule execution: insufficient duration data for percentile filtering"
+            )
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db
-    async def test_cache_miss_falls_back_to_direct_calculation(self, mock_cache):
-        """Test that cache miss falls back to direct percentile calculation."""
+    async def test_coordinator_skips_p95_p100_schedule_when_insufficient_data(self):
+        """Should exit early for p95-p100 schedule when no duration data exists."""
+        from unittest.mock import AsyncMock
+
+        # Import the coordinator workflow
         from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
-            QueryPercentileThresholdsInput,
-            get_cached_percentile_thresholds,
+            RealtimeCohortCalculationCoordinatorWorkflow,
+            RealtimeCohortCalculationCoordinatorWorkflowInputs,
         )
 
-        # Mock cache miss and lock acquisition failure
-        mock_cache.get.return_value = None
-        mock_cache.add.return_value = False  # Lock not acquired (another process has it)
+        # Create coordinator workflow instance
+        workflow = RealtimeCohortCalculationCoordinatorWorkflow()
 
-        # Mock Cohort to return empty data for fallback calculation
-        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
-            mock_queryset = Mock()
-            mock_queryset.values_list.return_value = []
-            mock_cohort.objects.filter.return_value = mock_queryset
+        # Mock workflow execute_activity to return None (insufficient data)
+        workflow_logger = Mock()
 
-            inputs = QueryPercentileThresholdsInput(min_percentile=0.0, max_percentile=100.0)
+        with (
+            patch("temporalio.workflow.logger", workflow_logger),
+            patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
+        ):
+            # Mock the get_query_percentile_thresholds_activity to return None
+            mock_execute_activity.return_value = None
 
-            # This should fall back to calculate_percentile_thresholds
-            # which should return None due to no cohort data
-            result = await get_cached_percentile_thresholds(inputs)
+            inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+                duration_percentile_min=95.0,  # p95-p100 schedule
+                duration_percentile_max=100.0,
+            )
 
-        assert result is None
-        # Should attempt cache twice (initial and retry after wait) then attempt lock
-        assert mock_cache.get.call_count == 2
-        mock_cache.add.assert_called_once()
+            # Should exit early without calling get_realtime_cohort_selection_activity
+            await workflow.run(inputs)
+
+            # Should only call get_query_percentile_thresholds_activity, not cohort selection
+            assert mock_execute_activity.call_count == 1
+
+            # Verify the correct log message was generated
+            workflow_logger.info.assert_any_call(
+                "Skipping p95.0-p100.0 schedule execution: insufficient duration data for percentile filtering"
+            )
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db
-    async def test_cache_corrupted_falls_back(self, mock_cache):
-        """Test that corrupted cache data falls back to calculation."""
+    async def test_coordinator_continues_p0_p90_schedule_when_insufficient_data(self):
+        """Should continue processing for p0-p90 schedule even when no duration data exists."""
+        from unittest.mock import AsyncMock
+
+        # Import the coordinator workflow
         from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
-            QueryPercentileThresholdsInput,
-            get_cached_percentile_thresholds,
+            RealtimeCohortCalculationCoordinatorWorkflow,
+            RealtimeCohortCalculationCoordinatorWorkflowInputs,
         )
 
-        # Mock corrupted cache data
-        mock_cache.get.return_value = "invalid json"
-        mock_cache.add.return_value = False  # Lock not acquired in fallback
+        # Create coordinator workflow instance
+        workflow = RealtimeCohortCalculationCoordinatorWorkflow()
 
-        # Mock Cohort to return empty data for fallback calculation
-        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
-            mock_queryset = Mock()
-            mock_queryset.values_list.return_value = []
-            mock_cohort.objects.filter.return_value = mock_queryset
+        # Mock workflow execute_activity
+        workflow_logger = Mock()
 
-            inputs = QueryPercentileThresholdsInput(min_percentile=50.0, max_percentile=90.0)
+        # Mock cohort selection result with empty cohort list
+        mock_selection_result = Mock()
+        mock_selection_result.cohort_ids = []
 
-            # Should fall back to calculation due to JSON error
-            result = await get_cached_percentile_thresholds(inputs)
+        with (
+            patch("temporalio.workflow.logger", workflow_logger),
+            patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
+        ):
+            # Mock sequence: thresholds=None, selection returns empty list
+            mock_execute_activity.side_effect = [
+                None,  # get_query_percentile_thresholds_activity returns None
+                mock_selection_result,  # get_realtime_cohort_selection_activity returns empty
+            ]
 
-        assert result is None  # Returns None due to no cohort data
-        # Should attempt cache twice (initial corrupted data + retry after wait) then attempt lock
-        assert mock_cache.get.call_count == 2
-        mock_cache.add.assert_called_once()
+            inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+                duration_percentile_min=0.0,  # p0-p90 schedule
+                duration_percentile_max=90.0,
+            )
+
+            # Should continue processing and call both activities
+            await workflow.run(inputs)
+
+            # Should call both get_query_percentile_thresholds_activity AND get_realtime_cohort_selection_activity
+            assert mock_execute_activity.call_count == 2
+
+            # Verify no early exit message was generated
+            workflow_logger.info.assert_any_call(
+                "Duration percentile filtering p0.0-p90.0: disabled (no historical query data)"
+            )

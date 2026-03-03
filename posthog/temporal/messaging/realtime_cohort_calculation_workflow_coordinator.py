@@ -1,4 +1,3 @@
-import json
 import math
 import random
 import asyncio
@@ -7,7 +6,6 @@ import dataclasses
 from typing import Any, Optional, TypedDict
 
 from django.conf import settings
-from django.core.cache import cache
 from django.utils import timezone
 
 import temporalio.common
@@ -15,10 +13,6 @@ import temporalio.activity
 import temporalio.workflow
 
 from posthog.models.cohort.cohort import Cohort, CohortType
-from posthog.settings.schedules import (
-    REALTIME_COHORT_PERCENTILE_CACHE_LOCK_TTL_SECONDS,
-    REALTIME_COHORT_PERCENTILE_CACHE_TTL_SECONDS,
-)
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
@@ -45,71 +39,6 @@ class QueryPercentileThresholds:
 
     min_threshold_ms: int = 0  # Threshold for the minimum percentile (milliseconds)
     max_threshold_ms: int = 0  # Threshold for the maximum percentile (milliseconds)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to dictionary for cache storage."""
-        return {
-            "min_threshold_ms": self.min_threshold_ms,
-            "max_threshold_ms": self.max_threshold_ms,
-            "calculated_at": dt.datetime.now(dt.UTC).isoformat(),
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "QueryPercentileThresholds":
-        """Deserialize from dictionary from cache storage."""
-        return cls(
-            min_threshold_ms=data["min_threshold_ms"],
-            max_threshold_ms=data["max_threshold_ms"],
-        )
-
-
-@dataclasses.dataclass
-class CachedQuantiles:
-    """Cached quantiles array for deriving specific percentile thresholds."""
-
-    quantiles: list[int]  # Duration quantiles in milliseconds (p1 to p99)
-    max_value: int  # Actual maximum value for p100 handling
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for caching."""
-        return {
-            "quantiles": self.quantiles,
-            "max_value": self.max_value,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "CachedQuantiles":
-        """Create from dictionary for caching."""
-        return cls(
-            quantiles=data["quantiles"],
-            max_value=data["max_value"],
-        )
-
-    def get_thresholds(
-        self, min_percentile: Optional[float], max_percentile: Optional[float]
-    ) -> QueryPercentileThresholds:
-        """Derive specific percentile thresholds from cached quantiles."""
-        # Special handling for p0: use 0 instead of calculating from data
-        if min_percentile is None or min_percentile <= 0.0:
-            min_threshold = 0
-        else:
-            # For p1-p99: use quantiles array (1-based percentile maps to 0-based index)
-            min_index = max(0, min(int(min_percentile) - 1, len(self.quantiles) - 1))
-            min_threshold = self.quantiles[min_index]
-
-        # Calculate max threshold - fix p100 handling
-        if max_percentile is None or max_percentile >= 99.9:
-            # p100 case - use actual maximum from data, not p99
-            max_threshold = self.max_value
-        else:
-            # For p1-p99: use quantiles array (1-based percentile maps to 0-based index)
-            max_index = max(0, min(int(max_percentile) - 1, len(self.quantiles) - 1))
-            max_threshold = self.quantiles[max_index]
-
-        return QueryPercentileThresholds(
-            min_threshold_ms=min_threshold,
-            max_threshold_ms=max_threshold,
-        )
 
 
 @dataclasses.dataclass
@@ -155,9 +84,18 @@ def _apply_duration_filtering(queryset, thresholds: QueryPercentileThresholds | 
     else:
         # Normal case: apply both upper and lower bounds
         # Only include cohorts with duration data in the specified range
-        return queryset.filter(
-            last_calculation_duration_ms__gte=min_threshold_ms, last_calculation_duration_ms__lt=max_threshold_ms
-        )
+
+        # Handle edge case: when all cohorts have identical/similar durations,
+        # quantile boundaries may be identical (min_threshold_ms == max_threshold_ms).
+        # Using __lt would match zero rows, so use __lte for the upper bound instead.
+        if min_threshold_ms == max_threshold_ms:
+            return queryset.filter(
+                last_calculation_duration_ms__gte=min_threshold_ms, last_calculation_duration_ms__lte=max_threshold_ms
+            )
+        else:
+            return queryset.filter(
+                last_calculation_duration_ms__gte=min_threshold_ms, last_calculation_duration_ms__lt=max_threshold_ms
+            )
 
 
 class WorkflowConfig(TypedDict):
@@ -186,17 +124,10 @@ class RealtimeCohortCalculationCoordinatorWorkflowInputs:
     duration_percentile_min: Optional[float] = None  # Minimum duration percentile threshold (e.g., 0.0)
     duration_percentile_max: Optional[float] = None  # Maximum duration percentile threshold (e.g., 90.0)
 
-    def __post_init__(self):
-        """Load default configuration from environment if not provided."""
-        if self.team_ids is None:
-            from posthog.settings.schedules import REALTIME_COHORT_CALCULATION_TEAMS
-
-            self.team_ids = REALTIME_COHORT_CALCULATION_TEAMS.copy()
-
-        if self.global_percentage is None:
-            from posthog.settings.schedules import REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE
-
-            self.global_percentage = REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE
+    # Note: __post_init__ was removed to ensure Temporal workflow determinism.
+    # Django settings values (team_ids, global_percentage) are now loaded at schedule
+    # creation time rather than during deserialization to prevent non-deterministic
+    # behavior across workers and during replays.
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -219,115 +150,16 @@ class RealtimeCohortSelectionResult:
     cohort_ids: list[int]
 
 
-def get_quantiles_cache_key() -> str:
-    """Generate cache key for quantiles array."""
-    return "cohort_quantiles"
-
-
-def get_quantiles_lock_key() -> str:
-    """Generate cache key for quantiles calculation lock."""
-    return f"{get_quantiles_cache_key()}:lock"
-
-
-async def get_cached_percentile_thresholds(
+async def calculate_percentile_thresholds(
     inputs: QueryPercentileThresholdsInput,
 ) -> QueryPercentileThresholds | None:
-    """Get percentile thresholds from cached quantiles, calculating quantiles if needed.
-
-    This ensures all schedules use consistent quantiles to derive their specific thresholds,
-    avoiding overlap/gaps between percentile ranges. Uses a distributed lock pattern.
-    """
-    cache_key = get_quantiles_cache_key()
-    lock_key = get_quantiles_lock_key()
-
-    # Try to get quantiles from cache first
-    try:
-        cached_data = await database_sync_to_async(lambda: cache.get(cache_key))()
-        if cached_data:
-            LOGGER.info("Using cached quantiles", cache_key=cache_key)
-            quantiles = CachedQuantiles.from_dict(json.loads(cached_data))
-            return quantiles.get_thresholds(inputs.min_percentile, inputs.max_percentile)
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
-        LOGGER.warning(f"Failed to deserialize cached quantiles: {e}")
-        # Continue to calculation if cache is corrupted
-    except Exception as e:
-        LOGGER.warning(f"Cache unavailable, falling back to direct calculation: {e}")
-        # Cache service is down - fall back to direct calculation
-        return await calculate_percentile_thresholds(inputs)
-
-    # Cache miss - need to calculate
-    # Use distributed lock to prevent multiple schedules from calculating simultaneously
-    try:
-        # Use cache.add() which only sets if key doesn't exist (like Redis SET ... NX)
-        lock_acquired = await database_sync_to_async(
-            lambda: cache.add(lock_key, "calculating", timeout=REALTIME_COHORT_PERCENTILE_CACHE_LOCK_TTL_SECONDS)
-        )()
-    except Exception as e:
-        LOGGER.warning(f"Cache locking unavailable, calculating directly: {e}")
-        # Cache service is down - calculate directly without locking
-        return await calculate_percentile_thresholds(inputs)
-
-    if lock_acquired:
-        try:
-            LOGGER.info("Calculating fresh quantiles (lock acquired)")
-            # Calculate new quantiles
-            calculated_quantiles = await calculate_quantiles()
-            if calculated_quantiles is None:
-                # No quantiles available - fall back to direct calculation
-                return await calculate_percentile_thresholds(inputs)
-
-            # Store quantiles in cache for other schedules to use
-            try:
-                await database_sync_to_async(
-                    lambda: cache.set(
-                        cache_key,
-                        json.dumps(calculated_quantiles.to_dict()),
-                        timeout=REALTIME_COHORT_PERCENTILE_CACHE_TTL_SECONDS,
-                    )
-                )()
-                LOGGER.info("Cached fresh quantiles", cache_ttl_seconds=REALTIME_COHORT_PERCENTILE_CACHE_TTL_SECONDS)
-            except Exception as e:
-                LOGGER.warning(f"Failed to cache quantiles, continuing anyway: {e}")
-            # Derive specific thresholds for this request
-            return calculated_quantiles.get_thresholds(inputs.min_percentile, inputs.max_percentile)
-        finally:
-            # Always release the lock (ignore failures)
-            try:
-                await database_sync_to_async(lambda: cache.delete(lock_key))()
-            except Exception as e:
-                LOGGER.warning(f"Failed to release cache lock (continuing): {e}")
-    else:
-        # Another schedule is calculating, wait briefly and retry cache
-        LOGGER.info("Another schedule is calculating quantiles, waiting...")
-        await asyncio.sleep(2)  # Brief wait to avoid thundering herd
-
-        # Try cache one more time
-        try:
-            cached_data = await database_sync_to_async(lambda: cache.get(cache_key))()
-            if cached_data:
-                try:
-                    quantiles = CachedQuantiles.from_dict(json.loads(cached_data))
-                    return quantiles.get_thresholds(inputs.min_percentile, inputs.max_percentile)
-                except (json.JSONDecodeError, KeyError, TypeError):
-                    pass
-        except Exception as e:
-            LOGGER.warning(f"Cache retry failed: {e}")
-
-        # If still no cache after waiting, fall back to direct calculation
-        LOGGER.info("Cache still empty after waiting, calculating directly")
-        return await calculate_percentile_thresholds(inputs)
-
-
-async def calculate_quantiles() -> CachedQuantiles | None:
-    """Calculate quantiles array from database for caching."""
+    """Calculate percentile thresholds directly from duration data."""
 
     @database_sync_to_async
-    def get_quantiles():
-        # Calculate percentiles using Python statistics module
+    def get_thresholds():
         import statistics
 
         try:
-            # Calculate quantiles directly from cohort last_calculation_duration_ms field
             # Get cohorts with recent duration data (past 24 hours)
             recent_cohorts = Cohort.objects.filter(
                 last_calculation__gte=timezone.now() - dt.timedelta(hours=24),
@@ -344,45 +176,51 @@ async def calculate_quantiles() -> CachedQuantiles | None:
             if len(durations_list) < 2:
                 return None
 
-            # Convert percentiles to quantiles (keep in milliseconds)
-            quantiles = statistics.quantiles(durations_list, n=100, method="inclusive")
-            return CachedQuantiles(
-                quantiles=[int(q) for q in quantiles],
-                max_value=int(max(durations_list)),  # Store actual maximum for p100
+            # Calculate specific percentile thresholds
+            min_percentile = inputs.min_percentile
+            max_percentile = inputs.max_percentile
+
+            # Special handling for p0: use 0 instead of calculating from data
+            if min_percentile is None or min_percentile <= 0.0:
+                min_threshold = 0
+            else:
+                # Calculate the specific percentile (convert to 0-1 range)
+                min_threshold = int(
+                    statistics.quantiles(durations_list, n=100, method="inclusive")[int(min_percentile) - 1]
+                )
+
+            # Calculate max threshold
+            if max_percentile is None or max_percentile >= 99.9:
+                # p100 case - use actual maximum from data
+                max_threshold = int(max(durations_list))
+            else:
+                # Calculate the specific percentile (convert to 0-1 range)
+                max_threshold = int(
+                    statistics.quantiles(durations_list, n=100, method="inclusive")[int(max_percentile) - 1]
+                )
+
+            return QueryPercentileThresholds(
+                min_threshold_ms=min_threshold,
+                max_threshold_ms=max_threshold,
             )
+
         except (statistics.StatisticsError, TypeError, ValueError) as e:
             LOGGER.warning(
-                "Failed to calculate quantiles from duration data", error=str(e), error_type=type(e).__name__
+                "Failed to calculate percentile thresholds from duration data",
+                error=str(e),
+                error_type=type(e).__name__,
             )
             return None
-        except Exception as e:
-            LOGGER.warning("Database error during quantiles calculation", error=str(e), error_type=type(e).__name__)
-            return None
 
-    return await get_quantiles()
-
-
-async def calculate_percentile_thresholds(
-    inputs: QueryPercentileThresholdsInput,
-) -> QueryPercentileThresholds | None:
-    """Calculate percentile thresholds by reusing quantiles calculation logic."""
-    quantiles = await calculate_quantiles()
-    if quantiles is None:
-        return None
-    return quantiles.get_thresholds(inputs.min_percentile, inputs.max_percentile)
+    return await get_thresholds()
 
 
 @temporalio.activity.defn
 async def get_query_percentile_thresholds_activity(
     inputs: QueryPercentileThresholdsInput,
 ) -> QueryPercentileThresholds | None:
-    """Get query duration percentile thresholds using shared cache to ensure consistency.
-
-    This activity uses a distributed cache with locking to ensure all three schedules
-    (p0-p90, p90-p95, p95-p100) use the same percentile thresholds, preventing
-    overlap and gaps in cohort processing.
-    """
-    return await get_cached_percentile_thresholds(inputs)
+    """Get query duration percentile thresholds by calculating directly from duration data."""
+    return await calculate_percentile_thresholds(inputs)
 
 
 @temporalio.activity.defn
@@ -481,7 +319,15 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RealtimeCohortCalculationCoordinatorWorkflowInputs:
         """Parse inputs from the management command CLI."""
-        return RealtimeCohortCalculationCoordinatorWorkflowInputs()
+        from posthog.settings.schedules import (
+            REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE,
+            REALTIME_COHORT_CALCULATION_TEAMS,
+        )
+
+        return RealtimeCohortCalculationCoordinatorWorkflowInputs(
+            team_ids=REALTIME_COHORT_CALCULATION_TEAMS.copy(),
+            global_percentage=REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE,
+        )
 
     @temporalio.workflow.run
     async def run(self, inputs: RealtimeCohortCalculationCoordinatorWorkflowInputs) -> None:
@@ -518,6 +364,15 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                 workflow_logger.info(
                     f"Duration percentile filtering p{min_p}-p{max_p}: disabled (no historical query data)"
                 )
+
+                # Early exit for higher percentile schedules when insufficient duration data
+                # This prevents tripling the workload during feature launch when all schedules
+                # would otherwise process every cohort
+                if inputs.duration_percentile_min is not None and inputs.duration_percentile_min >= 90.0:
+                    workflow_logger.info(
+                        f"Skipping p{min_p}-p{max_p} schedule execution: insufficient duration data for percentile filtering"
+                    )
+                    return
         else:
             workflow_logger.info("Duration percentile filtering: disabled (processing all cohorts)")
             thresholds = None
