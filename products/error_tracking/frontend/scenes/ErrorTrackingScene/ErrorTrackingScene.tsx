@@ -50,7 +50,7 @@ export function ErrorTrackingScene(): JSX.Element {
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
-    const hasInsightsNewBadge = useFeatureFlag('ERROR_TRACKING_INSIGHTS')
+    const hasInsights = useFeatureFlag('ERROR_TRACKING_INSIGHTS')
 
     useOnMountEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
@@ -102,21 +102,23 @@ export function ErrorTrackingScene(): JSX.Element {
                   },
               ]
             : []),
-        {
-            key: 'insights',
-            label: hasInsightsNewBadge ? (
-                <span className="flex items-center gap-1.5">
-                    Insights
-                    <LemonTag size="small" type="success">
-                        New
-                    </LemonTag>
-                </span>
-            ) : (
-                'Insights'
-            ),
-            content: <ErrorTrackingInsights />,
-            link: urls.errorTracking({ activeTab: 'insights' }),
-        },
+        ...(hasInsights
+            ? [
+                  {
+                      key: 'insights' as const,
+                      label: (
+                          <span className="flex items-center gap-1.5">
+                              Insights
+                              <LemonTag size="small" type="success">
+                                  New
+                              </LemonTag>
+                          </span>
+                      ),
+                      content: <ErrorTrackingInsights />,
+                      link: urls.errorTracking({ activeTab: 'insights' }),
+                  },
+              ]
+            : []),
     ]
 
     return (
