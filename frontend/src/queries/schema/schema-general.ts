@@ -4780,13 +4780,20 @@ export interface SourceFieldInputConfig {
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
 
+export interface SourceFieldSelectConfigOption {
+    label: string
+    value: string
+    fields?: SourceFieldConfig[]
+    deprecated?: boolean
+}
+
 export interface SourceFieldSelectConfig {
     type: 'select'
     name: string
     label: string
     required: boolean
     defaultValue: string
-    options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
+    options: SourceFieldSelectConfigOption[]
     converter?: SourceFieldSelectConfigConverter
 }
 

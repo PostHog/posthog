@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 from django.conf import settings
 from django.db import models
 from django.http import HttpRequest
+from django.utils import timezone
 
 import jwt
 import requests
@@ -118,6 +119,7 @@ class Integration(models.Model):
         FIREBASE = "firebase"
         JIRA = "jira"
         PINTEREST_ADS = "pinterest-ads"
+        STRIPE = "stripe"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -241,6 +243,7 @@ class OauthIntegration:
         "clickup",
         "jira",
         "pinterest-ads",
+        "stripe",
     ]
     integration: Integration
 
@@ -534,6 +537,22 @@ class OauthIntegration:
                 id_path="id",
                 name_path="username",
             )
+        elif kind == "stripe":
+            if not settings.STRIPE_APP_CLIENT_ID or not settings.STRIPE_APP_SECRET_KEY:
+                raise NotImplementedError("Stripe app not configured")
+
+            authorize_url = (
+                settings.STRIPE_APP_OVERRIDE_AUTHORIZE_URL or "https://marketplace.stripe.com/oauth/v2/authorize"
+            )
+            return OauthConfig(
+                authorize_url=authorize_url,
+                token_url="https://connect.stripe.com/oauth/token",
+                client_id=settings.STRIPE_APP_CLIENT_ID,
+                client_secret=settings.STRIPE_APP_SECRET_KEY,
+                scope="",
+                id_path="stripe_user_id",
+                name_path="account_name",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -748,6 +767,23 @@ class OauthIntegration:
                     logger.error("LinkedIn Ads OAuth response missing id_token", config_keys=list(config.keys()))
             except Exception:
                 logger.exception("Failed to decode LinkedIn JWT")
+
+        # Stripe OAuth returns stripe_user_id but no account name — fetch it from the Accounts API
+        if kind == "stripe" and integration_id:
+            try:
+                from stripe import StripeClient
+
+                stripe_client = StripeClient(oauth_config.client_secret)
+                account = stripe_client.accounts.retrieve(str(integration_id))
+                business_profile = getattr(account, "business_profile", None)
+                business_name = getattr(business_profile, "name", None) if business_profile else None
+                company = getattr(account, "company", None)
+                company_name = getattr(company, "name", None) if company else None
+                account_name = business_name or company_name or getattr(account, "email", None) or str(integration_id)
+                config["account_name"] = f"{account_name} ({integration_id})"
+            except Exception:
+                logger.exception("Failed to fetch Stripe account name")
+                config["account_name"] = str(integration_id)
 
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
@@ -2697,8 +2733,6 @@ class AzureBlobIntegration:
         return None
 
 
-# TODO: This is a placeholder currently only used to store the scopes we use for Stripe
-# It should be extended with the actual integration code once we move over to OAuth for Stripe as well
 class StripeIntegration:
     integration: Integration
 
@@ -2721,3 +2755,119 @@ class StripeIntegration:
             "hog_flow:write",
         ]
     )
+
+    STRIPE_APP_NAME = "PostHog Stripe App"
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "stripe":
+            raise ValueError(f"Expected stripe integration, got {integration.kind}")
+        self.integration = integration
+
+    def write_posthog_secrets(self, team_id: int, created_by: "User") -> None:
+        """Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App can call PostHog APIs."""
+        from datetime import timedelta
+
+        from oauthlib.common import generate_token
+        from stripe import StripeClient
+
+        from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+        from posthog.utils import get_instance_region
+
+        oauth_app = self._get_or_create_posthog_oauth_app()
+
+        access_token_value = generate_token()
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            token=access_token_value,
+            user=created_by,
+            expires=timezone.now() + timedelta(days=365),
+            scope=self.SCOPES,
+            scoped_teams=[team_id],
+        )
+
+        refresh_token_value = generate_token()
+        OAuthRefreshToken.objects.create(
+            application=oauth_app,
+            token=refresh_token_value,
+            user=created_by,
+            access_token=access_token,
+            scoped_teams=[team_id],
+        )
+
+        stripe_user_id = self.integration.integration_id
+        region = get_instance_region() or "us"
+
+        secrets = {
+            "posthog_region": region.lower(),
+            "posthog_access_token": access_token_value,
+            "posthog_refresh_token": refresh_token_value,
+        }
+
+        client = StripeClient(settings.STRIPE_APP_SECRET_KEY)
+
+        for name, payload in secrets.items():
+            try:
+                client.apps.secrets.create(
+                    params={
+                        "scope": {"type": "user", "user": stripe_user_id},
+                        "name": name,
+                        "payload": payload,
+                    }
+                )
+            except Exception as e:
+                capture_exception(e)
+                logger.warning(
+                    "Failed to write secret to Stripe",
+                    secret_name=name,
+                    stripe_user_id=stripe_user_id,
+                    error=str(e),
+                )
+
+    def clear_posthog_secrets(self) -> None:
+        """Best-effort clear of PostHog secrets from Stripe when the integration is deleted."""
+        from stripe import StripeClient
+
+        stripe_user_id = self.integration.integration_id
+        client = StripeClient(settings.STRIPE_APP_SECRET_KEY)
+
+        for name in ("posthog_region", "posthog_access_token", "posthog_refresh_token"):
+            try:
+                client.apps.secrets.delete_where(
+                    params={
+                        "scope": {"type": "user", "user": stripe_user_id},
+                        "name": name,
+                    }
+                )
+            except Exception as e:
+                capture_exception(e)
+                logger.warning(
+                    "Failed to clear secret from Stripe",
+                    secret_name=name,
+                    stripe_user_id=stripe_user_id,
+                    error=str(e),
+                )
+
+    def _get_or_create_posthog_oauth_app(self):
+        from posthog.models.oauth import OAuthApplication
+
+        if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
+            try:
+                return OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
+            except OAuthApplication.DoesNotExist:
+                pass
+
+        existing = OAuthApplication.objects.filter(name=self.STRIPE_APP_NAME).first()
+        if existing:
+            return existing
+
+        from oauthlib.common import generate_token
+
+        return OAuthApplication.objects.create(
+            name=self.STRIPE_APP_NAME,
+            client_id=generate_token(),
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+        )
