@@ -85,11 +85,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         ...state,
                         ...filters,
                     }),
-                setSearch: (state, { search }) =>
-                    objectClean({
-                        ...state,
-                        search,
-                    }),
             },
         ],
         tagSearch: [
@@ -190,11 +185,18 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
 
             router.actions.push(router.values.location.pathname, { ...router.values.searchParams, tab })
         },
-        setSearch: () => {
+        setSearch: ({ search }) => {
+            const nextSearch = search ?? ''
+            const currentSearch = (router.values.searchParams['search'] as string | undefined) ?? ''
+
+            if (nextSearch === currentSearch) {
+                return
+            }
+
             const searchParams: Record<string, any> = { ...router.values.searchParams }
 
-            if (values.filters.search) {
-                searchParams['search'] = values.filters.search
+            if (nextSearch) {
+                searchParams['search'] = nextSearch
             } else {
                 delete searchParams['search']
             }

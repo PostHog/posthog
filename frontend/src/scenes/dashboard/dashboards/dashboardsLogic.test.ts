@@ -170,8 +170,6 @@ describe('dashboardsLogic', () => {
     it('syncs search to URL when setSearch is called', async () => {
         await expectLogic(logic, () => {
             logic.actions.setSearch('needle')
-        }).toMatchValues({
-            filters: expect.objectContaining({ search: 'needle' }),
         })
 
         expect(router.values.searchParams.search).toBe('needle')
@@ -184,8 +182,6 @@ describe('dashboardsLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.setSearch('')
-        }).toMatchValues({
-            filters: expect.objectContaining({ search: '' }),
         })
 
         expect(router.values.searchParams.search).toBeUndefined()
