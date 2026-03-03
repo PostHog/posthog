@@ -11,7 +11,7 @@ import {
     FramerInstallation,
     GoInstallation,
     IOSInstallation,
-    JSWebInstallation,
+    WebInstallation,
     LaravelInstallation,
     MultivariateFlagSnippet,
     NextJSInstallation,
@@ -79,8 +79,8 @@ const SERVER_SDK_SNIPPETS = {
 }
 
 // Wrappers for SDKs that use Installation components from shared-onboarding
-const FeatureFlagsJSWebInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: JSWebInstallation,
+const FeatureFlagsWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: WebInstallation,
     snippets: JS_WEB_SNIPPETS,
 })
 const FeatureFlagsReactInstructionsWrapper = withOnboardingDocsWrapper({
@@ -244,7 +244,7 @@ const FeatureFlagsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
 })
 
 export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
-    [SDKKey.JS_WEB]: FeatureFlagsJSWebInstructionsWrapper,
+    [SDKKey.JS_WEB]: FeatureFlagsWebInstructionsWrapper,
     [SDKKey.ANGULAR]: FeatureFlagsAngularInstructionsWrapper,
     [SDKKey.ANDROID]: FeatureFlagsAndroidInstructionsWrapper,
     [SDKKey.API]: FeatureFlagsAPIInstructionsWrapper,

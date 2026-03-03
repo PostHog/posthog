@@ -1,16 +1,14 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-import { getJSWebSteps as getJSWebStepsPA } from '../product-analytics/js-web'
+import { getWebSteps as getWebStepsPA } from '../product-analytics/web'
 import { StepDefinition } from '../steps'
 
-export const getJSWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 
-    // Get installation steps from product-analytics only (exclude "Send events")
-    const installationSteps = getJSWebStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
+    const installationSteps = getWebStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
-    // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [
         {
             title: 'Implement your experiment',
@@ -42,4 +40,4 @@ export const getJSWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[
     return [...installationSteps, ...experimentSteps]
 }
 
-export const JSWebInstallation = createInstallation(getJSWebSteps)
+export const WebInstallation = createInstallation(getWebSteps)

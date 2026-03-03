@@ -1,12 +1,12 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-import { getJSWebSteps as getJSWebStepsPA } from '../product-analytics/js-web'
+import { getWebSteps as getWebStepsPA } from '../product-analytics/web'
 import { StepDefinition } from '../steps'
 
-export const getJSWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
-    const installSteps = getJSWebStepsPA(ctx)
+    const installSteps = getWebStepsPA(ctx)
 
     const exceptionAutocaptureStep: StepDefinition = {
         title: 'Set up exception autocapture',
@@ -72,4 +72,4 @@ export const getJSWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[
     return [...installSteps, exceptionAutocaptureStep, manualCaptureStep, verifyStep]
 }
 
-export const JSWebInstallation = createInstallation(getJSWebSteps)
+export const WebInstallation = createInstallation(getWebSteps)
