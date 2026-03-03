@@ -12,8 +12,10 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
         self.user.save(update_fields=["current_team"])
         self.client.force_login(self.user)
 
-    def _get_authorize(self, redirect_url: str = "https://mysite.com/page"):
-        return self.client.get(f"/toolbar_oauth/authorize/?redirect={redirect_url}")
+    def _get_authorize(
+        self, redirect_url: str = "https://mysite.com/page", code_challenge: str = "test_challenge_abc123"
+    ):
+        return self.client.get(f"/toolbar_oauth/authorize/?redirect={redirect_url}&code_challenge={code_challenge}")
 
     def _assert_authorize_redirects(self, response):
         assert response.status_code == 302, (
@@ -62,11 +64,9 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
         assert "toolbar_oauth" in redirect_uri
         assert "callback" in redirect_uri
 
-    def test_code_verifier_is_stored_in_session(self):
+    def test_redirect_flow_marker_is_stored_in_session(self):
         response = self._get_authorize()
         self._assert_authorize_redirects(response)
 
         session = self.client.session
-        assert "toolbar_oauth_code_verifier" in session
-        assert len(session["toolbar_oauth_code_verifier"]) >= 43
-        assert "toolbar_oauth_code_verifier_ts" in session
+        assert session.get("toolbar_oauth_redirect_flow") is True
