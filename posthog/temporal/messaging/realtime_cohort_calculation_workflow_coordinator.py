@@ -336,35 +336,40 @@ async def calculate_quantiles() -> CachedQuantiles | None:
 
     @database_sync_to_async
     def get_quantiles():
-        # Calculate quantiles directly from cohort last_calculation_duration_ms field
-
-        # Get cohorts with recent duration data (past 24 hours)
-        recent_cohorts = Cohort.objects.filter(
-            last_calculation__gte=timezone.now() - dt.timedelta(hours=24),
-            last_calculation_duration_ms__isnull=False,
-            last_calculation_duration_ms__gt=0,
-            deleted=False,
-        ).values_list("last_calculation_duration_ms", flat=True)
-
-        if not recent_cohorts:
-            return None
-
         # Calculate percentiles using Python statistics module
         import statistics
 
-        durations_list = list(recent_cohorts)
-
-        if len(durations_list) < 2:
-            return None
-
-        # Convert percentiles to quantiles (keep in milliseconds)
         try:
+            # Calculate quantiles directly from cohort last_calculation_duration_ms field
+            # Get cohorts with recent duration data (past 24 hours)
+            recent_cohorts = Cohort.objects.filter(
+                last_calculation__gte=timezone.now() - dt.timedelta(hours=24),
+                last_calculation_duration_ms__isnull=False,
+                last_calculation_duration_ms__gt=0,
+                deleted=False,
+            ).values_list("last_calculation_duration_ms", flat=True)
+
+            if not recent_cohorts:
+                return None
+
+            durations_list = list(recent_cohorts)
+
+            if len(durations_list) < 2:
+                return None
+
+            # Convert percentiles to quantiles (keep in milliseconds)
             quantiles = statistics.quantiles(durations_list, n=100, method="inclusive")
             return CachedQuantiles(
                 quantiles=[int(q) for q in quantiles],
                 max_value=int(max(durations_list)),  # Store actual maximum for p100
             )
-        except statistics.StatisticsError:
+        except (statistics.StatisticsError, TypeError, ValueError) as e:
+            LOGGER.warning(
+                "Failed to calculate quantiles from duration data", error=str(e), error_type=type(e).__name__
+            )
+            return None
+        except Exception as e:
+            LOGGER.warning("Database error during quantiles calculation", error=str(e), error_type=type(e).__name__)
             return None
 
     return await get_quantiles()

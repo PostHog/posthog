@@ -879,12 +879,21 @@ class TestQueryPercentileThresholdsActivity:
         assert result.max_threshold_ms == 5000  # p100 (max value)
 
     @pytest.mark.asyncio
+    @pytest.mark.django_db
     async def test_get_percentile_thresholds_no_historical_data(self):
         """Should return None when no historical cohort data exists."""
         inputs = QueryPercentileThresholdsInput(min_percentile=0.0, max_percentile=90.0)
 
         # Empty result from Cohort queryset (no historical durations)
-        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+        with (
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort,
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache") as mock_cache,
+        ):
+            # Ensure cache miss to force direct calculation
+            mock_cache.get.return_value = None
+            mock_cache.add.return_value = True
+            mock_cache.set.return_value = None
+
             mock_queryset = Mock()
             mock_queryset.values_list.return_value = []
             mock_cohort.objects.filter.return_value = mock_queryset
@@ -894,12 +903,21 @@ class TestQueryPercentileThresholdsActivity:
         assert result is None
 
     @pytest.mark.asyncio
+    @pytest.mark.django_db
     async def test_get_percentile_thresholds_insufficient_data(self):
         """Should return None when Cohort data has insufficient data points."""
         inputs = QueryPercentileThresholdsInput(min_percentile=50.0, max_percentile=75.0)
 
         # Only one data point (need at least 2 for meaningful percentiles)
-        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+        with (
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort,
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache") as mock_cache,
+        ):
+            # Ensure cache miss to force direct calculation
+            mock_cache.get.return_value = None
+            mock_cache.add.return_value = True
+            mock_cache.set.return_value = None
+
             mock_queryset = Mock()
             mock_queryset.values_list.return_value = [1000]
             mock_cohort.objects.filter.return_value = mock_queryset
@@ -909,12 +927,21 @@ class TestQueryPercentileThresholdsActivity:
         assert result is None
 
     @pytest.mark.asyncio
+    @pytest.mark.django_db
     async def test_get_percentile_thresholds_statistics_error(self):
         """Should return None when statistics.quantiles raises an error."""
         inputs = QueryPercentileThresholdsInput(min_percentile=75.0, max_percentile=90.0)
 
         # Mock data that will cause statistics error (too few points for percentile calculation)
-        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+        with (
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort,
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache") as mock_cache,
+        ):
+            # Ensure cache miss to force direct calculation
+            mock_cache.get.return_value = None
+            mock_cache.add.return_value = True
+            mock_cache.set.return_value = None
+
             mock_queryset = Mock()
             mock_queryset.values_list.return_value = [100, 200]  # Valid data
             mock_cohort.objects.filter.return_value = mock_queryset
@@ -926,12 +953,21 @@ class TestQueryPercentileThresholdsActivity:
         assert result is None
 
     @pytest.mark.asyncio
+    @pytest.mark.django_db
     async def test_get_percentile_thresholds_invalid_data_types(self):
         """Should return None when Cohort duration data has invalid types."""
         inputs = QueryPercentileThresholdsInput(min_percentile=80.0, max_percentile=95.0)
 
         # Invalid duration data format (non-numeric values)
-        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+        with (
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort,
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache") as mock_cache,
+        ):
+            # Ensure cache miss to force direct calculation
+            mock_cache.get.return_value = None
+            mock_cache.add.return_value = True
+            mock_cache.set.return_value = None
+
             mock_queryset = Mock()
             mock_queryset.values_list.return_value = ["invalid-duration", "another-invalid"]
             mock_cohort.objects.filter.return_value = mock_queryset
@@ -941,12 +977,21 @@ class TestQueryPercentileThresholdsActivity:
         assert result is None
 
     @pytest.mark.asyncio
+    @pytest.mark.django_db
     async def test_get_percentile_thresholds_database_error(self):
         """Should return None when database query fails."""
         inputs = QueryPercentileThresholdsInput(min_percentile=60.0, max_percentile=80.0)
 
         # Mock database error
-        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+        with (
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort,
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache") as mock_cache,
+        ):
+            # Ensure cache miss to force direct calculation
+            mock_cache.get.return_value = None
+            mock_cache.add.return_value = True
+            mock_cache.set.return_value = None
+
             mock_cohort.objects.filter.side_effect = Exception("Database connection failed")
 
             result = await get_query_percentile_thresholds_activity(inputs)
@@ -954,19 +999,27 @@ class TestQueryPercentileThresholdsActivity:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_percentile_thresholds_value_error(self):
-        """Should return None when threshold values cause ValueError during validation."""
+    @pytest.mark.django_db
+    async def test_get_percentile_thresholds_type_error(self):
+        """Should return None when data contains non-numeric values that cause TypeError."""
         inputs = QueryPercentileThresholdsInput(min_percentile=70.0, max_percentile=85.0)
 
-        # Mock valid quantile calculation but invalid threshold values
-        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+        # Mock data that will cause TypeError during max() operation
+        with (
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort,
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache") as mock_cache,
+        ):
+            # Ensure cache miss to force direct calculation
+            mock_cache.get.return_value = None
+            mock_cache.add.return_value = True
+            mock_cache.set.return_value = None
+
             mock_queryset = Mock()
-            mock_queryset.values_list.return_value = [100, 200, 300, 400, 500]
+            # Mix of numbers and non-numeric data that will cause TypeError
+            mock_queryset.values_list.return_value = [100, None, 200, 300]
             mock_cohort.objects.filter.return_value = mock_queryset
 
-            # Mock float() conversion to raise ValueError
-            with patch("builtins.float", side_effect=ValueError("Invalid float")):
-                result = await get_query_percentile_thresholds_activity(inputs)
+            result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
 
@@ -1195,9 +1248,10 @@ class TestCacheLockEdgeCases:
         assert result.max_threshold_ms == 194  # p95
         # Should only check cache, no lock or calculation needed
         mock_cache.get.assert_called_once()
-        mock_cache.get_or_set.assert_not_called()
+        mock_cache.add.assert_not_called()
 
     @pytest.mark.asyncio
+    @pytest.mark.django_db
     async def test_cache_miss_falls_back_to_direct_calculation(self, mock_cache):
         """Test that cache miss falls back to direct percentile calculation."""
         from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
@@ -1205,22 +1259,29 @@ class TestCacheLockEdgeCases:
             get_cached_percentile_thresholds,
         )
 
-        # Mock cache miss
+        # Mock cache miss and lock acquisition failure
         mock_cache.get.return_value = None
-        mock_cache.get_or_set.return_value = None  # Lock timeout
+        mock_cache.add.return_value = False  # Lock not acquired (another process has it)
 
-        inputs = QueryPercentileThresholdsInput(min_percentile=0.0, max_percentile=100.0)
+        # Mock Cohort to return empty data for fallback calculation
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.values_list.return_value = []
+            mock_cohort.objects.filter.return_value = mock_queryset
 
-        # This should fall back to calculate_percentile_thresholds
-        # which should return None due to lock timeout
-        result = await get_cached_percentile_thresholds(inputs)
+            inputs = QueryPercentileThresholdsInput(min_percentile=0.0, max_percentile=100.0)
+
+            # This should fall back to calculate_percentile_thresholds
+            # which should return None due to no cohort data
+            result = await get_cached_percentile_thresholds(inputs)
 
         assert result is None
-        # Should attempt cache then lock
-        mock_cache.get.assert_called_once()
-        mock_cache.get_or_set.assert_called_once()
+        # Should attempt cache twice (initial and retry after wait) then attempt lock
+        assert mock_cache.get.call_count == 2
+        mock_cache.add.assert_called_once()
 
     @pytest.mark.asyncio
+    @pytest.mark.django_db
     async def test_cache_corrupted_falls_back(self, mock_cache):
         """Test that corrupted cache data falls back to calculation."""
         from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
@@ -1230,14 +1291,20 @@ class TestCacheLockEdgeCases:
 
         # Mock corrupted cache data
         mock_cache.get.return_value = "invalid json"
-        mock_cache.get_or_set.return_value = None  # Lock timeout in fallback
+        mock_cache.add.return_value = False  # Lock not acquired in fallback
 
-        inputs = QueryPercentileThresholdsInput(min_percentile=50.0, max_percentile=90.0)
+        # Mock Cohort to return empty data for fallback calculation
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.values_list.return_value = []
+            mock_cohort.objects.filter.return_value = mock_queryset
 
-        # Should fall back to calculation due to JSON error
-        result = await get_cached_percentile_thresholds(inputs)
+            inputs = QueryPercentileThresholdsInput(min_percentile=50.0, max_percentile=90.0)
 
-        assert result is None  # Returns None due to lock timeout
-        # Should attempt cache then lock
-        mock_cache.get.assert_called_once()
-        mock_cache.get_or_set.assert_called_once()
+            # Should fall back to calculation due to JSON error
+            result = await get_cached_percentile_thresholds(inputs)
+
+        assert result is None  # Returns None due to no cohort data
+        # Should attempt cache twice (initial corrupted data + retry after wait) then attempt lock
+        assert mock_cache.get.call_count == 2
+        mock_cache.add.assert_called_once()
