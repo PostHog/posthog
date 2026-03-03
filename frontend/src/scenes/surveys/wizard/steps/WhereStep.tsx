@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonInputSelect } from '@posthog/lemon-ui'
+import { LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -11,6 +11,7 @@ import { DEFAULT_TARGETING_FLAG_FILTERS } from 'scenes/surveys/constants'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PropertyDefinitionType, SurveyDisplayConditions, SurveyMatchType } from '~/types'
 
+import { SurveyMatchTypeLabels } from '../../constants'
 import { surveyLogic } from '../../surveyLogic'
 
 export function WhereStep(): JSX.Element {
@@ -47,8 +48,14 @@ export function WhereStep(): JSX.Element {
         }
     }
 
+    const urlMatchType = conditions.urlMatchType || SurveyMatchType.Contains
+
     const setUrlPattern = (pattern: string): void => {
-        setSurveyValue('conditions', { ...conditions, url: pattern, urlMatchType: SurveyMatchType.Contains })
+        setSurveyValue('conditions', { ...conditions, url: pattern, urlMatchType })
+    }
+
+    const setUrlMatchType = (matchType: SurveyMatchType): void => {
+        setSurveyValue('conditions', { ...conditions, urlMatchType: matchType })
     }
 
     const setUserTargetingMode = (mode: 'all' | 'specific'): void => {
@@ -87,51 +94,61 @@ export function WhereStep(): JSX.Element {
                 />
 
                 {targetingMode === 'specific' && (
-                    <div className="mt-4 ml-6">
-                        <LemonInputSelect
-                            mode="single"
-                            value={urlPattern ? [urlPattern] : []}
-                            onChange={(val) => setUrlPattern(val[0] || '')}
-                            onInputChange={(newInput) => {
-                                loadPropertyValues({
-                                    type: PropertyDefinitionType.Event,
-                                    endpoint: undefined,
-                                    propertyKey: '$current_url',
-                                    newInput: newInput.trim(),
-                                    eventNames: [],
-                                    properties: [],
-                                })
-                            }}
-                            placeholder="Select a page or type a path like /pricing"
-                            allowCustomValues
-                            loading={urlOptions?.status === 'loading'}
-                            options={(() => {
-                                const seen = new Set<string>()
-                                return (urlOptions?.values || [])
-                                    .map(({ name }) => {
-                                        const url = String(name)
-                                        let path = url
-                                        try {
-                                            const parsed = new URL(url)
-                                            path = parsed.pathname
-                                        } catch {
-                                            // Keep as-is if not a valid URL
-                                        }
-                                        return path
+                    <div className="mt-4 ml-6 space-y-2">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm whitespace-nowrap">URL</span>
+                            <LemonSelect
+                                value={urlMatchType}
+                                onChange={setUrlMatchType}
+                                options={Object.entries(SurveyMatchTypeLabels).map(([key, label]) => ({
+                                    label,
+                                    value: key as SurveyMatchType,
+                                }))}
+                                size="small"
+                            />
+                            <LemonInputSelect
+                                className="flex-1"
+                                mode="single"
+                                value={urlPattern ? [urlPattern] : []}
+                                onChange={(val) => setUrlPattern(val[0] || '')}
+                                onInputChange={(newInput) => {
+                                    loadPropertyValues({
+                                        type: PropertyDefinitionType.Event,
+                                        endpoint: undefined,
+                                        propertyKey: '$current_url',
+                                        newInput: newInput.trim(),
+                                        eventNames: [],
+                                        properties: [],
                                     })
-                                    .filter((path) => {
-                                        if (seen.has(path)) {
-                                            return false
-                                        }
-                                        seen.add(path)
-                                        return true
-                                    })
-                                    .map((path) => ({ key: path, label: path }))
-                            })()}
-                        />
-                        <p className="text-xs text-muted mt-2">
-                            Select from your most visited pages or type a custom pattern
-                        </p>
+                                }}
+                                placeholder="e.g. /pricing"
+                                allowCustomValues
+                                loading={urlOptions?.status === 'loading'}
+                                options={(() => {
+                                    const seen = new Set<string>()
+                                    return (urlOptions?.values || [])
+                                        .map(({ name }) => {
+                                            const url = String(name)
+                                            let path = url
+                                            try {
+                                                const parsed = new URL(url)
+                                                path = parsed.pathname
+                                            } catch {
+                                                // Keep as-is if not a valid URL
+                                            }
+                                            return path
+                                        })
+                                        .filter((path) => {
+                                            if (seen.has(path)) {
+                                                return false
+                                            }
+                                            seen.add(path)
+                                            return true
+                                        })
+                                        .map((path) => ({ key: path, label: path }))
+                                })()}
+                            />
+                        </div>
                     </div>
                 )}
             </div>
