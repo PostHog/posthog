@@ -627,8 +627,6 @@ export const experimentLogic = kea<experimentLogicType>([
         closeAddPhaseModal: true,
         openEditPhasesModal: true,
         closeEditPhasesModal: true,
-        openEditPhaseModal: (phaseIndex: number) => ({ phaseIndex }),
-        closeEditPhaseModal: true,
         updatePhase: (
             phaseIndex: number,
             updates: { name?: string; reason?: string; start_date?: string; end_date?: string | null }
@@ -1249,13 +1247,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeEditPhasesModal: () => false,
             },
         ],
-        editingPhaseIndex: [
-            null as number | null,
-            {
-                openEditPhaseModal: (_, { phaseIndex }) => phaseIndex,
-                closeEditPhaseModal: () => null,
-            },
-        ],
     }),
     listeners(({ values, actions, asyncActions, cache }) => ({
         beforeUnmount: () => {
@@ -1298,7 +1289,6 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             await asyncActions.updateExperiment({ phases })
-            actions.closeEditPhaseModal()
             lemonToast.success('Phase updated successfully')
             actions.refreshExperimentResults(true)
         },
