@@ -56,22 +56,6 @@ class PostHogCallback(InstrumentedCallback):
         self._api_key = api_key
         self._host = host
 
-    def _capture_sync(self, **capture_kwargs: Any) -> None:
-        client = Posthog(
-            self._api_key,
-            host=self._host,
-            sync_mode=True,
-            enable_local_evaluation=False,
-        )
-        try:
-            client.capture(**capture_kwargs)
-        finally:
-            client.shutdown()
-
-    def _capture_fire_and_forget(self, **capture_kwargs: Any) -> None:
-        loop = asyncio.get_running_loop()
-        loop.run_in_executor(None, partial(self._capture_sync, **capture_kwargs))
-
     async def _on_success(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
     ) -> None:
@@ -219,6 +203,29 @@ class PostHogCallback(InstrumentedCallback):
             groups=capture_kwargs.get("groups"),
         )
         self._capture_fire_and_forget(**capture_kwargs)
+
+    def _capture_fire_and_forget(self, **capture_kwargs: Any) -> None:
+        """
+        Initializes a separate client for the capture operation to avoid payload bloat.
+        Fires in background thread to avoid blocking the main thread.
+        """
+        loop = asyncio.get_running_loop()
+        loop.run_in_executor(None, partial(self._capture_sync, **capture_kwargs))
+
+    def _capture_sync(self, **capture_kwargs: Any) -> None:
+        client = Posthog(
+            self._api_key,
+            host=self._host,
+            sync_mode=True,
+            enable_local_evaluation=False,
+        )
+        try:
+            client.capture(**capture_kwargs)
+        except Exception as e:
+            client.capture_exception(e, **capture_kwargs)
+            logger.exception("posthog_capture_failed", error=str(e))
+        finally:
+            client.shutdown()
 
     def _extract_metadata(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         litellm_params = kwargs.get("litellm_params", {}) or {}
