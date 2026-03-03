@@ -13,7 +13,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import type { Experiment } from '~/types'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { createExperimentLogic } from './createExperimentLogic'
@@ -31,12 +30,11 @@ const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
 }
 
 interface ExperimentFormProps {
-    draftExperiment?: Experiment
     tabId?: string
 }
 
-export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps): JSX.Element => {
-    const logic = createExperimentLogic({ experiment: draftExperiment, tabId })
+export const ExperimentForm = ({ tabId }: ExperimentFormProps): JSX.Element => {
+    const logic = createExperimentLogic({ tabId })
     useMountedLogic(logic)
 
     const {
@@ -46,7 +44,6 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
         experimentValidationErrors,
         sharedMetrics,
         isExperimentSubmitting,
-        isEditMode,
         featureFlags,
     } = useValues(logic)
     const {
@@ -61,9 +58,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
     } = useActions(logic)
 
     const handleCancel = (): void => {
-        if (!isEditMode) {
-            cancelForm()
-        }
+        cancelForm()
         router.actions.push(urls.experiments())
     }
 
@@ -170,19 +165,14 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
             <SceneContent>
                 {renderFormHeader()}
 
-                {!isEditMode && (
+                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_TEMPLATES] && (
                     <>
-                        {/**
-                         * this is a temporary placement for development purposes only.
-                         * This should go higher up in the form, as a stand alone page or
-                         * step zero of the wizard.
-                         */}
-                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_TEMPLATES] && <ExperimentTemplates />}
+                        <ExperimentTemplates />
                         <SceneDivider />
                     </>
                 )}
 
-                <VariantsPanel experiment={experiment} updateFeatureFlag={setFeatureFlagConfig} disabled={isEditMode} />
+                <VariantsPanel experiment={experiment} updateFeatureFlag={setFeatureFlagConfig} disabled={false} />
                 <ExposureCriteriaPanel experiment={experiment} onChange={setExposureCriteria} />
                 <MetricsPanel
                     experiment={experiment}
