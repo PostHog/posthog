@@ -1,0 +1,49 @@
+#!/bin/bash
+set -euo pipefail
+
+REPOSITORY_ROOT="${REPOSITORY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+CACHE_DIR="$REPOSITORY_ROOT/.flox/cache/duckgres"
+BINARY="$CACHE_DIR/duckgres"
+VERSION_FILE="$CACHE_DIR/.version"
+
+# Detect OS and architecture
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
+case "$ARCH" in
+    x86_64)  ARCH="amd64" ;;
+    aarch64) ARCH="arm64" ;;
+    arm64)   ARCH="arm64" ;;
+    *)
+        echo "ERROR: Unsupported architecture: $ARCH" >&2
+        exit 1
+        ;;
+esac
+
+ASSET_NAME="duckgres-${OS}-${ARCH}"
+
+# Get the latest release tag
+LATEST_TAG=$(gh release view latest --repo posthog/duckgres --json tagName --jq '.tagName' 2>/dev/null || echo "")
+if [ -z "$LATEST_TAG" ]; then
+    echo "ERROR: Could not determine latest duckgres release" >&2
+    exit 1
+fi
+
+# Skip download if we already have this version
+if [ -f "$BINARY" ] && [ -f "$VERSION_FILE" ] && [ "$(cat "$VERSION_FILE")" = "$LATEST_TAG" ]; then
+    exit 0
+fi
+
+mkdir -p "$CACHE_DIR"
+
+echo "Downloading duckgres ($ASSET_NAME) $LATEST_TAG..."
+gh release download latest \
+    --repo posthog/duckgres \
+    --pattern "$ASSET_NAME" \
+    --dir "$CACHE_DIR" \
+    --clobber
+
+mv "$CACHE_DIR/$ASSET_NAME" "$BINARY"
+chmod +x "$BINARY"
+echo "$LATEST_TAG" > "$VERSION_FILE"
+echo "duckgres $LATEST_TAG downloaded successfully"
