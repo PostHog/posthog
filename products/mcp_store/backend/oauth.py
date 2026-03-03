@@ -41,6 +41,15 @@ def _fetch_auth_server_metadata(auth_server_url: str) -> dict:
     return metadata
 
 
+# When the origin declares a cross-origin issuer (e.g. Atlassian → Cloudflare),
+# cross-validate by fetching from the declared issuer's own well-known URL.
+def _cross_validate_issuer(declared_issuer: str) -> dict:
+    metadata = _fetch_auth_server_metadata(declared_issuer)
+    if metadata.get("issuer", "").rstrip("/") != declared_issuer.rstrip("/"):
+        raise ValueError("Issuer mismatch in authorization server metadata")
+    return metadata
+
+
 def discover_oauth_metadata(server_url: str) -> dict:
     parsed_server = urlparse(server_url)
     origin = f"{parsed_server.scheme}://{parsed_server.netloc}"
@@ -61,9 +70,11 @@ def discover_oauth_metadata(server_url: str) -> dict:
         if auth_servers:
             auth_server_url = auth_servers[0]
             metadata = _fetch_auth_server_metadata(auth_server_url)
-            if "issuer" in metadata and metadata["issuer"].rstrip("/") != auth_server_url.rstrip("/"):
-                raise ValueError("Issuer mismatch in authorization server metadata")
-            metadata.setdefault("issuer", auth_server_url)
+            declared_issuer = metadata.get("issuer", "").rstrip("/")
+            if declared_issuer and declared_issuer != auth_server_url.rstrip("/"):
+                metadata = _cross_validate_issuer(declared_issuer)
+            else:
+                metadata.setdefault("issuer", auth_server_url)
             # Carry scopes from the protected resource metadata when the auth
             # server metadata doesn't declare them (e.g. Asana).
             if "scopes_supported" not in metadata and "scopes_supported" in resource_data:
@@ -74,8 +85,9 @@ def discover_oauth_metadata(server_url: str) -> dict:
     # Many MCP servers (e.g. Linear) serve /.well-known/oauth-authorization-server
     # without implementing the protected resource metadata endpoint.
     metadata = _fetch_auth_server_metadata(origin)
-    if "issuer" in metadata and metadata["issuer"].rstrip("/") != origin.rstrip("/"):
-        raise ValueError("Issuer mismatch in authorization server metadata")
+    declared_issuer = metadata.get("issuer", "").rstrip("/")
+    if declared_issuer and declared_issuer != origin.rstrip("/"):
+        return _cross_validate_issuer(declared_issuer)
     metadata.setdefault("issuer", origin)
     return metadata
 

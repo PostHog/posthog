@@ -119,16 +119,6 @@ class TestIssuerValidation(TestCase):
     @parameterized.expand(
         [
             (
-                "spoofed_issuer_rejected",
-                {
-                    "issuer": "https://accounts.notion.com",
-                    "authorization_endpoint": "https://evil.com/authorize",
-                    "token_endpoint": "https://evil.com/token",
-                },
-                "https://evil.com/mcp",
-                True,
-            ),
-            (
                 "matching_issuer_accepted",
                 {
                     "issuer": "https://evil.com",
@@ -137,6 +127,7 @@ class TestIssuerValidation(TestCase):
                 },
                 "https://evil.com/mcp",
                 False,
+                None,
             ),
             (
                 "trailing_slash_accepted",
@@ -147,6 +138,7 @@ class TestIssuerValidation(TestCase):
                 },
                 "https://example.com/mcp",
                 False,
+                None,
             ),
             (
                 "no_issuer_defaults_to_origin",
@@ -156,25 +148,82 @@ class TestIssuerValidation(TestCase):
                 },
                 "https://example.com/mcp",
                 False,
+                None,
+            ),
+            (
+                "cross_validation_succeeds",
+                {
+                    "issuer": "https://cf.mcp.atlassian.com",
+                    "authorization_endpoint": "https://cf.mcp.atlassian.com/v1/authorize",
+                    "token_endpoint": "https://cf.mcp.atlassian.com/v1/token",
+                },
+                "https://mcp.atlassian.com/v1/mcp",
+                False,
+                {
+                    "issuer": "https://cf.mcp.atlassian.com",
+                    "authorization_endpoint": "https://cf.mcp.atlassian.com/v1/authorize",
+                    "token_endpoint": "https://cf.mcp.atlassian.com/v1/token",
+                },
+            ),
+            (
+                "cross_validation_fails_issuer_mismatch",
+                {
+                    "issuer": "https://accounts.notion.com",
+                    "authorization_endpoint": "https://evil.com/authorize",
+                    "token_endpoint": "https://evil.com/token",
+                },
+                "https://evil.com/mcp",
+                True,
+                {
+                    "issuer": "https://real-notion-auth.com",
+                    "authorization_endpoint": "https://real-notion-auth.com/authorize",
+                    "token_endpoint": "https://real-notion-auth.com/token",
+                },
+            ),
+            (
+                "cross_validation_fails_declared_issuer_404",
+                {
+                    "issuer": "https://nonexistent.example.com",
+                    "authorization_endpoint": "https://nonexistent.example.com/authorize",
+                    "token_endpoint": "https://nonexistent.example.com/token",
+                },
+                "https://evil.com/mcp",
+                True,
+                None,
             ),
         ]
     )
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.get")
-    def test_step2_fallback_issuer_validation(self, _name, auth_metadata, server_url, should_raise, mock_get, _allow):
+    def test_step2_fallback_issuer_validation(
+        self, _name, auth_metadata, server_url, should_raise, cross_val_metadata, mock_get, _allow
+    ):
         not_found = self._make_response(ok=False, status_code=404)
         auth_resp = self._make_response(json_data=auth_metadata)
-        mock_get.side_effect = [not_found, not_found, auth_resp]
         expected_origin = self._origin(server_url)
         expected_path = urlparse(server_url).path.rstrip("/")
+
+        declared_issuer = auth_metadata.get("issuer", "").rstrip("/")
+        needs_cross_validation = bool(declared_issuer and declared_issuer != expected_origin.rstrip("/"))
+
+        responses: list = [not_found, not_found, auth_resp]
         expected_urls = [
             f"{expected_origin}/.well-known/oauth-protected-resource{expected_path}",
             f"{expected_origin}/.well-known/oauth-protected-resource",
             self._auth_metadata_url(expected_origin),
         ]
 
+        if needs_cross_validation:
+            if cross_val_metadata is not None:
+                responses.append(self._make_response(json_data=cross_val_metadata))
+            else:
+                responses.append(self._make_response(ok=False, status_code=404))
+            expected_urls.append(self._auth_metadata_url(declared_issuer))
+
+        mock_get.side_effect = responses
+
         if should_raise:
-            with self.assertRaisesRegex(ValueError, "Issuer mismatch"):
+            with self.assertRaises(Exception):
                 discover_oauth_metadata(server_url)
         else:
             metadata = discover_oauth_metadata(server_url)
@@ -196,16 +245,7 @@ class TestIssuerValidation(TestCase):
                     "token_endpoint": "https://auth.example.com/token",
                 },
                 False,
-            ),
-            (
-                "spoofed_issuer_rejected",
-                "https://auth.example.com",
-                {
-                    "issuer": "https://evil.com",
-                    "authorization_endpoint": "https://evil.com/authorize",
-                    "token_endpoint": "https://evil.com/token",
-                },
-                True,
+                None,
             ),
             (
                 "cross_origin_mcp_with_legitimate_auth_server",
@@ -216,6 +256,7 @@ class TestIssuerValidation(TestCase):
                     "token_endpoint": "https://accounts.notion.com/token",
                 },
                 False,
+                None,
             ),
             (
                 "auth_server_with_path_accepted",
@@ -226,25 +267,80 @@ class TestIssuerValidation(TestCase):
                     "token_endpoint": "https://auth.example.com/oauth2/default/token",
                 },
                 False,
+                None,
+            ),
+            (
+                "cross_validation_succeeds",
+                "https://auth.example.com",
+                {
+                    "issuer": "https://cf.auth.example.com",
+                    "authorization_endpoint": "https://cf.auth.example.com/authorize",
+                    "token_endpoint": "https://cf.auth.example.com/token",
+                },
+                False,
+                {
+                    "issuer": "https://cf.auth.example.com",
+                    "authorization_endpoint": "https://cf.auth.example.com/authorize",
+                    "token_endpoint": "https://cf.auth.example.com/token",
+                },
+            ),
+            (
+                "cross_validation_fails_issuer_mismatch",
+                "https://auth.example.com",
+                {
+                    "issuer": "https://evil.com",
+                    "authorization_endpoint": "https://evil.com/authorize",
+                    "token_endpoint": "https://evil.com/token",
+                },
+                True,
+                {
+                    "issuer": "https://real-evil.com",
+                    "authorization_endpoint": "https://real-evil.com/authorize",
+                    "token_endpoint": "https://real-evil.com/token",
+                },
+            ),
+            (
+                "cross_validation_fails_declared_issuer_404",
+                "https://auth.example.com",
+                {
+                    "issuer": "https://nonexistent.example.com",
+                    "authorization_endpoint": "https://nonexistent.example.com/authorize",
+                    "token_endpoint": "https://nonexistent.example.com/token",
+                },
+                True,
+                None,
             ),
         ]
     )
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.get")
     def test_step1_protected_resource_issuer_validation(
-        self, _name, auth_server_url, auth_metadata, should_raise, mock_get, _allow
+        self, _name, auth_server_url, auth_metadata, should_raise, cross_val_metadata, mock_get, _allow
     ):
         resource_resp = self._make_response(json_data={"authorization_servers": [auth_server_url]})
         auth_resp = self._make_response(json_data=auth_metadata)
-        mock_get.side_effect = [resource_resp, auth_resp]
         mcp_url = "https://mcp.example.com/mcp"
+
+        declared_issuer = auth_metadata.get("issuer", "").rstrip("/")
+        needs_cross_validation = bool(declared_issuer and declared_issuer != auth_server_url.rstrip("/"))
+
+        responses: list = [resource_resp, auth_resp]
         expected_urls = [
             "https://mcp.example.com/.well-known/oauth-protected-resource/mcp",
             self._auth_metadata_url(auth_server_url),
         ]
 
+        if needs_cross_validation:
+            if cross_val_metadata is not None:
+                responses.append(self._make_response(json_data=cross_val_metadata))
+            else:
+                responses.append(self._make_response(ok=False, status_code=404))
+            expected_urls.append(self._auth_metadata_url(declared_issuer))
+
+        mock_get.side_effect = responses
+
         if should_raise:
-            with self.assertRaisesRegex(ValueError, "Issuer mismatch"):
+            with self.assertRaises(Exception):
                 discover_oauth_metadata(mcp_url)
         else:
             metadata = discover_oauth_metadata(mcp_url)
