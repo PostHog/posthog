@@ -6,6 +6,7 @@ from . import resources
 
 defs = dagster.Definitions(
     jobs=[
+        # Web Analytics
         no_live_events_check.job,
     ],
     resources=resources,
