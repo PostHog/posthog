@@ -372,17 +372,26 @@ describe('personsLogic', () => {
     describe('primaryDistinctId selector', () => {
         it.each([
             {
-                name: 'prefers non-UUID distinct IDs',
-                distinctIds: ['550e8400-e29b-41d4-a716-446655440000', 'alice@example.com'],
+                name: 'prefers email over anon ID',
+                distinctIds: ['03b16e4c0b14ef-00000000000000-1633685d-13c680-17878af3ba9d1c', 'alice@example.com'],
                 expected: 'alice@example.com',
             },
             {
-                name: 'returns first non-UUID when multiple exist',
-                distinctIds: ['550e8400-e29b-41d4-a716-446655440000', 'user123', 'alice@example.com'],
+                name: 'prefers email over custom ID',
+                distinctIds: [
+                    '03b16e4c0b14ef-00000000000000-1633685d-13c680-17878af3ba9d1c',
+                    'user123',
+                    'alice@example.com',
+                ],
+                expected: 'alice@example.com',
+            },
+            {
+                name: 'prefers custom ID over anon ID',
+                distinctIds: ['03b16e4c0b14ef-00000000000000-1633685d-13c680-17878af3ba9d1c', 'user123'],
                 expected: 'user123',
             },
             {
-                name: 'falls back to first distinct ID when all look like UUIDs',
+                name: 'falls back to first when all score equally',
                 distinctIds: ['550e8400-e29b-41d4-a716-446655440000', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'],
                 expected: '550e8400-e29b-41d4-a716-446655440000',
             },
@@ -390,11 +399,6 @@ describe('personsLogic', () => {
                 name: 'returns null when person has no distinct IDs',
                 distinctIds: [],
                 expected: null,
-            },
-            {
-                name: 'handles hyphenated non-UUID strings',
-                distinctIds: ['my-custom-id-with-hyphens', '550e8400-e29b-41d4-a716-446655440000'],
-                expected: 'my-custom-id-with-hyphens',
             },
         ])('$name', async ({ distinctIds, expected }) => {
             const person: PersonType = {

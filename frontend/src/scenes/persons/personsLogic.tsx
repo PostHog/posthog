@@ -31,7 +31,13 @@ import {
     PersonsTabType,
 } from '~/types'
 
-import { asDisplay, coercePropertyValue, getHogqlQueryStringForPersonId } from './person-utils'
+import {
+    asDisplay,
+    coercePropertyValue,
+    getHogqlQueryStringForPersonId,
+    parsePersonFromHogQLRow,
+    scoreDistinctId,
+} from './person-utils'
 import type { personsLogicType } from './personsLogicType'
 
 export interface PersonsLogicProps {
@@ -157,7 +163,7 @@ export const personsLogic = kea<personsLogicType>([
                             result = { ...(await api.persons.list(newFilters)), offset: 0 }
                         }
                     } else {
-                        result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) }
+                        result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) || 0 }
                     }
                     return result
                 },
@@ -190,14 +196,7 @@ export const personsLogic = kea<personsLogicType>([
                     const response = await hogqlQuery(getHogqlQueryStringForPersonId(), { id: uuid }, 'blocking')
                     const row = response?.results?.[0]
                     if (row) {
-                        const person: PersonType = {
-                            id: row[0],
-                            uuid: row[0],
-                            distinct_ids: row[1],
-                            properties: JSON.parse(row[2] || '{}'),
-                            is_identified: !!row[3],
-                            created_at: row[4],
-                        }
+                        const person = parsePersonFromHogQLRow(row)
                         actions.reportPersonDetailViewed(person)
                         if (person.id != null) {
                             const eventsQuery = createInitialEventsPayload(person.id)
@@ -387,19 +386,10 @@ export const personsLogic = kea<personsLogicType>([
         primaryDistinctId: [
             (s) => [s.person],
             (person): string | null => {
-                // We do not track which distinct ID was created through identify, but we can try to guess
-                const nonUuidDistinctIds = person?.distinct_ids.filter((id) => id?.split('-').length !== 5)
-
-                if (nonUuidDistinctIds && nonUuidDistinctIds?.length >= 1) {
-                    /**
-                     * If there are one or more distinct IDs that are not a UUID, one of them is most likely
-                     * the identified ID. In most cases, there would be only one non-UUID distinct ID.
-                     */
-                    return nonUuidDistinctIds[0]
+                if (!person?.distinct_ids.length) {
+                    return null
                 }
-
-                // Otherwise, just fall back to the default first distinct ID
-                return person?.distinct_ids[0] || null
+                return person.distinct_ids.slice().sort((a, b) => scoreDistinctId(b) - scoreDistinctId(a))[0]
             },
         ],
     })),

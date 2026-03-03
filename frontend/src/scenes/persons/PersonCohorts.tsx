@@ -10,12 +10,12 @@ import { CohortType } from '~/types'
 import { personsLogic } from './personsLogic'
 
 export function PersonCohorts(): JSX.Element {
-    const { cohorts, cohortsLoading, person } = useValues(personsLogic)
+    const { cohorts, cohortsLoading } = useValues(personsLogic)
     const { loadCohorts } = useActions(personsLogic)
 
     useEffect(() => {
         loadCohorts()
-    }, [person, loadCohorts])
+    }, [loadCohorts])
 
     const columns: LemonTableColumns<CohortType> = [
         {
