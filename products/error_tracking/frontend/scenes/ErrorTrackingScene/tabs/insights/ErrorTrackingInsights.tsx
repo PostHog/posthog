@@ -1,28 +1,21 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
-
 import { ChartCard } from './ChartCard'
-import { errorTrackingInsightsLogic, INSIGHTS_LOGIC_KEY, InsightsTrackableItem } from './errorTrackingInsightsLogic'
+import { errorTrackingInsightsLogic, InsightsTrackableItem } from './errorTrackingInsightsLogic'
 import { InsightsFilters } from './InsightsFilters'
 import { buildCrashFreeSessionsQuery, buildExceptionVolumeQuery } from './queries'
 import { SummaryStats } from './SummaryStats'
 
 export function ErrorTrackingInsights(): JSX.Element {
-    return (
-        <BindLogic logic={issueFiltersLogic} props={{ logicKey: INSIGHTS_LOGIC_KEY }}>
-            <InsightsContent />
-        </BindLogic>
-    )
-}
-
-function InsightsContent(): JSX.Element {
-    const { dateRange, filterGroup, filterTestAccounts, loadStartTime, refreshKey } =
+    const { dateRange, mergedFilterGroup, filterTestAccounts, loadStartTime, refreshKey } =
         useValues(errorTrackingInsightsLogic)
     const { reportItemLoaded } = useActions(errorTrackingInsightsLogic)
 
-    const filters = useMemo(() => ({ filterGroup, filterTestAccounts }), [filterGroup, filterTestAccounts])
+    const filters = useMemo(
+        () => ({ filterGroup: mergedFilterGroup, filterTestAccounts }),
+        [mergedFilterGroup, filterTestAccounts]
+    )
 
     const exceptionVolumeQuery = useMemo(
         () => buildExceptionVolumeQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),

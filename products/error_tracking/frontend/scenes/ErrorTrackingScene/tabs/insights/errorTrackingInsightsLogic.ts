@@ -1,20 +1,16 @@
-import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { Params } from 'scenes/sceneTypes'
 
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+import { AnyPropertyFilter, UniversalFiltersGroup } from '~/types'
 
 import { issueFiltersLogic } from '../../../../components/IssueFilters/issueFiltersLogic'
-import { syncSearchParams, updateSearchParams } from '../../../../utils'
+import { ERROR_TRACKING_SCENE_LOGIC_KEY } from '../../errorTrackingSceneLogic'
 import type { errorTrackingInsightsLogicType } from './errorTrackingInsightsLogicType'
-
-export const INSIGHTS_LOGIC_KEY = 'insights'
 
 export type InsightsTrackableItem = 'summary_stats' | 'exception_volume' | 'crash_free_sessions'
 
@@ -26,13 +22,6 @@ export interface InsightsSummaryStats {
     crashSessions: number
     crashFreeRate: number
 }
-
-const DEFAULT_DATE_RANGE = { date_from: '-7d', date_to: null }
-const DEFAULT_FILTER_GROUP = {
-    type: FilterLogicalOperator.And,
-    values: [{ type: FilterLogicalOperator.And, values: [] }],
-}
-const DEFAULT_FILTER_TEST_ACCOUNTS = false
 
 export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
     path([
@@ -47,11 +36,11 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
 
     connect(() => ({
         values: [
-            issueFiltersLogic({ logicKey: INSIGHTS_LOGIC_KEY }),
-            ['dateRange', 'filterTestAccounts', 'filterGroup'],
+            issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
+            ['dateRange', 'filterTestAccounts', 'filterGroup', 'mergedFilterGroup'],
         ],
         actions: [
-            issueFiltersLogic({ logicKey: INSIGHTS_LOGIC_KEY }),
+            issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['setDateRange', 'setFilterGroup', 'setFilterTestAccounts'],
         ],
     })),
@@ -104,7 +93,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                         filters: {
                             dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
-                            properties: (values.filterGroup.values[0] as UniversalFiltersGroup)
+                            properties: (values.mergedFilterGroup.values[0] as UniversalFiltersGroup)
                                 .values as AnyPropertyFilter[],
                         },
                     })
@@ -138,10 +127,6 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             actions.setLoadStartTime(performance.now())
             actions.loadSummaryStats()
         },
-        setFilterGroup: () => {
-            actions.setLoadStartTime(performance.now())
-            actions.loadSummaryStats()
-        },
         reload: () => {
             actions.setLoadStartTime(performance.now())
             actions.incrementRefreshKey()
@@ -162,46 +147,14 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values }) => ({
-        '**/error_tracking': (_, params: Params) => {
-            const dateRange = params.insights_dateRange ?? DEFAULT_DATE_RANGE
-            if (!equal(dateRange, values.dateRange)) {
-                actions.setDateRange(dateRange)
-            }
-            const filterGroup = params.insights_filterGroup ?? DEFAULT_FILTER_GROUP
-            if (!equal(filterGroup, values.filterGroup)) {
-                actions.setFilterGroup(filterGroup)
-            }
-            const filterTestAccounts = params.insights_filterTestAccounts ?? DEFAULT_FILTER_TEST_ACCOUNTS
-            if (!equal(filterTestAccounts, values.filterTestAccounts)) {
-                actions.setFilterTestAccounts(filterTestAccounts)
-            }
+    subscriptions(({ actions }) => ({
+        mergedFilterGroup: () => {
+            actions.setLoadStartTime(performance.now())
+            actions.loadSummaryStats()
         },
     })),
 
-    actionToUrl(({ values }) => {
-        const buildURL = (): ReturnType<typeof syncSearchParams> =>
-            syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'insights_dateRange', values.dateRange, DEFAULT_DATE_RANGE)
-                updateSearchParams(params, 'insights_filterGroup', values.filterGroup, DEFAULT_FILTER_GROUP)
-                updateSearchParams(
-                    params,
-                    'insights_filterTestAccounts',
-                    values.filterTestAccounts,
-                    DEFAULT_FILTER_TEST_ACCOUNTS
-                )
-                return params
-            })
-
-        return {
-            setDateRange: buildURL,
-            setFilterGroup: buildURL,
-            setFilterTestAccounts: buildURL,
-        }
-    }),
-
-    afterMount(({ actions }) => {
+    afterMount(() => {
         posthog.capture('error_tracking_insights_viewed')
-        actions.loadSummaryStats()
     }),
 ])

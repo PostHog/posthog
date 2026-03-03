@@ -1,3 +1,9 @@
+import { LemonDivider } from '@posthog/lemon-ui'
+
+import { QuickFiltersSection } from 'lib/components/QuickFilters/QuickFiltersSection'
+
+import { QuickFilterContext } from '~/queries/schema/schema-general'
+
 import { ErrorFilters } from 'products/error_tracking/frontend/components/IssueFilters'
 
 export function InsightsFilters(): JSX.Element {
@@ -5,9 +11,11 @@ export function InsightsFilters(): JSX.Element {
         <ErrorFilters.Root>
             <div className="flex gap-2 flex-wrap">
                 <ErrorFilters.DateRange />
+                <LemonDivider vertical />
+                <QuickFiltersSection context={QuickFilterContext.ErrorTrackingIssueFilters} />
             </div>
             <div className="flex gap-2 items-start">
-                <div className="flex-1 min-w-0">
+                <div className="flex-1">
                     <ErrorFilters.FilterGroup />
                 </div>
                 <ErrorFilters.InternalAccounts />
