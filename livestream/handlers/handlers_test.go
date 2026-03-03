@@ -8,31 +8,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/posthog/posthog/livestream/auth"
 	"github.com/posthog/posthog/livestream/events"
-	"github.com/redis/go-redis/v9"
+	"github.com/redis/rueidis"
+	"github.com/redis/rueidis/mock"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestStreamEventsHandler_AuthValidation(t *testing.T) {
 	logger := echo.New().Logger
 	subChan := make(chan events.Subscription, 10)
-	filter := &events.Filter{
-		UnSubChan: make(chan events.Subscription, 10),
-	}
-	handler := StreamEventsHandler(logger, subChan, filter)
+	unSubChan := make(chan events.Subscription, 10)
+	handler := StreamEventsHandler(logger, subChan, unSubChan)
 
 	tests := []struct {
 		name           string
 		setupHeader    func(*http.Request)
 		expectedStatus int
 		expectedError  string
-		description    string
 	}{
 		{
 			name: "Missing authorization header returns unauthorized",
@@ -40,7 +38,6 @@ func TestStreamEventsHandler_AuthValidation(t *testing.T) {
 			},
 			expectedStatus: http.StatusUnauthorized,
 			expectedError:  "wrong token",
-			description:    "When auth header is missing, GetAuthClaims returns error and handler should return 401",
 		},
 		{
 			name: "Invalid auth header returns unauthorized",
@@ -49,7 +46,6 @@ func TestStreamEventsHandler_AuthValidation(t *testing.T) {
 			},
 			expectedStatus: http.StatusUnauthorized,
 			expectedError:  "wrong token",
-			description:    "When auth header is invalid, GetAuthClaims returns error and handler should return 401",
 		},
 	}
 
@@ -66,7 +62,7 @@ func TestStreamEventsHandler_AuthValidation(t *testing.T) {
 
 			err := handler(c)
 
-			require.Error(t, err, tt.description)
+			require.Error(t, err)
 			httpErr, ok := err.(*echo.HTTPError)
 			require.True(t, ok, "error should be an HTTPError")
 			assert.Equal(t, tt.expectedStatus, httpErr.Code)
@@ -80,17 +76,14 @@ func TestStreamEventsHandler_TokenAndTeamIDValidation(t *testing.T) {
 
 	logger := echo.New().Logger
 	subChan := make(chan events.Subscription, 10)
-	filter := &events.Filter{
-		UnSubChan: make(chan events.Subscription, 10),
-	}
-	handler := StreamEventsHandler(logger, subChan, filter)
+	unSubChan := make(chan events.Subscription, 10)
+	handler := StreamEventsHandler(logger, subChan, unSubChan)
 
 	tests := []struct {
 		name         string
 		claims       jwt.MapClaims
 		expectError  bool
 		errorMessage string
-		description  string
 	}{
 		{
 			name: "Empty api_token should return unauthorized",
@@ -100,7 +93,6 @@ func TestStreamEventsHandler_TokenAndTeamIDValidation(t *testing.T) {
 			},
 			expectError:  true,
 			errorMessage: "wrong token",
-			description:  "New validation: empty token should be rejected even with valid JWT",
 		},
 		{
 			name: "Team ID 0 should return unauthorized",
@@ -110,16 +102,14 @@ func TestStreamEventsHandler_TokenAndTeamIDValidation(t *testing.T) {
 			},
 			expectError:  true,
 			errorMessage: "wrong token",
-			description:  "New validation: teamID=0 should be rejected even with valid JWT",
 		},
 		{
-			name: "HappyPath",
+			name: "Valid token and team ID succeeds",
 			claims: jwt.MapClaims{
 				"team_id":   7,
 				"api_token": "valid-token",
 			},
 			expectError: false,
-			description: "New validation: teamID=7 should be accepted even with valid JWT",
 		},
 	}
 
@@ -139,13 +129,13 @@ func TestStreamEventsHandler_TokenAndTeamIDValidation(t *testing.T) {
 			err := handler(c)
 
 			if tt.expectError {
-				require.Error(t, err, tt.description)
+				require.Error(t, err)
 				httpErr, ok := err.(*echo.HTTPError)
 				require.True(t, ok, "error should be an HTTPError")
 				assert.Equal(t, http.StatusUnauthorized, httpErr.Code)
 				assert.Equal(t, tt.errorMessage, httpErr.Message)
 			} else {
-				assert.NoError(t, err, tt.description)
+				assert.NoError(t, err)
 			}
 		})
 	}
@@ -168,16 +158,34 @@ func TestStatsHandler_ReadsFromRedis(t *testing.T) {
 	viper.Set("jwt.secret", "test-secret-for-stats")
 	apiToken := "phx_test_token"
 
-	mr := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { _ = client.Close() })
+	ctrl := gomock.NewController(t)
+	client := mock.NewClient(ctrl)
+
+	client.EXPECT().
+		DoMulti(gomock.Any(),
+			mock.MatchFn(func(cmd []string) bool {
+				return len(cmd) >= 3 && cmd[0] == "ZREMRANGEBYSCORE" && cmd[1] == "livestream:users:"+apiToken
+			}, "ZREMRANGEBYSCORE users"),
+			mock.Match("ZCARD", "livestream:users:"+apiToken),
+		).
+		Return([]rueidis.RedisResult{
+			mock.Result(mock.RedisInt64(0)),
+			mock.Result(mock.RedisInt64(2)),
+		})
+
+	client.EXPECT().
+		DoMulti(gomock.Any(),
+			mock.MatchFn(func(cmd []string) bool {
+				return len(cmd) >= 3 && cmd[0] == "ZREMRANGEBYSCORE" && cmd[1] == "livestream:sessions:"+apiToken
+			}, "ZREMRANGEBYSCORE sessions"),
+			mock.Match("ZCARD", "livestream:sessions:"+apiToken),
+		).
+		Return([]rueidis.RedisResult{
+			mock.Result(mock.RedisInt64(0)),
+			mock.Result(mock.RedisInt64(1)),
+		})
+
 	rw := events.NewStatsInRedisFromClient(client)
-
-	ctx := context.Background()
-	require.NoError(t, rw.AddUser(ctx, apiToken, "user1"))
-	require.NoError(t, rw.AddUser(ctx, apiToken, "user2"))
-	require.NoError(t, rw.AddSession(ctx, apiToken, "sess1"))
-
 	stats := events.NewStatsKeeper()
 	sessionStats := events.NewSessionStatsKeeper(0, 0)
 

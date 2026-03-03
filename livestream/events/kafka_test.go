@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -15,15 +16,12 @@ import (
 )
 
 func TestPostHogKafkaConsumer_Consume(t *testing.T) {
-	// Create mock objects
 	mockConsumer := new(mocks.KafkaConsumerInterface)
 	mockGeoLocator := new(mocks.GeoLocator)
 
-	// Create channels
 	outgoingChan := make(chan PostHogEvent, 1)
 	statsChan := make(chan CountEvent, 1)
 
-	// Create PostHogKafkaConsumer
 	consumer := &PostHogKafkaConsumer{
 		consumer:     mockConsumer,
 		topic:        "test-topic",
@@ -34,10 +32,8 @@ func TestPostHogKafkaConsumer_Consume(t *testing.T) {
 		parallel:     1,
 	}
 
-	// Mock SubscribeTopics
 	mockConsumer.On("SubscribeTopics", []string{"test-topic"}, mock.AnythingOfType("kafka.RebalanceCb")).Return(nil)
 
-	// Create a test message
 	testWrapper := PostHogEventWrapper{
 		Uuid:       "test-uuid",
 		DistinctId: "test-distinct-id",
@@ -49,16 +45,12 @@ func TestPostHogKafkaConsumer_Consume(t *testing.T) {
 		Value: testMessageValue,
 	}
 
-	// Mock ReadMessage
 	mockConsumer.On("ReadMessage", mock.AnythingOfType("time.Duration")).Return(testMessage, nil).Maybe()
 
-	// Mock GeoLocator Lookup
 	mockGeoLocator.On("Lookup", "192.0.2.1").Return(geo.GeoLookupResult{Latitude: 37.7749, Longitude: -122.4194, CountryCode: "US"}, nil)
 
-	// Run Consume in a goroutine
-	go consumer.Consume()
+	go consumer.Consume(context.Background())
 
-	// Wait for the message to be processed
 	select {
 	case event := <-outgoingChan:
 		assert.Equal(t, "test-uuid", event.Uuid)
@@ -71,19 +63,15 @@ func TestPostHogKafkaConsumer_Consume(t *testing.T) {
 		t.Fatal("Timed out waiting for message")
 	}
 
-	// Check if the message was also sent to statsChan
 	select {
 	case <-statsChan:
-		// Message received in statsChan
 	case <-time.After(time.Second):
 		t.Fatal("Timed out waiting for stats message")
 	}
 
-	// Test error handling
 	mockConsumer.On("ReadMessage", mock.AnythingOfType("time.Duration")).Return(nil, errors.New("read error")).Maybe()
-	time.Sleep(time.Millisecond * 100) // Give some time for the error to be processed
+	time.Sleep(time.Millisecond * 100)
 
-	// Assert that all expectations were met
 	mockConsumer.AssertExpectations(t)
 	mockGeoLocator.AssertExpectations(t)
 }
