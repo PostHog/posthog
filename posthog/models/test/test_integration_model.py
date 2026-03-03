@@ -355,6 +355,43 @@ class TestOauthIntegrationModel(BaseTest):
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.external_requests.post")
+    def test_refresh_access_token_stores_rotated_refresh_token(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            "refresh_token": "ROTATED_REFRESH_TOKEN",
+            "expires_in": 1000,
+        }
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+        assert integration.sensitive_config["refresh_token"] == "ROTATED_REFRESH_TOKEN"
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.external_requests.post")
+    def test_refresh_access_token_keeps_existing_refresh_token_when_not_rotated(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            "expires_in": 1000,
+        }
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+        assert integration.sensitive_config["refresh_token"] == "REFRESH"
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.external_requests.post")
     def test_refresh_access_token_handles_errors(self, mock_post, mock_reload):
         mock_post.return_value.status_code = 401
         mock_post.return_value.json.return_value = {"error": "BROKEN"}
