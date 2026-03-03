@@ -16,6 +16,7 @@ import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
+    CyclotronJobQueueKind,
     HogFunctionInvocationGlobals,
     HogFunctionType,
     HogFunctionTypeType,
@@ -39,10 +40,11 @@ export class CdpEventsConsumer<
         config: TConfig,
         deps: CdpConsumerBaseDeps,
         topic: string = KAFKA_EVENTS_JSON,
-        groupId: string = 'cdp-processed-events-consumer'
+        groupId: string = 'cdp-processed-events-consumer',
+        cyclotronSource: CyclotronJobQueueKind = 'hog'
     ) {
         super(config, deps)
-        this.cyclotronJobQueue = new CyclotronJobQueue(config, 'hog')
+        this.cyclotronJobQueue = new CyclotronJobQueue(config, cyclotronSource)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
         this.hogRateLimiter = new HogRateLimiterService(
             {
