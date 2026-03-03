@@ -65,4 +65,4 @@ class TestMergeDangerously(AcceptanceTest):
         # Query all events for the merged person - should have events from both A and B
         expected_uuids = {event_uuid_a, event_uuid_b, merge_event_uuid, post_merge_event_uuid}
         events = self.client.query_events_by_person_id(merged_person.id, expected_event_uuids=expected_uuids)
-        assert events is not None, "Expected events not found for merged person after merge withing time budget"
+        assert events is not None, "Expected events not found for merged person after merge within time budget"
