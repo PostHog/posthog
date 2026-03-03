@@ -1593,6 +1593,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
 
+            // Cache values before the long-running await — the logic may unmount
+            const { currentTeamId, effectiveRefreshFilters, urlFilters, urlVariables } = values
+
             actions.setRefreshStatus(insight.short_id, true, true)
 
             try {
@@ -1603,22 +1606,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // hence using 'force_blocking', small cost to give latest data for the insight
                 // also it's then consistent with the dashboard refresh button
                 const refreshedInsight = await getInsightWithRetry(
-                    values.currentTeamId,
+                    currentTeamId,
                     insight,
                     dashboardId,
                     uuid(),
                     'force_blocking',
                     undefined,
-                    values.effectiveRefreshFilters,
-                    values.urlVariables,
+                    effectiveRefreshFilters,
+                    urlVariables,
                     tile.filters_overrides
                 )
 
                 eventUsageLogic.actions.reportDashboardTileRefreshed(
                     dashboardId,
                     tile,
-                    values.urlFilters,
-                    values.urlVariables,
+                    urlFilters,
+                    urlVariables,
                     Math.floor(performance.now() - refreshStartTime),
                     true
                 )

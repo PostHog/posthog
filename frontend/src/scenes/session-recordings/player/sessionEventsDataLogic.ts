@@ -138,12 +138,15 @@ AND properties.$lib != 'web'`
                     // box so we're always dealing with a list
                     const events = Array.isArray(event) ? event : [event]
 
-                    let existingEvents = values.sessionEventsData?.filter((x) => events.some((e) => e.id === x.id))
+                    // Cache before awaits — the logic may unmount during the API call
+                    const cachedSessionEventsData = values.sessionEventsData
+
+                    let existingEvents = cachedSessionEventsData?.filter((x) => events.some((e) => e.id === x.id))
 
                     const allEventsAreFullyLoaded =
                         existingEvents?.every((e) => e.fullyLoaded) && existingEvents.length === events.length
                     if (!existingEvents || allEventsAreFullyLoaded) {
-                        return values.sessionEventsData
+                        return cachedSessionEventsData
                     }
 
                     existingEvents = existingEvents.filter((e) => !e.fullyLoaded)
@@ -192,9 +195,9 @@ AND properties.$lib != 'web'`
                     }
 
                     // here we map the events list because we want the result to be a new instance to trigger downstream recalculation
-                    return !values.sessionEventsData
-                        ? values.sessionEventsData
-                        : values.sessionEventsData.map((x) => {
+                    return !cachedSessionEventsData
+                        ? cachedSessionEventsData
+                        : cachedSessionEventsData.map((x) => {
                               const event = existingEvents?.find((ee) => ee.id === x.id)
                               return event
                                   ? ({
