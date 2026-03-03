@@ -31,6 +31,8 @@ interface UsageSummary {
     prompt_tokens?: number | null
     completion_tokens?: number | null
     total_tokens?: number | null
+    cache_read_tokens?: number | null
+    cache_write_tokens?: number | null
 }
 
 function appendToolCallChunk(state: AggregatedToolCall[], toolCall: ToolCallChunk): AggregatedToolCall[] {
@@ -82,11 +84,34 @@ function normalizeUsageFromStreamChunk(data: Record<string, unknown>): UsageSumm
     const completionTokens =
         (data.output_tokens as number | undefined) ?? (data.completion_tokens as number | undefined) ?? null
     const totalTokens = (data.total_tokens as number | undefined) ?? null
+    const cacheReadTokens = (data.cache_read_tokens as number | undefined) ?? null
+    const cacheWriteTokens = (data.cache_write_tokens as number | undefined) ?? null
 
     return {
         prompt_tokens: typeof promptTokens === 'number' ? promptTokens : null,
         completion_tokens: typeof completionTokens === 'number' ? completionTokens : null,
         total_tokens: typeof totalTokens === 'number' ? totalTokens : null,
+        cache_read_tokens: typeof cacheReadTokens === 'number' ? cacheReadTokens : null,
+        cache_write_tokens: typeof cacheWriteTokens === 'number' ? cacheWriteTokens : null,
+    }
+}
+
+/** Merge a new usage chunk into existing usage, keeping non-zero values from prior chunks.
+ * Anthropic sends input_tokens in message_start and output_tokens in message_delta,
+ * so a simple replace would zero out the input_tokens. */
+function mergeUsage(prev: UsageSummary, next: UsageSummary): UsageSummary {
+    const pick = (a: number | null | undefined, b: number | null | undefined): number | null => {
+        if (typeof b === 'number' && b > 0) {
+            return b
+        }
+        return typeof a === 'number' ? a : null
+    }
+    return {
+        prompt_tokens: pick(prev.prompt_tokens, next.prompt_tokens),
+        completion_tokens: pick(prev.completion_tokens, next.completion_tokens),
+        total_tokens: pick(prev.total_tokens, next.total_tokens),
+        cache_read_tokens: pick(prev.cache_read_tokens, next.cache_read_tokens),
+        cache_write_tokens: pick(prev.cache_write_tokens, next.cache_write_tokens),
     }
 }
 
@@ -99,11 +124,7 @@ export interface ComparisonItem {
     requestMessages: Message[]
     response: string
     error?: boolean
-    usage?: {
-        prompt_tokens?: number | null
-        completion_tokens?: number | null
-        total_tokens?: number | null
-    }
+    usage?: UsageSummary
     ttftMs?: number | null
     latencyMs?: number | null
 }
@@ -185,7 +206,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             try {
                 const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }) => {
                     const liveItemId = uuid()
-                    let responseUsage: ComparisonItem['usage'] = {}
+                    let responseUsage: UsageSummary = {}
                     let ttftMs: number | null = null
                     let latencyMs: number | null = null
                     let firstTokenTime: number | null = null
@@ -286,7 +307,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                                             ttftMs,
                                         })
                                     } else if (data.type === 'usage') {
-                                        responseUsage = normalizeUsageFromStreamChunk(data)
+                                        responseUsage = mergeUsage(responseUsage, normalizeUsageFromStreamChunk(data))
                                         actions.updateComparisonItem(liveItemId, { usage: responseUsage })
                                     } else if (data.error) {
                                         responseText += `\n\n**LLM Error:** ${data.error}`
