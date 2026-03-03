@@ -3,7 +3,7 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { CyclotronV2Janitor } from './janitor'
 import { CyclotronV2Manager } from './manager'
-import { CyclotronV2DequeuedJob } from './types'
+import { CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
 import { CyclotronV2Worker } from './worker'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
@@ -111,7 +111,7 @@ async function dequeueOneBatch(worker: CyclotronV2Worker, timeoutMs = 2000): Pro
 
 describe('Cyclotron V2', () => {
     jest.setTimeout(3000)
-
+    // Declared here, assigned in beforeAll
     let manager: CyclotronV2Manager
 
     beforeAll(async () => {
@@ -128,6 +128,15 @@ describe('Cyclotron V2', () => {
     beforeEach(async () => {
         await assertPool.query('DELETE FROM cyclotron_jobs')
     })
+
+    async function seedAndDequeue(
+        jobInit?: Partial<CyclotronV2JobInit>
+    ): Promise<{ id: string; job: CyclotronV2DequeuedJob }> {
+        const id = await manager.createJob({ teamId: 1, queueName: QUEUE, ...jobInit })
+        const worker = createWorker()
+        const jobs = await dequeueOneBatch(worker)
+        return { id, job: jobs[0] }
+    }
 
     // ── Manager ──────────────────────────────────────────────────────
 
@@ -243,49 +252,24 @@ describe('Cyclotron V2', () => {
             expect(jobs[0].queueName).toBe(QUEUE)
         })
 
-        it('ack() sets status to completed', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
-            const worker = createWorker()
-            const jobs = await dequeueOneBatch(worker)
+        it.each([
+            ['ack', 'completed'],
+            ['fail', 'failed'],
+            ['cancel', 'canceled'],
+        ] as const)('%s() sets status to %s', async (method, expectedStatus) => {
+            const { id, job } = await seedAndDequeue()
 
-            await jobs[0].ack()
+            await job[method]()
 
             const row = await queryJob(id)
-            expect(row.status).toBe('completed')
+            expect(row.status).toBe(expectedStatus)
             expect(row.lock_id).toBeNull()
             expect(row.last_heartbeat).toBeNull()
         })
 
-        it('fail() sets status to failed', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
-            const worker = createWorker()
-            const jobs = await dequeueOneBatch(worker)
-
-            await jobs[0].fail()
-
-            const row = await queryJob(id)
-            expect(row.status).toBe('failed')
-            expect(row.lock_id).toBeNull()
-        })
-
-        it('cancel() sets status to canceled', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
-            const worker = createWorker()
-            const jobs = await dequeueOneBatch(worker)
-
-            await jobs[0].cancel()
-
-            const row = await queryJob(id)
-            expect(row.status).toBe('canceled')
-            expect(row.lock_id).toBeNull()
-        })
-
         it('retry() returns job to available', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
-            const worker = createWorker()
-            const jobs = await dequeueOneBatch(worker)
-
-            await jobs[0].retry()
+            const { id, job } = await seedAndDequeue()
+            await job.retry()
 
             const row = await queryJob(id)
             expect(row.status).toBe('available')
@@ -294,12 +278,10 @@ describe('Cyclotron V2', () => {
         })
 
         it('retry({ delayMs }) schedules into the future', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
-            const worker = createWorker()
-            const jobs = await dequeueOneBatch(worker)
+            const { id, job } = await seedAndDequeue()
 
             const beforeRetry = Date.now()
-            await jobs[0].retry({ delayMs: 60_000 })
+            await job.retry({ delayMs: 60_000 })
 
             const row = await queryJob(id)
             expect(row.status).toBe('available')
@@ -307,45 +289,29 @@ describe('Cyclotron V2', () => {
         })
 
         it('retry({ state }) updates state blob', async () => {
-            const id = await manager.createJob({
-                teamId: 1,
-                queueName: QUEUE,
-                state: Buffer.from('old'),
-            })
-            const worker = createWorker()
-            const jobs = await dequeueOneBatch(worker)
+            const { id, job } = await seedAndDequeue({ state: Buffer.from('old') })
 
             const newState = Buffer.from('new-state')
-            await jobs[0].retry({ state: newState })
+            await job.retry({ state: newState })
 
             const row = await queryJob(id)
             expect(row.state).toEqual(newState)
         })
 
         it('retry({ state: null }) clears state', async () => {
-            const id = await manager.createJob({
-                teamId: 1,
-                queueName: QUEUE,
-                state: Buffer.from('existing'),
-            })
-            const worker = createWorker()
-            const jobs = await dequeueOneBatch(worker)
-
-            await jobs[0].retry({ state: null })
+            const { id, job } = await seedAndDequeue({ state: Buffer.from('existing') })
+            await job.retry({ state: null })
 
             const row = await queryJob(id)
             expect(row.state).toBeNull()
         })
 
         it('heartbeat() extends last_heartbeat', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
-            const worker = createWorker()
-            const jobs = await dequeueOneBatch(worker)
+            const { id, job } = await seedAndDequeue()
 
             const rowBefore = await queryJob(id)
-            // Small delay to ensure timestamp changes
             await new Promise((r) => setTimeout(r, 50))
-            await jobs[0].heartbeat()
+            await job.heartbeat()
 
             const rowAfter = await queryJob(id)
             expect(rowAfter.last_heartbeat!.getTime()).toBeGreaterThanOrEqual(rowBefore.last_heartbeat!.getTime())
@@ -353,19 +319,16 @@ describe('Cyclotron V2', () => {
         })
 
         it('double-release throws on second ack method call', async () => {
-            await manager.createJob({ teamId: 1, queueName: QUEUE })
-            const worker = createWorker()
-            const jobs = await dequeueOneBatch(worker)
+            const { job } = await seedAndDequeue()
 
-            await jobs[0].ack()
-            await expect(jobs[0].fail()).rejects.toThrow(/already released/)
-            await expect(jobs[0].retry()).rejects.toThrow(/already released/)
-            await expect(jobs[0].cancel()).rejects.toThrow(/already released/)
-            await expect(jobs[0].heartbeat()).rejects.toThrow(/already released/)
+            await job.ack()
+            await expect(job.fail()).rejects.toThrow(/already released/)
+            await expect(job.retry()).rejects.toThrow(/already released/)
+            await expect(job.cancel()).rejects.toThrow(/already released/)
+            await expect(job.heartbeat()).rejects.toThrow(/already released/)
         })
 
         it('concurrent workers get disjoint batches', async () => {
-            // Create enough jobs for two workers to split
             for (let i = 0; i < 10; i++) {
                 await manager.createJob({ teamId: 1, queueName: QUEUE })
             }
@@ -375,18 +338,15 @@ describe('Cyclotron V2', () => {
 
             const [batch1, batch2] = await Promise.all([dequeueOneBatch(worker1), dequeueOneBatch(worker2)])
 
-            // Together they should have all 10, with no overlap
             const allIds = [...batch1.map((j) => j.id), ...batch2.map((j) => j.id)]
             expect(allIds).toHaveLength(10)
             expect(new Set(allIds).size).toBe(10)
         })
 
         it('transition_count increments on dequeue', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
-            const worker = createWorker()
-            const jobs = await dequeueOneBatch(worker)
+            const { id, job } = await seedAndDequeue()
 
-            expect(jobs[0].transitionCount).toBe(1)
+            expect(job.transitionCount).toBe(1)
             const row = await queryJob(id)
             expect(row.transition_count).toBe(1)
         })

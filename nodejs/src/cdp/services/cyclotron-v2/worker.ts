@@ -111,7 +111,10 @@ export class CyclotronV2Worker {
                 cyclotron_jobs.lock_id`,
             [this.config.queueName, this.batchMaxSize, lockId]
         )
-        return result.rows
+        // UPDATE...RETURNING doesn't preserve the CTE's ORDER BY,
+        // so re-sort to maintain priority ordering within the batch
+        // TODO: Do we care about this in reality?
+        return result.rows.sort((a, b) => a.priority - b.priority || a.scheduled.getTime() - b.scheduled.getTime())
     }
 
     private wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
