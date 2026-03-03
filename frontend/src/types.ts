@@ -4818,6 +4818,7 @@ export enum EventDefinitionType {
 
 export const INTEGRATION_KINDS = [
     'slack',
+    'slack-twig',
     'salesforce',
     'hubspot',
     'google-pubsub',
