@@ -156,7 +156,7 @@ export const sidePanelStatusIncidentIoLogic = kea<sidePanelStatusIncidentIoLogic
 
     listeners(({ actions, cache, values }) => ({
         loadSummarySuccess: () => {
-            setIncidentStatus(values.status)
+            setIncidentStatus(values.rawStatus)
 
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => actions.loadSummary(), REFRESH_INTERVAL)
