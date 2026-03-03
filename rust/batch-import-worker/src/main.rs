@@ -18,6 +18,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 common_alloc::used!();
 
+const MAX_CONSECUTIVE_CLAIM_FAILURES: u32 = 10;
+
 fn setup_tracing() {
     let log_layer = tracing_subscriber::fmt::layer().with_filter(
         EnvFilter::builder()
@@ -98,16 +100,33 @@ pub async fn main() -> Result<(), Error> {
     // The lifecycle monitor runs on a background OS thread and handles signals.
     {
         let _guard = job_handle.process_scope();
+        let mut consecutive_claim_failures: u32 = 0;
 
         while !job_handle.is_shutting_down() {
-            let Some(mut model) = JobModel::claim_next_job(context.clone())
-                .await
-                .unwrap_or_else(|e| {
-                    error!("Failed to claim next job: {:?}", e);
-                    job_handle.signal_failure(format!("Failed to claim next job: {e}"));
+            let claim_result = JobModel::claim_next_job(context.clone()).await;
+
+            let claimed = match claim_result {
+                Ok(model) => {
+                    consecutive_claim_failures = 0;
+                    model
+                }
+                Err(e) => {
+                    consecutive_claim_failures += 1;
+                    if consecutive_claim_failures >= MAX_CONSECUTIVE_CLAIM_FAILURES {
+                        error!(
+                            "Failed to claim next job ({consecutive_claim_failures} consecutive failures), triggering shutdown: {e:?}"
+                        );
+                        job_handle.signal_failure(format!("Failed to claim next job: {e}"));
+                    } else {
+                        error!(
+                            "Failed to claim next job (attempt {consecutive_claim_failures}/{MAX_CONSECUTIVE_CLAIM_FAILURES}): {e:?}"
+                        );
+                    }
                     None
-                })
-            else {
+                }
+            };
+
+            let Some(mut model) = claimed else {
                 if job_handle.is_shutting_down() {
                     break;
                 }

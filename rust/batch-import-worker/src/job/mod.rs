@@ -488,7 +488,10 @@ impl Job {
         self.complete_commit().await?;
         info!(job_id = %self.job_id, "Committed part {} consumed {} bytes", key, parsed.consumed);
         info!(job_id = %self.job_id, "Sleeping for {:?}", to_sleep);
-        tokio::time::sleep(to_sleep).await;
+        tokio::select! {
+            _ = tokio::time::sleep(to_sleep) => {},
+            _ = self.handle.shutdown_recv() => {},
+        }
 
         Ok(())
     }
