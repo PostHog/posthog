@@ -26,6 +26,7 @@ from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
+from oauthlib.common import generate_token
 from prometheus_client import Counter
 from requests.auth import HTTPBasicAuth
 from rest_framework import status
@@ -34,17 +35,20 @@ from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
+from stripe import StripeClient
 
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
 from posthog.security.outbound_proxy import external_requests
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
+from posthog.utils import get_instance_region
 
 from products.workflows.backend.providers import SESProvider, TwilioProvider
 
@@ -2411,8 +2415,8 @@ class GitLabIntegration:
         return response.json()
 
     @classmethod
-    def create_integration(self, hostname, project_id, project_access_token, team_id, user) -> Integration:
-        project = self.get(hostname, f"projects/{project_id}", project_access_token)
+    def create_integration(cls, hostname, project_id, project_access_token, team_id, user) -> Integration:
+        project = cls.get(hostname, f"projects/{project_id}", project_access_token)
 
         integration = Integration.objects.create(
             team_id=team_id,
@@ -2756,8 +2760,6 @@ class StripeIntegration:
         ]
     )
 
-    STRIPE_APP_NAME = "PostHog Stripe App"
-
     def __init__(self, integration: Integration) -> None:
         if integration.kind != "stripe":
             raise ValueError(f"Expected stripe integration, got {integration.kind}")
@@ -2765,15 +2767,11 @@ class StripeIntegration:
 
     def write_posthog_secrets(self, team_id: int, created_by: "User") -> None:
         """Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App can call PostHog APIs."""
-        from datetime import timedelta
 
-        from oauthlib.common import generate_token
-        from stripe import StripeClient
-
-        from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
-        from posthog.utils import get_instance_region
-
-        oauth_app = self._get_or_create_posthog_oauth_app()
+        oauth_app = self._get_posthog_oauth_app()
+        if not oauth_app:
+            logger.warning("PostHog OAuth app not found, cannot write secrets to Stripe")
+            return
 
         access_token_value = generate_token()
         access_token = OAuthAccessToken.objects.create(
@@ -2847,27 +2845,8 @@ class StripeIntegration:
                     error=str(e),
                 )
 
-    def _get_or_create_posthog_oauth_app(self):
-        from posthog.models.oauth import OAuthApplication
-
+    def _get_posthog_oauth_app(self):
         if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
-            try:
-                return OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
-            except OAuthApplication.DoesNotExist:
-                pass
+            return OAuthApplication.objects.filter(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID).first()
 
-        existing = OAuthApplication.objects.filter(name=self.STRIPE_APP_NAME).first()
-        if existing:
-            return existing
-
-        from oauthlib.common import generate_token
-
-        return OAuthApplication.objects.create(
-            name=self.STRIPE_APP_NAME,
-            client_id=generate_token(),
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://localhost",
-            algorithm="RS256",
-        )
+        return None
