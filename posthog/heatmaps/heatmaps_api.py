@@ -23,7 +23,6 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import TemporaryTokenAuthentication
 from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -229,8 +228,6 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapsResponseSerializer
-
-    authentication_classes = [TemporaryTokenAuthentication]
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         request_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": self.team})
@@ -496,7 +493,6 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_read_actions = ["list", "retrieve", "content"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
-    authentication_classes = [TemporaryTokenAuthentication]
     queryset = SavedHeatmap.objects.all()
 
     def safely_get_queryset(self, queryset):
@@ -574,7 +570,6 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
     scope_object = "heatmap"
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
-    authentication_classes = [TemporaryTokenAuthentication]
     queryset = SavedHeatmap.objects.all()
     lookup_field = "short_id"
 

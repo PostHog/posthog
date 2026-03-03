@@ -1049,14 +1049,6 @@ class DataWarehouseSyncInterval(StrEnum):
     FIELD_30DAY = "30day"
 
 
-class DataWarehouseViewLinkConfiguration(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    experiments_optimized: bool | None = None
-    experiments_timestamp_key: str | None = None
-
-
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
@@ -2248,6 +2240,7 @@ class IntegrationFilter(BaseModel):
 
 class IntegrationKind(StrEnum):
     SLACK = "slack"
+    SLACK_TWIG = "slack-twig"
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"
     GOOGLE_PUBSUB = "google-pubsub"
@@ -2690,6 +2683,23 @@ class MaxErrorTrackingSearchResponse(BaseModel):
     order_direction: str | None = Field(default=None, description="Order direction (ASC or DESC)")
     search_query: str | None = Field(default=None, description="Free text search query")
     status: str | None = Field(default=None, description="Issue status filter (active, resolved, etc.)")
+
+
+class EvaluationType(StrEnum):
+    HOG = "hog"
+    LLM_JUDGE = "llm_judge"
+
+
+class MaxEvaluationContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    evaluation_type: EvaluationType
+    hog_source: str | None = None
+    id: str
+    name: str | None = None
+    type: Literal["evaluation"] = "evaluation"
 
 
 class MaxEventContext(BaseModel):
@@ -5010,7 +5020,6 @@ class DataWarehouseViewLink(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    configuration: DataWarehouseViewLinkConfiguration | None = None
     created_at: str | None = None
     created_by: UserBasicType | None = None
     field_name: str | None = None
@@ -19123,6 +19132,7 @@ class MaxUIContext(BaseModel):
     actions: list[MaxActionContext] | None = None
     dashboards: list[MaxDashboardContext] | None = None
     error_tracking_issues: list[MaxErrorTrackingIssueContext] | None = None
+    evaluations: list[MaxEvaluationContext] | None = None
     events: list[MaxEventContext] | None = None
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
