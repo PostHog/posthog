@@ -24,32 +24,6 @@ python manage.py signal_pipeline_status --team-id 1 --wait --expected-signals 3 
 python manage.py list_signal_reports --team-id 1 --signals --json
 ```
 
-### From raw external source data (emitter → signals)
-
-Use `ingest_external_source_json` to run raw source records through a registered emitter before emitting.
-The JSON file should contain an array of record objects matching the emitter's expected fields.
-
-```bash
-# 1. Clean up
-python manage.py cleanup_signals --team-id 1 --yes
-
-# 2. Dry-run to verify the emitter processes records correctly
-python manage.py ingest_external_source_json path/to/records.json \
-  --team-id 1 --source-type Linear --schema-name issues --dry-run
-
-# 3. Emit for real
-python manage.py ingest_external_source_json path/to/records.json \
-  --team-id 1 --source-type Linear --schema-name issues
-
-# 4-5. Track and inspect (same as above)
-python manage.py signal_pipeline_status --team-id 1 --wait --expected-signals 10 --poll-interval 10 --json
-python manage.py list_signal_reports --team-id 1 --signals --json
-```
-
-Example fixture files for source records live in `posthog/temporal/data_imports/signals/tests/fixtures/`.
-
-Processing 3 signals typically takes 1-3 minutes depending on LLM response times.
-
 ## What happens during processing
 
 1. Temporal grouping workflow receives signals and processes them sequentially

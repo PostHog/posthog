@@ -53,28 +53,6 @@ Gated behind the team's `proactive_tasks_enabled` config (checked together with 
 
 Run tests: `pytest posthog/temporal/data_imports/signals/tests/`
 
-## Creating data fixtures for local testing
-
-Fixture files live in `posthog/temporal/data_imports/signals/tests/fixtures/`
-and are consumed by the `ingest_external_source_json` management command
-(see `products/signals/backend/management/AGENTS.md` for full usage).
-
-**The fixture must match the format records have _after_ the data warehouse pipeline stores them,
-not the raw API response.**
-The pipeline flattens nested objects before writing to ClickHouse
-(`posthog/temporal/data_imports/pipelines/pipeline/utils.py`, `_evolve_pyarrow_schema`):
-any struct or list/array column is serialized to a JSON string via `orjson`.
-When HogQL later SELECTs these columns they come back as plain strings, not dicts.
-
-Checklist when creating a fixture from a source API response:
-
-1. **Check the source's GraphQL/REST query** (`posthog/temporal/data_imports/sources/<source>/queries.py`)
-   to see which fields are fetched and which are nested objects.
-2. **Scalar fields** (strings, numbers, timestamps) — keep as-is.
-3. **Nested objects and arrays** (e.g. `state`, `team`, `labels`, `assignee`) —
-   serialize to JSON strings: `{"name": "Todo", "type": "unstarted"}` not `{"name": "Todo", ...}` as a dict.
-4. **Verify with a dry run**: `python manage.py ingest_external_source_json <file> --source-type <Type> --schema-name <name> --team-id 1 --dry-run`
-
 ## Maintaining this file
 
 If the pipeline architecture, registry pattern, or conventions change significantly,
