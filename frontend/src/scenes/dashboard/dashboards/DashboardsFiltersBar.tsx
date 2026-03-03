@@ -1,35 +1,30 @@
+import { useActions, useValues } from 'kea'
+
 import { IconChevronDown, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 import { LemonInput, Popover } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { DashboardsFilters, DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 
 interface DashboardsFiltersBarProps {
-    filters: DashboardsFilters
-    currentTab: DashboardsTab
-    showTagPopover: boolean
-    setShowTagPopover: (visible: boolean) => void
-    tagSearch: string
-    setTagSearch: (value: string) => void
-    filteredTags: string[]
-    setFilters: (filters: Partial<DashboardsFilters>) => void
-    handleTagToggle: (tag: string) => void
     extraActions?: JSX.Element | JSX.Element[]
 }
 
-export function DashboardsFiltersBar({
-    filters,
-    currentTab,
-    showTagPopover,
-    setShowTagPopover,
-    tagSearch,
-    setTagSearch,
-    filteredTags,
-    setFilters,
-    handleTagToggle,
-    extraActions,
-}: DashboardsFiltersBarProps): JSX.Element {
+export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps): JSX.Element {
+    const { filters, currentTab, filteredTags, tagSearch, showTagPopover } = useValues(dashboardsLogic)
+    const { setFilters, setTagSearch, setShowTagPopover } = useActions(dashboardsLogic)
+
+    const handleTagToggle = (tag: string): void => {
+        const selected = new Set(filters.tags || [])
+        if (selected.has(tag)) {
+            selected.delete(tag)
+        } else {
+            selected.add(tag)
+        }
+        setFilters({ tags: Array.from(selected) })
+    }
+
     return (
         <div className="flex justify-between gap-2 flex-wrap mb-4">
             <LemonInput

@@ -16,7 +16,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardsFilters, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -36,14 +36,13 @@ import { DashboardsFiltersBar } from './DashboardsFiltersBar'
 
 export function DashboardsTableContainer(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { dashboards, filters } = useValues(dashboardsLogic)
+    const { dashboards } = useValues(dashboardsLogic)
 
-    return <DashboardsTable dashboards={dashboards} dashboardsLoading={dashboardsLoading} filters={filters} />
+    return <DashboardsTable dashboards={dashboards} dashboardsLoading={dashboardsLoading} />
 }
 
 interface DashboardsTableProps {
     dashboards: DashboardBasicType[]
-    filters: DashboardsFilters
     dashboardsLoading: boolean
     extraActions?: JSX.Element | JSX.Element[]
     hideActions?: boolean
@@ -52,26 +51,15 @@ interface DashboardsTableProps {
 export function DashboardsTable({
     dashboards,
     dashboardsLoading,
-    filters,
     extraActions,
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
-    const { setFilters, tableSortingChanged, setTagSearch, setShowTagPopover } = useActions(dashboardsLogic)
-    const { tableSorting, currentTab, filteredTags, tagSearch, showTagPopover } = useValues(dashboardsLogic)
+    const { tableSortingChanged } = useActions(dashboardsLogic)
+    const { tableSorting } = useValues(dashboardsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
-
-    const handleTagToggle = (tag: string): void => {
-        const selected = new Set(filters.tags || [])
-        if (selected.has(tag)) {
-            selected.delete(tag)
-        } else {
-            selected.add(tag)
-        }
-        setFilters({ tags: Array.from(selected) })
-    }
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -234,18 +222,7 @@ export function DashboardsTable({
 
     return (
         <>
-            <DashboardsFiltersBar
-                filters={filters}
-                currentTab={currentTab}
-                showTagPopover={showTagPopover}
-                setShowTagPopover={setShowTagPopover}
-                tagSearch={tagSearch}
-                setTagSearch={setTagSearch}
-                filteredTags={filteredTags}
-                setFilters={setFilters}
-                handleTagToggle={handleTagToggle}
-                extraActions={extraActions}
-            />
+            <DashboardsFiltersBar extraActions={extraActions} />
             <LemonTable
                 data-attr="dashboards-table"
                 pagination={{ pageSize: 100 }}
