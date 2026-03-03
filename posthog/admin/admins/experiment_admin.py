@@ -34,7 +34,9 @@ class ExperimentAdminForm(ModelForm):
             if "holdout" in self.fields:
                 self.fields["holdout"].queryset = ExperimentHoldout.objects.filter(team=self.instance.team)  # type: ignore
             if "feature_flag" in self.fields:
-                self.fields["feature_flag"].queryset = FeatureFlag.objects.filter(team=self.instance.team)  # type: ignore
+                self.fields["feature_flag"].queryset = FeatureFlag.objects_including_soft_deleted.filter(  # type: ignore[attr-defined]
+                    team=self.instance.team
+                )
 
 
 def has_legacy_metric(metrics):
