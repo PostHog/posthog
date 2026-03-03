@@ -18,6 +18,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 import dataclasses
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -485,16 +486,78 @@ def compute_staging_uri(source_uri: str, catalog_bucket: str) -> str:
     return f"s3://{catalog_bucket}/{STAGING_PREFIX}/{key_path}"
 
 
+def _get_delta_snapshot_files(source_uri: str) -> tuple[int, list[str]]:
+    """Pin to the current Delta table version and return its data file S3 keys.
+
+    Opens the Delta table at *source_uri* using the deltalake library (which
+    reads the transaction log atomically), records the current version, and
+    converts the absolute ``file_uris()`` into plain S3 object keys.
+
+    Returns:
+        (version, data_file_keys) — version is the Delta log version that was
+        read; data_file_keys are S3 keys (no ``s3://bucket/`` prefix) for the
+        data files that belong to that version's snapshot.
+    """
+    import deltalake
+
+    dt = deltalake.DeltaTable(table_uri=source_uri, storage_options=get_deltalake_storage_options())
+    version = dt.version()
+    keys: list[str] = []
+    for uri in dt.file_uris():
+        parsed = urlparse(uri)
+        keys.append(parsed.path.lstrip("/"))
+    return version, keys
+
+
+_DELTA_LOG_VERSION_RE = re.compile(r"^(\d{20})\.")
+
+
+def _collect_delta_log_keys(
+    s3_client,
+    bucket: str,
+    prefix: str,
+    max_version: int,
+) -> list[str]:
+    """List Delta log entries up to *max_version* (inclusive).
+
+    Scans ``{prefix}_delta_log/`` and keeps:
+    - JSON commit files (``00000000000000000001.json``)
+    - Checkpoint parquet files (``00000000000000000010.checkpoint.parquet``,
+      multi-part variants like ``00000000000000000010.checkpoint.0000000001.0000000002.parquet``)
+    - ``_last_checkpoint`` (always included so readers can find the latest checkpoint)
+
+    Files whose 20-digit version prefix exceeds *max_version* are excluded.
+    """
+    log_prefix = f"{prefix}_delta_log/"
+    keys: list[str] = []
+    paginator = s3_client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=log_prefix):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            filename = key[len(log_prefix) :]
+
+            if filename == "_last_checkpoint":
+                keys.append(key)
+                continue
+
+            m = _DELTA_LOG_VERSION_RE.match(filename)
+            if m and int(m.group(1)) <= max_version:
+                keys.append(key)
+
+    return keys
+
+
 def stage_delta_table(
     source_uri: str,
     catalog_bucket: str,
     role_arn: str,
     external_id: str | None = None,
 ) -> str:
-    """Copy Delta table files from source bucket to the catalog bucket under __posthog_staging/.
+    """Copy a version-pinned Delta table snapshot to the catalog bucket under __posthog_staging/.
 
-    Uses cross-account credentials to read from the source bucket and write
-    to the catalog bucket's staging prefix.
+    Pins to the current Delta table version via the deltalake library, then
+    copies only the data files and log entries for that version (or earlier).
+    This prevents inconsistency when a new transaction commits during the copy.
 
     Returns the staging URI for the Delta table.
     """
@@ -508,6 +571,8 @@ def stage_delta_table(
     if not source_prefix.endswith("/"):
         source_prefix += "/"
 
+    version, data_keys = _get_delta_snapshot_files(source_uri)
+
     access_key, secret_key, session_token = _get_cross_account_credentials(role_arn, external_id)
 
     s3 = boto3.client(
@@ -517,11 +582,9 @@ def stage_delta_table(
         aws_session_token=session_token,
     )
 
-    objects_to_copy: list[str] = []
-    paginator = s3.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=source_bucket, Prefix=source_prefix):
-        for obj in page.get("Contents", []):
-            objects_to_copy.append(obj["Key"])
+    log_keys = _collect_delta_log_keys(s3, source_bucket, source_prefix, version)
+
+    objects_to_copy = data_keys + log_keys
 
     def copy_one(key: str) -> None:
         staging_key = f"{STAGING_PREFIX}/{key}"
