@@ -19,6 +19,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+// eslint-disable-next-line import/no-cycle
 import { BillingLineGraphTooltip } from './BillingLineGraphTooltip'
 import { useBillingMarkersPositioning } from './useBillingMarkersPositioning'
 
