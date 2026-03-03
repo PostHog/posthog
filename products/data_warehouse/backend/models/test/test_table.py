@@ -372,7 +372,7 @@ class TestTable(BaseTest):
 
         def mock_sync_execute(query, args=None, settings=None):
             if settings and settings.get("format_csv_allow_double_quotes") == 0:
-                raise ServerException("Rows have different amount of values")
+                raise ServerException("Expected end of line", code=117)
             return [["col1", "String"], ["col2", "String"]]
 
         with patch("products.data_warehouse.backend.models.table.sync_execute", side_effect=mock_sync_execute):
@@ -394,7 +394,7 @@ class TestTable(BaseTest):
 
         def mock_sync_execute(query, args=None, settings=None):
             if settings and settings.get("format_csv_allow_double_quotes") == 1:
-                raise ServerException("Rows have different amount of values")
+                raise ServerException("Expected end of line", code=117)
             return [["col1", "String"], ["col2", "String"]]
 
         with patch("products.data_warehouse.backend.models.table.sync_execute", side_effect=mock_sync_execute):
@@ -416,11 +416,30 @@ class TestTable(BaseTest):
 
         with patch(
             "products.data_warehouse.backend.models.table.sync_execute",
-            side_effect=ServerException("DB::Exception: Cannot parse CSV"),
+            side_effect=ServerException("Expected end of line", code=117),
         ):
             result = table._detect_csv_double_quotes_setting()
 
         assert result is None
+
+    def test_detect_csv_double_quotes_propagates_non_parse_server_errors(self):
+        from clickhouse_driver.errors import ServerException
+
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+        )
+
+        with patch(
+            "products.data_warehouse.backend.models.table.sync_execute",
+            side_effect=ServerException("DB::Exception: Too many connections", code=999),
+        ):
+            with pytest.raises(ServerException):
+                table._detect_csv_double_quotes_setting()
 
     def test_detect_csv_double_quotes_propagates_infra_errors(self):
         from clickhouse_driver.errors import NetworkError

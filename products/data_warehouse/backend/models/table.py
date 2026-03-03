@@ -460,6 +460,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             DataWarehouseTable.TableFormat.CSVWithNames,
         )
 
+    # ClickHouse error codes from CSV double-quote parse mismatches.
+    # Wrong quoting causes ClickHouse to mis-split fields, producing
+    # type errors on the mangled values.
+    _CSV_PARSE_ERROR_CODES = frozenset({117})  # INCORRECT_DATA ("Expected end of line")
+
     def _detect_csv_double_quotes_setting(self) -> Optional[bool]:
         """Detect whether the CSV uses RFC 4180 quoting by trying to parse data rows
         with each setting. DESCRIBE TABLE only reads headers for CSVWithNames, so we
@@ -495,9 +500,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 settings={"format_csv_allow_double_quotes": 1},
             )
             ok_with_quotes = True
-        except ClickHouseServerException:
-            pass
-
+        except ClickHouseServerException as e:
+            if e.code not in self._CSV_PARSE_ERROR_CODES:
+                raise
         # Try with =0 (literal quotes mode) — parse actual data rows
         try:
             ctx = HogQLContext(team_id=self.team.pk)
@@ -516,8 +521,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 settings={"format_csv_allow_double_quotes": 0},
             )
             ok_without_quotes = True
-        except ClickHouseServerException:
-            pass
+        except ClickHouseServerException as e:
+            if e.code not in self._CSV_PARSE_ERROR_CODES:
+                raise
 
         if ok_with_quotes and not ok_without_quotes:
             return True
