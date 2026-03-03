@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import asyncio
+from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Literal, Optional
@@ -37,9 +38,12 @@ from products.signals.backend.temporal.types import (
     MatchResult,
     NewReportMatch,
     NoMatchMetadata,
+    ReportContext,
     SignalCandidate,
+    SignalData,
     SignalReportSummaryWorkflowInputs,
     SignalTypeExample,
+    SpecificityMetadata,
     TeamSignalGroupingInput,
 )
 
@@ -405,11 +409,18 @@ IMPORTANT: Signals should be grouped if they are meaningfully related, not just 
 
 You will receive:
 1. A new signal with its description and source information
-2. Results from multiple search queries, each containing candidate signals with their IDs, descriptions, sources, and cosine distances
+2. Discovery strength: how many independent search queries found signals in each existing group (higher = stronger evidence)
+3. Results from multiple search queries, each with candidate signals annotated with their group title and group size
 
-If a candidate signal from ANY query is related to the new signal, respond with:
+IMPORTANT — use group context when deciding:
+- Each candidate belongs to a group. The group title tells you the group's overall theme.
+- Match the new signal to a GROUP's theme, not just to an individual candidate signal.
+- A candidate that shares a keyword with the new signal but belongs to an unrelated group should NOT be matched.
+- Groups found by multiple independent queries are more likely genuinely related.
+
+If a candidate signal from ANY query is related to the new signal AND its group theme aligns, respond with:
 {
-  "reason": "<Brief, less than 100 character sentence explaining what connects the two signals>",
+  "reason": "<Brief, less than 100 character sentence explaining what connects the signal to the group>",
   "match_type": "existing",
   "signal_id": "<the signal_id of the matching candidate>",
   "query_index": <0-based index of the query that surfaced this candidate>
@@ -428,20 +439,74 @@ IMPORTANT: The "reason" field MUST be the first key in your JSON response. Write
 You must respond with valid JSON only, no other text."""
 
 
+SPECIFICITY_CHECK_SYSTEM_PROMPT = """You are a senior engineer reviewing whether a group of signals belongs in a single pull request.
+
+You will receive:
+1. A group of existing signals (the current report)
+2. A new signal being proposed for addition
+
+Your job:
+1. Write a single PR title (max 70 chars) that covers ALL signals in the group INCLUDING the new one.
+2. Judge: is this PR title specific enough that one engineer could ship it in a single pull request?
+
+A SPECIFIC PR title targets one feature, one bug, one component, or one tightly-scoped change:
+- "Fix date picker timezone handling in insights" — SPECIFIC (one component, one bug type)
+- "Add K8s liveness probe and fix feature flag caching" — SPECIFIC (one infra concern, tightly related)
+- "Fix funnel conversion calculation for time-based bins" — SPECIFIC (one feature, one issue)
+
+A VAGUE PR title is a catch-all that no single engineer would take on:
+- "Fix various PostHog AI issues" — VAGUE (multiple unrelated areas)
+- "Multiple workflow and integration improvements" — VAGUE (different systems)
+- "Address feature flag and authentication concerns" — VAGUE (unrelated domains)
+
+IMPORTANT: Err on the side of REJECTING. A good PR addresses ONE concern, even if that concern has multiple symptoms.
+
+Red flags that the group is too broad:
+- You need words like "various", "multiple", "and" (connecting unrelated things), or "improvements"
+- The signals share a keyword (e.g. "workflows", "flags", "Next.js") but address different problems
+- You'd assign the signals to different engineers based on expertise
+- The PR touches multiple unrelated systems or components
+
+Respond with valid JSON only:
+{"pr_title": "...", "specific_enough": true/false, "reason": "..."}"""
+
+
+class SpecificityResult(BaseModel):
+    pr_title: str
+    specific_enough: bool
+    reason: str
+
+
+MAX_SIGNALS_IN_SPECIFICITY_CONTEXT = 8
+
+
 def _build_matching_prompt(
     description: str,
     source_product: str,
     source_type: str,
     queries: list[str],
     query_results: list[list[SignalCandidate]],
+    report_contexts: dict[str, ReportContext],
 ) -> str:
+    """Build matching prompt with group titles and multi-query agreement summary."""
+    report_query_hits: dict[str, set[int]] = defaultdict(set)
+    for query_idx, candidates in enumerate(query_results):
+        for c in candidates:
+            report_query_hits[c.report_id].add(query_idx)
+
     prompt = f"""NEW SIGNAL:
 - Source: {source_product} / {source_type}
 - Description: {description}
 
-SEARCH RESULTS:
+DISCOVERY STRENGTH (groups found by multiple independent queries are more likely related):
 """
+    for report_id, query_indices in sorted(report_query_hits.items(), key=lambda x: -len(x[1])):
+        ctx = report_contexts.get(report_id)
+        title = ctx.title if ctx else "(untitled)"
+        size = ctx.signal_count if ctx else 0
+        prompt += f'- "{title}" ({size} signal{"s" if size != 1 else ""}): found by {len(query_indices)}/{len(queries)} queries\n'
 
+    prompt += "\nSEARCH RESULTS:\n"
     for query_idx, (query, candidates) in enumerate(zip(queries, query_results)):
         prompt += f'\n--- Query {query_idx}: "{query}" ---\n'
 
@@ -449,13 +514,47 @@ SEARCH RESULTS:
             prompt += "(no results)\n"
         else:
             for c in candidates:
-                prompt += f"""
-- signal_id: {c.signal_id}
+                ctx = report_contexts.get(c.report_id)
+                title = ctx.title if ctx else "(untitled)"
+                size = ctx.signal_count if ctx else 0
+                prompt += f"""- signal_id: {c.signal_id}
   distance: {c.distance:.4f}
   Source: {c.source_product} / {c.source_type}
+  Group: "{title}" ({size} signal{"s" if size != 1 else ""})
   Description: {c.content}
 """
 
+    return prompt
+
+
+def _build_specificity_prompt(
+    new_signal_description: str,
+    new_signal_source_product: str,
+    new_signal_source_type: str,
+    report_title: str,
+    group_signals: list[SignalData],
+) -> str:
+    """Build prompt for the PR-specificity verification gate."""
+    prompt = f"""EXISTING GROUP:
+- Title: {report_title or "(untitled)"}
+- Signals ({len(group_signals)} total):
+"""
+    for i, sig in enumerate(group_signals[:MAX_SIGNALS_IN_SPECIFICITY_CONTEXT]):
+        prompt += f"""
+  Signal {i + 1}:
+  - Source: {sig.source_product} / {sig.source_type}
+  - Description: {sig.content[:500]}
+"""
+    remaining = len(group_signals) - MAX_SIGNALS_IN_SPECIFICITY_CONTEXT
+    if remaining > 0:
+        prompt += f"\n  ... and {remaining} more signals\n"
+
+    prompt += f"""
+NEW SIGNAL PROPOSED FOR ADDITION:
+- Source: {new_signal_source_product} / {new_signal_source_type}
+- Description: {new_signal_description}
+
+Write a PR title covering ALL the above signals (existing + new), then judge if it's specific enough for one pull request."""
     return prompt
 
 
@@ -465,6 +564,7 @@ async def match_signal_to_report(
     source_type: str,
     queries: list[str],
     query_results: list[list[SignalCandidate]],
+    report_contexts: dict[str, ReportContext],
 ) -> MatchResult:
     """
     Determine if a new signal matches an existing report or needs a new one.
@@ -477,7 +577,9 @@ async def match_signal_to_report(
         for c in candidates:
             candidates_by_id[c.signal_id] = c
 
-    user_prompt = _build_matching_prompt(description, source_product, source_type, queries, query_results)
+    user_prompt = _build_matching_prompt(
+        description, source_product, source_type, queries, query_results, report_contexts
+    )
 
     def validate(text: str) -> MatchResult:
         data = json.loads(text)
@@ -522,6 +624,7 @@ class MatchSignalToReportInput:
     source_type: str
     queries: list[str]
     query_results: list[list[SignalCandidate]]
+    report_contexts: dict[str, ReportContext]
 
 
 @temporalio.activity.defn
@@ -534,6 +637,7 @@ async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> Ma
             source_type=input.source_type,
             queries=input.queries,
             query_results=input.query_results,
+            report_contexts=input.report_contexts,
         )
         total_candidates = sum(len(r) for r in input.query_results)
         logger.debug(
@@ -552,6 +656,155 @@ async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> Ma
 
 
 @dataclass
+class FetchReportContextsInput:
+    team_id: int
+    report_ids: list[str]
+
+
+@dataclass
+class FetchReportContextsOutput:
+    contexts: dict[str, ReportContext]
+
+
+@temporalio.activity.defn
+async def fetch_report_contexts_activity(input: FetchReportContextsInput) -> FetchReportContextsOutput:
+    """Fetch lightweight context (title, signal count) for reports from Postgres."""
+    if not input.report_ids:
+        return FetchReportContextsOutput(contexts={})
+
+    try:
+        reports = SignalReport.objects.filter(team_id=input.team_id, id__in=input.report_ids).values_list(
+            "id", "title", "signal_count"
+        )
+        contexts: dict[str, ReportContext] = {}
+        async for report_id, title, signal_count in reports:
+            rid = str(report_id)
+            contexts[rid] = ReportContext(
+                report_id=rid,
+                title=title or "(untitled)",
+                signal_count=signal_count,
+            )
+        logger.debug(
+            f"Fetched contexts for {len(contexts)}/{len(input.report_ids)} reports",
+            requested=len(input.report_ids),
+            found=len(contexts),
+        )
+        return FetchReportContextsOutput(contexts=contexts)
+    except Exception as e:
+        logger.exception(f"Failed to fetch report contexts: {e}")
+        raise
+
+
+@dataclass
+class VerifyMatchSpecificityInput:
+    team_id: int
+    report_id: str
+    report_title: str
+    new_signal_description: str
+    new_signal_source_product: str
+    new_signal_source_type: str
+
+
+@dataclass
+class VerifyMatchSpecificityOutput:
+    pr_title: str
+    specific_enough: bool
+    reason: str
+
+
+@temporalio.activity.defn
+async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
+    """Verify that adding a signal to a group produces a specific-enough PR title."""
+    try:
+        team = await Team.objects.aget(pk=input.team_id)
+
+        query = """
+            SELECT
+                document_id,
+                content,
+                metadata,
+                toString(timestamp) as timestamp
+            FROM (
+                SELECT
+                    document_id,
+                    argMax(content, inserted_at) as content,
+                    argMax(metadata, inserted_at) as metadata,
+                    argMax(timestamp, inserted_at) as timestamp
+                FROM document_embeddings
+                WHERE model_name = {model_name}
+                  AND product = 'signals'
+                  AND document_type = 'signal'
+                GROUP BY document_id
+            )
+            WHERE JSONExtractString(metadata, 'report_id') = {report_id}
+              AND NOT JSONExtractBool(metadata, 'deleted')
+            ORDER BY timestamp ASC
+        """
+
+        result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
+            query_type="SignalsFetchForSpecificity",
+            query=query,
+            team=team,
+            placeholders={
+                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+                "report_id": ast.Constant(value=input.report_id),
+            },
+        )
+
+        group_signals: list[SignalData] = []
+        for row in result.results or []:
+            document_id, content, metadata_str, timestamp = row
+            metadata = json.loads(metadata_str)
+            group_signals.append(
+                SignalData(
+                    signal_id=document_id,
+                    content=content,
+                    source_product=metadata.get("source_product", ""),
+                    source_type=metadata.get("source_type", ""),
+                    source_id=metadata.get("source_id", ""),
+                    weight=metadata.get("weight", 0.0),
+                    timestamp=timestamp,
+                    extra=metadata.get("extra", {}),
+                )
+            )
+
+        specificity_prompt = _build_specificity_prompt(
+            new_signal_description=input.new_signal_description,
+            new_signal_source_product=input.new_signal_source_product,
+            new_signal_source_type=input.new_signal_source_type,
+            report_title=input.report_title,
+            group_signals=group_signals,
+        )
+
+        specificity = await call_llm(
+            system_prompt=SPECIFICITY_CHECK_SYSTEM_PROMPT,
+            user_prompt=specificity_prompt,
+            validate=lambda text: SpecificityResult.model_validate_json(text),
+            temperature=0.2,
+        )
+
+        logger.debug(
+            f"Specificity check for report {input.report_id}: "
+            f'pr_title="{specificity.pr_title}", specific_enough={specificity.specific_enough}',
+            report_id=input.report_id,
+            pr_title=specificity.pr_title,
+            specific_enough=specificity.specific_enough,
+            reason=specificity.reason,
+        )
+        return VerifyMatchSpecificityOutput(
+            pr_title=specificity.pr_title,
+            specific_enough=specificity.specific_enough,
+            reason=specificity.reason,
+        )
+    except Exception as e:
+        logger.exception(
+            f"Failed to verify match specificity for report {input.report_id}: {e}",
+            report_id=input.report_id,
+        )
+        raise
+
+
+@dataclass
 class AssignAndEmitSignalInput:
     team_id: int
     signal_id: str
@@ -564,6 +817,7 @@ class AssignAndEmitSignalInput:
     embedding: list[float]
     match_result: MatchResult
     timestamp: Optional[datetime] = None
+    updated_title: Optional[str] = None
 
 
 @dataclass
@@ -582,10 +836,14 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             promoted = False
 
             if isinstance(match_result, ExistingReportMatch):
-                report = SignalReport.objects.select_for_update().get(id=match_result.report_id)
+                report = SignalReport.objects.select_for_update().get(id=match_result.report_id, team_id=input.team_id)
                 report.total_weight += input.weight
                 report.signal_count += 1
-                report.save(update_fields=["total_weight", "signal_count", "updated_at"])
+                update_fields = ["total_weight", "signal_count", "updated_at"]
+                if input.updated_title:
+                    report.title = input.updated_title
+                    update_fields.append("title")
+                report.save(update_fields=update_fields)
             else:
                 report = SignalReport.objects.create(
                     team_id=input.team_id,
@@ -782,6 +1040,18 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
         ]
     )
 
+    # Step 4.5: Fetch report contexts for group-aware matching
+    all_candidates = [c for r in query_results for c in r.candidates]
+    unique_report_ids = list({c.report_id for c in all_candidates})
+
+    report_contexts_result: FetchReportContextsOutput = await workflow.execute_activity(
+        fetch_report_contexts_activity,
+        FetchReportContextsInput(team_id=inputs.team_id, report_ids=unique_report_ids),
+        start_to_close_timeout=timedelta(minutes=2),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+
+    # Step 5: Group-aware LLM match
     match_result = await workflow.execute_activity(
         match_signal_to_report_activity,
         MatchSignalToReportInput(
@@ -790,11 +1060,56 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
             source_type=inputs.source_type,
             queries=queries,
             query_results=[r.candidates for r in query_results],
+            report_contexts=report_contexts_result.contexts,
         ),
         start_to_close_timeout=timedelta(minutes=5),
         retry_policy=RetryPolicy(maximum_attempts=3),
     )
 
+    # Step 5.5: PR-specificity verification for existing matches
+    updated_title: Optional[str] = None
+
+    if isinstance(match_result, ExistingReportMatch):
+        report_ctx = report_contexts_result.contexts.get(match_result.report_id)
+        report_title = report_ctx.title if report_ctx else ""
+
+        # Hard requirement, no try-except wrapping, but could lead to the signal skip if the activity exceeds retries
+        specificity_result: VerifyMatchSpecificityOutput = await workflow.execute_activity(
+            verify_match_specificity_activity,
+            VerifyMatchSpecificityInput(
+                team_id=inputs.team_id,
+                report_id=match_result.report_id,
+                report_title=report_title,
+                new_signal_description=inputs.description,
+                new_signal_source_product=inputs.source_product,
+                new_signal_source_type=inputs.source_type,
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        specificity_meta = SpecificityMetadata(
+            pr_title=specificity_result.pr_title,
+            specific_enough=specificity_result.specific_enough,
+            reason=specificity_result.reason,
+        )
+
+        if specificity_result.specific_enough:
+            updated_title = specificity_result.pr_title
+            match_result.match_metadata.specificity = specificity_meta
+        else:
+            match_result = NewReportMatch(
+                # Picking the first line, as it's will usually represent the title of the signal
+                # TODO: Rework if we decide to store title/description and match them separately
+                title=inputs.description.split("\n")[0],
+                summary=f"Split from group: {report_title}",
+                match_metadata=NoMatchMetadata(
+                    reason=f'PR-specificity rejected: "{specificity_result.pr_title}" — {specificity_result.reason}',
+                    specificity_rejection=specificity_meta,
+                ),
+            )
+
+    # Step 6: Assign and emit
     assign_result: AssignAndEmitSignalOutput = await workflow.execute_activity(
         assign_and_emit_signal_activity,
         AssignAndEmitSignalInput(
@@ -808,6 +1123,7 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
             extra=inputs.extra,
             embedding=embedding_result.embedding,
             match_result=match_result,
+            updated_title=updated_title,
         ),
         start_to_close_timeout=timedelta(minutes=2),
         retry_policy=RetryPolicy(maximum_attempts=3),
