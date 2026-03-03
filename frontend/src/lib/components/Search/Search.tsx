@@ -32,6 +32,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { fileSystemTypes } from '~/products'
@@ -70,6 +71,10 @@ const PLACEHOLDER_OPTIONS = [
 const PLACEHOLDER_CYCLE_INTERVAL = 3000
 
 const ASK_AI_ITEM_ID = '__ask_posthog_ai__'
+
+const SETTINGS_THEME_ITEM_ID = '__settings_theme__'
+
+const SETTINGS_THEME_ITEM_QUERY = ['dark', 'light', 'theme', 'appearance']
 
 // ============================================================================
 // Hooks
@@ -271,7 +276,8 @@ function SearchRoot({
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
-    const { themeMode } = useValues(userLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
+    const { toggleTheme } = useActions(themeLogic)
     const { updateUser } = useActions(userLogic)
     const aiPreviewEnabled = useFeatureFlag('SEARCH_AI_PREVIEW')
     const { conversationId: aiPreviewConversationId } = useValues(searchAiPreviewLogic({ logicKey }))
@@ -311,26 +317,29 @@ function SearchRoot({
 
         // Add a direct shortcut to the theme setting when searching for dark/light/theme
         const normalizedQuery = searchValue.trim().toLowerCase()
-        if (normalizedQuery && ['dark', 'light', 'theme'].some((keyword) => normalizedQuery.includes(keyword))) {
+        if (normalizedQuery && SETTINGS_THEME_ITEM_QUERY.some((keyword) => normalizedQuery.includes(keyword))) {
             const hasDark = normalizedQuery.includes('dark')
             const hasLight = normalizedQuery.includes('light')
 
             let targetTheme: UserTheme
+            let record: Record<string, unknown> | undefined
+
             if (!hasDark && !hasLight) {
-                // Toggle the current theme when the query doesn't explicitly mention dark/light
-                targetTheme = themeMode === 'dark' ? 'light' : 'dark'
+                targetTheme = isDarkModeOn ? 'light' : 'dark'
+                record = { toggleTheme: true }
             } else {
                 targetTheme = hasDark ? 'dark' : 'light'
+                record = { themeMode: targetTheme }
             }
 
             const themeItem: SearchItem = {
-                id: '__settings_theme__',
+                id: SETTINGS_THEME_ITEM_ID,
                 name: targetTheme === 'dark' ? 'Dark mode' : 'Light mode',
                 displayName: targetTheme === 'dark' ? 'Dark mode' : 'Light mode',
                 category: 'settings',
                 href: urls.settings('user-customization', 'theme'),
-                record: { themeMode: targetTheme },
-                searchKeywords: ['dark', 'light', 'theme', 'appearance', 'color scheme'],
+                record,
+                searchKeywords: SETTINGS_THEME_ITEM_QUERY,
                 icon: targetTheme === 'dark' ? <IconNight /> : <IconDay />,
             }
             const hasThemeItemAlready = items.some((item) => item.id === themeItem.id)
@@ -356,7 +365,7 @@ function SearchRoot({
         }
 
         return [...normalizedSuggestedItems, ...items]
-    }, [allItems, searchValue, showAskAiLink, suggestedItems, aiPreviewConversationId, themeMode])
+    }, [allItems, searchValue, showAskAiLink, suggestedItems, aiPreviewConversationId, isDarkModeOn])
 
     useEffect(() => {
         if (!isActive) {
@@ -433,10 +442,14 @@ function SearchRoot({
                 router.actions.push(item.href!)
                 return
             }
-            if (item.id === '__settings_theme__') {
-                const themeMode = (item.record as { themeMode?: UserTheme } | undefined)?.themeMode
-                if (themeMode) {
-                    updateUser({ theme_mode: themeMode as UserTheme })
+            if (item.id === SETTINGS_THEME_ITEM_ID) {
+                const record = item.record as { themeMode?: UserTheme; toggleTheme?: boolean } | undefined
+                if (record?.themeMode) {
+                    updateUser({ theme_mode: record.themeMode })
+                    return
+                }
+                if (record?.toggleTheme) {
+                    toggleTheme()
                     return
                 }
                 if (item.href) {
@@ -450,7 +463,7 @@ function SearchRoot({
                 router.actions.push(item.href)
             }
         },
-        [onItemSelect, onAskAiClick, updateUser]
+        [onItemSelect, onAskAiClick, updateUser, toggleTheme]
     )
 
     const groupedItems = useMemo(() => {
