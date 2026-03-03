@@ -21,15 +21,17 @@ impl DatabasePools {
     /// Default value for max_connections when config value is invalid (matches PoolConfig::default)
     const DEFAULT_MAX_CONNECTIONS: u32 = 10;
 
-    /// Helper to build a pool configuration with specific min_connections and statement_timeout
+    /// Helper to build a pool configuration, overriding specific fields from the base config.
     fn build_pool_config(
         base: &PoolConfig,
         min_connections: u32,
+        max_connections: Option<u32>,
         statement_timeout_ms: u64,
         pool_name: &str,
     ) -> PoolConfig {
         PoolConfig {
             min_connections,
+            max_connections: max_connections.unwrap_or(base.max_connections),
             statement_timeout_ms: if statement_timeout_ms > 0 {
                 Some(statement_timeout_ms)
             } else {
@@ -128,6 +130,7 @@ impl DatabasePools {
         let non_persons_reader_pool_config = Self::build_pool_config(
             &base_pool_config,
             min_non_persons_reader_connections,
+            None,
             config.non_persons_reader_statement_timeout_ms,
             "non_persons_reader",
         );
@@ -141,6 +144,7 @@ impl DatabasePools {
         let persons_reader_pool_config = Self::build_pool_config(
             &base_pool_config,
             min_persons_reader_connections,
+            None,
             config.persons_reader_statement_timeout_ms,
             "persons_reader",
         );
@@ -154,6 +158,7 @@ impl DatabasePools {
         let non_persons_writer_pool_config = Self::build_pool_config(
             &base_pool_config,
             min_non_persons_writer_connections,
+            None,
             config.writer_statement_timeout_ms,
             "non_persons_writer",
         );
@@ -162,6 +167,7 @@ impl DatabasePools {
         let persons_writer_pool_config = Self::build_pool_config(
             &base_pool_config,
             min_persons_writer_connections,
+            None,
             config.writer_statement_timeout_ms,
             "persons_writer",
         );
@@ -263,21 +269,9 @@ impl DatabasePools {
         }
 
         // Optional behavioral cohorts database pool for realtime cohort membership lookups.
-        // Built inline rather than via build_pool_config because this pool has its own
-        // max_connections (5) and min_connections (1), independent of the main pool settings.
+        // Small pool (max 5 connections) with a tight 1s statement timeout for simple key lookups.
         let behavioral_cohorts_reader = if config.is_behavioral_cohorts_db_configured() {
-            let pool_config = PoolConfig {
-                min_connections: 1,
-                max_connections: 5,
-                acquire_timeout: Duration::from_secs(config.acquire_timeout_secs),
-                idle_timeout: if config.idle_timeout_secs > 0 {
-                    Some(Duration::from_secs(config.idle_timeout_secs))
-                } else {
-                    None
-                },
-                test_before_acquire: *config.test_before_acquire,
-                statement_timeout_ms: Some(1000),
-            };
+            let pool_config = Self::build_pool_config(&base_pool_config, 1, Some(5), 1000);
             info!("Creating behavioral cohorts reader pool");
             Some(Arc::new(
                 get_pool_with_config(&config.behavioral_cohorts_read_database_url, pool_config)
