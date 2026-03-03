@@ -142,6 +142,7 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |RepoRoutingRule
                               |SandboxEnvironment
                               |SavedHeatmap
                               |ScheduledChange
@@ -153,6 +154,7 @@ rules:
                               |SignalReportArtefact
                               |SignalSourceConfig
                               |SingleSessionSummary
+                              |SlackThreadTaskMapping
                               |Subscription
                               |Survey
                               |SurveyResponseArchive
@@ -164,6 +166,7 @@ rules:
                               |Ticket
                               |UploadedMedia
                               |UserInterview
+                              |UserRepoPreference
                               |WebAnalyticsFilterPreset
                           )$
                 - focus-metavariable: $SINK
@@ -304,6 +307,7 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |RepoRoutingRule
                         |SandboxEnvironment
                         |SavedHeatmap
                         |ScheduledChange
@@ -315,6 +319,7 @@ rules:
                         |SignalReportArtefact
                         |SignalSourceConfig
                         |SingleSessionSummary
+                        |SlackThreadTaskMapping
                         |Subscription
                         |Survey
                         |SurveyResponseArchive
@@ -326,6 +331,7 @@ rules:
                         |Ticket
                         |UploadedMedia
                         |UserInterview
+                        |UserRepoPreference
                         |WebAnalyticsFilterPreset
                     )$
           # Exclude when team filter is present

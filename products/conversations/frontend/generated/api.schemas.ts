@@ -339,6 +339,8 @@ export interface TicketApi {
     readonly session_id: string | null
     readonly session_context: unknown
     /** @nullable */
+    sla_due_at?: string | null
+    /** @nullable */
     readonly slack_channel_id: string | null
     /** @nullable */
     readonly slack_thread_ts: string | null
@@ -380,6 +382,8 @@ export interface PatchedTicketApi {
     /** @nullable */
     readonly session_id?: string | null
     readonly session_context?: unknown
+    /** @nullable */
+    sla_due_at?: string | null
     /** @nullable */
     readonly slack_channel_id?: string | null
     /** @nullable */

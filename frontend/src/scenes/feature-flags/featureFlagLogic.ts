@@ -99,8 +99,6 @@ export interface DependentFlag {
     name: string
 }
 
-export type FeatureFlagEditableSection = 'advanced_options' | 'variants' | 'payload' | 'release_conditions'
-
 export const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
@@ -384,7 +382,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         addVariant: true,
         duplicateVariant: (index: number) => ({ index }),
         removeVariant: (index: number) => ({ index }),
-        editFeatureFlag: (editing: boolean) => ({ editing }),
+        editFeatureFlag: (editing: boolean, options?: { expandAdvanced?: boolean }) => ({
+            editing,
+            expandAdvanced: options?.expandAdvanced ?? false,
+        }),
         distributeVariantsEqually: true,
         generateUsageDashboard: true,
         enrichUsageDashboard: true,
@@ -417,20 +418,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
         }) => payload,
-        // V2 inline section editing actions
-        setSectionEditing: (section: FeatureFlagEditableSection | null) => ({ section }),
-        updateSectionDraft: (draft: Partial<FeatureFlagType>) => ({ draft }),
-        cancelSectionEdit: true,
-        saveSectionEdit: true,
-        updateDraftVariant: (index: number, field: 'key' | 'name' | 'rollout_percentage', value: string | number) => ({
-            index,
-            field,
-            value,
-        }),
-        updateDraftVariantPayload: (index: number, value: string | undefined) => ({ index, value }),
-        addDraftVariant: true,
-        removeDraftVariant: (index: number) => ({ index }),
-        distributeDraftVariantsEqually: true,
         saveDescriptionInline: (name: string) => ({ name }),
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
@@ -680,33 +667,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 editFeatureFlag: (_, { editing }) => editing,
             },
         ],
-        editingSection: [
-            null as FeatureFlagEditableSection | null,
+        expandAdvancedOnEdit: [
+            false,
             {
-                setSectionEditing: (_, { section }) => section,
-                cancelSectionEdit: () => null,
-                saveFeatureFlagSuccess: () => null,
-            },
-        ],
-        sectionDraft: [
-            null as Partial<FeatureFlagType> | null,
-            {
-                setSectionEditing: () => null,
-                updateSectionDraft: (state, { draft }) => {
-                    const merged = { ...state, ...draft }
-                    if (state?.filters && draft.filters) {
-                        merged.filters = {
-                            ...state.filters,
-                            ...draft.filters,
-                            multivariate: draft.filters.multivariate
-                                ? { ...state.filters?.multivariate, ...draft.filters.multivariate }
-                                : state.filters?.multivariate,
-                        }
-                    }
-                    return merged
-                },
-                cancelSectionEdit: () => null,
-                saveFeatureFlagSuccess: () => null,
+                editFeatureFlag: (_, { expandAdvanced }) => expandAdvanced,
             },
         ],
         copyDestinationProject: [
@@ -1638,134 +1602,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             } catch {
                 lemonToast.error('Failed to save description')
             }
-        },
-        saveSectionEdit: () => {
-            const draft = values.sectionDraft
-            if (!draft) {
-                actions.cancelSectionEdit()
-                return
-            }
-            const flag = values.featureFlag
-            const mergedFilters = draft.filters
-                ? {
-                      ...flag.filters,
-                      ...draft.filters,
-                      multivariate: draft.filters.multivariate
-                          ? { ...flag.filters?.multivariate, ...draft.filters.multivariate }
-                          : flag.filters?.multivariate,
-                  }
-                : flag.filters
-            const updatedFlag = { ...flag, ...draft, filters: mergedFilters }
-            actions.submitFeatureFlagWithValidation(updatedFlag)
-        },
-        updateDraftVariant: ({ index, field, value }) => {
-            const flag = values.featureFlag
-            const draft = values.sectionDraft
-            const variants = [...(draft?.filters?.multivariate?.variants ?? flag.filters?.multivariate?.variants ?? [])]
-            const payloads = { ...(draft?.filters?.payloads ?? flag.filters?.payloads) }
-
-            const coercedValue = field === 'rollout_percentage' ? Number(value) || 0 : String(value)
-            const oldKey = variants[index]?.key
-            variants[index] = { ...variants[index], [field]: coercedValue }
-
-            if (field === 'key' && oldKey && oldKey !== coercedValue) {
-                const duplicateExists = variants.some((v, i) => i !== index && v.key === coercedValue)
-                if (duplicateExists) {
-                    lemonToast.error('A variant with this key already exists')
-                    return
-                }
-                const existingPayload = payloads[oldKey]
-                if (existingPayload !== undefined) {
-                    delete payloads[oldKey]
-                    payloads[coercedValue as string] = existingPayload
-                }
-            }
-
-            actions.updateSectionDraft({
-                filters: {
-                    ...flag.filters,
-                    ...draft?.filters,
-                    multivariate: { ...flag.filters?.multivariate, ...draft?.filters?.multivariate, variants },
-                    payloads,
-                },
-            })
-        },
-        updateDraftVariantPayload: ({ index, value }) => {
-            const flag = values.featureFlag
-            const draft = values.sectionDraft
-            const variants = draft?.filters?.multivariate?.variants ?? flag.filters?.multivariate?.variants ?? []
-            const variantKey = variants[index]?.key
-            if (!variantKey) {
-                return
-            }
-            const payloads = { ...(draft?.filters?.payloads ?? flag.filters?.payloads) }
-            if (value === '' || value === undefined) {
-                delete payloads[variantKey]
-            } else {
-                payloads[variantKey] = value
-            }
-            actions.updateSectionDraft({
-                filters: { ...flag.filters, ...draft?.filters, payloads },
-            })
-        },
-        addDraftVariant: () => {
-            const flag = values.featureFlag
-            const draft = values.sectionDraft
-            const variants = [...(draft?.filters?.multivariate?.variants ?? flag.filters?.multivariate?.variants ?? [])]
-            variants.push({ key: '', name: '', rollout_percentage: 0 })
-            actions.updateSectionDraft({
-                filters: {
-                    ...flag.filters,
-                    ...draft?.filters,
-                    multivariate: { ...flag.filters?.multivariate, ...draft?.filters?.multivariate, variants },
-                },
-            })
-        },
-        removeDraftVariant: ({ index }) => {
-            const flag = values.featureFlag
-            const draft = values.sectionDraft
-            const variants = [...(draft?.filters?.multivariate?.variants ?? flag.filters?.multivariate?.variants ?? [])]
-            const removed = variants[index]
-            variants.splice(index, 1)
-
-            const payloads = { ...(draft?.filters?.payloads ?? flag.filters?.payloads) }
-            if (removed?.key) {
-                delete payloads[removed.key]
-            }
-
-            actions.updateSectionDraft({
-                filters: {
-                    ...flag.filters,
-                    ...draft?.filters,
-                    multivariate: { ...flag.filters?.multivariate, ...draft?.filters?.multivariate, variants },
-                    payloads,
-                },
-            })
-        },
-        distributeDraftVariantsEqually: () => {
-            const flag = values.featureFlag
-            const draft = values.sectionDraft
-            const variants = [...(draft?.filters?.multivariate?.variants ?? flag.filters?.multivariate?.variants ?? [])]
-            const numVariants = variants.length
-            if (numVariants > 0 && numVariants <= 100) {
-                const percentageRounded = Math.round(100 / numVariants)
-                const totalRounded = percentageRounded * numVariants
-                const delta = totalRounded - 100
-                variants.forEach((variant, i) => {
-                    variants[i] = { ...variant, rollout_percentage: percentageRounded }
-                })
-                variants[numVariants - 1] = {
-                    ...variants[numVariants - 1],
-                    rollout_percentage: percentageRounded - delta,
-                }
-            }
-            actions.updateSectionDraft({
-                filters: {
-                    ...flag.filters,
-                    ...draft?.filters,
-                    multivariate: { ...flag.filters?.multivariate, ...draft?.filters?.multivariate, variants },
-                },
-            })
         },
         editFeatureFlag: async ({ editing }) => {
             if (editing) {

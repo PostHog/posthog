@@ -16,10 +16,11 @@ from posthog.tasks.hypercache_verification import (
     verify_and_fix_flags_cache_task,
     verify_and_fix_team_metadata_cache_task,
 )
+from posthog.tasks.test.utils import PushGatewayTaskTestMixin
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
-class TestVerifyAndFixFlagsCacheTask(TestCase):
+class TestVerifyAndFixFlagsCacheTask(PushGatewayTaskTestMixin, TestCase):
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_verifies_flags_cache(self, mock_run_verification: MagicMock) -> None:
         mock_run_verification.return_value = MagicMock()
@@ -51,6 +52,17 @@ class TestVerifyAndFixFlagsCacheTask(TestCase):
 
         mock_run_verification.assert_called_once()
 
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
+    def test_pushgateway_metrics_recorded_on_success(self, mock_run_verification: MagicMock) -> None:
+        mock_run_verification.return_value = MagicMock()
+
+        verify_and_fix_flags_cache_task()
+
+        success = self.registry.get_sample_value("posthog_celery_verify_and_fix_flags_cache_task_success")
+        duration = self.registry.get_sample_value("posthog_celery_verify_and_fix_flags_cache_task_duration_seconds")
+        assert success == 1
+        assert duration is not None and duration >= 0
+
 
 @override_settings(FLAGS_REDIS_URL=None)
 class TestVerifyAndFixFlagsCacheTaskDisabled(TestCase):
@@ -62,7 +74,7 @@ class TestVerifyAndFixFlagsCacheTaskDisabled(TestCase):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
-class TestVerifyAndFixTeamMetadataCacheTask(TestCase):
+class TestVerifyAndFixTeamMetadataCacheTask(PushGatewayTaskTestMixin, TestCase):
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_verifies_team_metadata_cache(self, mock_run_verification: MagicMock) -> None:
         mock_run_verification.return_value = MagicMock()
@@ -94,6 +106,19 @@ class TestVerifyAndFixTeamMetadataCacheTask(TestCase):
 
         mock_run_verification.assert_called_once()
 
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
+    def test_pushgateway_metrics_recorded_on_success(self, mock_run_verification: MagicMock) -> None:
+        mock_run_verification.return_value = MagicMock()
+
+        verify_and_fix_team_metadata_cache_task()
+
+        success = self.registry.get_sample_value("posthog_celery_verify_and_fix_team_metadata_cache_task_success")
+        duration = self.registry.get_sample_value(
+            "posthog_celery_verify_and_fix_team_metadata_cache_task_duration_seconds"
+        )
+        assert success == 1
+        assert duration is not None and duration >= 0
+
 
 @override_settings(FLAGS_REDIS_URL=None)
 class TestVerifyAndFixTeamMetadataCacheTaskDisabled(TestCase):
@@ -104,7 +129,7 @@ class TestVerifyAndFixTeamMetadataCacheTaskDisabled(TestCase):
         mock_run_verification.assert_not_called()
 
 
-class TestVerifyAndFixFlagDefinitionsCacheTask(TestCase):
+class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCase):
     """Tests for the flag definitions cache verification task."""
 
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
@@ -128,6 +153,19 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(TestCase):
 
         mock_capture.assert_called_once_with(error)
         assert context.exception is error
+
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
+    def test_pushgateway_metrics_recorded_on_success(self, mock_run_verification: MagicMock) -> None:
+        mock_run_verification.return_value = MagicMock()
+
+        verify_and_fix_flag_definitions_cache_task()
+
+        success = self.registry.get_sample_value("posthog_celery_verify_and_fix_flag_definitions_cache_task_success")
+        duration = self.registry.get_sample_value(
+            "posthog_celery_verify_and_fix_flag_definitions_cache_task_duration_seconds"
+        )
+        assert success == 1
+        assert duration is not None and duration >= 0
 
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_skips_when_lock_already_held(self, mock_run_verification: MagicMock) -> None:

@@ -96,7 +96,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { query, title, layout, insightProps, control, showIntervalSelect, docs } = tile
 
     const { openModal } = useActions(webAnalyticsModalLogic)
-    const { getNewInsightUrl } = useValues(webAnalyticsLogic)
+    const { getNewInsightUrl } = useValues(webAnalyticsModalLogic)
 
     const buttonsRow = [
         <WebAnalyticsExport key="export-button" query={query} insightProps={insightProps} />,
@@ -168,7 +168,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
 const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
     const { layout } = tile
 
-    const { getNewInsightUrl } = useValues(webAnalyticsLogic)
+    const { getNewInsightUrl } = useValues(webAnalyticsModalLogic)
 
     return (
         <WebTabs
@@ -290,7 +290,7 @@ export const WebTabs = ({
                     })
                 }}
             >
-                Open as new Insight
+                Open as new insight
             </LemonButton>
         ) : null,
         activeTab?.canOpenModal !== false ? (
