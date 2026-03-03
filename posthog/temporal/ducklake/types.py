@@ -1,4 +1,5 @@
 import typing
+import hashlib
 import dataclasses
 
 
@@ -30,4 +31,7 @@ class DataModelingDuckLakeCopyInputs:
 
 def ducklake_copy_data_modeling_workflow_id(team_id: int, models: list[DuckLakeCopyModelInput]) -> str:
     ids = sorted(m.saved_query_id for m in models)
-    return f"ducklake-copy-data-modeling-{team_id}-{'-'.join(ids)}"
+    if len(ids) == 1:
+        return f"ducklake-copy-data-modeling-{team_id}-{ids[0]}"
+    ids_hash = hashlib.sha256("-".join(ids).encode()).hexdigest()[:16]
+    return f"ducklake-copy-data-modeling-{team_id}-{ids_hash}"
