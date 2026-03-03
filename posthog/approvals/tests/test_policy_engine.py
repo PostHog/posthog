@@ -34,6 +34,9 @@ class TestPolicyEngineBypass(APIBaseTest):
             (OrganizationMembership.Level.ADMIN, ["15"], False),
             (OrganizationMembership.Level.OWNER, ["15"], True),
             (OrganizationMembership.Level.ADMIN, [], False),
+            # integer-typed levels should also work
+            (OrganizationMembership.Level.ADMIN, [8, 15], True),
+            (OrganizationMembership.Level.MEMBER, [8, 15], False),
         ]
     )
     def test_bypass_org_membership_levels(
