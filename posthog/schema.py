@@ -2684,6 +2684,23 @@ class MaxErrorTrackingSearchResponse(BaseModel):
     status: str | None = Field(default=None, description="Issue status filter (active, resolved, etc.)")
 
 
+class EvaluationType(StrEnum):
+    HOG = "hog"
+    LLM_JUDGE = "llm_judge"
+
+
+class MaxEvaluationContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    evaluation_type: EvaluationType
+    hog_source: str | None = None
+    id: str
+    name: str | None = None
+    type: Literal["evaluation"] = "evaluation"
+
+
 class MaxEventContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -19114,6 +19131,7 @@ class MaxUIContext(BaseModel):
     actions: list[MaxActionContext] | None = None
     dashboards: list[MaxDashboardContext] | None = None
     error_tracking_issues: list[MaxErrorTrackingIssueContext] | None = None
+    evaluations: list[MaxEvaluationContext] | None = None
     events: list[MaxEventContext] | None = None
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
