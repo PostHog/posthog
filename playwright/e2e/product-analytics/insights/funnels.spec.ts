@@ -2,7 +2,7 @@ import { InsightShortId, InsightType } from '~/types'
 
 import { InsightPage } from '../../../page-models/insightPage'
 import { randomString } from '../../../utils'
-import { createEvent, daysAgo, hoursAgo } from '../../../utils/event-data'
+import { createEvent, daysAgo } from '../../../utils/event-data'
 import { PlaywrightSetupEvent } from '../../../utils/playwright-setup'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'
 
@@ -31,11 +31,23 @@ function generateFunnelEvents(): PlaywrightSetupEvent[] {
     const chrome = { $browser: 'Chrome', $session_id: 'chrome-session' }
     const firefox = { $browser: 'Firefox', $session_id: 'firefox-session' }
 
+    // Midpoint between step 1 and step 2 — immune to time-of-day drift
+    const betweenStep1And2 = (() => {
+        const d = new Date()
+        d.setDate(d.getDate() - 5)
+        d.setHours(12, 0, 0, 0)
+        return d.toISOString()
+    })()
+
     return [
         ...createEvent({ event: STEP_1, user: chromeUsers, timestamp: daysAgo(5), properties: chrome }).repeat(10),
         ...createEvent({ event: STEP_1, user: firefoxUsers, timestamp: daysAgo(5), properties: firefox }).repeat(10),
-        ...createEvent({ event: EXCLUSION_EVENT, user: 'chrome-user-0', timestamp: hoursAgo(108), properties: chrome })
-            .events,
+        ...createEvent({
+            event: EXCLUSION_EVENT,
+            user: 'chrome-user-0',
+            timestamp: betweenStep1And2,
+            properties: chrome,
+        }).events,
         ...createEvent({ event: STEP_2, user: chromeUsers, timestamp: daysAgo(4), properties: chrome }).repeat(10),
         ...createEvent({ event: STEP_3, user: chromeUsers, timestamp: daysAgo(3), properties: chrome }).repeat(5),
     ]

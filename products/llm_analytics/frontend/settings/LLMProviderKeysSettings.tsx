@@ -29,6 +29,7 @@ import {
     LLMProviderKeyState,
     LLM_PROVIDER_LABELS,
     llmProviderKeysLogic,
+    sortProviderKeys,
 } from './llmProviderKeysLogic'
 import { TrialUsageMeterDisplay } from './TrialUsageMeter'
 
@@ -656,7 +657,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                         ) : (
                             <LemonTable
                                 columns={columns}
-                                dataSource={providerKeys}
+                                dataSource={sortProviderKeys(providerKeys)}
                                 loading={providerKeysLoading}
                                 rowKey="id"
                             />

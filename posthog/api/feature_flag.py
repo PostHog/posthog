@@ -36,7 +36,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -1662,9 +1662,6 @@ class FeatureFlagViewSet(
     scope_object = "feature_flag"
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
-    authentication_classes = [
-        TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
-    ]
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         """Apply filters from request query params to queryset."""
@@ -1954,8 +1951,18 @@ class FeatureFlagViewSet(
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
 
+        # Exclude internal flags (survey targeting and product tour internal flags)
+        # These are auto-generated and not user-editable, same as the main flags list
+        survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
+            team__project_id=self.project_id, internal_targeting_flag__isnull=False
+        ).values_list("internal_targeting_flag_id", flat=True)
+
         feature_flags = list(
-            FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False).order_by("-created_at")
+            FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False)
+            .exclude(Q(id__in=survey_flag_ids))
+            .exclude(Q(id__in=product_tour_internal_targeting_flags))
+            .order_by("-created_at")
         )
 
         if not feature_flags:
@@ -2491,7 +2498,6 @@ class FeatureFlagViewSet(
         throttle_classes=[LocalEvaluationThrottle],
         required_scopes=["feature_flag:read"],
         authentication_classes=[
-            TemporaryTokenAuthentication,
             ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[ProjectSecretAPITokenPermission],
@@ -2805,7 +2811,6 @@ class FeatureFlagViewSet(
         detail=True,
         required_scopes=["feature_flag:read"],
         authentication_classes=[
-            TemporaryTokenAuthentication,
             ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[ProjectSecretAPITokenPermission],

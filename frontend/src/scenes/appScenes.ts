@@ -122,6 +122,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ToolbarLaunch]: () => import('./toolbar-launch/ToolbarLaunch'),
     [Scene.Transformations]: () => import('./data-pipelines/TransformationsScene'),
     [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
+    [Scene.VercelConnect]: () => import('./authentication/VercelConnect'),
     [Scene.VercelLinkError]: () => import('./authentication/VercelLinkError'),
     [Scene.VerifyEmail]: () => import('./authentication/signup/verify-email/VerifyEmail'),
     [Scene.WebAnalyticsMarketing]: () => import('./web-analytics/WebAnalyticsScene'),

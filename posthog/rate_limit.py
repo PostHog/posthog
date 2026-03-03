@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import hashlib
 from contextlib import suppress
@@ -395,6 +396,32 @@ class AIResearchSustainedRateThrottle(_AIThrottleBase):
     scope = "ai_research_sustained"
     rate = "10/day"
     action_name = "ai research sustained rate limited"
+
+
+def is_team_exempt_from_ai_rate_limit(team_id: int) -> bool:
+    """Check if a team is exempt from AI rate limits via the posthog-ai-rate-limit-exemptions feature flag."""
+    import posthoganalytics
+
+    from posthog.utils import get_instance_region
+
+    region = get_instance_region()
+    if not region:
+        return False
+
+    raw_payload = posthoganalytics.get_feature_flag_payload("posthog-ai-rate-limit-exemptions", "internal_rate_limits")
+    if raw_payload is None:
+        return False
+
+    try:
+        payload = json.loads(raw_payload) if isinstance(raw_payload, str) else raw_payload
+    except (json.JSONDecodeError, TypeError):
+        return False
+
+    if not isinstance(payload, dict):
+        return False
+
+    exempt_team_ids = payload.get(region, [])
+    return team_id in exempt_team_ids
 
 
 class LLMProxyBurstRateThrottle(UserRateThrottle):

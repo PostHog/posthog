@@ -55,14 +55,14 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
         setSharedMetrics,
         setExposureCriteria,
         setFeatureFlagConfig,
-        clearDraft,
+        cancelForm,
         saveExperiment,
         validateField,
     } = useActions(logic)
 
     const handleCancel = (): void => {
         if (!isEditMode) {
-            clearDraft()
+            cancelForm()
         }
         router.actions.push(urls.experiments())
     }
