@@ -15,3 +15,5 @@ concurrency:
             - key: 'dagster/web_analytics_cache_warming'
               value: 'web_analytics_cache_warming'
               limit: 1
+            - key: 'events_ducklake_backfill_concurrency'
+              limit: 3
