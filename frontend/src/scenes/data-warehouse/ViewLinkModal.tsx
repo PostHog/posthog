@@ -10,7 +10,6 @@ import {
     LemonButton,
     LemonButtonProps,
     LemonCard,
-    LemonCheckbox,
     LemonDivider,
     LemonInput,
     LemonModal,
@@ -88,8 +87,6 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
         sourceIsUsingHogQLExpression,
         joiningIsUsingHogQLExpression,
         isViewLinkSubmitting,
-        experimentsOptimized,
-        experimentsTimestampKey,
     } = useValues(viewLinkLogic)
     const {
         selectJoiningTable,
@@ -98,8 +95,6 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
         setFieldName,
         selectSourceKey,
         selectJoiningKey,
-        setExperimentsOptimized,
-        selectExperimentsTimestampKey,
     } = useActions(viewLinkLogic)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
@@ -223,37 +218,6 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
                         </div>
                     </div>
                 </div>
-                {'events' === selectedJoiningTableName && (
-                    <div className="w-full mt-2">
-                        <LemonDivider className="mt-4 mb-4" />
-                        <div className="mt-4 flex flex-row justify-between w-full">
-                            <div className="mr-4">
-                                <span className="l4">Optimize for Experiments</span>
-                                <Field name="experiments_optimized">
-                                    <LemonCheckbox
-                                        className="mt-2"
-                                        checked={experimentsOptimized}
-                                        onChange={(checked) => setExperimentsOptimized(checked)}
-                                        fullWidth
-                                        label="Limit join to most recent matching event based on&nbsp;timestamp"
-                                    />
-                                </Field>
-                            </div>
-                            <div className="w-60 shrink-0">
-                                <span className="l4">Source Timestamp Key</span>
-                                <Field name="experiments_timestamp_key">
-                                    <LemonSelect
-                                        fullWidth
-                                        onSelect={selectExperimentsTimestampKey}
-                                        value={experimentsTimestampKey ?? undefined}
-                                        options={sourceTableKeys}
-                                        placeholder="Select a key"
-                                    />
-                                </Field>
-                            </div>
-                        </div>
-                    </div>
-                )}
                 {sqlCodeSnippet && mode !== 'revenue_analytics' && (
                     <div className="w-full mt-2">
                         <LemonDivider className="mt-4 mb-4" />
@@ -332,8 +296,6 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
         sourceIsUsingHogQLExpression,
         joiningIsUsingHogQLExpression,
         isViewLinkSubmitting,
-        experimentsOptimized,
-        experimentsTimestampKey,
         selectedSourceTable,
         selectedJoiningTable,
         sourceTablePreviewData,
@@ -345,16 +307,8 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
         validationError,
         validationWarning,
     } = useValues(viewLinkLogic)
-    const {
-        selectJoiningTable,
-        selectSourceTable,
-        setFieldName,
-        selectSourceKey,
-        selectJoiningKey,
-        setExperimentsOptimized,
-        selectExperimentsTimestampKey,
-        validateJoin,
-    } = useActions(viewLinkLogic)
+    const { selectJoiningTable, selectSourceTable, setFieldName, selectSourceKey, selectJoiningKey, validateJoin } =
+        useActions(viewLinkLogic)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     return (
@@ -521,37 +475,6 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                 </LemonCard>
             </div>
             <div className="w-full mt-4">
-                {'events' === selectedJoiningTableName && (
-                    <div className="w-full mt-2">
-                        <LemonDivider className="mt-4 mb-4" />
-                        <div className="mt-4 flex flex-row justify-between w-full">
-                            <div className="mr-4">
-                                <span className="l4">Optimize for Experiments</span>
-                                <Field name="experiments_optimized">
-                                    <LemonCheckbox
-                                        className="mt-2"
-                                        checked={experimentsOptimized}
-                                        onChange={(checked) => setExperimentsOptimized(checked)}
-                                        fullWidth
-                                        label="Limit join to most recent matching event based on&nbsp;timestamp"
-                                    />
-                                </Field>
-                            </div>
-                            <div className="w-60 shrink-0">
-                                <span className="l4">Source Timestamp Key</span>
-                                <Field name="experiments_timestamp_key">
-                                    <LemonSelect
-                                        fullWidth
-                                        onSelect={selectExperimentsTimestampKey}
-                                        value={experimentsTimestampKey ?? undefined}
-                                        options={sourceTableKeys}
-                                        placeholder="Select a key"
-                                    />
-                                </Field>
-                            </div>
-                        </div>
-                    </div>
-                )}
                 {sqlCodeSnippet && mode !== 'revenue_analytics' && (
                     <div className="w-full mt-2">
                         <LemonDivider className="mt-4 mb-4" />

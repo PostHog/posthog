@@ -35,14 +35,14 @@ class TestMergeDangerously(AcceptanceTest):
 
         # Verify both persons exist
         person_a = self.client.query_person_by_distinct_id(distinct_id_a)
-        assert person_a is not None, "Person A not found"
+        assert person_a is not None, "Person A not found within time budget"
         person_b = self.client.query_person_by_distinct_id(distinct_id_b)
-        assert person_b is not None, "Person B not found"
+        assert person_b is not None, "Person B not found within time budget"
 
         # Merge Person B into Person A
         merge_event_uuid = self.client.merge_dangerously(distinct_id_a, distinct_id_b)
         found_merge = self.client.query_event_by_uuid(merge_event_uuid)
-        assert found_merge is not None, "Merge event not found"
+        assert found_merge is not None, "Merge event not found within time budget"
 
         # Wait for merge to propagate - Person A should have updated timestamp
         # We need to set a new timestamp on Person A to detect when merge completes
@@ -51,11 +51,11 @@ class TestMergeDangerously(AcceptanceTest):
             "$test_post_merge", distinct_id_a, {"$set": {"$test_timestamp": post_merge_timestamp}}
         )
         found_post_merge = self.client.query_event_by_uuid(post_merge_event_uuid)
-        assert found_post_merge is not None, "Post-merge event not found"
+        assert found_post_merge is not None, "Post-merge event not found within time budget"
 
         # Query Person A with the post-merge timestamp to ensure merge has propagated
         merged_person = self.client.query_person_by_distinct_id(distinct_id_a, min_timestamp=post_merge_timestamp)
-        assert merged_person is not None, "Merged person not found"
+        assert merged_person is not None, "Person not updated after merge within time budget"
 
         # After merge, Person A should have Person B's extra_prop (properties merge)
         # Note: Person A's name takes precedence over Person B's name
@@ -63,11 +63,6 @@ class TestMergeDangerously(AcceptanceTest):
         assert merged_person.properties.get("extra_prop") == "from_b", "Person B's extra_prop should be merged"
 
         # Query all events for the merged person - should have events from both A and B
-        # Expected: event_a, event_b, merge_event, post_merge_event = 4 events
-        events = self.client.query_events_by_person_id(merged_person.id, expected_count=4)
-        assert events is not None, "Expected 4 events for merged person"
-
-        # Verify both original event UUIDs are present
-        event_uuids = {e.uuid for e in events}
-        assert event_uuid_a in event_uuids, "Person A's event not found after merge"
-        assert event_uuid_b in event_uuids, "Person B's event not found after merge"
+        expected_uuids = {event_uuid_a, event_uuid_b, merge_event_uuid, post_merge_event_uuid}
+        events = self.client.query_events_by_person_id(merged_person.id, expected_event_uuids=expected_uuids)
+        assert events is not None, "Expected events not found for merged person after merge within time budget"

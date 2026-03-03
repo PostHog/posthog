@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { OAUTH_LOCALSTORAGE_KEY } from '~/toolbar/utils'
+import { OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
     Promise.resolve({
@@ -146,31 +146,6 @@ describe('toolbar toolbarConfigLogic', () => {
         })
     })
 
-    describe('temporaryToken migration', () => {
-        it('logs out when launched with temporaryToken but no accessToken', () => {
-            const logic = toolbarConfigLogic.build({
-                apiURL: 'http://localhost',
-                temporaryToken: 'old-temp-token',
-            } as any)
-            logic.mount()
-
-            expectLogic(logic).toMatchValues({ isAuthenticated: false, accessToken: null })
-        })
-
-        it('does not log out when accessToken is present alongside temporaryToken', () => {
-            const logic = toolbarConfigLogic.build({
-                apiURL: 'http://localhost',
-                temporaryToken: 'old-temp-token',
-                accessToken: 'pha_oauth',
-                refreshToken: 'phr_refresh',
-                clientId: 'client-id',
-            } as any)
-            logic.mount()
-
-            expectLogic(logic).toMatchValues({ isAuthenticated: true, accessToken: 'pha_oauth' })
-        })
-    })
-
     describe('token refresh on 401', () => {
         it('retries request with new token after successful refresh', async () => {
             const logic = toolbarConfigLogic.build({
@@ -256,6 +231,43 @@ describe('toolbar toolbarConfigLogic', () => {
             // Only one fetch call (no refresh)
             expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
             expect(logic.values.accessToken).toBe('access-token')
+        })
+    })
+
+    describe('authorization code extraction and hash cleanup', () => {
+        let replaceStateSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            replaceStateSpy = jest.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+            sessionStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({ verifier: 'test-verifier', ts: Date.now() }))
+        })
+
+        afterEach(() => {
+            replaceStateSpy.mockRestore()
+            sessionStorage.clear()
+            window.history.pushState({}, '', '/')
+        })
+
+        it.each([
+            ['toolbar-only hash is fully removed', '#__posthog_toolbar=code:abc,client_id:xyz', '/'],
+            [
+                'preserves original fragment before toolbar param',
+                '#section1&__posthog_toolbar=code:abc,client_id:xyz',
+                '/#section1',
+            ],
+            [
+                'preserves multi-part original fragment',
+                '#/dashboard&tab=1&__posthog_toolbar=code:abc,client_id:xyz',
+                '/#/dashboard&tab=1',
+            ],
+            ['handles percent-encoded delimiters', '#__posthog_toolbar=code%3Aabc%2Cclient_id%3Axyz', '/'],
+        ])('%s', (_label, hash, expectedUrl) => {
+            window.history.pushState({}, '', `/${hash}`)
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', expectedUrl)
         })
     })
 })
