@@ -46,19 +46,6 @@ class QueryPercentileThresholds:
     min_threshold_ms: int = 0  # Threshold for the minimum percentile (milliseconds)
     max_threshold_ms: int = 0  # Threshold for the maximum percentile (milliseconds)
 
-    # Backward compatibility fields for old field names
-    min_threshold_seconds: Optional[float] = dataclasses.field(default=None)
-    max_threshold_seconds: Optional[float] = dataclasses.field(default=None)
-
-    def __post_init__(self):
-        """Handle backward compatibility for old field names from Temporal deserialization."""
-        # If we have the old field names, convert them to the new format
-        if self.min_threshold_seconds is not None and self.min_threshold_ms == 0:
-            self.min_threshold_ms = int(self.min_threshold_seconds * 1000)
-
-        if self.max_threshold_seconds is not None and self.max_threshold_ms == 0:
-            self.max_threshold_ms = int(self.max_threshold_seconds * 1000)
-
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary for cache storage."""
         return {
