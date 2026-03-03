@@ -1389,6 +1389,13 @@ async def _process_signal_batch(
                 report_ctx = report_contexts.get(match_result.report_id)
                 report_title = report_ctx.title if report_ctx else ""
 
+                group_signals_result: FetchSignalsForReportOutput = await workflow.execute_activity(
+                    fetch_signals_for_report_activity,
+                    FetchSignalsForReportInput(team_id=team_id, report_id=match_result.report_id),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+
                 specificity_result: VerifyMatchSpecificityOutput = await workflow.execute_activity(
                     verify_match_specificity_activity,
                     VerifyMatchSpecificityInput(
@@ -1398,6 +1405,7 @@ async def _process_signal_batch(
                         new_signal_description=signal.description,
                         new_signal_source_product=signal.source_product,
                         new_signal_source_type=signal.source_type,
+                        group_signals=group_signals_result.signals,
                     ),
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=3),
