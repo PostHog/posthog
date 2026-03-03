@@ -6,7 +6,7 @@ from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportMo
 
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import (
     WorkflowsInsertInputs,
-    insert_into_kafka_activity_from_stage,
+    insert_into_workflows_activity_from_stage,
     workflows_default_fields,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
@@ -14,7 +14,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.tests.temporal.destinations.workflows.utils import (
-    assert_clickhouse_records_in_kafka,
+    assert_clickhouse_records_were_handled,
 )
 
 pytestmark = [
@@ -25,7 +25,9 @@ pytestmark = [
 
 async def _run_activity(
     activity_environment,
-    topic: str,
+    server,
+    handler,
+    hog_function_id,
     clickhouse_client,
     team,
     data_interval_start,
@@ -55,7 +57,10 @@ async def _run_activity(
     )
     workflows_inputs = WorkflowsInsertInputs(
         batch_export=batch_export_inputs,
-        topic=topic,
+        host=server.host,
+        port=server.port,
+        hog_function_id=hog_function_id,
+        scheme=server.scheme,
     )
 
     assert workflows_inputs.batch_export.batch_export_id is not None
@@ -77,11 +82,12 @@ async def _run_activity(
             destination_default_fields=workflows_default_fields(batch_export_id),
         ),
     )
-    result = await activity_environment.run(insert_into_kafka_activity_from_stage, workflows_inputs)
+    result = await activity_environment.run(insert_into_workflows_activity_from_stage, workflows_inputs)
 
-    await assert_clickhouse_records_in_kafka(
+    await assert_clickhouse_records_were_handled(
         clickhouse_client=clickhouse_client,
-        topic=topic,
+        handler=handler,
+        hog_function_id=hog_function_id,
         date_ranges=[(data_interval_start, data_interval_end)],
         team_id=team.pk,
         batch_export_model=batch_export_model or batch_export_schema,
@@ -95,7 +101,7 @@ async def _run_activity(
 
 
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-async def test_insert_into_kafka_activity_from_stage_produces_data_into_topic(
+async def test_insert_into_workflows_activity_from_stage_posts_data_to_server(
     clickhouse_client,
     activity_environment,
     exclude_events,
@@ -103,17 +109,20 @@ async def test_insert_into_kafka_activity_from_stage_produces_data_into_topic(
     data_interval_end,
     generate_test_data,
     ateam,
-    hosts,
-    topic,
-    security_protocol,
+    server,
+    path,
+    handler,
+    hog_function_id,
 ):
     model = BatchExportModel(name="events", schema=None)
 
     await _run_activity(
         activity_environment,
+        server=server,
+        handler=handler,
+        hog_function_id=hog_function_id,
         clickhouse_client=clickhouse_client,
         team=ateam,
-        topic=topic,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,

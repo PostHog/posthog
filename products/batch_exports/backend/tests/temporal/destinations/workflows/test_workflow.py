@@ -16,11 +16,11 @@ from products.batch_exports.backend.temporal.batch_exports import finish_batch_e
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import (
     WorkflowsBatchExportInputs,
     WorkflowsBatchExportWorkflow,
-    insert_into_kafka_activity_from_stage,
+    insert_into_workflows_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 from products.batch_exports.backend.tests.temporal.destinations.workflows.utils import (
-    assert_clickhouse_records_in_kafka,
+    assert_clickhouse_records_were_handled,
 )
 
 pytestmark = [
@@ -30,10 +30,15 @@ pytestmark = [
 
 
 @pytest.fixture
-async def workflows_batch_export(ateam, interval, exclude_events, temporal_client, topic, security_protocol, hosts):
+async def workflows_batch_export(ateam, interval, exclude_events, temporal_client, hog_function_id, server):
     destination_data = {
         "type": "Workflows",
-        "config": {"topic": topic},
+        "config": {
+            "host": server.host,
+            "port": server.port,
+            "hog_function_id": hog_function_id,
+            "scheme": server.scheme,
+        },
     }
     batch_export_data = {
         "name": "my-production-workflows-export",
@@ -64,14 +69,15 @@ async def test_workflows_export_workflow(
     generate_test_data,
     data_interval_start,
     data_interval_end,
-    hosts,
-    topic,
-    security_protocol,
+    server,
+    path,
+    handler,
+    hog_function_id,
 ):
     """Test Workflows Export Workflow end-to-end.
 
-    The workflow should update the batch export run status to completed and produce the expected
-    records to the Kafka topic.
+    The workflow should update the batch export run status to completed and post the expected
+    records to a test server.
     """
     model = BatchExportModel(name="events", schema=None)
 
@@ -93,7 +99,7 @@ async def test_workflows_export_workflow(
             activities=[
                 start_batch_export_run,
                 insert_into_internal_stage_activity,
-                insert_into_kafka_activity_from_stage,
+                insert_into_workflows_activity_from_stage,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
@@ -116,9 +122,10 @@ async def test_workflows_export_workflow(
     assert run.status == "Completed"
     assert run.records_completed == len(events_to_export_created)
 
-    await assert_clickhouse_records_in_kafka(
+    await assert_clickhouse_records_were_handled(
         clickhouse_client=clickhouse_client,
-        topic=topic,
+        handler=handler,
+        hog_function_id=hog_function_id,
         date_ranges=[(data_interval_start, data_interval_end)],
         team_id=ateam.pk,
         batch_export_model=model,

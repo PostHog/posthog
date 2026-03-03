@@ -1,19 +1,18 @@
-import ssl
 import json
+import typing
 import datetime as dt
 import dataclasses
-import collections.abc
+import urllib.parse
 
 from django.conf import settings
 
-import aiokafka
+import aiohttp
 import temporalio.activity
 import temporalio.workflow
 from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, WorkflowsBatchExportInputs
-from posthog.kafka_client.topics import KAFKA_CDP_BACKFILL_EVENTS
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -36,6 +35,7 @@ LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 NON_RETRYABLE_ERROR_TYPES: list[str] = []
+HOG_FUNCTION_API_PATH = "/api/projects/{team_id}/hog_functions/{hog_function_id}/batch_export_invocations"
 
 
 def workflows_default_fields(batch_export_id: str) -> list[BatchExportField]:
@@ -67,50 +67,38 @@ def workflows_default_fields(batch_export_id: str) -> list[BatchExportField]:
     ]
 
 
-def configure_default_ssl_context():
-    """Setup a default SSL context for Kafka."""
-    context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_OPTIONAL
-    context.load_default_certs()
-    return context
-
-
 class WorkflowsConsumer(Consumer):
     def __init__(
         self,
-        topic: str,
-        hosts: collections.abc.Sequence[str],
-        security_protocol: str = "PLAINTEXT",
+        host: str,
+        port: int,
+        hog_function_id: str,
+        team_id: int,
+        session: aiohttp.ClientSession,
+        scheme: typing.Literal["http", "https"] = "https",
         model: str = "events",
     ):
         super().__init__(model=model)
-        self.producer = aiokafka.AIOKafkaProducer(
-            bootstrap_servers=hosts,
-            security_protocol=security_protocol,
-            api_version="2.5.0",
-            acks="all",
-            enable_idempotence=True,
-            compression_type="zstd",
-            ssl_context=configure_default_ssl_context() if security_protocol == "SSL" else None,
-        )
-        self.topic = topic
-        self._started = False
+
+        path = HOG_FUNCTION_API_PATH.format(team_id=team_id, hog_function_id=hog_function_id)
+        self.url = urllib.parse.urlunsplit((scheme, f"{host}:{port}", path, "", ""))
+        self.session = session
 
     async def consume_chunk(self, data: bytes):
-        if not self._started:
-            await self.producer.start()
-            self._started = True
-
-        await self.producer.send_and_wait(topic=self.topic, value=data)
+        await self.session.post(
+            self.url,
+            # Data is already JSON encoded, so we can't use json=data.
+            data=b'{"clickhouse_event":' + data + b"}",
+            headers={"Content-Type": "application/json"},
+        )
 
     async def finalize_file(self):
         """Required by consumer interface."""
         pass
 
     async def finalize(self):
-        await self.producer.flush()
-        await self.producer.stop()
+        """Required by consumer interface."""
+        pass
 
 
 @dataclasses.dataclass
@@ -118,12 +106,15 @@ class WorkflowsInsertInputs:
     """Inputs for Workflows."""
 
     batch_export: BatchExportInsertInputs
-    topic: str
+    host: str
+    port: int
+    hog_function_id: str
+    scheme: typing.Literal["http", "https"] = "https"
 
 
 @temporalio.activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
-async def insert_into_kafka_activity_from_stage(inputs: WorkflowsInsertInputs) -> BatchExportResult:
+async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInputs) -> BatchExportResult:
     bind_contextvars(
         team_id=inputs.batch_export.team_id,
         destination="Workflows",
@@ -132,14 +123,13 @@ async def insert_into_kafka_activity_from_stage(inputs: WorkflowsInsertInputs) -
     )
     external_logger = EXTERNAL_LOGGER.bind()
     external_logger.info(
-        "Batch exporting range %s - %s to Workflows in topic: '%s'",
+        "Batch exporting range %s - %s to Workflows API",
         inputs.batch_export.data_interval_start or "START",
         inputs.batch_export.data_interval_end or "END",
-        inputs.topic,
     )
 
     async with Heartbeater():
-        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_KAFKA_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_WORKFLOWS_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
         assert inputs.batch_export.batch_export_id is not None
         producer_task = await producer.start(
@@ -161,18 +151,27 @@ async def insert_into_kafka_activity_from_stage(inputs: WorkflowsInsertInputs) -
             return BatchExportResult(records_completed=0, bytes_exported=0)
 
         transformer = JSONLStreamTransformer(max_workers=1)
-        consumer = WorkflowsConsumer(
-            topic=inputs.topic or KAFKA_CDP_BACKFILL_EVENTS,
-            hosts=settings.KAFKA_HOSTS,
-            security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
-            model=inputs.batch_export.batch_export_model.name if inputs.batch_export.batch_export_model else "events",
-        )
-        result = await run_consumer_from_stage(
-            queue=queue,
-            consumer=consumer,
-            producer_task=producer_task,
-            transformer=transformer,
-        )
+
+        async with aiohttp.ClientSession() as session:
+            consumer = WorkflowsConsumer(
+                inputs.host,
+                inputs.port,
+                hog_function_id=inputs.hog_function_id,
+                team_id=inputs.batch_export.team_id,
+                session=session,
+                scheme=inputs.scheme,
+                model=inputs.batch_export.batch_export_model.name
+                if inputs.batch_export.batch_export_model
+                else "events",
+            )
+
+            # TODO: Use multiple consumers
+            result = await run_consumer_from_stage(
+                queue=queue,
+                consumer=consumer,
+                producer_task=producer_task,
+                transformer=transformer,
+            )
 
         return result
 
@@ -187,7 +186,7 @@ class WorkflowsBatchExportWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: WorkflowsBatchExportInputs):
-        """Workflow implementation to export data to BigQuery."""
+        """Workflow implementation to export data to Workflows API."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
@@ -235,11 +234,14 @@ class WorkflowsBatchExportWorkflow(PostHogWorkflow):
 
         insert_inputs = WorkflowsInsertInputs(
             batch_export=batch_export_inputs,
-            topic=inputs.topic,
+            host=inputs.host,
+            port=inputs.port,
+            hog_function_id=inputs.hog_function_id,
+            scheme=inputs.scheme,
         )
 
         await execute_batch_export_using_internal_stage(
-            insert_into_kafka_activity_from_stage,
+            insert_into_workflows_activity_from_stage,
             insert_inputs,  # type: ignore[arg-type]
             interval=inputs.interval,
             is_workflows=True,
