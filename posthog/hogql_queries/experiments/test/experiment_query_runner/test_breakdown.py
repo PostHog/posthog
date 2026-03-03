@@ -2461,10 +2461,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
                 EventsNode(event="$pageview"),
                 EventsNode(event="purchase"),
             ],
-            funnelWindowInterval=14,
-            funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
-            funnelOrderType=StepOrderValue.ORDERED,
-            startHandling=StartHandling.INCLUDE_FIRST_TIME_REPEAT,
+            conversion_window=14,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            funnel_order_type=StepOrderValue.ORDERED,
             breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="country", type="person")]),
         )
 
@@ -2721,8 +2720,12 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         metric = ExperimentRetentionMetric(
-            start_event=EventsNode(event="$pageview"),
-            return_event=EventsNode(event="$pageview"),
+            start_event=EventsNode(event="signup"),
+            completion_event=EventsNode(event="login"),
+            retention_window_start=1,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
             breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="country", type="person")]),
         )
 

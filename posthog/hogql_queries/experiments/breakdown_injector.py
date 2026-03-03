@@ -5,7 +5,7 @@ Handles injecting breakdown columns into various metric type queries (funnel, me
 Breakdown columns are used to segment experiment results by property values.
 """
 
-from typing import Union
+from typing import Union, cast
 
 from posthog.schema import (
     Breakdown,
@@ -14,6 +14,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
+    MultipleBreakdownType,
 )
 
 from posthog.hogql import ast
@@ -67,12 +68,15 @@ class BreakdownInjector:
         result = []
         for i, breakdown in enumerate(self.breakdowns):
             # Default to event type for backward compatibility
-            breakdown_type = breakdown.type if breakdown.type else "event"
+            breakdown_type = breakdown.type or cast(MultipleBreakdownType, "event")
+
+            # Convert property to string (it can be str | int in schema)
+            breakdown_field = str(breakdown.property)
 
             # Get the correct property chain based on type
             properties_chain = get_properties_chain(
                 breakdown_type=breakdown_type,
-                breakdown_field=breakdown.property,
+                breakdown_field=breakdown_field,
                 group_type_index=breakdown.group_type_index,
             )
 
