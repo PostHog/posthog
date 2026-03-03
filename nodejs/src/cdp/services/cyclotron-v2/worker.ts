@@ -216,11 +216,16 @@ export class CyclotronV2Worker {
         return this.isConsuming && Date.now() - this.lastPollTime.getTime() < this.heartbeatTimeoutMs
     }
 
-    async disconnect(): Promise<void> {
+    async stopConsuming(): Promise<void> {
         this.isConsuming = false
         if (this.consumerLoopPromise) {
             await this.consumerLoopPromise
+            this.consumerLoopPromise = null
         }
+    }
+
+    async disconnect(): Promise<void> {
+        await this.stopConsuming()
         await this.pool.end()
     }
 }
