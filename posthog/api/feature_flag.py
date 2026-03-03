@@ -1220,6 +1220,13 @@ class FeatureFlagSerializer(
             if instance.experiment_set.filter(deleted=True).exists():
                 validated_data["key"] = f"{instance.key}:deleted:{instance.id}"
 
+        if "deleted" in validated_data and validated_data["deleted"] is False:
+            # Restoring a soft-deleted flag — if the key was renamed during
+            # soft-delete, restore the original key.
+            deleted_suffix = f":deleted:{instance.id}"
+            if instance.key.endswith(deleted_suffix):
+                validated_data["key"] = instance.key[: -len(deleted_suffix)]
+
         # Check for dependency conflicts when disabling a flag
         if "active" in validated_data and validated_data["active"] is False and instance.active is True:
             # Check for other flags that depend on this flag
@@ -1266,8 +1273,10 @@ class FeatureFlagSerializer(
         version = request.data.get("version", -1)
 
         with transaction.atomic():
-            # select_for_update locks the database row so we ensure version updates are atomic
-            locked_instance = FeatureFlag.objects.select_for_update().get(pk=instance.pk)
+            # select_for_update locks the database row so we ensure version updates are atomic.
+            # Uses objects_including_soft_deleted so that restoring a soft-deleted flag
+            # (setting deleted=False) can acquire the lock.
+            locked_instance = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=instance.pk)
             locked_version = locked_instance.version or 0
 
             # NOW check for conflicts after all transformations
