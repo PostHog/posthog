@@ -1,6 +1,6 @@
 from typing import cast
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from rest_framework import serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -56,22 +56,20 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @llma_track_latency("llma_clustering_job_create")
     @monitor(feature=None, endpoint="llma_clustering_job_create", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
-        with transaction.atomic():
-            existing_count = ClusteringJob.objects.filter(team_id=self.team_id).select_for_update().count()
-            if existing_count >= MAX_JOBS_PER_TEAM:
-                return Response(
-                    {"detail": f"Maximum of {MAX_JOBS_PER_TEAM} clustering jobs per team."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            name = request.data.get("name", "")
-            if name and ClusteringJob.objects.filter(team_id=self.team_id, name=name).exists():
-                return Response(
-                    {"detail": "A clustering job with this name already exists."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            return super().create(request, *args, **kwargs)
+        try:
+            with transaction.atomic():
+                existing_count = ClusteringJob.objects.filter(team_id=self.team_id).select_for_update().count()
+                if existing_count >= MAX_JOBS_PER_TEAM:
+                    return Response(
+                        {"detail": f"Maximum of {MAX_JOBS_PER_TEAM} clustering jobs per team."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                return super().create(request, *args, **kwargs)
+        except IntegrityError:
+            return Response(
+                {"detail": "A clustering job with this name already exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     def perform_create(self, serializer):
         instance = serializer.save(team_id=self.team_id)
@@ -104,15 +102,13 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @llma_track_latency("llma_clustering_job_update")
     @monitor(feature=None, endpoint="llma_clustering_job_update", method="PATCH")
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
-        if "name" in request.data:
-            name = request.data["name"]
-            instance = self.get_object()
-            if name and ClusteringJob.objects.filter(team_id=self.team_id, name=name).exclude(id=instance.id).exists():
-                return Response(
-                    {"detail": "A clustering job with this name already exists."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-        return super().partial_update(request, *args, **kwargs)
+        try:
+            return super().partial_update(request, *args, **kwargs)
+        except IntegrityError:
+            return Response(
+                {"detail": "A clustering job with this name already exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     def perform_update(self, serializer):
         instance = serializer.save()

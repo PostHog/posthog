@@ -32,6 +32,7 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
 from posthog.temporal.llm_analytics.trace_clustering.models import AnalysisLevel, ClusteringWorkflowInputs
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
+from products.llm_analytics.backend.models.clustering_job import ClusteringJob
 
 logger = structlog.get_logger(__name__)
 
@@ -198,10 +199,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
 
         # Override with clustering job config if provided
         clustering_job_id = serializer.validated_data.get("clustering_job_id")
-        analysis_level: AnalysisLevel = "trace"
         if clustering_job_id:
-            from products.llm_analytics.backend.models.clustering_job import ClusteringJob
-
             try:
                 job = ClusteringJob.objects.get(id=clustering_job_id, team_id=self.team_id)
             except ClusteringJob.DoesNotExist:
@@ -211,6 +209,8 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
                 )
             event_filters = job.event_filters
             analysis_level = cast(AnalysisLevel, job.analysis_level)
+        else:
+            analysis_level = ClusteringWorkflowInputs.analysis_level
 
         # Build method-specific params dict
         clustering_method_params: dict = {}
