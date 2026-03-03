@@ -79,7 +79,9 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 loadEvaluationsSuccess: (_, { evaluations }) => evaluations,
                 createEvaluationSuccess: (state, { evaluation }) => [...state, evaluation],
                 updateEvaluationSuccess: (state, { id, evaluation }) =>
-                    state.map((e: EvaluationConfig) => (e.id === id ? { ...e, ...evaluation } : e)),
+                    state.map((e: EvaluationConfig) =>
+                        e.id === id ? ({ ...e, ...evaluation } as EvaluationConfig) : e
+                    ),
                 deleteEvaluationSuccess: (state, { id }) => state.filter((e: EvaluationConfig) => e.id !== id),
                 duplicateEvaluationSuccess: (state, { evaluation }) => [...state, evaluation],
                 toggleEvaluationEnabledSuccess: (state, { id }) =>
@@ -228,7 +230,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     (e: EvaluationConfig) =>
                         e.name.toLowerCase().includes(filter.toLowerCase()) ||
                         e.description?.toLowerCase().includes(filter.toLowerCase()) ||
-                        e.evaluation_config.prompt.toLowerCase().includes(filter.toLowerCase())
+                        ('prompt' in e.evaluation_config &&
+                            e.evaluation_config.prompt.toLowerCase().includes(filter.toLowerCase())) ||
+                        ('source' in e.evaluation_config &&
+                            e.evaluation_config.source.toLowerCase().includes(filter.toLowerCase()))
                 )
             },
         ],

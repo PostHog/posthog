@@ -751,6 +751,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyArchived: (survey: Survey) => ({ survey }),
         reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
+        reportSurveyConsolidatedResultsQuery: (
+            survey: Survey,
+            totalDurationMs: number,
+            queryDurations: { aggregate: number; openEnded: number }
+        ) => ({ survey, totalDurationMs, queryDurations }),
         reportProductTourViewed: (tour: ProductTour) => ({ tour }),
         reportProductTourCreated: (tour: ProductTour, creationSource?: 'app' | 'toolbar') => ({
             tour,
@@ -1832,6 +1837,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 id: survey.id,
                 start_date: survey.start_date,
                 end_date: survey.end_date,
+            })
+        },
+        reportSurveyConsolidatedResultsQuery: ({ survey, totalDurationMs, queryDurations }) => {
+            posthog.capture('survey consolidated results query completed', {
+                name: survey.name,
+                id: survey.id,
+                duration: totalDurationMs,
+                aggregate_duration: queryDurations.aggregate,
+                open_ended_duration: queryDurations.openEnded,
             })
         },
         reportProductTourViewed: ({ tour }) => {

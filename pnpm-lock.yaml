@@ -1789,6 +1789,9 @@ importers:
       '@tiptap/core':
         specifier: '*'
         version: 3.19.0(@tiptap/pm@3.19.0)
+      '@tiptap/extension-code-block-lowlight':
+        specifier: '*'
+        version: 3.19.0(@tiptap/core@3.19.0(@tiptap/pm@3.19.0))(@tiptap/extension-code-block@3.19.0(@tiptap/core@3.19.0(@tiptap/pm@3.19.0))(@tiptap/pm@3.19.0))(@tiptap/pm@3.19.0)(highlight.js@11.11.1)(lowlight@3.3.0)
       '@tiptap/extension-document':
         specifier: '*'
         version: 3.19.0(@tiptap/core@3.19.0(@tiptap/pm@3.19.0))
@@ -1831,6 +1834,9 @@ importers:
       kea-subscriptions:
         specifier: 'catalog:'
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+      lowlight:
+        specifier: '*'
+        version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
         version: 1.357.0
