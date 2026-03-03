@@ -54,7 +54,6 @@ import {
     SubagentUpdateEvent,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
-import { SidePanelTab } from '~/types'
 import {
     Conversation,
     ConversationDetail,
@@ -62,6 +61,7 @@ import {
     ConversationStatus,
     ConversationType,
     PendingApproval,
+    SidePanelTab,
 } from '~/types'
 
 import { MODE_DEFINITIONS, ToolRegistration } from './max-constants'
@@ -335,6 +335,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             {
                 loadQueueDataSuccess: (_, { queueData }) => queueData.limit,
                 setQueueLimit: (_, { limit }) => limit,
+            },
+        ],
+
+        queueSubmitting: [
+            false,
+            {
+                enqueueQueuedMessage: () => true,
+                setQueuedMessages: () => false,
             },
         ],
 
@@ -765,6 +773,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
+                actions.setQueuedMessages(values.queuedMessages)
                 if (error instanceof ApiError && error.status === 409) {
                     lemonToast.error('You can only queue two messages at a time.')
                     return

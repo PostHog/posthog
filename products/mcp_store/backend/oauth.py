@@ -1,3 +1,4 @@
+import time
 import base64
 import hashlib
 import secrets
@@ -6,7 +7,10 @@ from urllib.parse import urlparse
 import requests
 import structlog
 
+from posthog.models.integration import OauthIntegration
 from posthog.security.url_validation import is_url_allowed
+
+from .models import MCPServerInstallation
 
 logger = structlog.get_logger(__name__)
 
@@ -111,6 +115,17 @@ def generate_pkce() -> tuple[str, str]:
     return code_verifier, code_challenge
 
 
+def is_token_expiring(sensitive: dict) -> bool:
+    try:
+        retrieved_at = float((sensitive or {}).get("token_retrieved_at", 0))
+        expires_in = float((sensitive or {}).get("expires_in", 0))
+    except (TypeError, ValueError):
+        return False
+    if not retrieved_at or not expires_in:
+        return False
+    return time.time() > retrieved_at + (expires_in / 2)
+
+
 class TokenRefreshError(Exception):
     pass
 
@@ -144,3 +159,54 @@ def refresh_oauth_token(
         raise TokenRefreshError("Token refresh response missing access_token")
 
     return token_data
+
+
+def refresh_installation_token(installation: MCPServerInstallation) -> dict:
+    sensitive = installation.sensitive_configuration or {}
+    refresh_token_value = sensitive.get("refresh_token")
+    if not refresh_token_value:
+        raise TokenRefreshError("No refresh token available")
+
+    server = installation.server
+    kind = server.oauth_provider_kind if server else ""
+    token_url = ""
+    client_id = ""
+    client_secret: str | None = None
+
+    if kind:
+        try:
+            oauth_config = OauthIntegration.oauth_config_for_kind(kind)
+            token_url = oauth_config.token_url
+            client_id = oauth_config.client_id
+            client_secret = oauth_config.client_secret
+        except NotImplementedError:
+            kind = ""
+
+    if not kind:
+        metadata = server.oauth_metadata if server else {}
+        token_url = metadata.get("token_endpoint", "")
+        client_id = server.oauth_client_id if server else ""
+        if not token_url or not client_id:
+            raise TokenRefreshError("Missing OAuth metadata for token refresh")
+
+    token_data = refresh_oauth_token(
+        token_url=token_url,
+        refresh_token=refresh_token_value,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    updated: dict = {
+        "access_token": token_data["access_token"],
+        "token_retrieved_at": int(time.time()),
+        "refresh_token": token_data.get("refresh_token", refresh_token_value),
+    }
+    if "expires_in" in token_data:
+        updated["expires_in"] = token_data["expires_in"]
+    elif "expires_in" in sensitive:
+        updated["expires_in"] = sensitive["expires_in"]
+
+    installation.sensitive_configuration = updated
+    installation.save(update_fields=["sensitive_configuration", "updated_at"])
+
+    return updated

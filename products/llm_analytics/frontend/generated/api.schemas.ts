@@ -9,11 +9,13 @@
  */
 /**
  * * `llm_judge` - LLM as a judge
+ * `hog` - Hog
  */
 export type EvaluationTypeEnumApi = (typeof EvaluationTypeEnumApi)[keyof typeof EvaluationTypeEnumApi]
 
 export const EvaluationTypeEnumApi = {
     LlmJudge: 'llm_judge',
+    Hog: 'hog',
 } as const
 
 /**

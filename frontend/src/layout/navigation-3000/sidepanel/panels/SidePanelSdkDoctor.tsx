@@ -235,7 +235,7 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                 <div className="m-2 mb-4">
                     <LemonBanner type="info">
                         <strong>DEVELOPMENT WARNING!</strong> When running in development, make sure you've run the
-                        appropriate Dasgter jobs: <LemonTag>cache_all_team_sdk_versions_job</LemonTag> and{' '}
+                        appropriate Dagster jobs: <LemonTag>cache_all_team_sdk_versions_job</LemonTag> and{' '}
                         <LemonTag>cache_github_sdk_versions_job</LemonTag>. Data won't be available otherwise.
                     </LemonBanner>
                 </div>
@@ -282,7 +282,13 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                             <p className="font-semibold">
                                 An outdated SDK means you're missing out on bug fixes and enhancements.
                             </p>
-                            <p className="text-sm mt-1">Check the links below to get caught up.</p>
+                            <p className="text-sm mt-1">
+                                <Link to="https://posthog.com/docs/sdk-doctor/keeping-sdks-current" target="_blank">
+                                    Learn how
+                                </Link>{' '}
+                                to keep your SDK versions current.
+                            </p>
+                            <p className="text-sm mt-1">See the 'Releases' and 'Docs' links below for more info.</p>
                         </LemonBanner>
                     </section>
                 )}
@@ -346,6 +352,13 @@ export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                     </Link>
                     <Link to={links.docs} target="_blank" targetBlankIcon>
                         Docs
+                    </Link>
+                    <Link
+                        to="https://posthog.com/docs/sdk-doctor/keeping-sdks-current#ways-to-keep-sdk-versions-current"
+                        target="_blank"
+                        targetBlankIcon
+                    >
+                        Updating
                     </Link>
                 </div>
             </div>

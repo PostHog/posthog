@@ -1,6 +1,6 @@
 {
     "name": "@posthog/hogql-parser",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "description": "WebAssembly HogQL Parser - Parse HogQL queries in JavaScript/TypeScript",
     "keywords": [
         "antlr4",
