@@ -58,6 +58,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         JobConfig,
         fetch_all_clustering_filters_activity,
         fetch_all_clustering_jobs_activity,
+        resolve_level_jobs_for_team,
     )
     from posthog.temporal.llm_analytics.team_discovery import (
         DISCOVERY_ACTIVITY_RETRY_POLICY,
@@ -79,23 +80,6 @@ def _empty_summarization_results() -> dict[str, Any]:
         "total_items": 0,
         "total_summaries": 0,
     }
-
-
-def _resolve_level_jobs_for_team(
-    team_jobs: list[JobConfig],
-    analysis_level: AnalysisLevel,
-    legacy_event_filters: list[dict[str, Any]],
-) -> list[JobConfig]:
-    level_jobs = [job for job in team_jobs if job.analysis_level == analysis_level]
-    if level_jobs:
-        return level_jobs
-
-    # Backward compatibility: only run the legacy path for teams that have
-    # no ClusteringJob rows configured at all.
-    if team_jobs:
-        return []
-
-    return [JobConfig(job_id=0, name="", analysis_level=analysis_level, event_filters=legacy_event_filters)]
 
 
 @dataclasses.dataclass
@@ -228,7 +212,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             ] = []
             for team_id in batch:
                 team_jobs = per_team_jobs.get(team_id, [])
-                level_jobs = _resolve_level_jobs_for_team(
+                level_jobs = resolve_level_jobs_for_team(
                     team_jobs=team_jobs,
                     analysis_level=inputs.analysis_level,
                     legacy_event_filters=per_team_filters.get(team_id, []),

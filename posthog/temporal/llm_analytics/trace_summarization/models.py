@@ -55,7 +55,7 @@ class BatchSummarizationInputs:
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
-        return {"team_id": self.team_id}
+        return {"team_id": self.team_id, "job_id": self.job_id, "job_name": self.job_name}
 
 
 @dataclass
@@ -161,7 +161,7 @@ class SummarizeAndSaveInput:
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
-        return {"team_id": self.team_id}
+        return {"team_id": self.team_id, "job_id": self.job_id, "job_name": self.job_name}
 
 
 class TextReprExpiredError(Exception):

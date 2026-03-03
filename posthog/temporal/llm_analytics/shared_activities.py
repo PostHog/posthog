@@ -6,6 +6,8 @@ from typing import Any
 
 from temporalio import activity
 
+from posthog.temporal.llm_analytics.trace_clustering.models import AnalysisLevel
+
 
 @dataclass
 class FetchAllClusteringFiltersInput:
@@ -39,7 +41,7 @@ class JobConfig:
 
     job_id: int
     name: str
-    analysis_level: str
+    analysis_level: AnalysisLevel
     event_filters: list[dict[str, Any]]
 
 
@@ -75,3 +77,23 @@ async def fetch_all_clustering_jobs_activity(
         return result
 
     return await asyncio.to_thread(_fetch_jobs)
+
+
+def resolve_level_jobs_for_team(
+    team_jobs: list[JobConfig],
+    analysis_level: AnalysisLevel,
+    legacy_event_filters: list[dict[str, Any]],
+) -> list[JobConfig]:
+    """Pick jobs matching the analysis level, with legacy fallback.
+
+    If the team has ClusteringJob rows but none for this level, returns [].
+    If the team has no rows at all, returns a single legacy JobConfig(job_id=0).
+    """
+    level_jobs = [job for job in team_jobs if job.analysis_level == analysis_level]
+    if level_jobs:
+        return level_jobs
+
+    if team_jobs:
+        return []
+
+    return [JobConfig(job_id=0, name="", analysis_level=analysis_level, event_filters=legacy_event_filters)]
