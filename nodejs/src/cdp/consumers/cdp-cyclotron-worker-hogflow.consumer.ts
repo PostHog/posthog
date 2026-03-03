@@ -107,11 +107,16 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                       }
                     : undefined
 
+                const groups = await this.groupsManager.getGroupsForEvent(
+                    hogFlow.team_id,
+                    hogFlowInvocationState.event.properties,
+                    `${this.config.SITE_URL}/project/${hogFlow.team_id}`
+                )
+
                 const filterGlobals = convertToHogFunctionFilterGlobal({
                     event: hogFlowInvocationState.event,
                     person,
-                    // TODO: Load groups as well
-                    groups: {},
+                    groups,
                     variables: hogFlowInvocationState.variables || {},
                 })
 

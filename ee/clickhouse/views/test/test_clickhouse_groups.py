@@ -1064,7 +1064,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         # Test without query parameter
         response_data = self.client.get(
             f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0"
-        ).json()
+        ).json()["results"]
         self.assertEqual(len(response_data), 3)
         self.assertEqual(
             response_data,
@@ -1078,14 +1078,14 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         # Test with query parameter
         response_data = self.client.get(
             f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0&value=fin"
-        ).json()
+        ).json()["results"]
         self.assertEqual(len(response_data), 2)
         self.assertEqual(response_data, [{"name": "finance", "count": 1}, {"name": "finance-technology", "count": 1}])
 
         # Test with query parameter - case insensitive
         response_data = self.client.get(
             f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0&value=TECH"
-        ).json()
+        ).json()["results"]
         self.assertEqual(len(response_data), 2)
         self.assertEqual(
             response_data, [{"name": "finance-technology", "count": 1}, {"name": "technology", "count": 1}]
@@ -1094,14 +1094,14 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         # Test with query parameter - no matches
         response_data = self.client.get(
             f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0&value=healthcare"
-        ).json()
+        ).json()["results"]
         self.assertEqual(len(response_data), 0)
         self.assertEqual(response_data, [])
 
         # Test with query parameter - exact match
         response_data = self.client.get(
             f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0&value=technology"
-        ).json()
+        ).json()["results"]
         self.assertEqual(len(response_data), 2)
         self.assertEqual(
             response_data, [{"name": "finance-technology", "count": 1}, {"name": "technology", "count": 1}]
@@ -1110,7 +1110,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         # Test with different group_type_index
         response_data = self.client.get(
             f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=1&value=fin"
-        ).json()
+        ).json()["results"]
         self.assertEqual(len(response_data), 1)
         self.assertEqual(response_data, [{"name": "finance", "count": 1}])
 
@@ -1135,7 +1135,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         response_data = self.client.get(
             f"/api/projects/{self.team.id}/groups/property_values/?key=name&group_type_index=0"
-        ).json()
+        ).json()["results"]
         self.assertEqual(len(response_data), 0)
         self.assertEqual(response_data, [])
 

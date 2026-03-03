@@ -110,6 +110,8 @@ class HogQLPrinter(Visitor[str]):
     def visit_cte(self, node: ast.CTE):
         if node.materialized is not None:
             raise ImpossibleASTError(f"CTE materialization hints are not supported in the '{self.dialect}' dialect")
+        if node.using_key is not None:
+            raise ImpossibleASTError(f"CTE USING KEY is not supported in the '{self.dialect}' dialect")
 
         if node.cte_type == "subquery":
             if node.columns is not None:
