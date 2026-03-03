@@ -193,10 +193,7 @@ mod tests {
                 Value::String("hello".to_string()),
             ),
             (any_value::Value::BoolValue(true), Value::Bool(true)),
-            (
-                any_value::Value::IntValue(42),
-                Value::Number(42.into()),
-            ),
+            (any_value::Value::IntValue(42), Value::Number(42.into())),
             (
                 any_value::Value::BytesValue(vec![0xAB, 0xCD]),
                 Value::String("abcd".to_string()),
