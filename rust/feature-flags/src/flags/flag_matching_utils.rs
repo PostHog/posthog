@@ -506,10 +506,10 @@ fn classify_and_track_error(error: &FlagError, operation: &str, will_retry: bool
             } else if common_database::is_timeout_error(sqlx_error) {
                 "timeout"
             } else {
-                match sqlx_error {
-                    sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed => "connection",
-                    _ => "unknown",
-                }
+                // PoolTimedOut → intercepted by From<sqlx::Error>, arrives as TimeoutError
+                // PoolClosed → caught by is_transient_error above
+                // Everything else that reaches here is genuinely unknown
+                "unknown"
             };
             (err_type, None)
         }

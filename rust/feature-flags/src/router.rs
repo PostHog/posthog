@@ -17,12 +17,12 @@ use common_cache::NegativeCache;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
+use common_metrics::inc;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use health::{readiness_handler, HealthRegistry};
 use metrics::gauge;
 use sqlx::PgPool;
-use common_metrics::inc;
 use tower::limit::ConcurrencyLimitLayer;
 use tower::timeout::TimeoutLayer;
 use tower::ServiceBuilder;
@@ -219,7 +219,10 @@ pub fn router(
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
         .layer(
             ServiceBuilder::new()
-                .layer(HandleErrorLayer::new(|_: tower::BoxError| async {
+                .layer(HandleErrorLayer::new(|err: tower::BoxError| async move {
+                    // Currently only TimeoutLayer can produce errors here
+                    // (ConcurrencyLimitLayer queues rather than rejecting).
+                    tracing::warn!(error = %err, "Request aborted by tower layer");
                     inc(FLAG_REQUEST_TIMEOUT_COUNTER, &[], 1);
                     (StatusCode::SERVICE_UNAVAILABLE, "Request timed out")
                 }))
