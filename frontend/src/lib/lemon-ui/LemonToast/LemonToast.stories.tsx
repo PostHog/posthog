@@ -164,7 +164,7 @@ export const ErrorWithIncidentNote: Story = {
                 lemonToast.dismiss()
                 lemonToast.error('An error toast during an incident')
             }
-        }, [status])
+        }, [status, isDarkModeOn]) // oxlint-disable-line react-hooks/exhaustive-deps
 
         return (
             <ToastContainer
