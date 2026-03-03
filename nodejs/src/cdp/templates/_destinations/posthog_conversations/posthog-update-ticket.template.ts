@@ -31,10 +31,11 @@ if (inputs.sla_amount == 'clear') {
   let amount := toFloat(inputs.sla_amount)
   let unit := inputs.sla_unit ?? 'hour'
 
-  if (amount != null and amount > 0) {
-    let deadline := dateAdd(unit, amount, now())
-    updates.sla_due_at := formatDateTime(deadline, '%Y-%m-%dT%H:%i:%SZ')
+  if (amount == null or amount <= 0) {
+    throw Error(f'Invalid SLA amount: {inputs.sla_amount}. Must be a positive number or "clear".')
   }
+  let deadline := dateAdd(unit, amount, now())
+  updates.sla_due_at := formatDateTime(deadline, '%Y-%m-%dT%H:%i:%SZ')
 }
 
 let response := postHogUpdateTicket({
