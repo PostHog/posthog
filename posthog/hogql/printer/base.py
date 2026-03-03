@@ -1411,6 +1411,11 @@ class HogQLPrinter(Visitor[str]):
         if not self._table_top_level_settings:
             return merged
         for key, value in self._table_top_level_settings.items():
+            existing = merged.get(key)
+            if existing is not None and existing != value:
+                raise QueryError(
+                    f"Conflicting settings for '{key}': query has {existing!r} but table requires {value!r}"
+                )
             merged[key] = value
         return merged
 
