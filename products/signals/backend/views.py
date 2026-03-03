@@ -232,9 +232,17 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         try:
             updated_fields = report.transition_to(SignalReport.Status(target), **transition_kwargs)
         except InvalidStatusTransition as e:
-            return Response({"error": str(e)}, status=status.HTTP_409_CONFLICT)
+            logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
+            return Response(
+                {"error": "Invalid state transition for this report."},
+                status=status.HTTP_409_CONFLICT,
+            )
         except (ValueError, TypeError) as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            logger.warning("Invalid data when transitioning SignalReport %s: %s", report.id, e, exc_info=True)
+            return Response(
+                {"error": "Invalid data for state transition."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         report.save(update_fields=updated_fields)
 
