@@ -1,7 +1,5 @@
-// Snippets
 export { SurveysFinalSteps } from './_snippets/surveys-final-steps'
 
-// Installations (one per supported framework, same structure as session-replay)
 export { SurveysAngularInstallation } from './angular'
 export { SurveysAstroInstallation } from './astro'
 export { SurveysBubbleInstallation } from './bubble'
