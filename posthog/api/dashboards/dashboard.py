@@ -139,7 +139,12 @@ class CanEditDashboard(BasePermission):
 
 class ClientResultItemSerializer(serializers.Serializer):
     insight_name = serializers.CharField(required=True)
-    data = serializers.JSONField(required=True)
+
+    # `data` shadows Serializer.data so we declare it via get_fields to avoid the mypy conflict
+    def get_fields(self):
+        fields = super().get_fields()
+        fields["data"] = serializers.JSONField(required=True)
+        return fields
 
     def validate_data(self, value):
         if not value:
