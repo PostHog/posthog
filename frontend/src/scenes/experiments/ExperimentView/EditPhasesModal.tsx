@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
@@ -28,14 +28,44 @@ interface EditingState {
     endDate: string | null
 }
 
+function applyPhaseUpdates(
+    phases: ExperimentPhase[],
+    phaseIndex: number,
+    updates: { name?: string; reason?: string; start_date?: string; end_date?: string | null }
+): ExperimentPhase[] {
+    const updated = phases.map((p) => ({ ...p }))
+    const phase = updated[phaseIndex]
+    if (updates.name !== undefined) {
+        phase.name = updates.name
+    }
+    if (updates.reason !== undefined) {
+        phase.reason = updates.reason
+    }
+    if (updates.start_date !== undefined) {
+        phase.start_date = updates.start_date
+        if (phaseIndex > 0) {
+            updated[phaseIndex - 1].end_date = updates.start_date
+        }
+    }
+    if (updates.end_date !== undefined) {
+        phase.end_date = updates.end_date
+        if (updates.end_date !== null && phaseIndex < updated.length - 1) {
+            updated[phaseIndex + 1].start_date = updates.end_date
+        }
+    }
+    return updated
+}
+
 export function EditPhasesModal(): JSX.Element | null {
     const isEnabled = useFeatureFlag('EXPERIMENT_PHASES')
     const { isEditPhasesModalOpen, experiment } = useValues(experimentLogic)
-    const { closeEditPhasesModal, openAddPhaseModal, updatePhase } = useActions(experimentLogic)
+    const { closeEditPhasesModal, openAddPhaseModal, setExperiment, updateExperiment, refreshExperimentResults } =
+        useActions(experimentLogic)
 
     const [editing, setEditing] = useState<EditingState | null>(null)
     const [isStartCalendarOpen, setIsStartCalendarOpen] = useState(false)
     const [isEndCalendarOpen, setIsEndCalendarOpen] = useState(false)
+    const hasPendingChanges = useRef(false)
 
     if (!isEnabled) {
         return null
@@ -88,13 +118,25 @@ export function EditPhasesModal(): JSX.Element | null {
         if (!editing) {
             return
         }
-        updatePhase(editing.phaseIndex, {
+        const updatedPhases = applyPhaseUpdates(phases, editing.phaseIndex, {
             name: editing.name || undefined,
             reason: editing.reason || undefined,
             start_date: editing.startDate,
             end_date: editing.endDate,
         })
+        setExperiment({ phases: updatedPhases })
+        hasPendingChanges.current = true
         setEditing(null)
+    }
+
+    const handleClose = (): void => {
+        if (hasPendingChanges.current) {
+            hasPendingChanges.current = false
+            updateExperiment({ phases: experiment.phases })
+            refreshExperimentResults(true)
+        }
+        setEditing(null)
+        closeEditPhasesModal()
     }
 
     const hasValidDates = !editing?.endDate || dayjs(editing.startDate).isBefore(dayjs(editing.endDate))
@@ -102,11 +144,11 @@ export function EditPhasesModal(): JSX.Element | null {
     return (
         <LemonModal
             isOpen={isEditPhasesModalOpen}
-            onClose={closeEditPhasesModal}
+            onClose={handleClose}
             title="Edit phases"
             footer={
                 <div className="flex justify-end w-full">
-                    <LemonButton type="tertiary" onClick={closeEditPhasesModal}>
+                    <LemonButton type="tertiary" onClick={handleClose}>
                         Close
                     </LemonButton>
                 </div>
