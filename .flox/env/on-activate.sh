@@ -136,6 +136,35 @@ if [[ -t 0 ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE
   echo
 fi
 
+# ── Xcode license check (macOS only) ─────────────────────────────────
+# Only check when full Xcode.app is installed (not just Command Line Tools),
+# since xcodebuild -license check returns non-zero for CLT-only setups too.
+if [[ "$(uname -s)" == "Darwin" ]] && command -v xcodebuild >/dev/null 2>&1 \
+   && [[ "$(xcode-select -p 2>/dev/null)" == /Applications/Xcode*.app/* ]]; then
+  if ! xcodebuild -license check >/dev/null 2>&1; then
+    if [[ -t 0 ]] && [[ ! -f "$FLOX_ENV_CACHE/.hush-xcode-license" ]]; then
+      warn_step "Xcode license not accepted. Native builds may fail."
+      read -p "$(echo -e "   Accept Xcode license now? (Y/n) ")" -n 1 -r
+      echo
+      if [[ $REPLY =~ ^[Yy]$ || -z $REPLY ]]; then
+        echo -e "   ${C_DIM}Running: sudo xcodebuild -license accept${C_RESET}"
+        if sudo xcodebuild -license accept; then
+          done_step "Xcode license accepted"
+        else
+          echo -e "   ${C_RED}✗${C_RESET} Failed to accept Xcode license"
+          echo -e "   ${C_DIM}Run 'sudo xcodebuild -license' manually to resolve.${C_RESET}"
+        fi
+      else
+        touch "$FLOX_ENV_CACHE/.hush-xcode-license"
+        echo -e "   ${C_DIM}Skipped. Run 'sudo xcodebuild -license' if builds fail.${C_RESET}"
+      fi
+      echo
+    elif [[ ! -t 0 ]]; then
+      echo -e "  ${C_YELLOW}⚠${C_RESET} Xcode license not accepted  ${C_DIM}(run 'sudo xcodebuild -license')${C_RESET}"
+    fi
+  fi
+fi
+
 # ── Header ──────────────────────────────────────────────────────────
 _branch=$(git -C "$FLOX_ENV_PROJECT" branch --show-current 2>/dev/null || echo "???")
 echo -e "\n${C_CYAN}PostHog dev${C_RESET} ${C_DIM}── ${_branch}${C_RESET}\n"
