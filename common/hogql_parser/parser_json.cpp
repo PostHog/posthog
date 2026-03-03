@@ -606,7 +606,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     // Add basic query fields
     json["ctes"] = visitAsJSONOrNull(ctx->withClause());
-    json["select"] = visitAsJSONOrEmptyArray(ctx->columnExprList());
+    json["select"] = visitAsJSONOrEmptyArray(ctx->selectColumnExprList());
     json["distinct"] = ctx->DISTINCT() ? Json(true) : Json(nullptr);
     json["select_from"] = visitAsJSONOrNull(ctx->fromClause());
     json["where"] = visitAsJSONOrNull(ctx->whereClause());
@@ -1108,6 +1108,25 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   VISIT_UNSUPPORTED(ColumnTypeExprParam)
 
   VISIT(ColumnExprList) { return visitJSONArrayOfObjects(ctx->columnExpr()); }
+
+  VISIT(SelectColumnExprList) { return visitJSONArrayOfObjects(ctx->selectColumnExpr()); }
+
+  VISIT(ColumnExprAliasBefore) {
+    string alias = visitAsString(ctx->identifier());
+
+    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(alias)) != RESERVED_KEYWORDS.end()) {
+      throw SyntaxError("\"" + alias + "\" cannot be an alias or identifier, as it's a reserved keyword");
+    }
+
+    Json json = Json::object();
+    json["node"] = "Alias";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = visitAsJSON(ctx->columnExpr());
+    json["alias"] = alias;
+    return json;
+  }
+
+  VISIT(ColumnExprSelectValue) { return visit(ctx->columnExpr()); }
 
   VISIT(ColumnExprTernaryOp) {
     Json json = Json::object();
