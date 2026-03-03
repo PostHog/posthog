@@ -35,8 +35,12 @@ export enum SurveysTabs {
     Settings = 'settings',
 }
 
+export function isSurveyDraft(survey: Pick<Survey, 'start_date'>): boolean {
+    return !survey.start_date
+}
+
 export function getSurveyStatus(survey: Pick<Survey, 'start_date' | 'end_date'>): ProgressStatus {
-    if (!survey.start_date) {
+    if (isSurveyDraft(survey)) {
         return ProgressStatus.Draft
     } else if (!survey.end_date) {
         return ProgressStatus.Running

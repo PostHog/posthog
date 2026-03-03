@@ -125,6 +125,8 @@ def sync_saved_query_to_dag(
 
     Returns the Node for the SavedQuery, or None if query parsing fails.
     """
+    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
     extra_properties = extra_properties or {}
     team = saved_query.team
     dag_id = get_dag_id(team.id)
@@ -133,7 +135,13 @@ def sync_saved_query_to_dag(
         raise ValueError(f"DataWarehouseSavedQuery has no query: saved_query_id={saved_query.id}")
 
     # determine node type based on materialization status (fk to datawarehouse table)
-    node_type = NodeType.MAT_VIEW if saved_query.table else NodeType.VIEW
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+        node_type = NodeType.ENDPOINT
+    elif saved_query.table:
+        node_type = NodeType.MAT_VIEW
+    else:
+        node_type = NodeType.VIEW
+
     target, _ = Node.objects.get_or_create(
         team=team,
         saved_query=saved_query,

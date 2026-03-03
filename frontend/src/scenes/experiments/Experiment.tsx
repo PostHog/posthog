@@ -1,4 +1,4 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useMountedLogic, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -41,7 +41,6 @@ export function Experiment(props: ExperimentSceneLogicProps): JSX.Element {
         type: 'experiment',
         ref: experimentId,
         enabled: Boolean(currentTeamId && !experimentMissing && typeof experimentId === 'number'),
-        deps: [currentTeamId, experimentId, experimentMissing],
     })
 
     const logicProps: ExperimentLogicProps = { experimentId, formMode, tabId }
@@ -62,7 +61,7 @@ export function Experiment(props: ExperimentSceneLogicProps): JSX.Element {
 
 function ExperimentCreateMode({ tabId }: { tabId: string }): JSX.Element {
     const logic = createExperimentLogic({ tabId })
-    useAttachedLogic(logic, experimentSceneLogic({ tabId }))
+    useMountedLogic(logic)
 
     const showWizard = useFeatureFlag('EXPERIMENTS_WIZARD_CREATION_FORM', 'test')
 

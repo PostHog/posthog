@@ -1,7 +1,7 @@
 {
     "id": 15,
     "short_id": "IX4T8Yrk",
-    "name": "",
+    "name": null,
     "derived_name": "*, event, person, coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen, properties.$lib, timestamp from events into a data table.",
     "filters": {},
     "query": {

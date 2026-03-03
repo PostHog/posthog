@@ -5,9 +5,9 @@ import requests_mock as rm
 from posthog.security.outbound_proxy import (
     external_aiohttp_session,
     external_requests,
+    external_requests_session,
     get_proxy_config,
     get_proxy_url,
-    make_proxied_requests_session,
 )
 
 
@@ -53,7 +53,7 @@ def test_get_proxy_url(enabled, url, expected, settings):
 def test_make_proxied_session(enabled, url, settings):
     settings.OUTBOUND_PROXY_ENABLED = enabled
     settings.OUTBOUND_PROXY_URL = url
-    session = make_proxied_requests_session()
+    session = external_requests_session()
     if enabled and url:
         assert session.proxies["http"] == url
         assert session.proxies["https"] == url
@@ -99,4 +99,51 @@ async def test_external_aiohttp_session_with_proxy(settings):
 
     session = external_aiohttp_session()
     assert isinstance(session, _ProxiedAiohttpSession)
+    await session.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "attr",
+    ["closed", "cookie_jar", "headers"],
+    ids=["closed", "cookie_jar", "headers"],
+)
+async def test_proxied_aiohttp_session_delegates_attributes(attr, settings):
+    settings.OUTBOUND_PROXY_ENABLED = True
+    settings.OUTBOUND_PROXY_URL = "http://proxy:8080"
+    session = external_aiohttp_session()
+    assert getattr(session, attr) == getattr(session._session, attr)
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_proxied_aiohttp_session_closed_reflects_state(settings):
+    settings.OUTBOUND_PROXY_ENABLED = True
+    settings.OUTBOUND_PROXY_URL = "http://proxy:8080"
+    session = external_aiohttp_session()
+    assert session.closed is False
+    await session.close()
+    assert session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_proxied_aiohttp_session_aenter_returns_self(settings):
+    settings.OUTBOUND_PROXY_ENABLED = True
+    settings.OUTBOUND_PROXY_URL = "http://proxy:8080"
+    from posthog.security.outbound_proxy import _ProxiedAiohttpSession
+
+    session = external_aiohttp_session()
+    entered = await session.__aenter__()
+    assert entered is session
+    assert isinstance(entered, _ProxiedAiohttpSession)
+    await session.__aexit__(None, None, None)
+
+
+@pytest.mark.asyncio
+async def test_proxied_aiohttp_session_nonexistent_attr_raises(settings):
+    settings.OUTBOUND_PROXY_ENABLED = True
+    settings.OUTBOUND_PROXY_URL = "http://proxy:8080"
+    session = external_aiohttp_session()
+    with pytest.raises(AttributeError):
+        _ = session.this_attribute_does_not_exist
     await session.close()

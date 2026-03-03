@@ -19,6 +19,7 @@ from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
 from ee.hogai.core.agent_modes.presets.error_tracking import ERROR_TRACKING_MODE_DESCRIPTION, ErrorTrackingAgentToolkit
 from ee.hogai.core.agent_modes.presets.flags import READ_ONLY_FLAGS_MODE_DESCRIPTION, ReadOnlyFlagsAgentToolkit
+from ee.hogai.core.agent_modes.presets.llm_analytics import LLM_ANALYTICS_MODE_DESCRIPTION, LLMAnalyticsAgentToolkit
 from ee.hogai.core.agent_modes.presets.product_analytics import (
     PRODUCT_ANALYTICS_MODE_DESCRIPTION,
     ReadOnlyProductAnalyticsAgentToolkit,
@@ -112,6 +113,14 @@ research_agent_flags_agent = AgentModeDefinition(
     mode=AgentMode.FLAGS,
     mode_description=READ_ONLY_FLAGS_MODE_DESCRIPTION,
     toolkit_class=ReadOnlyFlagsAgentToolkit,
+    node_class=ResearchAgentExecutable,
+    tools_node_class=ResearchAgentToolsExecutable,
+)
+
+research_agent_llm_analytics_agent = AgentModeDefinition(
+    mode=AgentMode.LLM_ANALYTICS,
+    mode_description=LLM_ANALYTICS_MODE_DESCRIPTION,
+    toolkit_class=LLMAnalyticsAgentToolkit,
     node_class=ResearchAgentExecutable,
     tools_node_class=ResearchAgentToolsExecutable,
 )
@@ -226,6 +235,7 @@ class ResearchAgentModeManager(AgentModeManager):
     def supermode_registries(self):
         default_mode_registry = {
             AgentMode.SQL: research_agent_sql_agent,
+            AgentMode.LLM_ANALYTICS: research_agent_llm_analytics_agent,
             AgentMode.SESSION_REPLAY: research_agent_session_replay_agent,
             AgentMode.ERROR_TRACKING: research_agent_error_tracking_agent,
             AgentMode.PRODUCT_ANALYTICS: research_agent_product_analytics_agent,

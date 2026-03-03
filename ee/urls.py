@@ -15,7 +15,7 @@ from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
-from ee.api.vercel import vercel_sso, vercel_webhooks
+from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
@@ -108,6 +108,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         backfill_precalculated_person_properties_view,
     )
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
+    from posthog.admin.admins.email_mfa_bypass_admin import EmailMFABypassViewSet, email_mfa_bypass_view
     from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
@@ -139,6 +140,21 @@ if settings.ADMIN_PORTAL_ENABLED:
             "api/admin/radar-bypass/<str:email>/",
             RadarBypassViewSet.as_view({"delete": "destroy"}),
             name="radar-bypass-api-detail",
+        ),
+        path(
+            "admin/email-mfa-bypass/",
+            admin.site.admin_view(email_mfa_bypass_view),
+            name="email-mfa-bypass",
+        ),
+        path(
+            "api/admin/email-mfa-bypass/",
+            EmailMFABypassViewSet.as_view({"get": "list", "post": "create"}),
+            name="email-mfa-bypass-api-list",
+        ),
+        path(
+            "api/admin/email-mfa-bypass/<str:email>/",
+            EmailMFABypassViewSet.as_view({"delete": "destroy"}),
+            name="email-mfa-bypass-api-detail",
         ),
         path(
             "admin/resave-cohorts/",
@@ -180,6 +196,18 @@ urlpatterns: list[Any] = [
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     re_path(r"^login/vercel/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     re_path(r"^login/vercel/continue/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
+    re_path(
+        r"^connect/vercel/callback/?$",
+        vercel_connect.VercelConnectCallbackViewSet.as_view({"get": "callback"}),
+    ),
+    re_path(
+        r"^api/vercel/connect/complete/?$",
+        vercel_connect.VercelConnectLinkViewSet.as_view({"post": "complete"}),
+    ),
+    re_path(
+        r"^api/vercel/connect/session/?$",
+        vercel_connect.VercelConnectLinkViewSet.as_view({"get": "session_info"}),
+    ),
     path("webhooks/vercel", csrf_exempt(vercel_webhooks.vercel_webhook), name="vercel_webhooks"),
     path("scim/v2/<uuid:domain_id>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
     path(

@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import React, { useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -38,7 +38,6 @@ import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, Even
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
-import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
@@ -51,6 +50,7 @@ import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
 import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
 import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
+import { llmAnalyticsToolsLogic } from './tabs/llmAnalyticsToolsLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
 import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
@@ -191,7 +191,8 @@ function LLMAnalyticsGenerations(): JSX.Element {
             generationsQuery.source.select ||
             getDefaultGenerationsColumns(
                 !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
-                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
+                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
             )
 
         const uuidIndex = columns.findIndex((col) => col === 'uuid')
@@ -225,7 +226,8 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 showSavedFilters: true,
                 defaultColumns: getDefaultGenerationsColumns(
                     !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
-                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
+                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
                 ),
             }}
             setQuery={(query) => {
@@ -286,6 +288,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                     },
                     person: llmAnalyticsColumnRenderers.person,
                     "'' -- Sentiment": llmAnalyticsColumnRenderers["'' -- Sentiment"],
+                    'properties.$ai_tools_called': llmAnalyticsColumnRenderers['properties.$ai_tools_called'],
                     "f'{properties.$ai_model}' -- Model": {
                         renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
                     },
@@ -390,7 +393,6 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
     errors: 'Monitor and debug errors in your LLM pipeline.',
     tools: 'See which tools your LLMs are calling and how often.',
     sessions: 'Analyze user sessions containing LLM interactions.',
-    playground: 'Test and experiment with LLM prompts in a sandbox environment.',
 }
 
 export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
@@ -408,7 +410,9 @@ export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
                                     <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
                                         <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
-                                            <LLMAnalyticsSceneContent />
+                                            <BindLogic logic={llmAnalyticsToolsLogic} props={{ tabId }}>
+                                                <LLMAnalyticsSceneContent />
+                                            </BindLogic>
                                         </BindLogic>
                                     </BindLogic>
                                 </BindLogic>
@@ -518,6 +522,9 @@ function LLMAnalyticsSceneContent(): JSX.Element {
         'data-attr': 'errors-tab',
     })
 
+    const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+    const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
+
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]) {
         tabs.push({
             key: 'tools',
@@ -533,10 +540,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     }
 
     // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
-    if (
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    ) {
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] || isEarlyAdopter) {
         tabs.push({
             key: 'sessions',
             label: 'Sessions',
@@ -550,26 +554,16 @@ function LLMAnalyticsSceneContent(): JSX.Element {
         })
     }
 
-    // TODO: Once we are out of beta, should add to the shortcuts list at the top of the component
-    tabs.push({
-        key: 'playground',
-        label: (
-            <>
-                Playground{' '}
-                <LemonTag className="ml-1" type="warning">
-                    Beta
-                </LemonTag>
-            </>
-        ),
-        content: <LLMAnalyticsPlaygroundScene />,
-        link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
-        'data-attr': 'playground-tab',
-    })
-
     const availableItemsInSidebar = useMemo(() => {
         return [
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ||
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS] ? (
+            <Link
+                key="playground"
+                to={combineUrl(urls.llmAnalyticsPlayground(), searchParams).url}
+                onClick={() => toggleProduct('Playground', true)}
+            >
+                Playground
+            </Link>,
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] || isEarlyAdopter ? (
                 <Link
                     to={combineUrl(urls.llmAnalyticsClusters(), searchParams).url}
                     onClick={() => toggleProduct('Clusters', true)}
@@ -593,7 +587,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                     evaluations
                 </Link>
             ) : null,
-            featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] ? (
+            isPromptManagementEnabled ? (
                 <Link
                     to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
                     onClick={() => toggleProduct('Prompts', true)}
@@ -602,7 +596,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                 </Link>
             ) : null,
         ].filter(Boolean) as JSX.Element[]
-    }, [featureFlags, searchParams, toggleProduct])
+    }, [featureFlags, isEarlyAdopter, isPromptManagementEnabled, searchParams, toggleProduct])
 
     return (
         <SceneContent>

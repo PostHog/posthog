@@ -57,7 +57,7 @@ export const onEvent = async (
         return
     }
 
-    const { team_id, person: _, ...sendableEvent } = { ...event, token: config.project_api_key }
+    const { team_id, ...sendableEvent } = { ...event, token: config.project_api_key }
 
     if (config.disable_geoip === 'Yes') {
         sendableEvent.properties.$geoip_disable = true

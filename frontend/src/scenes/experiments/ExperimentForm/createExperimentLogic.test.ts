@@ -133,7 +133,7 @@ describe('createExperimentLogic', () => {
             expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '456')
         })
 
-        it('navigates to experiments list after creating a draft', async () => {
+        it('navigates to experiment view page after creating a draft', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...NEW_EXPERIMENT,
@@ -146,7 +146,7 @@ describe('createExperimentLogic', () => {
                 .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
                 .toFinishAllListeners()
 
-            expect(routerPushSpy).toHaveBeenCalledWith('/experiments')
+            expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
         })
 
         it('shows success toast', async () => {
@@ -166,7 +166,7 @@ describe('createExperimentLogic', () => {
 
             expect(lemonToast.success).toHaveBeenCalledWith('Experiment created successfully!')
             expect(routerPushSpy).toHaveBeenCalledTimes(1)
-            expect(routerPushSpy).toHaveBeenCalledWith('/experiments')
+            expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
         })
     })
 
@@ -672,6 +672,50 @@ describe('createExperimentLogic', () => {
 
             tab1Logic.unmount()
             tab2Logic.unmount()
+        })
+    })
+
+    describe('post-save state reset', () => {
+        const TAB_ID = 'test-tab'
+
+        beforeEach(() => {
+            sessionStorage.clear()
+        })
+
+        it('form resets to NEW_EXPERIMENT after saving and re-entering create mode', async () => {
+            const firstLogic = createExperimentLogic({ tabId: TAB_ID })
+            firstLogic.mount()
+
+            await expectLogic(firstLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: '' }),
+            })
+
+            // Simulate what saveExperiment does on success:
+            // the server response replaces the form state
+            firstLogic.actions.setExperiment({
+                ...NEW_EXPERIMENT,
+                id: 999,
+                name: 'Saved Experiment',
+                description: 'Already persisted',
+                feature_flag_key: 'saved-experiment',
+            })
+
+            await expectLogic(firstLogic).toMatchValues({
+                experiment: partial({ id: 999, name: 'Saved Experiment' }),
+            })
+
+            // Scene transitions away from create mode — component unmounts the logic
+            firstLogic.unmount()
+
+            // User navigates back to /experiments/new — component remounts the logic
+            const secondLogic = createExperimentLogic({ tabId: TAB_ID })
+            secondLogic.mount()
+
+            await expectLogic(secondLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: '', feature_flag_key: '' }),
+            })
+
+            secondLogic.unmount()
         })
     })
 
