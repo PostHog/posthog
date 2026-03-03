@@ -1660,7 +1660,10 @@ class FeatureFlagViewSet(
     """
 
     scope_object = "feature_flag"
-    queryset = FeatureFlag.objects.all()
+    # Use the unfiltered manager so non-list actions (retrieve, update, etc.)
+    # can access soft-deleted flags. The list action applies its own
+    # deleted=False filter in safely_get_queryset.
+    queryset = FeatureFlag.objects_including_soft_deleted.all()
     serializer_class = FeatureFlagSerializer
     authentication_classes = [
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
