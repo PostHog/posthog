@@ -76,7 +76,7 @@ def fetch_generations_by_uuid(
     generation_ids: list[str],
     date_from: str,
     date_to: str,
-) -> list[tuple[str, object]]:
+) -> tuple[list[tuple[str, object]], int]:
     """Fetch specific $ai_generation events by UUID.
 
     Simpler than fetch_generations — no window function, no trace grouping.
@@ -105,12 +105,14 @@ def fetch_generations_by_uuid(
     )
 
     rows: list[tuple[str, object]] = []
+    total_input_bytes = 0
     for row in result.results or []:
         raw_ai_input = row[1]
         if isinstance(raw_ai_input, str):
+            total_input_bytes += len(raw_ai_input.encode("utf-8"))
             ai_input = json.loads(raw_ai_input)
         else:
             ai_input = raw_ai_input
         rows.append((str(row[0]), ai_input))
 
-    return rows
+    return rows, total_input_bytes

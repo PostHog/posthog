@@ -51,7 +51,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     # 1. Fetch — different query and grouping per level
     t0 = time.monotonic()
     if is_generation:
-        rows = await database_sync_to_async(
+        rows, total_input_bytes = await database_sync_to_async(
             lambda: fetch_generations_by_uuid(input.team_id, input.ids, resolved_from, resolved_to),
             thread_sensitive=False,
         )()
@@ -59,7 +59,6 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
         for event_uuid, ai_input in rows:
             rows_by_id.setdefault(event_uuid, []).append((event_uuid, ai_input))
         total_generations = len(rows)
-        total_input_bytes = 0
     else:
         fetch = await database_sync_to_async(
             lambda: fetch_generations(input.team_id, input.ids, resolved_from, resolved_to),
