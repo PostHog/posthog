@@ -106,6 +106,10 @@ pub fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sql
         .max_connections(config.max_connections)
         .acquire_timeout(config.acquire_timeout)
         .test_before_acquire(config.test_before_acquire)
+        // Disable sqlx's default 30-min max_lifetime. Without this explicit None,
+        // connections created together (e.g. during pod scale-up) all expire at the
+        // same instant, causing a thundering herd of TLS reconnects that saturates
+        // the database. Connection health is handled by test_before_acquire instead.
         .max_lifetime(None);
 
     if let Some(idle_timeout) = config.idle_timeout {
