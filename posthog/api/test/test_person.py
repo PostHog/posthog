@@ -161,7 +161,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get("/api/person/values/?key=random_prop")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
+        response_data = response.json()["results"]
         self.assertEqual(response_data[0]["name"], "asdf")
         self.assertEqual(response_data[0]["count"], 2)
         self.assertEqual(response_data[1]["name"], "qwerty")
@@ -170,8 +170,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get("/api/person/values/?key=random_prop&value=qw")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()[0]["name"], "qwerty")
-        self.assertEqual(response.json()[0]["count"], 1)
+        self.assertEqual(response.json()["results"][0]["name"], "qwerty")
+        self.assertEqual(response.json()["results"][0]["count"], 1)
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries

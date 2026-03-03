@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { router } from 'kea-router'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
@@ -8,6 +9,19 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { NotificationSettings, TeamBasicType } from '~/types'
+
+enum NotificationBlock {
+    Security = 'security',
+    WeeklyDigest = 'weekly-digest',
+    DataPipelineErrors = 'data-pipeline-errors',
+    IssueAssigned = 'issue-assigned',
+    EtWeeklyDigest = 'et-weekly-digest',
+    CommentMentions = 'comment-mentions',
+    ApiKeyExposure = 'api-key-exposure',
+    MaterializedViewSync = 'materialized-view-sync',
+}
+
+const NOTIFICATION_BLOCK_ORDER = Object.values(NotificationBlock)
 
 type BooleanNotificationSettings = Omit<
     NotificationSettings,
@@ -118,6 +132,11 @@ export function UpdateEmailPreferences(): JSX.Element {
         updateETWeeklyDigestForAllTeams,
         updateDataPipelineErrorThreshold,
     } = useActions(userLogic)
+    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
+    const { searchParams } = useValues(router)
+    const highlight = searchParams.highlight as NotificationBlock | undefined
+    const dataLoaded = !userLoading && !currentOrganizationLoading && !!user && !!currentOrganization
+
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
     const etDigestEnabled = user?.notification_settings?.error_tracking_weekly_digest !== false
 
@@ -133,8 +152,8 @@ export function UpdateEmailPreferences(): JSX.Element {
             ? undefined
             : 'Threshold must be between 0% and 100%'
 
-    return (
-        <div className="space-y-3">
+    const blocks: Record<NotificationBlock, JSX.Element> = {
+        [NotificationBlock.Security]: (
             <div className="border rounded p-4">
                 <div className="space-y-2">
                     <LemonSwitch
@@ -149,7 +168,8 @@ export function UpdateEmailPreferences(): JSX.Element {
                     </span>
                 </div>
             </div>
-
+        ),
+        [NotificationBlock.WeeklyDigest]: (
             <div className="border rounded p-4 space-y-3">
                 <SimpleSwitch
                     setting="all_weekly_digest_disabled"
@@ -158,7 +178,6 @@ export function UpdateEmailPreferences(): JSX.Element {
                     dataAttr="weekly_digest_enabled"
                     inverse={true}
                 />
-
                 {weeklyDigestEnabled && (
                     <ProjectDigestSelector
                         keyPrefix="weekly-digest"
@@ -171,7 +190,8 @@ export function UpdateEmailPreferences(): JSX.Element {
                     />
                 )}
             </div>
-
+        ),
+        [NotificationBlock.DataPipelineErrors]: (
             <div className="border rounded p-4 space-y-3">
                 <SimpleSwitch
                     setting="plugin_disabled"
@@ -213,7 +233,8 @@ export function UpdateEmailPreferences(): JSX.Element {
                     </div>
                 )}
             </div>
-
+        ),
+        [NotificationBlock.IssueAssigned]: (
             <div className="border rounded p-4">
                 <SimpleSwitch
                     setting="error_tracking_issue_assigned"
@@ -222,7 +243,8 @@ export function UpdateEmailPreferences(): JSX.Element {
                     dataAttr="error_tracking_issue_assigned_enabled"
                 />
             </div>
-
+        ),
+        [NotificationBlock.EtWeeklyDigest]: (
             <div className="border rounded p-4 space-y-3">
                 <SimpleSwitch
                     setting="error_tracking_weekly_digest"
@@ -230,7 +252,6 @@ export function UpdateEmailPreferences(): JSX.Element {
                     description="Get a weekly summary of exceptions caught across your projects every Monday"
                     dataAttr="error_tracking_weekly_digest_enabled"
                 />
-
                 {etDigestEnabled && (
                     <>
                         {!user?.notification_settings.error_tracking_weekly_digest_project_enabled && (
@@ -252,7 +273,8 @@ export function UpdateEmailPreferences(): JSX.Element {
                     </>
                 )}
             </div>
-
+        ),
+        [NotificationBlock.CommentMentions]: (
             <div className="border rounded p-4">
                 <SimpleSwitch
                     setting="discussions_mentioned"
@@ -261,7 +283,8 @@ export function UpdateEmailPreferences(): JSX.Element {
                     dataAttr="discussions_mentioned_enabled"
                 />
             </div>
-
+        ),
+        [NotificationBlock.ApiKeyExposure]: (
             <div className="border rounded p-4">
                 <SimpleSwitch
                     setting="project_api_key_exposed"
@@ -270,7 +293,8 @@ export function UpdateEmailPreferences(): JSX.Element {
                     dataAttr="project_api_key_exposure_enabled"
                 />
             </div>
-
+        ),
+        [NotificationBlock.MaterializedViewSync]: (
             <div className="border rounded p-4">
                 <SimpleSwitch
                     setting="materialized_view_sync_failed"
@@ -279,6 +303,29 @@ export function UpdateEmailPreferences(): JSX.Element {
                     dataAttr="materialized_view_sync_failed_enabled"
                 />
             </div>
+        ),
+    }
+
+    const highlightedBlock = highlight && NOTIFICATION_BLOCK_ORDER.includes(highlight) ? highlight : null
+    const highlightRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (dataLoaded && highlightRef.current) {
+            highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+    }, [dataLoaded, highlightedBlock])
+
+    return (
+        <div className="space-y-3">
+            {NOTIFICATION_BLOCK_ORDER.map((key) => (
+                <div
+                    key={key}
+                    ref={key === highlightedBlock ? highlightRef : undefined}
+                    className={key === highlightedBlock ? 'ring-2 ring-accent-primary rounded-lg' : undefined}
+                >
+                    {blocks[key]}
+                </div>
+            ))}
         </div>
     )
 }

@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from django.db.models import Case, F, Prefetch, Q, QuerySet, Value, When
+from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
 
 import pydantic
@@ -42,6 +42,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
 
+from products.experiments.backend.experiment_service import ExperimentService
 from products.product_tours.backend.models import ProductTour
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
@@ -278,185 +279,64 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return self._validate_metrics_list(value)
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-        is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
-
-        # if not validated_data.get("filters") and not is_draft:
-        #     raise ValidationError("Filters are required when creating a launched experiment")
-
-        saved_metrics_data = validated_data.pop("saved_metrics_ids", [])
-
-        variants = []
-        aggregation_group_type_index = None
-        if "parameters" in validated_data:
-            if validated_data["parameters"] is not None:
-                variants = validated_data["parameters"].get("feature_flag_variants", [])
-                aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
-
-        request = self.context["request"]
-        validated_data["created_by"] = request.user
-
         feature_flag_key = validated_data.pop("get_feature_flag_key")
+        saved_metrics_ids = validated_data.pop("saved_metrics_ids", None)
+        create_in_folder = validated_data.pop("_create_in_folder", None)
+        name = validated_data.pop("name")
+        description = validated_data.pop("description", "")
+        experiment_type = validated_data.pop("type", "product")
+        parameters = validated_data.pop("parameters", None)
+        metrics = validated_data.pop("metrics", None)
+        metrics_secondary = validated_data.pop("metrics_secondary", None)
+        secondary_metrics = validated_data.pop("secondary_metrics", None)
+        stats_config = validated_data.pop("stats_config", None)
+        exposure_criteria = validated_data.pop("exposure_criteria", None)
+        holdout = validated_data.pop("holdout", None)
+        start_date = validated_data.pop("start_date", None)
+        end_date = validated_data.pop("end_date", None)
+        primary_metrics_ordered_uuids = validated_data.pop("primary_metrics_ordered_uuids", None)
+        secondary_metrics_ordered_uuids = validated_data.pop("secondary_metrics_ordered_uuids", None)
+        filters = validated_data.pop("filters", None)
+        scheduling_config = validated_data.pop("scheduling_config", None)
+        exposure_preaggregation_enabled = validated_data.pop("exposure_preaggregation_enabled", False)
+        archived = validated_data.pop("archived", False)
+        deleted = validated_data.pop("deleted", False)
+        conclusion = validated_data.pop("conclusion", None)
+        conclusion_comment = validated_data.pop("conclusion_comment", None)
 
-        existing_feature_flag = FeatureFlag.objects.filter(
-            key=feature_flag_key, team_id=self.context["team_id"], deleted=False
-        ).first()
-        if existing_feature_flag:
-            self.validate_existing_feature_flag_for_experiment(existing_feature_flag)
-            feature_flag = existing_feature_flag
-        else:
-            holdout_groups = None
-            if validated_data.get("holdout"):
-                holdout_groups = validated_data["holdout"].filters
+        if validated_data:
+            raise ValidationError(f"Can't create keys: {', '.join(sorted(validated_data))} on Experiment")
 
-            default_variants = [
-                {"key": "control", "name": "Control Group", "rollout_percentage": 50},
-                {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
-            ]
-
-            # Pass experiment parameters to the feature flag
-            parameters = validated_data.get("parameters") or {}
-            experiment_rollout_percentage = parameters.get("rollout_percentage", DEFAULT_ROLLOUT_PERCENTAGE)
-
-            feature_flag_filters = {
-                "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
-                "multivariate": {"variants": variants or default_variants},
-                "aggregation_group_type_index": aggregation_group_type_index,
-                "holdout_groups": holdout_groups,
-            }
-
-            feature_flag_data = {
-                "key": feature_flag_key,
-                "name": f"Feature Flag for Experiment {validated_data['name']}",
-                "filters": feature_flag_filters,
-                "active": not is_draft,
-                "creation_context": "experiments",
-            }
-            if parameters.get("ensure_experience_continuity") is not None:
-                feature_flag_data["ensure_experience_continuity"] = parameters["ensure_experience_continuity"]
-            if validated_data.get("_create_in_folder") is not None:
-                feature_flag_data["_create_in_folder"] = validated_data["_create_in_folder"]
-            feature_flag_serializer = FeatureFlagSerializer(
-                data=feature_flag_data,
-                context=self.context,
-            )
-
-            feature_flag_serializer.is_valid(raise_exception=True)
-            feature_flag = feature_flag_serializer.save()
-
-        # Ensure stats_config has a method set, preserving any other fields passed from frontend
-        stats_config = validated_data.get("stats_config", {}) or {}
         team = Team.objects.get(id=self.context["team_id"])
+        service = ExperimentService(team=team, user=self.context["request"].user)
 
-        if not stats_config.get("method"):
-            # Get team's default stats method setting
-            default_method = team.default_experiment_stats_method or "bayesian"
-            stats_config["method"] = default_method
-
-        # Set default confidence level from team setting if not already set
-        if team.default_experiment_confidence_level is not None:
-            confidence_level = float(team.default_experiment_confidence_level)
-            bayesian_config = stats_config.get("bayesian") or {}
-            frequentist_config = stats_config.get("frequentist") or {}
-            # Set for Bayesian if ci_level not already configured
-            if bayesian_config.get("ci_level") is None:
-                stats_config["bayesian"] = {**bayesian_config, "ci_level": confidence_level}
-            # Set for Frequentist if alpha not already configured
-            if frequentist_config.get("alpha") is None:
-                stats_config["frequentist"] = {**frequentist_config, "alpha": 1 - confidence_level}
-
-        validated_data["stats_config"] = stats_config
-
-        # Add fingerprints to metrics
-        # UI creates experiments without metrics (adds them later in draft mode)
-        # But API can create+launch experiments with metrics in one call
-        for metric_field in ["metrics", "metrics_secondary"]:
-            if metric_field in validated_data:
-                for metric in validated_data[metric_field]:
-                    stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
-                    metric["fingerprint"] = compute_metric_fingerprint(
-                        metric, validated_data.get("start_date"), stats_method, validated_data.get("exposure_criteria")
-                    )
-
-        # Sync ordering arrays for inline metrics (all metrics are "new" in create)
-        if "metrics" in validated_data:
-            primary_ordering = list(validated_data.get("primary_metrics_ordered_uuids") or [])
-            for metric in validated_data["metrics"]:
-                if uuid := metric.get("uuid"):
-                    if uuid not in primary_ordering:
-                        primary_ordering.append(uuid)
-            validated_data["primary_metrics_ordered_uuids"] = primary_ordering
-
-        if "metrics_secondary" in validated_data:
-            secondary_ordering = list(validated_data.get("secondary_metrics_ordered_uuids") or [])
-            for metric in validated_data["metrics_secondary"]:
-                if uuid := metric.get("uuid"):
-                    if uuid not in secondary_ordering:
-                        secondary_ordering.append(uuid)
-            validated_data["secondary_metrics_ordered_uuids"] = secondary_ordering
-
-        experiment = Experiment.objects.create(
-            team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
+        return service.create_experiment(
+            name=name,
+            feature_flag_key=feature_flag_key,
+            description=description,
+            type=experiment_type,
+            parameters=parameters,
+            metrics=metrics,
+            metrics_secondary=metrics_secondary,
+            secondary_metrics=secondary_metrics,
+            stats_config=stats_config,
+            exposure_criteria=exposure_criteria,
+            holdout=holdout,
+            saved_metrics_ids=saved_metrics_ids,
+            start_date=start_date,
+            end_date=end_date,
+            primary_metrics_ordered_uuids=primary_metrics_ordered_uuids,
+            secondary_metrics_ordered_uuids=secondary_metrics_ordered_uuids,
+            create_in_folder=create_in_folder,
+            filters=filters,
+            scheduling_config=scheduling_config,
+            exposure_preaggregation_enabled=exposure_preaggregation_enabled,
+            archived=archived,
+            deleted=deleted,
+            conclusion=conclusion,
+            conclusion_comment=conclusion_comment,
+            serializer_context=self.context,
         )
-
-        # if this is a web experiment, copy over the variant data to the experiment itself.
-        if validated_data.get("type", "") == "web":
-            web_variants = {}
-            ff_variants = variants or default_variants
-
-            for variant in ff_variants:
-                web_variants[variant.get("key")] = {
-                    "rollout_percentage": variant.get("rollout_percentage"),
-                }
-
-            experiment.variants = web_variants
-            experiment.save()
-
-        if saved_metrics_data:
-            for saved_metric_data in saved_metrics_data:
-                saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                    data={
-                        "experiment": experiment.id,
-                        "saved_metric": saved_metric_data["id"],
-                        "metadata": saved_metric_data.get("metadata"),
-                    },
-                    context=self.context,
-                )
-                saved_metric_serializer.is_valid(raise_exception=True)
-                saved_metric_serializer.save()
-
-            # Sync ordering arrays for saved metrics (all are "new" in create)
-            primary_ordering = list(experiment.primary_metrics_ordered_uuids or [])
-            secondary_ordering = list(experiment.secondary_metrics_ordered_uuids or [])
-            ordering_changed = False
-
-            saved_metric_ids = [sm["id"] for sm in saved_metrics_data]
-            saved_metrics_map = {
-                sm.id: sm
-                for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids, team_id=self.context["team_id"])
-            }
-
-            for sm_data in saved_metrics_data:
-                saved_metric = saved_metrics_map.get(sm_data["id"])
-                if saved_metric and saved_metric.query:
-                    if uuid := saved_metric.query.get("uuid"):
-                        metric_type = (sm_data.get("metadata") or {}).get("type", "primary")
-                        if metric_type == "primary":
-                            if uuid not in primary_ordering:
-                                primary_ordering.append(uuid)
-                                ordering_changed = True
-                        else:
-                            if uuid not in secondary_ordering:
-                                secondary_ordering.append(uuid)
-                                ordering_changed = True
-
-            if ordering_changed:
-                experiment.primary_metrics_ordered_uuids = primary_ordering
-                experiment.secondary_metrics_ordered_uuids = secondary_ordering
-                experiment.save(update_fields=["primary_metrics_ordered_uuids", "secondary_metrics_ordered_uuids"])
-
-        self._validate_metric_ordering(experiment, {})
-
-        return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         # if (
@@ -1208,8 +1088,6 @@ class EnterpriseExperimentsViewSet(
         # Apply has_evaluation_tags filter
         has_evaluation_tags = request.query_params.get("has_evaluation_tags")
         if has_evaluation_tags is not None:
-            from django.db.models import Count
-
             filter_value = has_evaluation_tags.lower() in ("true", "1", "yes")
             queryset = queryset.annotate(eval_tag_count=Count("evaluation_tags"))
             if filter_value:

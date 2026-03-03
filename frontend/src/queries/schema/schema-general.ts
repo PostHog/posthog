@@ -176,6 +176,9 @@ export enum NodeKind {
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
     EndpointsUsageTableQuery = 'EndpointsUsageTableQuery',
     EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
+
+    // Property values
+    PropertyValuesQuery = 'PropertyValuesQuery',
 }
 
 export type AnyDataNode =
@@ -328,6 +331,9 @@ export type QuerySchema =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+
+    // Property values
+    | PropertyValuesQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -2926,6 +2932,7 @@ export type FileSystemIconType =
     | 'pipeline_status'
     | 'llm_evaluations'
     | 'llm_datasets'
+    | 'llm_playground'
     | 'llm_prompts'
     | 'llm_clusters'
     | 'exports'
@@ -5596,3 +5603,28 @@ export interface ReplayInactivityPeriod {
 export enum DomainConnectProviderName {
     Cloudflare = 'Cloudflare',
 }
+
+export enum PropertyType {
+    Event = 'event',
+    Person = 'person',
+}
+
+export interface PropertyValueItem {
+    name: string | number | boolean | null
+    count?: integer
+}
+
+export interface PropertyValuesQuery extends DataNode<PropertyValuesQueryResponse> {
+    kind: NodeKind.PropertyValuesQuery
+    property_type: PropertyType
+    property_key: string
+    search_value?: string
+    event_names?: string[]
+    is_column?: boolean
+}
+
+export interface PropertyValuesQueryResponse extends AnalyticsQueryResponseBase {
+    results: PropertyValueItem[]
+}
+
+export type CachedPropertyValuesQueryResponse = CachedQueryResponse<PropertyValuesQueryResponse>
