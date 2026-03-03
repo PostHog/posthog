@@ -184,6 +184,10 @@ export class CyclotronV2Janitor {
         return depths
     }
 
+    isRunning(): boolean {
+        return this.intervalHandle !== null
+    }
+
     async stop(): Promise<void> {
         if (this.intervalHandle) {
             clearInterval(this.intervalHandle)

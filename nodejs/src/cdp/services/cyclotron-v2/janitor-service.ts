@@ -1,4 +1,4 @@
-import { HealthCheckResult, HealthCheckResultOk, PluginServerService } from '../../../types'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService } from '../../../types'
 import { CyclotronV2Janitor } from './janitor'
 import { CyclotronV2JanitorConfig } from './types'
 
@@ -10,6 +10,7 @@ export class CyclotronV2JanitorService {
     }
 
     async start(): Promise<void> {
+        // Validates the DB connection and starts the cleanup interval
         await this.janitor.start()
     }
 
@@ -18,9 +19,9 @@ export class CyclotronV2JanitorService {
     }
 
     isHealthy(): HealthCheckResult {
-        // The janitor is healthy as long as it's running (interval is set)
-        // The underlying janitor swallows errors in its interval callback,
-        // so if we got here it means the service is alive
+        if (!this.janitor.isRunning()) {
+            return new HealthCheckResultError('CyclotronV2Janitor interval is not running', {})
+        }
         return new HealthCheckResultOk()
     }
 
