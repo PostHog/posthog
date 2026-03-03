@@ -138,8 +138,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             conditions,
                         })
                         return response.results
-                    } catch (e: any) {
-                        const message = e.detail || e.data?.error || e.message || 'Unknown error'
+                    } catch (e: unknown) {
+                        const message = e instanceof Error ? e.message : typeof e === 'string' ? e : 'Unknown error'
                         return [
                             {
                                 event_uuid: 'error',

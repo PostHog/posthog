@@ -12,7 +12,7 @@ import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { HogTestResult } from '../types'
 
-const HOG_EVAL_GLOBALS: Record<string, any> = {
+const HOG_EVAL_GLOBALS = {
     input: {
         type: 'string',
         description: 'The input to the LLM (prompt / messages)',

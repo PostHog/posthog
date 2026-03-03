@@ -350,19 +350,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
         properties = json.loads(properties)
 
     # Extract input/output based on event type
-    if event_type == "$ai_generation":
-        # Check properties in order of preference
-        input_raw = properties.get("$ai_input") or properties.get("$ai_input_state", "")
-        # For output, check $ai_output_choices first (most common), then $ai_output
-        output_raw = (
-            properties.get("$ai_output_choices")
-            or properties.get("$ai_output")
-            or properties.get("$ai_output_state", "")
-        )
-    else:
-        # For other event types, use generic approach
-        input_raw = properties.get("$ai_input_state", "")
-        output_raw = properties.get("$ai_output_state", "")
+    input_raw, output_raw = extract_event_io(event_type, properties)
 
     # Extract readable text from message structures
     input_data = extract_text_from_messages(input_raw)
@@ -655,15 +643,11 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
         evaluation_type = evaluation.get("evaluation_type", "llm_judge")
 
         properties: dict[str, Any] = {
-            # Standard AI properties for cost calculation in ingestion pipeline
-            "$ai_model": result.get("model", DEFAULT_JUDGE_MODEL),
-            "$ai_provider": result.get("provider", "openai"),
-            "$ai_input_tokens": result.get("input_tokens", 0),
-            "$ai_output_tokens": result.get("output_tokens", 0),
             # Evaluation-specific properties
             "$ai_evaluation_id": evaluation["id"],
             "$ai_evaluation_name": evaluation["name"],
-            "$ai_evaluation_type": evaluation_type,
+            "$ai_evaluation_type": "online",
+            "$ai_evaluation_runtime": evaluation_type,
             "$ai_evaluation_start_time": start_time.isoformat(),
             "$ai_evaluation_allows_na": allows_na,
             "$ai_evaluation_reasoning": result["reasoning"],
@@ -676,8 +660,12 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             ).get("$ai_trace_id"),
         }
 
-        # LLM-specific properties (not applicable for hog evals)
+        # LLM-specific properties: cost attribution and model info (not applicable for hog evals)
         if evaluation_type != "hog":
+            properties["$ai_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
+            properties["$ai_provider"] = result.get("provider", "openai")
+            properties["$ai_input_tokens"] = result.get("input_tokens", 0)
+            properties["$ai_output_tokens"] = result.get("output_tokens", 0)
             properties["$ai_evaluation_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
             properties["$ai_evaluation_provider"] = result.get("provider", "openai")
             properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"

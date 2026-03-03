@@ -138,7 +138,7 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
             title: 'Type',
             key: 'type',
             render: (_, evaluation) => (
-                <LemonTag type={evaluation.evaluation_type === 'hog' ? 'highlight' : 'default'}>
+                <LemonTag type={evaluation.evaluation_type === 'hog' ? 'option' : 'caution'}>
                     {evaluation.evaluation_type === 'hog' ? 'Hog' : 'LLM judge'}
                 </LemonTag>
             ),

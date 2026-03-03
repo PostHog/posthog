@@ -22,7 +22,7 @@ export interface LLMJudgeEvaluationConfig {
 
 export interface HogEvaluationConfig {
     source: string
-    bytecode?: any[]
+    bytecode?: unknown[]
 }
 
 export interface BaseEvaluationConfig {
