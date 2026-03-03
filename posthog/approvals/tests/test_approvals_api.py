@@ -110,6 +110,35 @@ class TestChangeRequestViewSet(APIBaseTest):
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["id"] == str(pending.id)
 
+    def test_list_filters_by_requester(self):
+        other_user = User.objects.create(email="other@posthog.com")
+        mine = self._create_change_request()
+        self._create_change_request(created_by=other_user, resource_id="456")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/?requester={self.user.id}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(mine.id)
+
+    def test_list_requester_filter_non_numeric_returns_400(self):
+        self._create_change_request()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/?requester=abc")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_list_filters_by_comma_separated_states(self):
+        pending = self._create_change_request(state=ChangeRequestState.PENDING)
+        applied = self._create_change_request(state=ChangeRequestState.APPLIED, resource_id="456")
+        self._create_change_request(state=ChangeRequestState.REJECTED, resource_id="789")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/?state=pending,applied")
+
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = {r["id"] for r in response.json()["results"]}
+        assert result_ids == {str(pending.id), str(applied.id)}
+
     def test_list_filters_by_resource(self):
         cr = self._create_change_request(resource_type="feature_flag", resource_id="123")
         self._create_change_request(resource_type="feature_flag", resource_id="456")
