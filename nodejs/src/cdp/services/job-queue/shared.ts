@@ -3,9 +3,10 @@ import { Histogram } from 'prom-client'
 import { CyclotronJobInvocation } from '../../types'
 
 export const cdpJobSizeKb = new Histogram({
-    name: 'cdp_job_size_kb',
+    name: 'cdp_cyclotron_job_size_kb',
     help: 'The size in kb of the jobs we are processing',
-    buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
+    buckets: [0, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, Infinity],
+    labelNames: ['queue_kind'],
 })
 
 /**
