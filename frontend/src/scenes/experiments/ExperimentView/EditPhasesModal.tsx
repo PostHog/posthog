@@ -56,17 +56,9 @@ function getDefaultNewPhaseStartDate(
     return (lowerBound.isAfter(now) ? now : lowerBound).toISOString()
 }
 
-function validatePhases(
-    phases: ExperimentPhase[],
-    experimentStartDate: string | null | undefined,
-    now: ReturnType<typeof dayjs> = dayjs()
-): string | null {
+function validatePhases(phases: ExperimentPhase[], now: ReturnType<typeof dayjs> = dayjs()): string | null {
     if (!phases.length) {
         return null
-    }
-
-    if (experimentStartDate && !dayjs(phases[0].start_date).isSame(dayjs(experimentStartDate))) {
-        return 'Phase 1 must start at the experiment start date'
     }
 
     for (let i = 0; i < phases.length; i++) {
@@ -322,8 +314,8 @@ export function EditPhasesModal(): JSX.Element | null {
             return null
         }
 
-        return validatePhases(candidatePhases, experiment.start_date)
-    }, [candidatePhases, experiment.start_date])
+        return validatePhases(candidatePhases)
+    }, [candidatePhases])
 
     const saveEditedPhase = (): void => {
         if (!candidatePhases || editingValidationError) {
@@ -336,10 +328,7 @@ export function EditPhasesModal(): JSX.Element | null {
         setIsEndCalendarOpen(false)
     }
 
-    const saveModalValidationError = useMemo(
-        () => validatePhases(draftPhases, experiment.start_date),
-        [draftPhases, experiment.start_date]
-    )
+    const saveModalValidationError = useMemo(() => validatePhases(draftPhases), [draftPhases])
 
     const handleSaveChanges = async (): Promise<void> => {
         if (!hasPendingChanges || editing || saveModalValidationError) {
@@ -450,12 +439,7 @@ export function EditPhasesModal(): JSX.Element | null {
                             width: 64,
                             render: (_, row) =>
                                 row.isSynthetic || editing?.phaseIndex === row.index - 1 ? null : (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        onClick={() => startEditing(row)}
-                                        disabledReason={hasPendingChanges ? 'Save pending changes first' : undefined}
-                                    >
+                                    <LemonButton type="secondary" size="xsmall" onClick={() => startEditing(row)}>
                                         Edit
                                     </LemonButton>
                                 ),
