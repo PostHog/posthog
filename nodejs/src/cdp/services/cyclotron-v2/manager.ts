@@ -6,7 +6,7 @@ import { CyclotronV2JobInit, CyclotronV2ManagerConfig } from './types'
 export class CyclotronV2Manager {
     private pool: Pool
 
-    constructor(private config: CyclotronV2ManagerConfig) {
+    constructor(config: CyclotronV2ManagerConfig) {
         this.pool = new Pool({
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 10,

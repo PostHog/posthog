@@ -80,7 +80,7 @@ export class CyclotronJobQueue {
             this.consumeBatch(invocations, this.consumerMode === 'shadow' ? 'shadow' : 'postgres')
         )
 
-        if (this.config.CDP_CYCLOTRON_V2_ENABLED && this.config.CYCLOTRON_V2_DATABASE_URL) {
+        if (this.config.CYCLOTRON_V2_DATABASE_URL) {
             this.jobQueuePostgresV2 = new CyclotronJobQueuePostgresV2(this.config, this.queue, (invocations) =>
                 this.consumeBatch(invocations, 'postgres-v2')
             )

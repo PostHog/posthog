@@ -261,7 +261,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CYCLOTRON_V2_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_v2'
             : 'postgres://posthog:posthog@localhost:5432/cyclotron_v2',
-        CDP_CYCLOTRON_V2_ENABLED: false,
         CDP_CYCLOTRON_TEST_SEEK_LATENCY: false,
         CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 50_000_000,
         CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 500,

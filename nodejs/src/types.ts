@@ -194,7 +194,6 @@ export type CdpConfig = {
     CYCLOTRON_SHADOW_DATABASE_URL: string
     CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
     CYCLOTRON_V2_DATABASE_URL: string
-    CDP_CYCLOTRON_V2_ENABLED: boolean
     CDP_CYCLOTRON_TEST_SEEK_LATENCY: boolean // When true, fetches consumed messages via HTTP to measure WarpStream read latency
     CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: number // Max offsets to seek back (e.g. 50000000 ≈ 14 days at current throughput)
     CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: number // Number of parallel individual single-record fetches (0 to disable)
