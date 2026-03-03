@@ -88,6 +88,13 @@ export class CdpCyclotronWorker<
 
                 await this.groupsManager.addGroupsToGlobals(hogFuncState.globals)
 
+                if (!hogFuncState.globals.person) {
+                    const team = await this.deps.teamManager.getTeam(item.teamId)
+                    if (team) {
+                        await this.personsManager.addPersonToGlobals(hogFuncState.globals, team, this.config.SITE_URL)
+                    }
+                }
+
                 loadedInvocations.push({
                     ...item,
                     state: hogFuncState,

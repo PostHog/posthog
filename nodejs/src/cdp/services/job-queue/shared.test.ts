@@ -1,7 +1,7 @@
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createInvocation } from '../../utils/invocation-utils'
-import { sanitizeInvocationForPersistence } from './shared'
+import { SanitizeOptions, sanitizeInvocationForPersistence } from './shared'
 
 describe('sanitizeInvocationForPersistence', () => {
     const exampleHogFunction = createHogFunction({
@@ -11,20 +11,20 @@ describe('sanitizeInvocationForPersistence', () => {
         ...HOG_FILTERS_EXAMPLES.no_filters,
     })
 
+    const exampleGroups = {
+        organization: {
+            id: 'org-1',
+            type: 'organization',
+            index: 0,
+            url: 'http://localhost:8000/groups/0/org-1',
+            properties: { name: 'PostHog', employee_count: 100 },
+        },
+    }
+
     it('should strip groups from state.globals', () => {
         const invocation = createInvocation(
             {
-                ...createHogExecutionGlobals({
-                    groups: {
-                        organization: {
-                            id: 'org-1',
-                            type: 'organization',
-                            index: 0,
-                            url: 'http://localhost:8000/groups/0/org-1',
-                            properties: { name: 'PostHog', employee_count: 100 },
-                        },
-                    },
-                }),
+                ...createHogExecutionGlobals({ groups: exampleGroups }),
                 inputs: {},
             },
             exampleHogFunction
@@ -41,17 +41,7 @@ describe('sanitizeInvocationForPersistence', () => {
 
     it('should preserve all other state fields', () => {
         const globals = {
-            ...createHogExecutionGlobals({
-                groups: {
-                    organization: {
-                        id: 'org-1',
-                        type: 'organization',
-                        index: 0,
-                        url: 'http://localhost:8000/groups/0/org-1',
-                        properties: { name: 'PostHog' },
-                    },
-                },
-            }),
+            ...createHogExecutionGlobals({ groups: exampleGroups }),
             inputs: { url: 'https://example.com' },
         }
         const invocation = createInvocation(globals, exampleHogFunction)
@@ -127,13 +117,7 @@ describe('sanitizeInvocationForPersistence', () => {
             {
                 ...createHogExecutionGlobals({
                     groups: {
-                        organization: {
-                            id: 'org-1',
-                            type: 'organization',
-                            index: 0,
-                            url: 'http://localhost:8000/groups/0/org-1',
-                            properties: { name: 'PostHog', employee_count: 100, plan: 'enterprise' },
-                        },
+                        ...exampleGroups,
                         company: {
                             id: 'company-1',
                             type: 'company',
@@ -156,4 +140,86 @@ describe('sanitizeInvocationForPersistence', () => {
         // Original retains both groups
         expect(Object.keys(invocation.state.globals.groups!)).toEqual(['organization', 'company'])
     })
+
+    it('should strip person when stripPerson is true', () => {
+        const invocation = createInvocation(
+            {
+                ...createHogExecutionGlobals({ groups: undefined }),
+                inputs: {},
+            },
+            exampleHogFunction
+        )
+        delete invocation.state.globals.groups
+
+        expect(invocation.state.globals.person).toBeDefined()
+
+        const sanitized = sanitizeInvocationForPersistence(invocation, { stripPerson: true })
+
+        expect(sanitized.state!.globals.person).toBeUndefined()
+        // Original should not be mutated
+        expect(invocation.state.globals.person).toBeDefined()
+    })
+
+    it('should not strip person by default', () => {
+        const invocation = createInvocation(
+            {
+                ...createHogExecutionGlobals({ groups: exampleGroups }),
+                inputs: {},
+            },
+            exampleHogFunction
+        )
+
+        const sanitized = sanitizeInvocationForPersistence(invocation)
+
+        expect(sanitized.state!.globals.person).toEqual(invocation.state.globals.person)
+        expect(sanitized.state!.globals.groups).toBeUndefined()
+    })
+
+    it.each([
+        {
+            options: { stripGroups: true, stripPerson: true },
+            expectGroups: false,
+            expectPerson: false,
+        },
+        {
+            options: { stripGroups: true, stripPerson: false },
+            expectGroups: false,
+            expectPerson: true,
+        },
+        {
+            options: { stripGroups: false, stripPerson: true },
+            expectGroups: true,
+            expectPerson: false,
+        },
+        {
+            options: { stripGroups: false, stripPerson: false },
+            expectGroups: true,
+            expectPerson: true,
+        },
+    ] satisfies { options: SanitizeOptions; expectGroups: boolean; expectPerson: boolean }[])(
+        'should strip based on options: stripGroups=$options.stripGroups, stripPerson=$options.stripPerson',
+        ({ options, expectGroups, expectPerson }) => {
+            const invocation = createInvocation(
+                {
+                    ...createHogExecutionGlobals({ groups: exampleGroups }),
+                    inputs: {},
+                },
+                exampleHogFunction
+            )
+
+            const sanitized = sanitizeInvocationForPersistence(invocation, options)
+
+            if (expectGroups) {
+                expect(sanitized.state!.globals.groups).toEqual(exampleGroups)
+            } else {
+                expect(sanitized.state!.globals.groups).toBeUndefined()
+            }
+
+            if (expectPerson) {
+                expect(sanitized.state!.globals.person).toBeDefined()
+            } else {
+                expect(sanitized.state!.globals.person).toBeUndefined()
+            }
+        }
+    )
 })

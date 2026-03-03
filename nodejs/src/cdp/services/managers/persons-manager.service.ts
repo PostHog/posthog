@@ -1,8 +1,10 @@
-import { PersonPropertyFilter } from '~/types'
+import { PersonPropertyFilter, Team } from '~/types'
 
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
 import { PersonRepository } from '../../../worker/ingestion/persons/repositories/person-repository'
+import { HogFunctionInvocationGlobals } from '../../types'
+import { getPersonDisplayName } from '../../utils'
 
 export type PersonGetArgs = {
     teamId: number
@@ -93,6 +95,21 @@ export class PersonsManagerService {
                 ...filters,
                 options: { limit, cursor },
             })
+        }
+    }
+
+    public async addPersonToGlobals(globals: HogFunctionInvocationGlobals, team: Team, siteUrl: string): Promise<void> {
+        const distinctId = globals.event.distinct_id
+        const dbPerson = await this.get({ teamId: team.id, distinctId })
+
+        if (dbPerson) {
+            const personDisplayName = getPersonDisplayName(team, distinctId, dbPerson.properties)
+            globals.person = {
+                id: dbPerson.id,
+                properties: dbPerson.properties,
+                name: personDisplayName,
+                url: `${siteUrl}/project/${team.id}/person/${encodeURIComponent(distinctId)}`,
+            }
         }
     }
 
