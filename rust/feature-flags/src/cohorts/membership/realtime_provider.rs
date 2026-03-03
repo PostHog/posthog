@@ -37,10 +37,7 @@ impl CohortMembershipProvider for RealtimeCohortMembershipProvider {
             return Ok(HashMap::new());
         }
 
-        // Query the behavioral cohorts database for active memberships.
-        // The cohort_membership table uses ReplacingMergeTree semantics: only the
-        // latest status per (team_id, cohort_id, person_id) is considered, and
-        // only 'entered' status indicates active membership.
+        // Only rows with status='entered' indicate active membership.
         let matched_cohort_ids: Vec<CohortMembershipRow> = sqlx::query_as(
             r#"
             SELECT cohort_id

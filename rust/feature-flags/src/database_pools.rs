@@ -263,7 +263,8 @@ impl DatabasePools {
         }
 
         // Optional behavioral cohorts database pool for realtime cohort membership lookups.
-        // Uses a small pool with tight timeouts since these are simple key lookups.
+        // Built inline rather than via build_pool_config because this pool has its own
+        // max_connections (5) and min_connections (1), independent of the main pool settings.
         let behavioral_cohorts_reader = if config.is_behavioral_cohorts_db_configured() {
             let pool_config = PoolConfig {
                 min_connections: 1,

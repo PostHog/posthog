@@ -8,10 +8,6 @@ use common_types::TeamId;
 
 #[derive(Error, Debug, Clone)]
 pub enum CohortMembershipError {
-    #[error("Behavioral cohorts database is not configured")]
-    NotConfigured,
-    #[error("Database unavailable")]
-    DatabaseUnavailable,
     #[error("Query failed: {0}")]
     QueryFailed(String),
 }
