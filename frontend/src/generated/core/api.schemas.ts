@@ -1088,6 +1088,15 @@ export interface PatchedFileSystemApi {
     readonly last_viewed_at?: string | null
 }
 
+export interface FlagValueItemApi {
+    name: unknown
+}
+
+export interface FlagValueResponseApi {
+    results: FlagValueItemApi[]
+    refreshing: boolean
+}
+
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -1962,8 +1971,6 @@ export type FlagValueValuesRetrieveParams = {
      */
     key?: string
 }
-
-export type FlagValueValuesRetrieve200Item = { [key: string]: unknown }
 
 /**
  * Unspecified response body

@@ -208,6 +208,8 @@ type SceneMainTitleProps = {
      * the AI button in the title section registers the tool with Max
      */
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+    /** Max character length for the description field */
+    descriptionMaxLength?: number
 }
 
 export function SceneTitleSection({
@@ -230,6 +232,7 @@ export function SceneTitleSection({
     onGenerateName,
     isGeneratingName,
     maxToolProps,
+    descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { zenMode } = useValues(navigation3000Logic)
@@ -385,6 +388,7 @@ export function SceneTitleSection({
                         forceEdit={forceEdit}
                         renameDebounceMs={renameDebounceMs}
                         saveOnBlur={saveOnBlur}
+                        maxLength={descriptionMaxLength}
                     />
                 </div>
             )}
@@ -561,6 +565,7 @@ function SceneName({
 
     return (
         <div
+            data-attr="scene-name"
             className={cn(
                 'scene-name flex items-center flex-1 max-w-full',
                 !isEditing && onChange && canEdit && 'truncate'
@@ -581,6 +586,7 @@ type SceneDescriptionProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    maxLength?: number
 }
 
 function SceneDescription({
@@ -592,6 +598,7 @@ function SceneDescription({
     forceEdit = false,
     renameDebounceMs = 100,
     saveOnBlur = false,
+    maxLength,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -643,6 +650,7 @@ function SceneDescription({
                         variant="default"
                         name="description"
                         value={description || ''}
+                        maxLength={maxLength}
                         onChange={(e) => {
                             setDescription(e.target.value)
                             if (!saveOnBlur || forceEdit) {

@@ -180,7 +180,7 @@ export function DashboardItems(): JSX.Element {
                             isDragging.current = false
                         }, 250)
                     }}
-                    draggableCancel="a,table,button,.Popover"
+                    draggableCancel="a,table,button,input,.Popover"
                 >
                     {tiles?.map((tile) => {
                         const { insight, text } = tile

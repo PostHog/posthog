@@ -5,14 +5,12 @@ use axum::response::Json;
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
 use common_types::{CapturedEvent, HasEventName};
-use flate2::read::GzDecoder;
 use futures::stream;
 use metrics::{counter, histogram};
 use multer::{parse_boundary, Multipart};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
-use std::io::Read;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
 use tracing::{debug, warn};
@@ -28,6 +26,7 @@ use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use crate::config::CaptureMode;
 use crate::event_restrictions::{AppliedRestrictions, EventContext as RestrictionEventContext};
 use crate::extractors::extract_body_with_timeout;
+use crate::payload::decompression::decompress_gzip_to_bytes;
 use crate::prometheus::report_dropped_events;
 use crate::router::State as AppState;
 use crate::timestamp;
@@ -146,6 +145,20 @@ pub async fn ai_handler(
         return Err(CaptureError::EmptyPayload);
     }
 
+    // Authenticate before any CPU/memory-intensive decompression work
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if !auth_header.starts_with("Bearer ") {
+        warn!("AI endpoint missing or invalid Authorization header");
+        return Err(CaptureError::NoTokenError);
+    }
+
+    let token = &auth_header[7..]; // Remove "Bearer " prefix
+    validate_token(token)?;
+
     // Check for Content-Encoding header and decompress if needed
     let content_encoding = headers
         .get("content-encoding")
@@ -154,7 +167,7 @@ pub async fn ai_handler(
 
     let decompressed_body = if content_encoding.eq_ignore_ascii_case("gzip") {
         debug!("Decompressing gzip-encoded request body");
-        decompress_gzip(&body)?
+        Bytes::from(decompress_gzip_to_bytes(&body, body_limit)?)
     } else {
         body
     };
@@ -180,21 +193,6 @@ pub async fn ai_handler(
         warn!("Failed to parse boundary from Content-Type: {}", e);
         CaptureError::RequestDecodingError(format!("Invalid boundary in Content-Type: {e}"))
     })?;
-
-    // Check for authentication
-    let auth_header = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    if !auth_header.starts_with("Bearer ") {
-        warn!("AI endpoint missing or invalid Authorization header");
-        return Err(CaptureError::NoTokenError);
-    }
-
-    // Extract and validate token
-    let token = &auth_header[7..]; // Remove "Bearer " prefix
-    validate_token(token)?;
 
     // Capture body size for logging (before we move the Bytes)
     let body_size = decompressed_body.len();
@@ -384,24 +382,6 @@ pub async fn options() -> Result<CaptureResponse, CaptureError> {
         status: CaptureResponseCode::Ok,
         quota_limited: None,
     })
-}
-
-/// Decompress gzip-encoded body using streaming decompression
-fn decompress_gzip(compressed: &Bytes) -> Result<Bytes, CaptureError> {
-    let mut decoder = GzDecoder::new(&compressed[..]);
-    let mut decompressed = Vec::new();
-
-    decoder.read_to_end(&mut decompressed).map_err(|e| {
-        warn!("Failed to decompress gzip body: {}", e);
-        CaptureError::RequestDecodingError(format!("Failed to decompress gzip body: {e}"))
-    })?;
-
-    debug!(
-        "Decompressed {} bytes to {} bytes",
-        compressed.len(),
-        decompressed.len()
-    );
-    Ok(Bytes::from(decompressed))
 }
 
 /// Retrieve event metadata from the first multipart part for early checks.
