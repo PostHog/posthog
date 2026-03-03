@@ -33,8 +33,7 @@ describe('createPersonPropertiesReadOnlyStep', () => {
         mockPersonRepository = {
             fetchPerson: jest.fn(),
             fetchPersonsByDistinctIds: jest.fn(),
-            countPersonsByProperties: jest.fn(),
-            fetchPersonsByProperties: jest.fn(),
+            fetchPersonsByPersonIds: jest.fn(),
             createPerson: jest.fn(),
             updatePerson: jest.fn(),
             updatePersonAssertVersion: jest.fn(),

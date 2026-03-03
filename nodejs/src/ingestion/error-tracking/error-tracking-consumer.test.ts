@@ -55,8 +55,7 @@ jest.mock('../../utils/logger', () => ({
 const createMockPersonRepository = (): jest.Mocked<PersonRepository> => ({
     fetchPerson: jest.fn().mockResolvedValue(undefined),
     fetchPersonsByDistinctIds: jest.fn(),
-    countPersonsByProperties: jest.fn(),
-    fetchPersonsByProperties: jest.fn(),
+    fetchPersonsByPersonIds: jest.fn(),
     createPerson: jest.fn(),
     updatePerson: jest.fn(),
     updatePersonAssertVersion: jest.fn(),
