@@ -5,7 +5,6 @@ from posthog.settings import TEST
 from products.web_analytics.dags import (
     cache_favicons,
     cache_warming,
-    no_live_events,
     web_pre_aggregated_accuracy,
     web_preaggregated,
     web_preaggregated_asset_checks,
@@ -46,7 +45,6 @@ defs = dagster.Definitions(
         web_preaggregated_team_selection.web_analytics_team_candidates_job,
         cache_warming.web_analytics_cache_warming_job,
         cache_favicons.cache_authorized_domain_favicons_job,
-        no_live_events.no_live_events_check.job,
     ],
     schedules=schedules,
     resources=resources,
