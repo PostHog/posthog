@@ -1,4 +1,5 @@
 use crate::api::errors::FlagError;
+use crate::flags::flag_matching::EvaluationType;
 use crate::metrics::consts::FLAG_DB_OPERATIONS_PER_REQUEST;
 use std::cell::RefCell;
 use std::future::Future;
@@ -186,6 +187,11 @@ pub struct FlagsCanonicalLogLine {
     /// - "found": query succeeded, overrides returned
     pub hash_key_override_status: Option<&'static str>,
 
+    /// Which evaluation strategy was used for this request.
+    /// Set to `Parallel` if any dependency level triggered parallel evaluation.
+    /// `None` if flags were not evaluated (disabled, quota limited, empty).
+    pub evaluation_type: Option<EvaluationType>,
+
     // Rate limiting
     pub rate_limited: bool,
 
@@ -234,6 +240,7 @@ impl Default for FlagsCanonicalLogLine {
             flags_errored: 0,
             dependency_graph_errors: 0,
             hash_key_override_status: None,
+            evaluation_type: None,
             rate_limited: false,
             team_cache_source: None,
             http_status: 200,
@@ -293,6 +300,7 @@ impl FlagsCanonicalLogLine {
             flags_errored = self.flags_errored,
             dependency_graph_errors = self.dependency_graph_errors,
             hash_key_override_status = self.hash_key_override_status,
+            evaluation_type = self.evaluation_type.map(|t| t.as_str()),
             rate_limited = self.rate_limited,
             team_cache_source = self.team_cache_source,
             error_code = self.error_code,
