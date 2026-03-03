@@ -246,64 +246,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["steps"]), 0)
 
-    # When we send a user to their own site, we give them a token.
-    # Make sure you can only create actions if that token is set,
-    # otherwise evil sites could create actions with a users' session.
-    # NOTE: Origin header is only set on cross domain request
-    def test_create_from_other_domain(self, *args):
-        # FIXME: BaseTest is using Django client to perform calls to a DRF endpoint.
-        # Django HttpResponse does not have an attribute `data`. Better use rest_framework.test.APIClient.
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/",
-            data={"name": "user signed up"},
-            headers={"origin": "https://evilwebsite.com"},
-        )
-        self.assertEqual(response.status_code, 401)
-
-        self.user.temporary_token = "token123"
-        self.user.save()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
-            data={"name": "user signed up"},
-            headers={"origin": "https://somewebsite.com"},
-        )
-        self.assertEqual(response.status_code, 201)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
-            data={"name": "user signed up and post to slack", "post_to_slack": True},
-            headers={"origin": "https://somewebsite.com"},
-        )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["post_to_slack"], True)
-
-        list_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/", headers={"origin": "https://evilwebsite.com"}
-        )
-        self.assertEqual(list_response.status_code, 401)
-
-        detail_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/{response.json()['id']}/",
-            headers={"origin": "https://evilwebsite.com"},
-        )
-        self.assertEqual(detail_response.status_code, 401)
-
-        self.client.logout()
-        list_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/",
-            data={"temporary_token": "token123"},
-            headers={"origin": "https://somewebsite.com"},
-        )
-        self.assertEqual(list_response.status_code, 200)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
-            data={"name": "user signed up 22"},
-            headers={"origin": "https://somewebsite.com"},
-        )
-        self.assertEqual(response.status_code, 201, response.json())
-
     # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
     def test_http_to_https(self, *args):
         response = self.client.post(

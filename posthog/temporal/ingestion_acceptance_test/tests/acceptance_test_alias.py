@@ -39,10 +39,6 @@ class TestAlias(AcceptanceTest):
         assert person is not None, "Alias not propagated within time budget"
 
         # Query all events for this person - should have all 3 specific events
-        events = self.client.query_events_by_person_id(person.id, expected_count=3)
-        assert events is not None, "Expected at least 3 events for person after alias"
-
-        event_uuids = {e.uuid for e in events}
-        assert first_event_uuid in event_uuids, "First event not found in person's events"
-        assert second_event_uuid in event_uuids, "Second event not found in person's events"
-        assert alias_event_uuid in event_uuids, "Alias event not found in person's events"
+        expected_uuids = {first_event_uuid, second_event_uuid, alias_event_uuid}
+        events = self.client.query_events_by_person_id(person.id, expected_event_uuids=expected_uuids)
+        assert events is not None, "Expected events not found for person after alias within time budget"
