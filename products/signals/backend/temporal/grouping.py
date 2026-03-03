@@ -837,6 +837,37 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
             if isinstance(match_result, ExistingReportMatch):
                 report = SignalReport.objects.select_for_update().get(id=match_result.report_id, team_id=input.team_id)
+                # Soft-deleted reports shouldn't receive new signals at all. Generally, these
+                # won't be matched-to (since the associated signals are also deleted), but
+                # if a report is deleted while a signal that would match it is in-flight,
+                # this can happen. In these cases we skip the weight/count update and skip
+                # promotion, but we still emit the signal to ClickHouse, marked as deleted
+                # in metadata
+                if report.status == SignalReport.Status.DELETED:
+                    report_id = str(report.id)
+                    ts = input.timestamp or timezone.now()
+                    metadata = {
+                        "source_product": input.source_product,
+                        "source_type": input.source_type,
+                        "source_id": input.source_id,
+                        "weight": input.weight,
+                        "report_id": report_id,
+                        "extra": input.extra,
+                        "deleted": True,
+                    }
+                    metadata["match_metadata"] = asdict(match_result.match_metadata)
+                    emit_embedding_request(
+                        content=input.description,
+                        team_id=input.team_id,
+                        product="signals",
+                        document_type="signal",
+                        rendering="plain",
+                        document_id=input.signal_id,
+                        models=[m.value for m in EmbeddingModelName],
+                        timestamp=ts,
+                        metadata=metadata,
+                    )
+                    return report_id, False, ts
                 report.total_weight += input.weight
                 report.signal_count += 1
                 update_fields = ["total_weight", "signal_count", "updated_at"]
@@ -854,10 +885,16 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     summary=match_result.summary,
                 )
 
-            if report.status == SignalReport.Status.POTENTIAL and report.total_weight >= WEIGHT_THRESHOLD:
-                report.status = SignalReport.Status.CANDIDATE
-                report.promoted_at = timezone.now()
-                report.save(update_fields=["status", "promoted_at", "updated_at"])
+            # SUPPRESSED reports gather signals indefinitely but are never promoted
+            # POTENTIAL reports are only promoted once signal_count >= signals_at_run (snooze gate;
+            # signals_at_run defaults to 0 so fresh reports always pass) and weight threshold is met
+            if (
+                report.status == SignalReport.Status.POTENTIAL
+                and report.total_weight >= WEIGHT_THRESHOLD
+                and report.signal_count >= report.signals_at_run
+            ):
+                updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
+                report.save(update_fields=updated_fields)
                 promoted = True
 
             report_id = str(report.id)
@@ -922,31 +959,32 @@ WAIT_MAX_ATTEMPTS = 12  # 5s * 12 = 60s
 
 @temporalio.activity.defn
 async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
-    """Poll ClickHouse until the emitted signal appears, or give up after ~1 minute."""
+    """Poll ClickHouse until the emitted signal appears, or give up after ~1 minute.
+
+    Filters on inserted_at >= (now - 1 minute) rather than on the deleted flag, so we
+    confirm that *this specific ingestion* landed — regardless of whether the signal is
+    deleted — and don't mistake an older row for the one we just emitted.
+    """
     team = await Team.objects.aget(pk=input.team_id)
+    inserted_at_threshold = timezone.now() - timedelta(minutes=1)
 
     query = """
         SELECT count()
-        FROM (
-            SELECT
-                document_id,
-                argMax(metadata, inserted_at) as metadata
-            FROM document_embeddings
-            WHERE toDate(timestamp) = toDate({timestamp})
-              AND product = 'signals'
-              AND document_type = 'signal'
-              AND model_name = {model_name}
-              AND rendering = 'plain'
-              AND document_id = {signal_id}
-            GROUP BY document_id
-        )
-        WHERE NOT JSONExtractBool(metadata, 'deleted')
+        FROM document_embeddings
+        WHERE toDate(timestamp) = toDate({timestamp})
+          AND product = 'signals'
+          AND document_type = 'signal'
+          AND model_name = {model_name}
+          AND rendering = 'plain'
+          AND document_id = {signal_id}
+          AND inserted_at >= {inserted_at_threshold}
     """
 
     placeholders = {
         "timestamp": ast.Constant(value=input.timestamp),
         "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
         "signal_id": ast.Constant(value=input.signal_id),
+        "inserted_at_threshold": ast.Constant(value=inserted_at_threshold),
     }
 
     for attempt in range(WAIT_MAX_ATTEMPTS):
@@ -1129,20 +1167,17 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
         retry_policy=RetryPolicy(maximum_attempts=3),
     )
 
-    # Wait for the signal to appear in ClickHouse before processing the next one,
-    # so subsequent signals can find it during semantic search
-    if workflow.patched("wait-for-clickhouse-v1"):
-        await workflow.execute_activity(
-            wait_for_signal_in_clickhouse_activity,
-            WaitForClickHouseInput(
-                team_id=inputs.team_id,
-                signal_id=signal_id,
-                timestamp=assign_result.timestamp,
-            ),
-            start_to_close_timeout=timedelta(minutes=2),
-            heartbeat_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
+    await workflow.execute_activity(
+        wait_for_signal_in_clickhouse_activity,
+        WaitForClickHouseInput(
+            team_id=inputs.team_id,
+            signal_id=signal_id,
+            timestamp=assign_result.timestamp,
+        ),
+        start_to_close_timeout=timedelta(minutes=2),
+        heartbeat_timeout=timedelta(seconds=30),
+        retry_policy=RetryPolicy(maximum_attempts=2),
+    )
 
     if assign_result.promoted:
         try:
