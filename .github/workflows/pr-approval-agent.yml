@@ -2,7 +2,7 @@ name: PR Approval Agent
 
 on:
     pull_request:
-        types: [review_requested]
+        types: [labeled]
 
 permissions:
     contents: read
@@ -10,9 +10,10 @@ permissions:
 
 jobs:
     review:
-        # Only run when the requested reviewer is our bot and the author is an org member
+        # Only run on the "stamphog" label, for non-draft PRs by org members
         if: >-
-            github.event.requested_reviewer.login == 'stamphog[bot]'
+            github.event.label.name == 'stamphog'
+            && !github.event.pull_request.draft
             && contains(fromJSON('["MEMBER","OWNER"]'), github.event.pull_request.author_association)
         runs-on: depot-ubuntu-latest
         timeout-minutes: 10
@@ -61,13 +62,19 @@ jobs:
                   if [ "$VERDICT" = "APPROVED" ]; then
                     gh pr review "$PR" --approve --body "$REASONING" \
                       --repo ${{ github.repository }}
-                  elif [ "$VERDICT" = "REFUSED" ]; then
-                    gh pr review "$PR" --request-changes --body "$REASONING" \
-                      --repo ${{ github.repository }}
                   else
                     gh pr review "$PR" --comment --body "$REASONING" \
                       --repo ${{ github.repository }}
                   fi
+
+            - name: Remove label
+              if: always()
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  gh pr edit "${{ github.event.pull_request.number }}" \
+                    --remove-label stamphog \
+                    --repo ${{ github.repository }}
 
             - name: Upload evidence
               if: always()
