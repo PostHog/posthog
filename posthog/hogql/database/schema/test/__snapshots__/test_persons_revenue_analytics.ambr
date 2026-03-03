@@ -608,10 +608,10 @@
                     subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons__revenue_analytics.revenue ASC
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -821,10 +821,10 @@
                     subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons__revenue_analytics.revenue ASC
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -1036,10 +1036,10 @@
                     subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -1250,10 +1250,10 @@
                     subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -1464,10 +1464,10 @@
                     subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -1678,10 +1678,10 @@
                     subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -1892,10 +1892,10 @@
                     subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -2107,10 +2107,10 @@
                     subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -2327,10 +2327,10 @@
                     subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons_revenue_analytics
   ORDER BY persons_revenue_analytics.person_id ASC
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -2547,10 +2547,10 @@
                     subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons_revenue_analytics
   ORDER BY persons_revenue_analytics.person_id ASC
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -2756,10 +2756,10 @@
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons_revenue_analytics
   ORDER BY persons_revenue_analytics.mrr DESC,
            persons_revenue_analytics.revenue DESC
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -2965,10 +2965,10 @@
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons_revenue_analytics
   ORDER BY persons_revenue_analytics.mrr DESC,
            persons_revenue_analytics.revenue DESC
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,

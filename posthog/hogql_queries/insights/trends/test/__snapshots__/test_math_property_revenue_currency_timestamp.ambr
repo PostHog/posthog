@@ -16,7 +16,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -46,7 +46,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,

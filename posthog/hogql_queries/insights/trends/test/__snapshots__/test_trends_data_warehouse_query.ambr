@@ -31,7 +31,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -52,7 +52,7 @@
          1 AS boolfield
   FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1
   LIMIT 101
-  OFFSET 0 SETTINGS format_csv_allow_double_quotes=0,
+  OFFSET 0 SETTINGS format_csv_allow_double_quotes=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -103,7 +103,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -124,7 +124,7 @@
          1 AS boolfield
   FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1
   LIMIT 101
-  OFFSET 0 SETTINGS format_csv_allow_double_quotes=0,
+  OFFSET 0 SETTINGS format_csv_allow_double_quotes=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -175,7 +175,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -220,7 +220,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -250,7 +250,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -267,7 +267,7 @@
   '''
   SELECT min(toTimeZone(posthog_test_test_table_1.created, 'UTC')) AS `min(toTimeZone(created, 'UTC'))`
   FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -297,7 +297,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -327,7 +327,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -344,7 +344,7 @@
   '''
   SELECT min(toTimeZone(posthog_test_test_table_1.created, 'UTC')) AS `min(toTimeZone(created, 'UTC'))`
   FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -392,7 +392,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -490,7 +490,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -520,7 +520,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -550,7 +550,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
