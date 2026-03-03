@@ -567,7 +567,7 @@ function SceneName({
         <div
             data-attr="scene-name"
             className={cn(
-                'scene-name flex items-center gap-x-2 flex-1 max-w-full',
+                'scene-name flex items-center gap-x-1 flex-1 max-w-full',
                 !isEditing && onChange && canEdit && 'truncate'
             )}
         >
