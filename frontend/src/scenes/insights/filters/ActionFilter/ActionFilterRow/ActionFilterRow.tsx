@@ -278,7 +278,14 @@ export function ActionFilterRow({
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
     const [isMenuVisible, setIsMenuVisible] = useState(false)
 
-    const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
+    const {
+        setNodeRef,
+        attributes: { 'aria-disabled': _, ...attributes },
+        transform,
+        transition,
+        listeners,
+        isDragging,
+    } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 

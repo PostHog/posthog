@@ -42,12 +42,13 @@ from .serializers import (
     TaskRunCommandResponseSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
+    TaskRunRelayMessageRequestSerializer,
     TaskRunSessionLogsQuerySerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
 )
 from .services.connection_token import create_sandbox_connection_token
-from .temporal.client import execute_task_processing_workflow
+from .temporal.client import execute_task_processing_workflow, execute_twig_agent_relay_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +232,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "partial_update",
             "set_output",
             "append_log",
+            "relay_message",
             "session_logs",
             "command",
         ]
@@ -307,8 +309,50 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
         task_run.save()
+        self._post_slack_update_for_pr(task_run)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+
+    def _post_slack_update_for_pr(self, task_run: TaskRun) -> None:
+        pr_url = (task_run.output or {}).get("pr_url") if isinstance(task_run.output, dict) else None
+        if not pr_url:
+            return
+
+        try:
+            from products.slack_app.backend.models import SlackThreadTaskMapping
+            from products.tasks.backend.temporal.process_task.activities.post_slack_update import (
+                PostSlackUpdateInput,
+                post_slack_update,
+            )
+
+            mapping = (
+                SlackThreadTaskMapping.objects.filter(task_run=task_run)
+                .order_by("-updated_at")
+                .values(
+                    "integration_id",
+                    "channel",
+                    "thread_ts",
+                    "mentioning_slack_user_id",
+                )
+                .first()
+            )
+
+            if not mapping:
+                return
+
+            post_slack_update(
+                PostSlackUpdateInput(
+                    run_id=str(task_run.id),
+                    slack_thread_context={
+                        "integration_id": mapping["integration_id"],
+                        "channel": mapping["channel"],
+                        "thread_ts": mapping["thread_ts"],
+                        "mentioning_slack_user_id": mapping["mentioning_slack_user_id"],
+                    },
+                )
+            )
+        except Exception:
+            logger.exception("task_run_slack_update_for_pr_failed for run %s", task_run.id)
 
     def _signal_workflow_completion(self, task_run: TaskRun, status: str, error_message: str | None) -> None:
         """Send completion signal to Temporal workflow."""
@@ -372,6 +416,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # TODO: Validate output data according to schema for the task type.
         task_run.output = output_data
         task_run.save(update_fields=["output", "updated_at"])
+        self._post_slack_update_for_pr(task_run)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
@@ -400,6 +445,40 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response = Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
         response["Server-Timing"] = timer.to_header_string()
         return response
+
+    @validated_request(
+        request_serializer=TaskRunRelayMessageRequestSerializer,
+        responses={
+            200: OpenApiResponse(description="Relay accepted"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Relay run message to Slack",
+        description="Queue a Slack relay workflow to post a run message into the mapped Slack thread.",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="relay_message", required_scopes=["task:write"])
+    def relay_message(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        if task_run.is_terminal:
+            return Response({"status": "skipped"})
+
+        text = request.validated_data["text"].strip()
+        if not text:
+            return Response({"status": "skipped"})
+
+        try:
+            relay_id = execute_twig_agent_relay_workflow(
+                run_id=str(task_run.id),
+                text=text,
+                delete_progress=True,
+            )
+        except Exception:
+            logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(task_run.id)})
+            return Response(
+                ErrorResponseSerializer({"error": "Failed to queue Slack relay"}).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({"status": "accepted", "relay_id": relay_id})
 
     @validated_request(
         request_serializer=TaskRunArtifactsUploadRequestSerializer,

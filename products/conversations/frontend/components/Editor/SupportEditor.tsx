@@ -1,18 +1,20 @@
 import './SupportEditor.scss'
 
 import { JSONContent, TextSerializer } from '@tiptap/core'
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import ExtensionDocument from '@tiptap/extension-document'
 import { Image } from '@tiptap/extension-image'
 import { Link } from '@tiptap/extension-link'
 import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
-import { EditorContent } from '@tiptap/react'
+import { EditorContent, NodeViewContent, NodeViewProps, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
+import { common, createLowlight } from 'lowlight'
 import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCode, IconImage } from '@posthog/icons'
+import { IconCode, IconCopy, IconImage, IconTerminal } from '@posthog/icons'
 
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
@@ -30,8 +32,58 @@ import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+const lowlight = createLowlight(common)
+lowlight.register('plaintext', () => ({ contains: [] }))
+
+function SupportCodeBlockComponent({ node }: NodeViewProps): JSX.Element {
+    const code = node.textContent
+
+    return (
+        <NodeViewWrapper className="SupportEditor__code-block">
+            <div className="SupportEditor__code-block-copy" contentEditable={false}>
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconCopy />}
+                    onClick={() => void copyToClipboard(code, 'code')}
+                    tooltip="Copy code"
+                />
+            </div>
+            <pre>
+                <code>
+                    <NodeViewContent />
+                </code>
+            </pre>
+        </NodeViewWrapper>
+    )
+}
+
+const SupportCodeBlockExtension = CodeBlockLowlight.extend({
+    addNodeView() {
+        return ReactNodeViewRenderer(SupportCodeBlockComponent)
+    },
+    addKeyboardShortcuts() {
+        return {
+            ...this.parent?.(),
+            Tab: ({ editor }) => {
+                if (editor.isActive('codeBlock')) {
+                    editor.commands.insertContent('\t')
+                    return true
+                }
+                return false
+            },
+            'Shift-Tab': ({ editor }) => {
+                if (editor.isActive('codeBlock')) {
+                    return true
+                }
+                return false
+            },
+        }
+    },
+}).configure({ lowlight })
 
 // Underline icon (not in @posthog/icons)
 function IconUnderline(): JSX.Element {
@@ -99,7 +151,7 @@ export const SUPPORT_EXTENSIONS = [
         // bold: enabled - Cmd+B
         bulletList: false,
         // code: enabled - inline code (Cmd+E) - just visual styling, not executable
-        codeBlock: false,
+        codeBlock: false, // We use our own SupportCodeBlockExtension
         // hardBreak: enabled - allows Shift+Enter for line breaks within paragraphs
         // dropcursor: enabled - shows visual indicator when dragging content
         // gapcursor: enabled - helps position cursor near images/blocks
@@ -113,6 +165,7 @@ export const SUPPORT_EXTENSIONS = [
     Underline, // Cmd+U
     ImageExtension,
     LinkExtension,
+    SupportCodeBlockExtension,
 ]
 
 // Plain text serialization options for generateText() - used by Comment.tsx
@@ -227,6 +280,12 @@ function serializeNode(node: JSONContent): string {
 
         case RichContentNodeType.Mention:
             return `@member:${node.attrs?.id}`
+
+        case 'codeBlock': {
+            const language = node.attrs?.language || ''
+            const code = (node.content || []).map((n) => n.text || '').join('')
+            return `\`\`\`${language}\n${code}\n\`\`\`\n\n`
+        }
 
         default:
             // For unknown nodes, try to serialize children
@@ -372,6 +431,13 @@ export function SupportEditor({
                         onClick={() => ttEditor?.chain().focus().toggleCode().run()}
                         icon={<IconCode />}
                         tooltip="Inline code (Cmd+E)"
+                    />
+                    <LemonButton
+                        size="small"
+                        active={ttEditor?.isActive('codeBlock')}
+                        onClick={() => ttEditor?.chain().focus().toggleCodeBlock().run()}
+                        icon={<IconTerminal />}
+                        tooltip="Code block (Cmd+Alt+C)"
                     />
                     <Popover
                         visible={linkPopoverOpen}

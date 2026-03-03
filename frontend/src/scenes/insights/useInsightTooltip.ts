@@ -31,6 +31,7 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
         const tooltipEl = document.createElement('div')
         tooltipEl.id = `InsightTooltipWrapper-${id}`
         tooltipEl.classList.add('InsightTooltipWrapper')
+        tooltipEl.setAttribute('data-attr', 'insight-tooltip-wrapper')
         document.body.appendChild(tooltipEl)
 
         const root = createRoot(tooltipEl)

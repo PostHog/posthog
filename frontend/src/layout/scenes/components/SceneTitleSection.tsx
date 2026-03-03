@@ -191,9 +191,19 @@ type SceneMainTitleProps = {
     forceBackTo?: Breadcrumb
 
     /**
+     * If true, disables the sticky behavior of the title section
+     */
+    noSticky?: boolean
+
+    /**
      * Additional class name for the title section
      */
     className?: string
+
+    /**
+     * Additional class name for the description wrapper
+     */
+    descriptionClassName?: string
 
     /**
      * Optional callback to generate a name using AI
@@ -208,6 +218,8 @@ type SceneMainTitleProps = {
      * the AI button in the title section registers the tool with Max
      */
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+    /** Max character length for the description field */
+    descriptionMaxLength?: number
 }
 
 export function SceneTitleSection({
@@ -224,12 +236,15 @@ export function SceneTitleSection({
     saveOnBlur = false,
     noBorder = false,
     noPadding = false,
+    noSticky = false,
     actions,
     forceBackTo,
     className,
+    descriptionClassName,
     onGenerateName,
     isGeneratingName,
     maxToolProps,
+    descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { zenMode } = useValues(navigation3000Logic)
@@ -287,7 +302,8 @@ export function SceneTitleSection({
 
             <div
                 className={cn(
-                    'group/scene-title-section bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-10 duration-300',
+                    'group/scene-title-section bg-primary duration-300',
+                    !noSticky && '@2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-10',
                     noPadding ? '' : '-mx-4 px-4 -mt-4 -mb-4',
                     noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled &&
@@ -385,6 +401,8 @@ export function SceneTitleSection({
                         forceEdit={forceEdit}
                         renameDebounceMs={renameDebounceMs}
                         saveOnBlur={saveOnBlur}
+                        className={descriptionClassName}
+                        maxLength={descriptionMaxLength}
                     />
                 </div>
             )}
@@ -561,6 +579,7 @@ function SceneName({
 
     return (
         <div
+            data-attr="scene-name"
             className={cn(
                 'scene-name flex items-center flex-1 max-w-full',
                 !isEditing && onChange && canEdit && 'truncate'
@@ -581,6 +600,8 @@ type SceneDescriptionProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    className?: string
+    maxLength?: number
 }
 
 function SceneDescription({
@@ -592,6 +613,8 @@ function SceneDescription({
     forceEdit = false,
     renameDebounceMs = 100,
     saveOnBlur = false,
+    className: descriptionClassName,
+    maxLength,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -643,6 +666,7 @@ function SceneDescription({
                         variant="default"
                         name="description"
                         value={description || ''}
+                        maxLength={maxLength}
                         onChange={(e) => {
                             setDescription(e.target.value)
                             if (!saveOnBlur || forceEdit) {
@@ -721,7 +745,7 @@ function SceneDescription({
     }
 
     return (
-        <div className="scene-description relative focus-within:z-50">
+        <div className={cn('scene-description relative focus-within:z-50', descriptionClassName)}>
             <div className="-mx-[var(--button-padding-x-sm)] flex items-center gap-0">{Element}</div>
         </div>
     )
