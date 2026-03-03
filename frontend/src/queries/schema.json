@@ -11045,9 +11045,6 @@
         "DataWarehouseViewLink": {
             "additionalProperties": false,
             "properties": {
-                "configuration": {
-                    "$ref": "#/definitions/DataWarehouseViewLinkConfiguration"
-                },
                 "created_at": {
                     "type": ["string", "null"]
                 },
@@ -11081,18 +11078,6 @@
                 }
             },
             "required": ["id"],
-            "type": "object"
-        },
-        "DataWarehouseViewLinkConfiguration": {
-            "additionalProperties": false,
-            "properties": {
-                "experiments_optimized": {
-                    "type": "boolean"
-                },
-                "experiments_timestamp_key": {
-                    "type": ["string", "null"]
-                }
-            },
             "type": "object"
         },
         "DatabaseSchemaBatchExportTable": {
