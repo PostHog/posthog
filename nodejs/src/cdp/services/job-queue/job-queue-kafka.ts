@@ -95,7 +95,7 @@ export class CyclotronJobQueueKafka {
                     ? await compress(JSON.stringify(serialized))
                     : JSON.stringify(serialized)
 
-                cdpJobSizeKb.observe(value.length / 1024)
+                cdpJobSizeKb.labels('kafka').observe(value.length / 1024)
 
                 const headers: Record<string, string> = {
                     // NOTE: Later we should remove hogFunctionId as it is no longer used
