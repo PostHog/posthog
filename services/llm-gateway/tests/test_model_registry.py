@@ -266,27 +266,33 @@ class TestProviderFiltering:
             providers = {m.provider for m in models}
             assert providers == {"openai", "anthropic"}
 
-    def test_returns_openrouter_models_when_configured(self):
+    @pytest.mark.parametrize(
+        "provider_kwargs,expected_provider,expected_model_id",
+        [
+            (
+                {"openai": False, "anthropic": False, "gemini": False, "openrouter": True},
+                "openrouter",
+                "openrouter/anthropic/claude-3.5-sonnet",
+            ),
+            (
+                {"openai": False, "anthropic": False, "gemini": False, "fireworks": True},
+                "fireworks_ai",
+                "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct",
+            ),
+        ],
+    )
+    def test_returns_single_new_provider_models_when_configured(
+        self, provider_kwargs, expected_provider, expected_model_id
+    ):
         with patch(
             "llm_gateway.services.model_registry.get_settings",
-            return_value=create_mock_settings(openai=False, anthropic=False, gemini=False, openrouter=True),
+            return_value=create_mock_settings(**provider_kwargs),
         ):
             models = get_available_models("llm_gateway")
             providers = {m.provider for m in models}
-            assert providers == {"openrouter"}
+            assert providers == {expected_provider}
             model_ids = {m.id for m in models}
-            assert "openrouter/anthropic/claude-3.5-sonnet" in model_ids
-
-    def test_returns_fireworks_models_when_configured(self):
-        with patch(
-            "llm_gateway.services.model_registry.get_settings",
-            return_value=create_mock_settings(openai=False, anthropic=False, gemini=False, fireworks=True),
-        ):
-            models = get_available_models("llm_gateway")
-            providers = {m.provider for m in models}
-            assert providers == {"fireworks_ai"}
-            model_ids = {m.id for m in models}
-            assert "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct" in model_ids
+            assert expected_model_id in model_ids
 
     def test_returns_all_five_providers_when_configured(self):
         with patch(
