@@ -478,6 +478,10 @@ impl Client for ReadWriteClient {
         self.writer.batch_del(keys).await
     }
 
+    async fn lpush(&self, key: String, value: String) -> Result<(), CustomRedisError> {
+        self.writer.lpush(key, value).await
+    }
+
     /// Execute a pipeline of commands.
     ///
     /// All pipeline commands are routed to the primary (writer) since pipelines

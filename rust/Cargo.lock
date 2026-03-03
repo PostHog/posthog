@@ -2135,12 +2135,15 @@ name = "common-redis"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "redis",
  "serde-pickle",
+ "serde_json",
  "testcontainers",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "uuid",
  "zstd",
 ]
 

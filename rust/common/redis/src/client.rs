@@ -510,6 +510,16 @@ impl Client for RedisClient {
         Ok(())
     }
 
+    async fn lpush(&self, key: String, value: String) -> Result<(), CustomRedisError> {
+        let mut conn = self.connection.clone();
+        redis::cmd("LPUSH")
+            .arg(&key)
+            .arg(value.as_bytes())
+            .query_async::<()>(&mut conn)
+            .await?;
+        Ok(())
+    }
+
     async fn execute_pipeline(
         &self,
         commands: Vec<PipelineCommand>,

@@ -530,6 +530,15 @@ impl Client for MockRedisClient {
         Ok(())
     }
 
+    async fn lpush(&self, key: String, value: String) -> Result<(), CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "lpush".to_string(),
+            key,
+            value: MockRedisValue::String(value),
+        });
+        Ok(())
+    }
+
     async fn execute_pipeline(
         &self,
         commands: Vec<PipelineCommand>,

@@ -270,6 +270,8 @@ pub trait Client: Send + Sync {
         ttl_seconds: usize,
     ) -> Result<Vec<bool>, CustomRedisError>;
     async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError>;
+    /// Push a value to the head of a Redis list (LPUSH).
+    async fn lpush(&self, key: String, value: String) -> Result<(), CustomRedisError>;
     /// Execute a batch of pipeline commands in a single round-trip.
     ///
     /// Returns a vector of results, one for each command in the same order.
@@ -311,6 +313,7 @@ pub trait ClientPipelineExt: Client + Clone {
 impl<T: Client + Clone> ClientPipelineExt for T {}
 
 // Module declarations
+pub mod celery;
 mod client;
 mod mock;
 mod pipeline;
