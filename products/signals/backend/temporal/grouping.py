@@ -1328,6 +1328,16 @@ async def _process_signal_batch(
         per_signal_query_embeddings[sig_idx].append(all_query_embeddings[flat_idx].embedding)
         per_signal_ch_results[sig_idx].append(all_search_results[flat_idx].candidates)
 
+    # Step 4.5: Fetch report contexts for all CH candidates (group-aware matching)
+    all_candidate_report_ids = list({c.report_id for results in all_search_results for c in results.candidates})
+    report_contexts_result: FetchReportContextsOutput = await workflow.execute_activity(
+        fetch_report_contexts_activity,
+        FetchReportContextsInput(team_id=team_id, report_ids=all_candidate_report_ids),
+        start_to_close_timeout=timedelta(minutes=2),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+    report_contexts: dict[str, ReportContext] = report_contexts_result.contexts
+
     # === SEQUENTIAL PHASE (steps 5-7) ===
     processed_batch_signals: list[_ProcessedBatchSignal] = []
     promoted_reports: dict[str, SignalReportSummaryWorkflowInputs] = {}
@@ -1345,7 +1355,7 @@ async def _process_signal_batch(
                 limit=10,
             )
 
-            # Step 5: LLM match
+            # Step 5: Group-aware LLM match
             match_result = await workflow.execute_activity(
                 match_signal_to_report_activity,
                 MatchSignalToReportInput(
@@ -1354,10 +1364,51 @@ async def _process_signal_batch(
                     source_type=signal.source_type,
                     queries=per_signal_queries[i],
                     query_results=augmented_results,
+                    report_contexts=report_contexts,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+
+            # Step 5.5: PR-specificity verification for existing matches
+            updated_title: Optional[str] = None
+
+            if isinstance(match_result, ExistingReportMatch):
+                report_ctx = report_contexts.get(match_result.report_id)
+                report_title = report_ctx.title if report_ctx else ""
+
+                specificity_result: VerifyMatchSpecificityOutput = await workflow.execute_activity(
+                    verify_match_specificity_activity,
+                    VerifyMatchSpecificityInput(
+                        team_id=team_id,
+                        report_id=match_result.report_id,
+                        report_title=report_title,
+                        new_signal_description=signal.description,
+                        new_signal_source_product=signal.source_product,
+                        new_signal_source_type=signal.source_type,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+
+                specificity_meta = SpecificityMetadata(
+                    pr_title=specificity_result.pr_title,
+                    specific_enough=specificity_result.specific_enough,
+                    reason=specificity_result.reason,
+                )
+
+                if specificity_result.specific_enough:
+                    updated_title = specificity_result.pr_title
+                    match_result.match_metadata.specificity = specificity_meta
+                else:
+                    match_result = NewReportMatch(
+                        title=signal.description.split("\n")[0],
+                        summary=f"Split from group: {report_title}",
+                        match_metadata=NoMatchMetadata(
+                            reason=f'PR-specificity rejected: "{specificity_result.pr_title}" — {specificity_result.reason}',
+                            specificity_rejection=specificity_meta,
+                        ),
+                    )
 
             # Step 6: Assign + emit
             assign_result: AssignAndEmitSignalOutput = await workflow.execute_activity(
@@ -1373,6 +1424,7 @@ async def _process_signal_batch(
                     extra=signal.extra,
                     embedding=signal_embeddings[i].embedding,
                     match_result=match_result,
+                    updated_title=updated_title,
                 ),
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1391,6 +1443,21 @@ async def _process_signal_batch(
             )
             last_assign_result = assign_result
             last_signal_id = signal_id
+
+            # Update local report_contexts so later signals in the batch see this report
+            if isinstance(match_result, ExistingReportMatch):
+                old_ctx = report_contexts.get(assign_result.report_id)
+                report_contexts[assign_result.report_id] = ReportContext(
+                    report_id=assign_result.report_id,
+                    title=updated_title or (old_ctx.title if old_ctx else ""),
+                    signal_count=(old_ctx.signal_count if old_ctx else 0) + 1,
+                )
+            else:
+                report_contexts[assign_result.report_id] = ReportContext(
+                    report_id=assign_result.report_id,
+                    title=match_result.title,
+                    signal_count=1,
+                )
 
             if assign_result.promoted:
                 promoted_reports[assign_result.report_id] = SignalReportSummaryWorkflowInputs(
