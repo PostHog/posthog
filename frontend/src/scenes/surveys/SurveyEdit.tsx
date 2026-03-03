@@ -64,7 +64,12 @@ import {
 } from '~/types'
 
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
-import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
+import {
+    DEFAULT_TARGETING_FLAG_FILTERS,
+    SURVEY_TYPE_LABEL_MAP,
+    SurveyMatchTypeLabels,
+    defaultSurveyFieldValues,
+} from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
@@ -1203,17 +1208,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           type="secondary"
                                                                           className="w-max"
                                                                           onClick={() => {
-                                                                              setSurveyValue('targeting_flag_filters', {
-                                                                                  groups: [
-                                                                                      {
-                                                                                          properties: [],
-                                                                                          rollout_percentage: 100,
-                                                                                          variant: null,
-                                                                                      },
-                                                                                  ],
-                                                                                  multivariate: null,
-                                                                                  payloads: {},
-                                                                              })
+                                                                              setSurveyValue(
+                                                                                  'targeting_flag_filters',
+                                                                                  DEFAULT_TARGETING_FLAG_FILTERS
+                                                                              )
                                                                               setSurveyValue(
                                                                                   'remove_targeting_flag',
                                                                                   false
