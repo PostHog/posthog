@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1025_drop_team_session_recording_encryption_column"),
+        ("posthog", "1028_repo_routing_rule"),
     ]
 
     operations = [
