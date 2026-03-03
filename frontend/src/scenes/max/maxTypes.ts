@@ -3,6 +3,7 @@ import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/sc
 import { integer } from '~/queries/schema/type-utils'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+// eslint-disable-next-line import/no-cycle
 import { RevenueAnalyticsQuery } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 export enum MaxContextType {
