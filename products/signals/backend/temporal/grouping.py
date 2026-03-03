@@ -30,7 +30,12 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
-from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
+from products.signals.backend.temporal.summary import (
+    FetchSignalsForReportInput,
+    FetchSignalsForReportOutput,
+    SignalReportSummaryWorkflow,
+    fetch_signals_for_report_activity,
+)
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
     ExistingReportMatch,
@@ -703,6 +708,7 @@ class VerifyMatchSpecificityInput:
     new_signal_description: str
     new_signal_source_product: str
     new_signal_source_type: str
+    group_signals: list[SignalData]
 
 
 @dataclass
@@ -716,64 +722,12 @@ class VerifyMatchSpecificityOutput:
 async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     try:
-        team = await Team.objects.aget(pk=input.team_id)
-
-        query = """
-            SELECT
-                document_id,
-                content,
-                metadata,
-                toString(timestamp) as timestamp
-            FROM (
-                SELECT
-                    document_id,
-                    argMax(content, inserted_at) as content,
-                    argMax(metadata, inserted_at) as metadata,
-                    argMax(timestamp, inserted_at) as timestamp
-                FROM document_embeddings
-                WHERE model_name = {model_name}
-                  AND product = 'signals'
-                  AND document_type = 'signal'
-                GROUP BY document_id
-            )
-            WHERE JSONExtractString(metadata, 'report_id') = {report_id}
-              AND NOT JSONExtractBool(metadata, 'deleted')
-            ORDER BY timestamp ASC
-        """
-
-        result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
-            query_type="SignalsFetchForSpecificity",
-            query=query,
-            team=team,
-            placeholders={
-                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-                "report_id": ast.Constant(value=input.report_id),
-            },
-        )
-
-        group_signals: list[SignalData] = []
-        for row in result.results or []:
-            document_id, content, metadata_str, timestamp = row
-            metadata = json.loads(metadata_str)
-            group_signals.append(
-                SignalData(
-                    signal_id=document_id,
-                    content=content,
-                    source_product=metadata.get("source_product", ""),
-                    source_type=metadata.get("source_type", ""),
-                    source_id=metadata.get("source_id", ""),
-                    weight=metadata.get("weight", 0.0),
-                    timestamp=timestamp,
-                    extra=metadata.get("extra", {}),
-                )
-            )
-
         specificity_prompt = _build_specificity_prompt(
             new_signal_description=input.new_signal_description,
             new_signal_source_product=input.new_signal_source_product,
             new_signal_source_type=input.new_signal_source_type,
             report_title=input.report_title,
-            group_signals=group_signals,
+            group_signals=input.group_signals,
         )
 
         specificity = await call_llm(
@@ -786,6 +740,7 @@ async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) 
         logger.debug(
             f"Specificity check for report {input.report_id}: "
             f'pr_title="{specificity.pr_title}", specific_enough={specificity.specific_enough}',
+            team_id=input.team_id,
             report_id=input.report_id,
             pr_title=specificity.pr_title,
             specific_enough=specificity.specific_enough,
@@ -799,6 +754,7 @@ async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) 
     except Exception as e:
         logger.exception(
             f"Failed to verify match specificity for report {input.report_id}: {e}",
+            team_id=input.team_id,
             report_id=input.report_id,
         )
         raise
@@ -1073,6 +1029,14 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
         report_ctx = report_contexts_result.contexts.get(match_result.report_id)
         report_title = report_ctx.title if report_ctx else ""
 
+        # Fetch existing signals for the report, then run the LLM specificity check
+        group_signals_result: FetchSignalsForReportOutput = await workflow.execute_activity(
+            fetch_signals_for_report_activity,
+            FetchSignalsForReportInput(team_id=inputs.team_id, report_id=match_result.report_id),
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
         # Hard requirement, no try-except wrapping, but could lead to the signal skip if the activity exceeds retries
         specificity_result: VerifyMatchSpecificityOutput = await workflow.execute_activity(
             verify_match_specificity_activity,
@@ -1083,6 +1047,7 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
                 new_signal_description=inputs.description,
                 new_signal_source_product=inputs.source_product,
                 new_signal_source_type=inputs.source_type,
+                group_signals=group_signals_result.signals,
             ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
