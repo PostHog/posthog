@@ -112,6 +112,9 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             actions.clearEvents()
             actions.updateEventsConnection()
         },
+        clearEvents: () => {
+            cache.batch = []
+        },
         updateEventsConnection: async () => {
             if (cache.eventSourceController) {
                 cache.eventSourceController.abort()
