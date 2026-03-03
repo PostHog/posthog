@@ -13,7 +13,7 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
-import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
+import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 
@@ -23,7 +23,6 @@ const TAXONOMIC_GROUP_TYPES = [
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.Cohorts,
-    TaxonomicFilterGroupType.HogQLExpression,
 ]
 
 export function InsightsFilters(): JSX.Element {
@@ -129,7 +128,7 @@ function FilterChips(): JSX.Element {
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
-                        initiallyOpen={allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL}
+                        initiallyOpen={allowInitiallyOpen}
                     />
                 )
             })}
