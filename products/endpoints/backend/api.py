@@ -1534,6 +1534,66 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return DashboardFilter(date_from=date_from, date_to=date_to, properties=properties)
 
+    def _should_use_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
+        if version is None:
+            return False
+        if version.query.get("kind") != "HogQLQuery":
+            return False
+        from posthog.ducklake.common import get_duckgres_server_for_team, is_dev_mode
+
+        if is_dev_mode():
+            import os
+
+            return os.environ.get("DUCKLAKE_ENDPOINTS_ENABLED", "").lower() in ("1", "true")
+        return get_duckgres_server_for_team(self.team_id) is not None
+
+    def _hogql_to_ducklake_sql(self, query: dict) -> str:
+        from posthog.hogql.printer.utils import prepare_and_print_ast
+
+        hogql_str = query["query"]
+        parsed = parse_select(hogql_str)
+        context = HogQLContext(team_id=self.team_id, enable_select_queries=True)
+        sql, _ = prepare_and_print_ast(parsed, context, dialect="postgres")
+        return sql
+
+    def _execute_ducklake_endpoint(
+        self,
+        endpoint: Endpoint,
+        data: EndpointRunRequest,
+        request: Request,
+        query: dict,
+        version: EndpointVersion | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> Response:
+        from posthog.ducklake.client import execute_ducklake_query
+
+        try:
+            sql = self._hogql_to_ducklake_sql(query)
+            result = execute_ducklake_query(self.team_id, sql)
+            response_data = {
+                "columns": result.columns,
+                "results": result.results,
+                "types": result.types,
+                "hasMore": False,
+            }
+            return Response(response_data, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.exception(
+                "DuckLake endpoint execution failed",
+                endpoint_name=endpoint.name,
+            )
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team_id,
+                    "ducklake": True,
+                    "endpoint_name": endpoint.name,
+                },
+            )
+            raise
+
     def _execute_inline_endpoint(
         self,
         endpoint: Endpoint,
@@ -1694,9 +1754,22 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                         status=status.HTTP_404_NOT_FOUND,
                     )
                 query_to_use = version_obj.query.copy()
-                result = self._execute_inline_endpoint(
-                    endpoint, data, request, query_to_use, version=version_obj, debug=debug, limit=limit, offset=offset
-                )
+
+                if self._should_use_ducklake(endpoint, version_obj):
+                    result = self._execute_ducklake_endpoint(
+                        endpoint, data, request, query_to_use, version=version_obj, limit=limit, offset=offset
+                    )
+                else:
+                    result = self._execute_inline_endpoint(
+                        endpoint,
+                        data,
+                        request,
+                        query_to_use,
+                        version=version_obj,
+                        debug=debug,
+                        limit=limit,
+                        offset=offset,
+                    )
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             logger.exception(
                 "Endpoint execution failed",
