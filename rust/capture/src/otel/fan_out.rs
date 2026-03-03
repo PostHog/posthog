@@ -14,7 +14,7 @@ fn any_value_to_json(value: &any_value::Value) -> Value {
     match value {
         any_value::Value::StringValue(s) => Value::String(s.clone()),
         any_value::Value::BoolValue(b) => Value::Bool(*b),
-        any_value::Value::IntValue(i) => Value::String(i.to_string()),
+        any_value::Value::IntValue(i) => Value::Number((*i).into()),
         any_value::Value::DoubleValue(d) => serde_json::Number::from_f64(*d)
             .map(Value::Number)
             .unwrap_or(Value::Null),
@@ -62,7 +62,13 @@ pub fn expand_into_events(
     request: &ExportTraceServiceRequest,
     distinct_id: &str,
 ) -> Vec<SpanEvent> {
-    let mut events = Vec::new();
+    let total_spans: usize = request
+        .resource_spans
+        .iter()
+        .flat_map(|rs| &rs.scope_spans)
+        .map(|ss| ss.spans.len())
+        .sum();
+    let mut events = Vec::with_capacity(total_spans);
 
     for rs in &request.resource_spans {
         let resource_attrs = rs
@@ -189,7 +195,7 @@ mod tests {
             (any_value::Value::BoolValue(true), Value::Bool(true)),
             (
                 any_value::Value::IntValue(42),
-                Value::String("42".to_string()),
+                Value::Number(42.into()),
             ),
             (
                 any_value::Value::BytesValue(vec![0xAB, 0xCD]),
@@ -211,7 +217,7 @@ mod tests {
         ];
         let map = attributes_to_map(&attrs);
         assert_eq!(map.get("key1"), Some(&Value::String("val1".to_string())));
-        assert_eq!(map.get("key2"), Some(&Value::String("42".to_string())));
+        assert_eq!(map.get("key2"), Some(&Value::Number(42.into())));
     }
 
     #[test]

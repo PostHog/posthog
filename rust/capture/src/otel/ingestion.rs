@@ -1,13 +1,12 @@
 use axum::http::HeaderMap;
 use bytes::Bytes;
-use flate2::read::GzDecoder;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use prost::Message;
 use serde_json::Value;
-use std::io::Read;
 use tracing::warn;
 
 use crate::api::CaptureError;
+use crate::payload::decompression::decompress_gzip_to_bytes;
 
 /// Patch empty `{}` objects in OTEL JSON that should be `null` for proper deserialization.
 /// See https://github.com/open-telemetry/opentelemetry-rust/issues/1253
@@ -33,19 +32,10 @@ fn patch_otel_json(v: &mut Value) {
     }
 }
 
-fn decompress_gzip(compressed: &Bytes) -> Result<Bytes, CaptureError> {
-    let mut decoder = GzDecoder::new(&compressed[..]);
-    let mut decompressed = Vec::new();
-    decoder.read_to_end(&mut decompressed).map_err(|e| {
-        warn!("Failed to decompress gzip body: {}", e);
-        CaptureError::RequestDecodingError(format!("Failed to decompress gzip body: {e}"))
-    })?;
-    Ok(Bytes::from(decompressed))
-}
-
 pub fn parse_request(
     body: &Bytes,
     headers: &HeaderMap,
+    body_limit: usize,
 ) -> Result<ExportTraceServiceRequest, CaptureError> {
     let content_encoding = headers
         .get("content-encoding")
@@ -53,7 +43,11 @@ pub fn parse_request(
         .unwrap_or("");
 
     let body = if content_encoding.eq_ignore_ascii_case("gzip") {
-        decompress_gzip(body)?
+        Bytes::from(decompress_gzip_to_bytes(body, body_limit)?)
+    } else if !content_encoding.is_empty() {
+        return Err(CaptureError::RequestDecodingError(format!(
+            "Unsupported content-encoding: {content_encoding}"
+        )));
     } else {
         body.clone()
     };
@@ -128,7 +122,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "application/x-protobuf".parse().unwrap());
 
-        let parsed = parse_request(&body, &headers).unwrap();
+        let parsed = parse_request(&body, &headers, 4 * 1024 * 1024).unwrap();
         assert_eq!(parsed.resource_spans.len(), 1);
         assert_eq!(
             parsed.resource_spans[0].scope_spans[0].spans[0].trace_id,
@@ -143,7 +137,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "application/json".parse().unwrap());
 
-        let parsed = parse_request(&body, &headers).unwrap();
+        let parsed = parse_request(&body, &headers, 4 * 1024 * 1024).unwrap();
         assert_eq!(parsed.resource_spans.len(), 1);
     }
 
@@ -161,7 +155,7 @@ mod tests {
         headers.insert("content-type", "application/x-protobuf".parse().unwrap());
         headers.insert("content-encoding", "gzip".parse().unwrap());
 
-        let parsed = parse_request(&body, &headers).unwrap();
+        let parsed = parse_request(&body, &headers, 4 * 1024 * 1024).unwrap();
         assert_eq!(parsed.resource_spans.len(), 1);
     }
 
@@ -171,7 +165,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "application/x-protobuf".parse().unwrap());
 
-        assert!(parse_request(&body, &headers).is_err());
+        assert!(parse_request(&body, &headers, 4 * 1024 * 1024).is_err());
     }
 
     #[test]
@@ -180,7 +174,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "application/json".parse().unwrap());
 
-        assert!(parse_request(&body, &headers).is_err());
+        assert!(parse_request(&body, &headers, 4 * 1024 * 1024).is_err());
     }
 
     #[test]
@@ -189,7 +183,17 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "text/plain".parse().unwrap());
 
-        assert!(parse_request(&body, &headers).is_err());
+        assert!(parse_request(&body, &headers, 4 * 1024 * 1024).is_err());
+    }
+
+    #[test]
+    fn test_unsupported_content_encoding() {
+        let body = Bytes::from("data");
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/x-protobuf".parse().unwrap());
+        headers.insert("content-encoding", "deflate".parse().unwrap());
+
+        assert!(parse_request(&body, &headers, 4 * 1024 * 1024).is_err());
     }
 
     #[test]
