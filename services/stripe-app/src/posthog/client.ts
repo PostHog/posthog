@@ -55,7 +55,7 @@ export class PostHogClient {
         // If this fails we still have valid in-memory tokens for the current session,
         // but the next session will start with stale credentials — so we let it throw.
         await saveCredentials(this.stripe, {
-            region: this.baseUrl.includes('.eu.') ? 'eu' : 'us',
+            region: this.baseUrlRegion,
             accessToken: this.accessToken,
             refreshToken: this.refreshToken,
         })
@@ -78,5 +78,9 @@ export class PostHogClient {
         }
 
         return response
+    }
+
+    private get baseUrlRegion(): 'us' | 'eu' {
+        return this.baseUrl.includes('.eu.') ? 'eu' : 'us'
     }
 }

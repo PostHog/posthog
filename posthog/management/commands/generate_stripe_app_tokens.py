@@ -22,6 +22,7 @@ from oauthlib.common import generate_token
 from posthog.models import Team, User
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
 
 STRIPE_APP_NAME = "PostHog Stripe App"
 ENV_KEY = "STRIPE_POSTHOG_OAUTH_CLIENT_ID"
@@ -52,16 +53,12 @@ class Command(BaseCommand):
         team_id = options["team_id"]
         force = options["force"]
 
-        try:
-            team = Team.objects.get(id=team_id)
-        except Team.DoesNotExist:
+        team = Team.objects.filter(id=team_id).first()
+        if not team:
             raise CommandError(f"Team with id {team_id} does not exist")
 
-        try:
-            user = User.objects.filter(current_team_id=team_id).first()
-            if not user:
-                raise CommandError(f"No users found in team with id {team_id}")
-        except User.DoesNotExist:
+        user = User.objects.filter(current_team_id=team_id).first()
+        if not user:
             raise CommandError(f"No users found in team with id {team_id}")
 
         oauth_app = self._get_or_create_oauth_app()
@@ -103,7 +100,7 @@ class Command(BaseCommand):
         return access_token.token, refresh_token.token, access_token.expires
 
     def _create_tokens(self, oauth_app: OAuthApplication, team_id: int, user_id: int) -> tuple[str, str, object]:
-        access_token_value = generate_token()
+        access_token_value = generate_random_oauth_access_token(None)
         access_token = OAuthAccessToken.objects.create(
             application=oauth_app,
             token=access_token_value,
@@ -113,7 +110,7 @@ class Command(BaseCommand):
             scoped_teams=[team_id],
         )
 
-        refresh_token_value = generate_token()
+        refresh_token_value = generate_random_oauth_refresh_token(None)
         OAuthRefreshToken.objects.create(
             application=oauth_app,
             token=refresh_token_value,

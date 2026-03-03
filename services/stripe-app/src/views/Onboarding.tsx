@@ -18,10 +18,15 @@ const Onboarding = ({ environment }: ExtensionContextValue): JSX.Element => {
 
     useEffect(() => {
         logger.debug('Onboarding: checking connection status...')
-        loadCredentials(stripe).then((creds) => {
-            logger.info('Onboarding: connected =', creds !== null)
-            setConnected(creds !== null)
-        })
+        loadCredentials(stripe)
+            .then((creds) => {
+                logger.info('Onboarding: connected =', creds !== null)
+                setConnected(creds !== null)
+            })
+            .catch((error) => {
+                logger.error('Onboarding: error checking credentials:', error)
+                setConnected(false)
+            })
     }, [])
 
     if (connected === null) {

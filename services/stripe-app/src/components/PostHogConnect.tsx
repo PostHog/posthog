@@ -25,15 +25,20 @@ const PostHogConnect = ({ constants, mode }: PostHogConnectProps): JSX.Element =
 
     const checkCredentials = useCallback((): void => {
         logger.debug('PostHogConnect: checking credentials...')
-        loadCredentials(stripe).then((creds) => {
-            if (creds) {
-                logger.info('PostHogConnect: connected, region:', creds.region)
-                setConnectionState({ status: 'connected', region: creds.region })
-            } else {
-                logger.info('PostHogConnect: not connected')
+        loadCredentials(stripe)
+            .then((creds) => {
+                if (creds) {
+                    logger.info('PostHogConnect: connected, region:', creds.region)
+                    setConnectionState({ status: 'connected', region: creds.region })
+                } else {
+                    logger.info('PostHogConnect: not connected')
+                    setConnectionState({ status: 'disconnected' })
+                }
+            })
+            .catch((error) => {
+                logger.info('PostHogConnect: error checking credentials:', error)
                 setConnectionState({ status: 'disconnected' })
-            }
-        })
+            })
     }, [])
 
     useEffect(() => {
