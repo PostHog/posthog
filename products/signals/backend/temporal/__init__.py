@@ -17,6 +17,7 @@ from products.signals.backend.temporal.safety_judge import safety_judge_activity
 from products.signals.backend.temporal.summarize_signals import summarize_signals_activity
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
+    compute_impact_assessment_activity,
     fetch_signals_for_report_activity,
     mark_report_failed_activity,
     mark_report_in_progress_activity,
@@ -35,6 +36,7 @@ WORKFLOWS = [
 ACTIVITIES = [
     actionability_judge_activity,
     assign_and_emit_signal_activity,
+    compute_impact_assessment_activity,
     emit_eval_signal_activity,
     fetch_report_contexts_activity,
     fetch_signal_type_examples_activity,

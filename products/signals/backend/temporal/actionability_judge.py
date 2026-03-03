@@ -96,15 +96,22 @@ When in doubt between "requires_human_input" and "not_actionable", choose "not_a
 
 When the choice is NOT "not_actionable", you must also assign a priority from P0 to P4 indicating how important it is to execute on this report. Think of priority as urgency × impact.
 
+Use the REPORT IMPACT ASSESSMENT section (if provided) to ground your priority decision in quantitative data. The guidelines below are not hard rules — use your judgment to weigh context — but they prevent defaulting to "P2 for everything":
+
 - "P0" — Critical, needs immediate attention. Something is utterly broken or causing significant harm right now.
+  Guideline: user_impact_ratio > 20%, OR cross-product corroboration with external severity "urgent", OR signals_per_day > 10.
   Examples: production errors spiking, a core user flow is completely broken, data loss is occurring, a security vulnerability is exposed.
 - "P1" — High priority, should be addressed soon. Significant user-facing impact, but the situation is not an active emergency.
+  Guideline: user_impact_ratio > 5%, OR external severity "urgent"/"high" with 3+ external reports, OR signals_per_day > 3.
   Examples: a feature is partially broken for a segment of users, an experiment shows a statistically significant regression, error rates have risen noticeably but the product is still usable.
 - "P2" — Medium priority, should be addressed in the normal course of work. Clear improvement opportunity or a real but contained issue.
+  Guideline: user_impact_ratio > 1%, OR 2+ external reports, OR moderate external severity.
   Examples: a feature flag is ready for cleanup after a successful rollout, a UX problem is causing friction but has workarounds, a moderately impactful experiment result warrants a code change.
 - "P3" — Low priority, address when convenient. Minor improvement or a real but low-impact issue.
+  Guideline: user_impact_ratio < 1% with few occurrences, OR single external report with no corroboration.
   Examples: a small UI inconsistency, an experiment with marginal results that could still be worth rolling out, minor code cleanup suggested by usage patterns.
 - "P4" — Minimal priority, nice-to-have. The report is actionable but the impact of acting on it is very small.
+  Guideline: minimal measurable impact, no external severity indicators.
   Examples: cosmetic issues, negligible performance improvements, informational reports that suggest optional investigation.
 
 Do NOT set priority when the choice is "not_actionable".
@@ -121,8 +128,9 @@ def _build_actionability_judge_prompt(
     title: str,
     summary: str,
     signals: list[SignalData],
+    impact_text: str | None = None,
 ) -> str:
-    return f"""REPORT TO ASSESS:
+    prompt = f"""REPORT TO ASSESS:
 
 Title: {title}
 Summary: {summary}
@@ -133,13 +141,19 @@ UNDERLYING SIGNALS:
 {render_signals_to_text(signals)}
 </signal_data>"""
 
+    if impact_text:
+        prompt += f"\n\n{impact_text}"
+
+    return prompt
+
 
 async def judge_report_actionability(
     title: str,
     summary: str,
     signals: list[SignalData],
+    impact_text: str | None = None,
 ) -> ActionabilityJudgeResponse:
-    user_prompt = _build_actionability_judge_prompt(title, summary, signals)
+    user_prompt = _build_actionability_judge_prompt(title, summary, signals, impact_text)
 
     def validate(text: str) -> ActionabilityJudgeResponse:
         data = json.loads(text)
@@ -160,6 +174,7 @@ class ActionabilityJudgeInput:
     title: str
     summary: str
     signals: list[SignalData]
+    impact_text: str | None = None
 
 
 @dataclass
@@ -177,6 +192,7 @@ async def actionability_judge_activity(input: ActionabilityJudgeInput) -> Action
             title=input.title,
             summary=input.summary,
             signals=input.signals,
+            impact_text=input.impact_text,
         )
 
         await SignalReportArtefact.objects.acreate(

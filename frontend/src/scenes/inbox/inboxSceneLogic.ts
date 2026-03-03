@@ -14,7 +14,13 @@ import { Breadcrumb } from '~/types'
 
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
 import { signalSourcesLogic } from './signalSourcesLogic'
-import { SignalReport, SignalReportArtefact, SignalReportArtefactResponse, SignalReportStatus } from './types'
+import { SignalReport, SignalReportStatus } from './types'
+
+export function getReportPriorityLabel(report: SignalReport): string | null {
+    const artefact = report.artefacts?.find((a) => a.type === 'actionability_judgment')
+    const priority = (artefact?.content as Record<string, unknown> | undefined)?.priority
+    return typeof priority === 'string' ? priority : null
+}
 
 const REPORTS_PAGE_SIZE = 200
 
@@ -65,15 +71,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                         ...response,
                         results: [...currentResults, ...response.results],
                     }
-                },
-            },
-        ],
-        artefacts: [
-            {} as Record<string, SignalReportArtefact[]>,
-            {
-                loadArtefacts: async ({ reportId }: { reportId: string }) => {
-                    const response: SignalReportArtefactResponse = await api.signalReports.artefacts(reportId)
-                    return { ...values.artefacts, [reportId]: response.results }
                 },
             },
         ],
@@ -181,9 +178,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
         setSelectedReportId: ({ id }) => {
             if (id) {
-                if (!values.artefacts[id]) {
-                    actions.loadArtefacts({ reportId: id })
-                }
                 if (!values.reportSignals[id]) {
                     actions.loadReportSignals({ reportId: id })
                 }

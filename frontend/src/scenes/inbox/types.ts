@@ -9,6 +9,7 @@ export interface SignalReport {
     created_at: string
     updated_at: string
     artefact_count: number
+    artefacts: SignalReportArtefact[]
 }
 
 export enum SignalReportStatus {

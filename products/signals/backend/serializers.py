@@ -68,8 +68,24 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class SignalReportArtefactSerializer(serializers.ModelSerializer):
+    content = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SignalReportArtefact
+        fields = ["id", "type", "content", "created_at"]
+        read_only_fields = fields
+
+    def get_content(self, obj: SignalReportArtefact) -> dict:
+        try:
+            return json.loads(obj.content)
+        except (json.JSONDecodeError, ValueError):
+            return {}
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
+    artefacts = SignalReportArtefactSerializer(many=True, read_only=True)
 
     class Meta:
         model = SignalReport
@@ -84,20 +100,6 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "artefact_count",
+            "artefacts",
         ]
         read_only_fields = fields
-
-
-class SignalReportArtefactSerializer(serializers.ModelSerializer):
-    content = serializers.SerializerMethodField()
-
-    class Meta:
-        model = SignalReportArtefact
-        fields = ["id", "type", "content", "created_at"]
-        read_only_fields = fields
-
-    def get_content(self, obj: SignalReportArtefact) -> dict:
-        try:
-            return json.loads(obj.content)
-        except (json.JSONDecodeError, ValueError):
-            return {}

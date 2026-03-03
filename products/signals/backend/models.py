@@ -191,6 +191,7 @@ class SignalReportArtefact(UUIDModel):
         VIDEO_SEGMENT = "video_segment"
         SAFETY_JUDGMENT = "safety_judgment"
         ACTIONABILITY_JUDGMENT = "actionability_judgment"
+        IMPACT_ASSESSMENT = "impact_assessment"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")

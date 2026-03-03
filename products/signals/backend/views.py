@@ -4,8 +4,9 @@ import logging
 from typing import cast
 
 from django.conf import settings
-from django.db import IntegrityError
-from django.db.models import Count, Q
+from django.db import IntegrityError, models
+from django.db.models import Count, IntegerField, Prefetch, Q, Subquery, Value
+from django.db.models.functions import Coalesce
 
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -139,11 +140,40 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     scope_object = "task"
     queryset = SignalReport.objects.all()
     filter_backends = [filters.OrderingFilter]
-    ordering_fields = ["signal_count", "total_weight", "created_at", "updated_at"]
-    ordering = ["-signal_count"]
+    ordering_fields = ["priority_rank", "signal_count", "total_weight", "created_at", "updated_at"]
+    ordering = ["priority_rank", "-updated_at"]
 
     def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team=self.team).annotate(artefact_count=Count("artefacts"))
+        # Extract numeric priority from the actionability judgment artefact's JSON content.
+        # Maps P0->0 .. P4->4; reports without a judgment get 99 (sort last).
+        priority_subquery = Subquery(
+            SignalReportArtefact.objects.filter(
+                report_id=models.OuterRef("pk"),
+                type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            )
+            .annotate(
+                priority_num=models.Case(
+                    *[models.When(content__contains=f'"priority": "P{i}"', then=Value(i)) for i in range(5)],
+                    default=Value(99),
+                    output_field=IntegerField(),
+                )
+            )
+            .values("priority_num")[:1],
+            output_field=IntegerField(),
+        )
+        qs = (
+            queryset.filter(team=self.team)
+            .annotate(
+                artefact_count=Count("artefacts"),
+                priority_rank=Coalesce(priority_subquery, Value(99)),
+            )
+            .prefetch_related(
+                Prefetch(
+                    "artefacts",
+                    queryset=SignalReportArtefact.objects.order_by("-created_at"),
+                )
+            )
+        )
         # Deleted reports are terminal -- exclude from all endpoints (detail, list, actions)
         qs = qs.exclude(status=SignalReport.Status.DELETED)
         status_filter = self.request.query_params.get("status")
