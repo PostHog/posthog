@@ -126,11 +126,6 @@ func main() {
 			usePubSub = false
 		} else {
 			defer cleanup()
-			// When Redis pub/sub is active, events get published to Redis by the broker instead of being routed through the in memory filter. 
-			// The Kafka consumer still writes to phEventChan, so if nothing reads from it, the channel buffer (10,000) fills up and the consumer blocks. 
-			// This goroutine keeps reading and discarding every event to prevent back pressure.
-			// This will be removed once the Livestream V2 migration is completed.
-			go func() { for range phEventChan {} }()
 			log.Printf("Redis pub/sub event transport enabled")
 		}
 	}
@@ -296,12 +291,7 @@ func setupRedisPubSub(
 		return nil, fmt.Errorf("create Redis subscriber client: %w", err)
 	}
 
-	tokenRouter, err := events.NewTokenRouter(subscriberClient, subChan, unSubChan)
-	if err != nil {
-		subscriberClient.Close()
-		broker.Close()
-		return nil, fmt.Errorf("create token router: %w", err)
-	}
+	tokenRouter := events.NewTokenRouter(subscriberClient, subChan, unSubChan)
 
 	consumer.Broker = broker
 	go tokenRouter.Run(ctx)

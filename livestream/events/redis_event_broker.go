@@ -9,7 +9,6 @@ import (
 
 	"github.com/posthog/posthog/livestream/configs"
 	"github.com/posthog/posthog/livestream/metrics"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/rueidis"
 )
 
@@ -114,7 +113,7 @@ type TokenRouter struct {
 	channelCancels map[string]context.CancelFunc
 }
 
-func NewTokenRouter(client rueidis.Client, subChan, unSubChan chan Subscription) (*TokenRouter, error) {
+func NewTokenRouter(client rueidis.Client, subChan, unSubChan chan Subscription) *TokenRouter {
 	return &TokenRouter{
 		client:         client,
 		SubChan:        subChan,
@@ -123,7 +122,7 @@ func NewTokenRouter(client rueidis.Client, subChan, unSubChan chan Subscription)
 		allSubs:        make(map[uint64]Subscription),
 		msgCh:          make(chan rueidis.PubSubMessage, 10000),
 		channelCancels: make(map[string]context.CancelFunc),
-	}, nil
+	}
 }
 
 func (tr *TokenRouter) Run(ctx context.Context) {
@@ -155,11 +154,7 @@ func (tr *TokenRouter) Run(ctx context.Context) {
 			}
 			token := sub.Token
 			delete(tr.allSubs, unSub.SubID)
-
-			if dropped := sub.DroppedEvents.Load(); dropped > 0 {
-				log.Printf("Team %d dropped %d events", sub.TeamId, dropped)
-			}
-			metrics.SubTotal.Dec()
+			logUnsubscribe(sub)
 
 			subs := tr.tokenSubs[token]
 			for i, s := range subs {
@@ -187,43 +182,7 @@ func (tr *TokenRouter) Run(ctx context.Context) {
 			token := pse.Token
 			subs := tr.tokenSubs[token]
 
-			var responseGeoEvent *ResponseGeoEvent
-
-			for _, sub := range subs {
-				if sub.ShouldClose.Load() {
-					continue
-				}
-
-				if sub.DistinctId != "" && event.DistinctId != sub.DistinctId {
-					continue
-				}
-
-				if len(sub.EventTypes) > 0 && !slices.Contains(sub.EventTypes, event.Event) {
-					continue
-				}
-
-				if sub.Geo {
-					if event.Lat != 0.0 {
-						if responseGeoEvent == nil {
-							responseGeoEvent = convertToResponseGeoEvent(event)
-						}
-						select {
-						case sub.EventChan <- *responseGeoEvent:
-						default:
-							sub.DroppedEvents.Add(1)
-							metrics.DroppedEvents.With(prometheus.Labels{"channel": "geo"}).Inc()
-						}
-					}
-				} else {
-					responseEvent := convertToResponsePostHogEvent(event, sub.TeamId, sub.Columns)
-					select {
-					case sub.EventChan <- *responseEvent:
-					default:
-						sub.DroppedEvents.Add(1)
-						metrics.DroppedEvents.With(prometheus.Labels{"channel": "events"}).Inc()
-					}
-				}
-			}
+			deliverEvent(event, subs)
 		}
 	}
 }
@@ -243,8 +202,11 @@ func (tr *TokenRouter) subscribeChannel(ctx context.Context, token string) {
 			_ = tr.client.Do(cleanupCtx, tr.client.B().Sunsubscribe().Channel(ch).Build()).Error()
 		}()
 
-		backoff := 100 * time.Millisecond
-		const maxBackoff = 10 * time.Second
+		const (
+			initialBackoff = 100 * time.Millisecond
+			maxBackoff     = 10 * time.Second
+		)
+		backoff := initialBackoff
 
 		for {
 			err := tr.client.Receive(chCtx, tr.client.B().Ssubscribe().Channel(ch).Build(), func(msg rueidis.PubSubMessage) {
@@ -262,15 +224,15 @@ func (tr *TokenRouter) subscribeChannel(ctx context.Context, token string) {
 			if err != nil {
 				log.Printf("redis receive %s: %v (retrying in %s)", token, err, backoff)
 				metrics.RedisErrors.WithLabelValues("receive").Inc()
+				select {
+				case <-chCtx.Done():
+					return
+				case <-time.After(backoff):
+				}
+				backoff = min(backoff*2, maxBackoff)
+			} else {
+				backoff = initialBackoff
 			}
-
-			select {
-			case <-chCtx.Done():
-				return
-			case <-time.After(backoff):
-			}
-
-			backoff = min(backoff*2, maxBackoff)
 		}
 	}()
 
