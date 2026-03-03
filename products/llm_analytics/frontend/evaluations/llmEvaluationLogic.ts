@@ -402,7 +402,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (props.evaluationId === 'new') {
                     const response = await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
                     actions.saveEvaluationSuccess(response)
-                    llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
                 } else {
                     const response = await api.update(
                         `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
@@ -410,6 +409,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     )
                     actions.saveEvaluationSuccess(response)
                 }
+                llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
                 router.actions.push(urls.llmAnalyticsEvaluations(), router.values.searchParams)
             } catch (error) {
                 console.error('Failed to save evaluation:', error)
