@@ -536,6 +536,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": True,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
+                "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
+                "mcp_user_agent": None,
             },
             team=ANY,
             request=ANY,
@@ -573,6 +578,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
+                "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
+                "mcp_user_agent": None,
             },
             team=ANY,
             request=ANY,
@@ -632,6 +642,52 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
+                "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
+                "mcp_user_agent": None,
+            },
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_feature_flag_via_api_key_reports_api_source(self, mock_capture):
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "api-created-feature",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+            },
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+
+        mock_capture.assert_called_once_with(
+            self.user,
+            "feature flag created",
+            {
+                "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
+                "has_rollout_percentage": False,
+                "has_filters": False,
+                "filter_count": 0,
+                "created_at": instance.created_at,
+                "aggregating_by_groups": False,
+                "payload_count": 0,
+                "creation_context": "feature_flags",
+                "source": "api",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
+                "mcp_user_agent": None,
             },
             team=ANY,
             request=ANY,
@@ -828,6 +884,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
+                "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
+                "mcp_user_agent": None,
             },
             team=ANY,
             request=ANY,
@@ -1131,6 +1192,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
+                "mcp_user_agent": None,
             },
             team=ANY,
             request=ANY,
@@ -1871,6 +1937,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
+                "mcp_user_agent": None,
             },
             team=ANY,
             request=ANY,
