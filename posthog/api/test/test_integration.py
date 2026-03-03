@@ -691,3 +691,112 @@ class TestIntegrationAPIKeyAccess:
         kinds = [integration["kind"] for integration in results]
         assert "github" in kinds
         assert "twilio" in kinds
+
+
+class TestStripeIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "test")
+
+    def _create_stripe_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="stripe",
+            config={"account_name": "Test Business (acct_123)"},
+            sensitive_config={"access_token": "sk_live_test123"},
+            integration_id="acct_123",
+            created_by=self.user,
+        )
+
+    @patch("posthog.api.integration.StripeIntegration")
+    def test_destroy_calls_clear_posthog_secrets(self, MockStripeIntegration, client: HttpClient):
+        integration = self._create_stripe_integration()
+        mock_instance = MagicMock()
+        MockStripeIntegration.return_value = mock_instance
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        MockStripeIntegration.assert_called_once()
+        mock_instance.clear_posthog_secrets.assert_called_once()
+        assert not Integration.objects.filter(id=integration.id).exists()
+
+    @patch("posthog.api.integration.StripeIntegration")
+    def test_destroy_still_deletes_when_clear_secrets_fails(self, MockStripeIntegration, client: HttpClient):
+        integration = self._create_stripe_integration()
+        mock_instance = MagicMock()
+        mock_instance.clear_posthog_secrets.side_effect = Exception("Stripe API error")
+        MockStripeIntegration.return_value = mock_instance
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+
+    def test_destroy_non_stripe_does_not_call_clear_secrets(self, client: HttpClient):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            config={"authed_user": {"id": "U123"}},
+            sensitive_config={"access_token": "xoxb-test"},
+            created_by=self.user,
+        )
+
+        client.force_login(self.user)
+        with patch("posthog.api.integration.StripeIntegration") as MockStripeIntegration:
+            response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        MockStripeIntegration.assert_not_called()
+        assert not Integration.objects.filter(id=integration.id).exists()
+
+    @pytest.fixture()
+    def stripe_settings(self, settings):
+        settings.STRIPE_APP_CLIENT_ID = "ca_test123"
+        settings.STRIPE_APP_SECRET_KEY = "sk_test_secret"
+        return settings
+
+    @patch("posthog.api.integration.StripeIntegration")
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_create_calls_write_posthog_secrets(
+        self, mock_oauth_response, MockStripeIntegration, stripe_settings, client: HttpClient
+    ):
+        created_integration = self._create_stripe_integration()
+        mock_oauth_response.return_value = created_integration
+        mock_instance = MagicMock()
+        MockStripeIntegration.return_value = mock_instance
+
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "stripe", "config": {"code": "oauth_code_123"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        MockStripeIntegration.assert_called_once_with(created_integration)
+        mock_instance.write_posthog_secrets.assert_called_once_with(self.team.pk, self.user)
+
+    @patch("posthog.api.integration.StripeIntegration")
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_create_succeeds_when_write_secrets_fails(
+        self, mock_oauth_response, MockStripeIntegration, stripe_settings, client: HttpClient
+    ):
+        created_integration = self._create_stripe_integration()
+        mock_oauth_response.return_value = created_integration
+        mock_instance = MagicMock()
+        mock_instance.write_posthog_secrets.side_effect = Exception("Stripe API error")
+        MockStripeIntegration.return_value = mock_instance
+
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "stripe", "config": {"code": "oauth_code_123"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED

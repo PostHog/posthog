@@ -249,6 +249,16 @@ class IntegrationViewSet(
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
 
+    def perform_destroy(self, instance) -> None:
+        if instance.kind == "stripe":
+            try:
+                stripe_integration = StripeIntegration(instance)
+                stripe_integration.clear_posthog_secrets()
+            except Exception as e:
+                capture_exception(e)
+
+        super().perform_destroy(instance)
+
     def safely_get_queryset(self, queryset):
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
             self.request.successful_authenticator, OAuthAccessTokenAuthentication
