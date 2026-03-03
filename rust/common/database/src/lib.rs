@@ -239,12 +239,20 @@ pub fn extract_timeout_type(error: &SqlxError) -> Option<&'static str> {
     }
 }
 
+/// Determines if a sqlx::Error represents pool exhaustion.
+/// Pool exhaustion is systemic (all connections busy), not transient.
+/// Retrying would just add more pool pressure and amplify the problem.
+pub fn is_pool_exhausted(error: &SqlxError) -> bool {
+    matches!(error, SqlxError::PoolTimedOut)
+}
+
 /// Determines if a sqlx::Error represents a transient failure that should be retried
 pub fn is_transient_error(error: &SqlxError) -> bool {
     match error {
         // Connection/pool issues: usually transient.
+        // Note: PoolTimedOut is deliberately excluded — pool exhaustion is systemic,
+        // not transient. Retrying amplifies load on an already-overloaded pool.
         SqlxError::Io(_)
-        | SqlxError::PoolTimedOut
         | SqlxError::PoolClosed
         // TLS/handshake can be transient (network/cert rollover).
         | SqlxError::Tls(_) => true,
@@ -304,9 +312,9 @@ mod tests {
 
     #[test]
     fn test_is_transient_error_connection_errors() {
-        // Test that database connection errors trigger retries
+        // PoolTimedOut is NOT transient — pool exhaustion is systemic, retrying amplifies load
         let pool_timeout_error = SqlxError::PoolTimedOut;
-        assert!(is_transient_error(&pool_timeout_error));
+        assert!(!is_transient_error(&pool_timeout_error));
 
         let pool_closed_error = SqlxError::PoolClosed;
         assert!(is_transient_error(&pool_closed_error));
@@ -320,6 +328,13 @@ mod tests {
         // Test TLS errors are considered transient
         let tls_error = SqlxError::Tls(Box::new(std::io::Error::other("TLS handshake failed")));
         assert!(is_transient_error(&tls_error));
+    }
+
+    #[test]
+    fn test_is_pool_exhausted() {
+        assert!(is_pool_exhausted(&SqlxError::PoolTimedOut));
+        assert!(!is_pool_exhausted(&SqlxError::PoolClosed));
+        assert!(!is_pool_exhausted(&SqlxError::RowNotFound));
     }
 
     #[test]
