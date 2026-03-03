@@ -131,7 +131,6 @@ const WebAnalyticsRNInstructionsWrapper = withOnboardingDocsWrapper({
 
 export const WebAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: WebAnalyticsWebInstructionsWrapper,
-    [SDKKey.HTML_SNIPPET]: WebAnalyticsWebInstructionsWrapper,
     [SDKKey.ANGULAR]: WebAnalyticsAngularInstructionsWrapper,
     [SDKKey.ASTRO]: WebAnalyticsAstroInstructionsWrapper,
     [SDKKey.BUBBLE]: WebAnalyticsBubbleInstructionsWrapper,

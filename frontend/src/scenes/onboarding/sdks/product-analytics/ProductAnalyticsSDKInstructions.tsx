@@ -215,7 +215,6 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.GO]: ProductAnalyticsGoInstructionsWrapper,
     [SDKKey.GOOGLE_TAG_MANAGER]: ProductAnalyticsGoogleTagManagerInstructionsWrapper,
     [SDKKey.HELICONE]: ProductAnalyticsHeliconeInstructionsWrapper,
-    [SDKKey.HTML_SNIPPET]: ProductAnalyticsWebInstructionsWrapper,
     [SDKKey.IOS]: ProductAnalyticsIOSInstructionsWrapper,
     [SDKKey.LANGFUSE]: ProductAnalyticsLangfuseInstructionsWrapper,
     [SDKKey.LARAVEL]: ProductAnalyticsLaravelInstructionsWrapper,

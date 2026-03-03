@@ -270,7 +270,6 @@ export const WorkflowsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.GO]: WorkflowsGoInstructionsWrapper,
     [SDKKey.GOOGLE_TAG_MANAGER]: WorkflowsGoogleTagManagerInstructionsWrapper,
     [SDKKey.HELICONE]: WorkflowsHeliconeInstructionsWrapper,
-    [SDKKey.HTML_SNIPPET]: WorkflowsWebInstructionsWrapper,
     [SDKKey.IOS]: WorkflowsIOSInstructionsWrapper,
     [SDKKey.LANGFUSE]: WorkflowsLangfuseInstructionsWrapper,
     [SDKKey.LARAVEL]: WorkflowsLaravelInstructionsWrapper,

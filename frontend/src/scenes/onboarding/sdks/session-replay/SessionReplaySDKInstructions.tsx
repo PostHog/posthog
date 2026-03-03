@@ -106,7 +106,6 @@ const SessionReplayRNInstructionsWrapper = withOnboardingDocsWrapper({
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: SessionReplayWebInstructionsWrapper,
-    [SDKKey.HTML_SNIPPET]: SessionReplayWebInstructionsWrapper,
     [SDKKey.ANGULAR]: SessionReplayAngularInstructionsWrapper,
     [SDKKey.ASTRO]: SessionReplayAstroInstructionsWrapper,
     [SDKKey.BUBBLE]: SessionReplayBubbleInstructionsWrapper,
