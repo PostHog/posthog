@@ -82,7 +82,6 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "uploaded_media"
     queryset = UploadedMedia.objects.all()
     parser_classes = (MultiPartParser, FormParser)
-    authentication_classes = []
 
     @extend_schema(
         description="""

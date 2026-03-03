@@ -2152,24 +2152,6 @@
                   AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.62
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_sessionrecordingplaylistitem"
-  WHERE ("posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
-         AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
-                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.63
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_sessionrecordingplaylistitem"
-  WHERE ("posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
-         AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
-                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL))
-  '''
-# ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.7
   '''
   SELECT "ee_accesscontrol"."id",

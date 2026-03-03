@@ -93,7 +93,6 @@ class ObjectMediaPreviewViewSet(
     scope_object = "event_definition"
     serializer_class = ObjectMediaPreviewSerializer
     queryset = ObjectMediaPreview.objects.all()
-    authentication_classes = []
 
     def safely_get_queryset(self, queryset):
         # Filter by event_definition if provided
