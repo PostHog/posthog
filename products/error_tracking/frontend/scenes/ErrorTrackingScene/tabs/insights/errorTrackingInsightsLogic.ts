@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { errorTrackingInsightsLogicType } from './errorTrackingInsightsLogicType'
@@ -197,7 +197,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                                 .values as AnyPropertyFilter[],
                         },
                     })
-                    const row = response?.results?.[0]
+                    const row = (response as HogQLQueryResponse)?.results?.[0]
                     if (!row) {
                         return null
                     }
