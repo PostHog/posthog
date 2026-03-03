@@ -11,6 +11,8 @@ on:
         branches:
             - master
         paths:
+            - 'posthog/clickhouse/migrations/**'
+            - 'posthog/migrations/**'
             - 'posthog/temporal/llm_analytics/**'
             - 'products/llm_analytics/**'
             - 'posthog/temporal/common/**'
