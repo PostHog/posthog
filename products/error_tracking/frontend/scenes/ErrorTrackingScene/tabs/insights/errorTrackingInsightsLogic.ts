@@ -116,16 +116,16 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
 
     listeners(({ actions }) => ({
         setDateRange: () => {
-            actions.loadSummaryStats()
+            actions.loadSummaryStats(null)
         },
         setFilterTestAccounts: () => {
-            actions.loadSummaryStats()
+            actions.loadSummaryStats(null)
         },
     })),
 
     subscriptions(({ actions }) => ({
         mergedFilterGroup: () => {
-            actions.loadSummaryStats()
+            actions.loadSummaryStats(null)
         },
     })),
 
@@ -167,7 +167,8 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         }
     }),
 
-    afterMount(() => {
+    afterMount(({ actions }) => {
         posthog.capture('error_tracking_insights_viewed')
+        actions.loadSummaryStats(null)
     }),
 ])
