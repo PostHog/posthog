@@ -161,7 +161,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         result = process_query_model(self.team, query, user=self.user)
 
-        self.assertIn("suggestions", result.model_dump())
+        self.assertIn("suggestions", result.model_dump())  # type: ignore
         mock_get_query_runner.assert_not_called()
 
     @also_test_with_materialized_columns(["key"])
