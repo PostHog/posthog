@@ -105,7 +105,8 @@ pub fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sql
         .min_connections(config.min_connections)
         .max_connections(config.max_connections)
         .acquire_timeout(config.acquire_timeout)
-        .test_before_acquire(config.test_before_acquire);
+        .test_before_acquire(config.test_before_acquire)
+        .max_lifetime(None);
 
     if let Some(idle_timeout) = config.idle_timeout {
         options = options.idle_timeout(idle_timeout);
