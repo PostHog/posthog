@@ -213,33 +213,38 @@ function AddRepoDropdown(): JSX.Element {
     const manageAccessUrl = githubManageAccessUrl ?? urls.settings('environment-integrations')
 
     return (
-        <div className="flex items-center gap-2">
-            <LemonSelect
-                placeholder="Add a repository..."
-                loading={saving}
-                options={unaddedRepos.map((repo: GitHubRepoApi) => ({
-                    value: repo.full_name,
-                    label: repo.full_name,
-                }))}
-                onChange={(fullName) => {
-                    const repo = availableRepos.find((r: GitHubRepoApi) => r.full_name === fullName)
-                    if (repo) {
-                        addRepo(repo)
-                    }
-                }}
-                value={null}
-                size="small"
-            />
-            <LemonButton
-                type="tertiary"
-                size="small"
-                to={manageAccessUrl}
-                targetBlank={!!githubManageAccessUrl}
-                className="text-muted"
-            >
-                Manage access
-            </LemonButton>
-        </div>
+        <LemonSelect
+            placeholder="Add a repository..."
+            loading={saving}
+            options={[
+                {
+                    options: unaddedRepos.map((repo: GitHubRepoApi) => ({
+                        value: repo.full_name,
+                        label: repo.full_name,
+                    })),
+                    footer: (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            fullWidth
+                            to={manageAccessUrl}
+                            targetBlank={!!githubManageAccessUrl}
+                            className="text-muted"
+                        >
+                            Manage access
+                        </LemonButton>
+                    ),
+                },
+            ]}
+            onChange={(fullName) => {
+                const repo = availableRepos.find((r: GitHubRepoApi) => r.full_name === fullName)
+                if (repo) {
+                    addRepo(repo)
+                }
+            }}
+            value={null}
+            size="small"
+        />
     )
 }
 
