@@ -1,4 +1,5 @@
 import { useAsyncActions, useValues } from 'kea'
+import React, { useCallback, useState } from 'react'
 
 import { IconArrowRight, IconLock } from '@posthog/icons'
 import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
@@ -21,10 +22,19 @@ export function AIConsentPopoverWrapper({
 }): JSX.Element {
     const { acceptDataProcessing } = useAsyncActions(maxGlobalLogic)
     const { dataProcessingApprovalDisabledReason, dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const [dismissed, setDismissed] = useState(false)
 
-    const handleClickOutside = (): void => {
+    const handleDismiss = useCallback((): void => {
+        setDismissed(true)
         onDismiss?.()
-    }
+    }, [onDismiss])
+
+    const wrappedChildren = React.cloneElement(children, {
+        onClick: (...args: unknown[]) => {
+            setDismissed(false)
+            children.props.onClick?.(...args)
+        },
+    })
 
     return (
         <Popover
@@ -53,7 +63,7 @@ export function AIConsentPopoverWrapper({
                         .
                     </p>
                     <div className="flex gap-1.5 self-end">
-                        <LemonButton type="secondary" size="xsmall" onClick={onDismiss}>
+                        <LemonButton type="secondary" size="xsmall" onClick={handleDismiss}>
                             Cancel
                         </LemonButton>
                         <LemonButton
@@ -78,11 +88,11 @@ export function AIConsentPopoverWrapper({
                 </div>
             }
             style={{ zIndex: 'var(--z-modal)' }} // Don't show above the re-authentication modal
-            visible={!hidden && !dataProcessingAccepted}
-            onClickOutside={handleClickOutside}
+            visible={!hidden && !dataProcessingAccepted && !dismissed}
+            onClickOutside={handleDismiss}
             {...popoverProps}
         >
-            {children}
+            {wrappedChildren}
         </Popover>
     )
 }
