@@ -49,7 +49,7 @@ from posthog.models import Dashboard, DashboardTile, Insight, Text
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import GroupTypeMapping, invalidate_group_types_cache
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
@@ -463,6 +463,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if group_type_mapping:
                 group_type_mapping.detail_dashboard_id = None
                 group_type_mapping.save()
+                invalidate_group_types_cache(instance.team.project_id)
 
         request_filters = initial_data.get("filters")
         if request_filters:

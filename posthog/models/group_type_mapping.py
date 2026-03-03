@@ -1,8 +1,19 @@
+from typing import Any
+
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import DatabaseError, models
 from django.utils import timezone
 
+import structlog
+
 from posthog.models.utils import RootTeamMixin
+from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
+
+logger = structlog.get_logger(__name__)
+
+GROUP_TYPES_CACHE_TTL = 60 * 5  # 5 minutes
+GROUP_TYPES_NEGATIVE_CACHE_TTL = 30  # seconds — short so we detect DB recovery quickly
+GROUP_TYPES_CACHE_KEY_PREFIX = "group_types_for_project_"
 
 # Defined here for reuse between OS and EE
 GROUP_TYPE_MAPPING_SERIALIZER_FIELDS = [
@@ -74,3 +85,33 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
         if self._state.adding and self.created_at is None:
             self.created_at = timezone.now()
         super().save(*args, **kwargs)
+
+
+def invalidate_group_types_cache(project_id: int) -> None:
+    safe_cache_delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}")
+
+
+def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
+    """Fetch group types from cache, falling back to DB, then to empty list.
+
+    Group types live in the persons DB. If that DB is unreachable, we return
+    cached data (if available) or an empty list rather than failing the request.
+    """
+    cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}"
+
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        result = list(
+            GroupTypeMapping.objects.filter(project_id=project_id)
+            .order_by("group_type_index")
+            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        )
+        safe_cache_set(cache_key, result, GROUP_TYPES_CACHE_TTL)
+        return result
+    except DatabaseError:
+        logger.warning("persons_db_group_types_failure", project_id=project_id, exc_info=True)
+        safe_cache_set(cache_key, [], GROUP_TYPES_NEGATIVE_CACHE_TTL)
+        return []
