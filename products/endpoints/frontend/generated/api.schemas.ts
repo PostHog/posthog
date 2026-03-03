@@ -1858,6 +1858,8 @@ export interface TrendsFilterApi {
     /** @nullable */
     hiddenLegendIndexes?: number[] | null
     /** @nullable */
+    hideWeekends?: boolean | null
+    /** @nullable */
     minDecimalPlaces?: number | null
     /** @nullable */
     movingAverageIntervals?: number | null
