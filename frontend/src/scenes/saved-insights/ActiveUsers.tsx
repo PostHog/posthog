@@ -46,7 +46,7 @@ export function ActiveUsers(): JSX.Element {
             title={
                 <div className="flex items-center gap-1">
                     Most active users
-                    <Tooltip title="Users with the most events in the last 7 days.">
+                    <Tooltip title="Users with the most events in the last 7 days. For large volumes of data this is calculated on a sample of events.">
                         <IconInfo className="text-muted text-base" />
                     </Tooltip>
                 </div>

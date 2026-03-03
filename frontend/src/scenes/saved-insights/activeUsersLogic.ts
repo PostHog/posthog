@@ -23,7 +23,7 @@ export const activeUsersLogic = kea<activeUsersLogicType>([
                 const query = hogql`
                     SELECT any(distinct_id), count() as activity_count
                     FROM events
-                    SAMPLE 0.1
+                    SAMPLE 10000000
                     WHERE timestamp > now() - INTERVAL 7 DAY
                     GROUP BY person_id
                     ORDER BY activity_count DESC
