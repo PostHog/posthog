@@ -435,11 +435,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_id=str(self.id),
         )
 
-        effective = self.csv_allow_double_quotes
-        if effective is None and self._is_csv_format():
-            effective = False
-
-        if effective is not None:
+        if self._is_csv_format():
+            effective = self.csv_allow_double_quotes if self.csv_allow_double_quotes is not None else False
             table_def.top_level_settings = HogQLQuerySettings(
                 format_csv_allow_double_quotes=effective,
             )
