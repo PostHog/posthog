@@ -13,7 +13,7 @@ import { experimentLogic } from '../experimentLogic'
 export function EditPhasesModal(): JSX.Element | null {
     const isEnabled = useFeatureFlag('EXPERIMENT_PHASES')
     const { isEditPhasesModalOpen, experiment } = useValues(experimentLogic)
-    const { closeEditPhasesModal, openAddPhaseModal } = useActions(experimentLogic)
+    const { closeEditPhasesModal, openAddPhaseModal, openEditPhaseModal } = useActions(experimentLogic)
 
     if (!isEnabled) {
         return null
@@ -101,8 +101,15 @@ export function EditPhasesModal(): JSX.Element | null {
                             title: '',
                             key: 'actions',
                             width: 60,
-                            render: () => (
-                                <LemonButton type="secondary" size="xsmall">
+                            render: (_, row) => (
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    onClick={() => {
+                                        closeEditPhasesModal()
+                                        openEditPhaseModal(row.index - 1)
+                                    }}
+                                >
                                     Edit
                                 </LemonButton>
                             ),

@@ -280,3 +280,131 @@ class TestAddPhaseEndpoint(APILicensedTest):
             f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
         )
         self.assertEqual(response.json()["phases"], [])
+
+
+class TestEditPhaseViaPatch(APILicensedTest):
+    def _create_experiment_with_phases(self, key_suffix: str = "") -> dict:
+        ff_key = f"edit-phase-test{key_suffix}"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Edit Phase Test",
+                "feature_flag_key": ff_key,
+                "start_date": "2025-01-01T00:00:00+00:00",
+                "parameters": None,
+                "filters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment = response.json()
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/add_phase/",
+            {"phase_start_date": "2025-02-01T00:00:00+00:00", "name": "Phase 2"},
+            format="json",
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/add_phase/",
+            {"phase_start_date": "2025-03-01T00:00:00+00:00", "name": "Phase 3"},
+            format="json",
+        )
+        return response.json()
+
+    @parameterized.expand(
+        [
+            (
+                "edit_name_only",
+                {"phase_index": 1, "updates": {"name": "Renamed Phase"}},
+                {"check_field": "name", "expected": "Renamed Phase"},
+            ),
+            (
+                "edit_reason_only",
+                {"phase_index": 0, "updates": {"reason": "Updated reason"}},
+                {"check_field": "reason", "expected": "Updated reason"},
+            ),
+            (
+                "edit_name_and_reason",
+                {"phase_index": 2, "updates": {"name": "Final", "reason": "Last push"}},
+                {"check_field": "name", "expected": "Final"},
+            ),
+        ]
+    )
+    def test_edit_phase_metadata(self, _name, edit_spec, expectation):
+        experiment = self._create_experiment_with_phases(f"-meta-{_name}")
+        phases = experiment["phases"]
+        idx = edit_spec["phase_index"]
+
+        phases[idx] = {**phases[idx], **edit_spec["updates"]}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"phases": phases},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result_phase = response.json()["phases"][idx]
+        self.assertEqual(result_phase[expectation["check_field"]], expectation["expected"])
+
+    def test_edit_start_date_with_cascading_previous_end_date(self):
+        experiment = self._create_experiment_with_phases("-cascade-start")
+        phases = experiment["phases"]
+
+        new_boundary = "2025-02-15T00:00:00+00:00"
+        phases[1]["start_date"] = new_boundary
+        phases[0]["end_date"] = new_boundary
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"phases": phases},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result_phases = response.json()["phases"]
+        self.assertEqual(result_phases[0]["end_date"], new_boundary)
+        self.assertEqual(result_phases[1]["start_date"], new_boundary)
+
+    def test_edit_end_date_with_cascading_next_start_date(self):
+        experiment = self._create_experiment_with_phases("-cascade-end")
+        phases = experiment["phases"]
+
+        new_boundary = "2025-02-20T00:00:00+00:00"
+        phases[1]["end_date"] = new_boundary
+        phases[2]["start_date"] = new_boundary
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"phases": phases},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result_phases = response.json()["phases"]
+        self.assertEqual(result_phases[1]["end_date"], new_boundary)
+        self.assertEqual(result_phases[2]["start_date"], new_boundary)
+
+    def test_reject_start_date_after_end_date(self):
+        experiment = self._create_experiment_with_phases("-invalid-order")
+        phases = experiment["phases"]
+
+        phases[0]["start_date"] = "2025-03-01T00:00:00+00:00"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"phases": phases},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("end_date must be after start_date", str(response.json()))
+
+    def test_reject_breaking_contiguity(self):
+        experiment = self._create_experiment_with_phases("-broken-contiguity")
+        phases = experiment["phases"]
+
+        phases[1]["start_date"] = "2025-02-15T00:00:00+00:00"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"phases": phases},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("contiguous", str(response.json()))

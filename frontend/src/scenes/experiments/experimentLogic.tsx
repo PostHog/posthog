@@ -627,6 +627,12 @@ export const experimentLogic = kea<experimentLogicType>([
         closeAddPhaseModal: true,
         openEditPhasesModal: true,
         closeEditPhasesModal: true,
+        openEditPhaseModal: (phaseIndex: number) => ({ phaseIndex }),
+        closeEditPhaseModal: true,
+        updatePhase: (
+            phaseIndex: number,
+            updates: { name?: string; reason?: string; start_date?: string; end_date?: string | null }
+        ) => ({ phaseIndex, updates }),
         // METRICS
         setMetric: ({
             uuid,
@@ -1243,6 +1249,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeEditPhasesModal: () => false,
             },
         ],
+        editingPhaseIndex: [
+            null as number | null,
+            {
+                openEditPhaseModal: (_, { phaseIndex }) => phaseIndex,
+                closeEditPhaseModal: () => null,
+            },
+        ],
     }),
     listeners(({ values, actions, asyncActions, cache }) => ({
         beforeUnmount: () => {
@@ -1256,6 +1269,37 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setExperiment(response)
             actions.closeAddPhaseModal()
             lemonToast.success('Phase added successfully')
+            actions.refreshExperimentResults(true)
+        },
+        updatePhase: async ({ phaseIndex, updates }) => {
+            const phases = [...(values.experiment.phases || [])].map((p) => ({ ...p }))
+            if (phaseIndex < 0 || phaseIndex >= phases.length) {
+                return
+            }
+
+            const phase = phases[phaseIndex]
+            if (updates.name !== undefined) {
+                phase.name = updates.name
+            }
+            if (updates.reason !== undefined) {
+                phase.reason = updates.reason
+            }
+            if (updates.start_date !== undefined) {
+                phase.start_date = updates.start_date
+                if (phaseIndex > 0) {
+                    phases[phaseIndex - 1].end_date = updates.start_date
+                }
+            }
+            if (updates.end_date !== undefined) {
+                phase.end_date = updates.end_date
+                if (updates.end_date !== null && phaseIndex < phases.length - 1) {
+                    phases[phaseIndex + 1].start_date = updates.end_date
+                }
+            }
+
+            await asyncActions.updateExperiment({ phases })
+            actions.closeEditPhaseModal()
+            lemonToast.success('Phase updated successfully')
             actions.refreshExperimentResults(true)
         },
         setSelectedPhaseIndex: () => {
