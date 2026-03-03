@@ -1673,7 +1673,11 @@ class RunWorkflow(PostHogWorkflow):
         completed, failed, ancestor_failed, ducklake_models = results
 
         self.ducklake_copy_inputs = [
-            DataModelingDuckLakeCopyInputs(team_id=inputs.team_id, job_id=job_id, models=[model])
+            DataModelingDuckLakeCopyInputs(
+                team_id=inputs.team_id,
+                job_id=job_id,
+                models=[DuckLakeCopyModelInput(**model) if isinstance(model, dict) else model],
+            )
             for model in ducklake_models
         ]
         temporalio.workflow.logger.debug(
