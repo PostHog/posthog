@@ -53,7 +53,7 @@ describe('SourceWebhooksConsumer', () => {
 
         beforeEach(async () => {
             hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50
-            api = new CdpApi(hub)
+            api = new CdpApi(hub, hub)
             mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutor'], 'execute')
             mockQueueInvocationsSpy = jest.spyOn(
                 api['cdpSourceWebhooksConsumer']['cyclotronJobQueue'],

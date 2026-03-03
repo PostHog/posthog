@@ -501,6 +501,14 @@ export const InCohortViaApi = {
     LeftjoinConjoined: 'leftjoin_conjoined',
 } as const
 
+export type InlineCohortCalculationApi = (typeof InlineCohortCalculationApi)[keyof typeof InlineCohortCalculationApi]
+
+export const InlineCohortCalculationApi = {
+    Off: 'off',
+    Auto: 'auto',
+    Always: 'always',
+} as const
+
 export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
 
 export const MaterializationModeApi = {
@@ -586,6 +594,7 @@ export interface HogQLQueryModifiersApi {
     /** @nullable */
     formatCsvAllowDoubleQuotes?: boolean | null
     inCohortVia?: InCohortViaApi | null
+    inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** @nullable */
@@ -2428,6 +2437,13 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
+export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
+
+export const AggregationPropertyTypeApi = {
+    Event: 'event',
+    Person: 'person',
+} as const
+
 export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
 
 export const AggregationTypeApi = {
@@ -2547,6 +2563,8 @@ export interface RetentionFilterApi {
      * @nullable
      */
     aggregationProperty?: string | null
+    /** The type of property to aggregate on (event or person). Defaults to event. */
+    aggregationPropertyType?: AggregationPropertyTypeApi | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     /** @nullable */

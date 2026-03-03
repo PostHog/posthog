@@ -491,6 +491,14 @@ pub struct Config {
     // 0 = auto (use available_parallelism).
     #[envconfig(from = "THREAD_POOL_CORES", default = "0")]
     pub thread_pool_cores: usize,
+
+    // In-memory negative cache for invalid API tokens. Prevents repeated
+    // Redis/S3/PG lookups for tokens that don't correspond to any team.
+    #[envconfig(from = "TEAM_NEGATIVE_CACHE_CAPACITY", default = "10000")]
+    pub team_negative_cache_capacity: u64,
+
+    #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "300")]
+    pub team_negative_cache_ttl_seconds: u64,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -682,6 +690,8 @@ impl Config {
             max_concurrent_batch_evals: 0,
             skip_writes: FlexBool(false),
             thread_pool_cores: 0,
+            team_negative_cache_capacity: 10_000,
+            team_negative_cache_ttl_seconds: 300,
         }
     }
 
