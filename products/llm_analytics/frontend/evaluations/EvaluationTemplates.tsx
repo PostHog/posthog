@@ -72,7 +72,7 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
                             {isBlank ? 'Create from scratch' : template.name}
                         </h3>
                         {!isBlank && (
-                            <LemonTag type={template.evaluation_type === 'hog' ? 'highlight' : 'default'} size="small">
+                            <LemonTag type={template.evaluation_type === 'hog' ? 'option' : 'caution'} size="small">
                                 {template.evaluation_type === 'hog' ? 'Hog' : 'LLM judge'}
                             </LemonTag>
                         )}

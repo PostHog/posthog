@@ -135,8 +135,8 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
             sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
         },
         {
-            title: 'Type',
-            key: 'type',
+            title: 'Method',
+            key: 'method',
             render: (_, evaluation) => (
                 <LemonTag type={evaluation.evaluation_type === 'hog' ? 'option' : 'caution'}>
                     {evaluation.evaluation_type === 'hog' ? 'Hog' : 'LLM judge'}

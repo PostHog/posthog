@@ -177,7 +177,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             </Field>
 
                             {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_HOG_CODE] && (
-                                <Field name="evaluation_type" label="Evaluation type">
+                                <Field name="evaluation_type" label="Method">
                                     <LemonSelect
                                         value={evaluation.evaluation_type}
                                         onChange={(value) => setEvaluationType(value as EvaluationType)}
