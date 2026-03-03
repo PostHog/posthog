@@ -1,0 +1,78 @@
+name: PR Approval Agent
+
+on:
+    pull_request:
+        types: [review_requested]
+
+permissions:
+    contents: read
+    pull-requests: write
+
+jobs:
+    review:
+        # Only run when the requested reviewer is our bot and the author is an org member
+        if: >-
+            github.event.requested_reviewer.login == 'stamphog[bot]'
+            && contains(fromJSON('["MEMBER","OWNER"]'), github.event.pull_request.author_association)
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
+
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_PRIVATE_KEY }}
+
+            # Run script from base branch — a PR cannot modify the approval
+            # script to auto-approve itself
+            - name: Checkout base branch
+              uses: actions/checkout@v6
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  ref: ${{ github.event.pull_request.base.ref }}
+                  fetch-depth: 0
+
+            - name: Fetch PR head ref
+              run: git fetch origin pull/${{ github.event.pull_request.number }}/head
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@v6
+
+            - name: Run review
+              env:
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  uv run tools/pr-approval-agent/review_pr.py \
+                    ${{ github.event.pull_request.number }} \
+                    --repo ${{ github.repository }} \
+                    --output-json /tmp/review.json
+
+            - name: Post review
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  VERDICT=$(jq -r '.final_verdict' /tmp/review.json)
+                  REASONING=$(jq -r '.reviewer.reasoning // "No reasoning provided"' /tmp/review.json)
+                  PR=${{ github.event.pull_request.number }}
+
+                  if [ "$VERDICT" = "APPROVED" ]; then
+                    gh pr review "$PR" --approve --body "$REASONING" \
+                      --repo ${{ github.repository }}
+                  elif [ "$VERDICT" = "REFUSED" ]; then
+                    gh pr review "$PR" --request-changes --body "$REASONING" \
+                      --repo ${{ github.repository }}
+                  else
+                    gh pr review "$PR" --comment --body "$REASONING" \
+                      --repo ${{ github.repository }}
+                  fi
+
+            - name: Upload evidence
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: review-${{ github.event.pull_request.number }}
+                  path: /tmp/review.json
+                  retention-days: 30
