@@ -296,15 +296,13 @@ def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
 
 
 def report_user_action(
-    user: Optional[User],
+    user: User,
     event: str,
     properties: Optional[dict] = None,
     *,
     team: Optional[Team] = None,
     request: Optional["Request"] = None,
 ):
-    if user is None and request is not None:
-        user = getattr(request, "user", None)
     if user is None or not user.distinct_id:
         return
     if properties is None:
