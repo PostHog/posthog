@@ -160,7 +160,7 @@ if [[ "$(uname -s)" == "Darwin" ]] && command -v xcodebuild >/dev/null 2>&1 \
       fi
       echo
     elif [[ ! -t 0 ]]; then
-      warn_step "Xcode license not accepted  ${C_DIM}(run 'sudo xcodebuild -license')${C_RESET}"
+      echo -e "  ${C_YELLOW}⚠${C_RESET} Xcode license not accepted  ${C_DIM}(run 'sudo xcodebuild -license')${C_RESET}"
     fi
   fi
 fi
