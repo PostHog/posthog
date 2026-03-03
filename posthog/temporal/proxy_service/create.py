@@ -244,6 +244,7 @@ class CreateCloudflareProxyInputs:
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
     domain: str
+    worker_name: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, t.Any]:
@@ -251,6 +252,7 @@ class CreateCloudflareProxyInputs:
             "organization_id": self.organization_id,
             "proxy_record_id": self.proxy_record_id,
             "domain": self.domain,
+            "worker_name": self.worker_name,
         }
 
 
@@ -295,7 +297,7 @@ async def create_cloudflare_worker_route(inputs: CreateCloudflareProxyInputs):
         raise RecordDeletedException("proxy record was deleted while creating Cloudflare Worker Route")
 
     try:
-        result = await asyncio.to_thread(create_worker_route, inputs.domain)
+        result = await asyncio.to_thread(create_worker_route, inputs.domain, worker_name=inputs.worker_name or None)
         logger.info(
             "Created Cloudflare Worker Route %s with pattern %s",
             result.id,

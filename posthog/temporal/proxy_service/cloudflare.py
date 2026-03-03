@@ -241,7 +241,7 @@ def delete_custom_hostname(hostname_id: str) -> bool:
     return True
 
 
-def create_worker_route(domain: str) -> WorkerRouteInfo:
+def create_worker_route(domain: str, *, worker_name: t.Optional[str] = None) -> WorkerRouteInfo:
     """
     Create a Worker Route for a domain.
 
@@ -249,6 +249,7 @@ def create_worker_route(domain: str) -> WorkerRouteInfo:
 
     Args:
         domain: The customer's domain (e.g., "analytics.customer.com")
+        worker_name: Override the default CLOUDFLARE_WORKER_NAME setting.
 
     Returns:
         WorkerRouteInfo with the created route details
@@ -256,7 +257,8 @@ def create_worker_route(domain: str) -> WorkerRouteInfo:
     Raises:
         CloudflareAPIError: If the API request fails
     """
-    if not settings.CLOUDFLARE_WORKER_NAME:
+    script = worker_name or settings.CLOUDFLARE_WORKER_NAME
+    if not script:
         raise ValueError("CLOUDFLARE_WORKER_NAME must be configured when creating worker routes")
 
     url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/workers/routes"
@@ -264,7 +266,7 @@ def create_worker_route(domain: str) -> WorkerRouteInfo:
     pattern = f"{domain}/*"
     payload = {
         "pattern": pattern,
-        "script": settings.CLOUDFLARE_WORKER_NAME,
+        "script": script,
     }
 
     response = external_requests.post(url, headers=_get_headers(), json=payload, timeout=30)
@@ -274,7 +276,7 @@ def create_worker_route(domain: str) -> WorkerRouteInfo:
     return WorkerRouteInfo(
         id=result["id"],
         pattern=result.get("pattern", pattern),
-        script=result.get("script", settings.CLOUDFLARE_WORKER_NAME),
+        script=result.get("script", script),
     )
 
 

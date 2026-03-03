@@ -2943,6 +2943,21 @@ importers:
         specifier: ^4.59.0
         version: 4.60.0(@cloudflare/workers-types@4.20260207.0)
 
+  services/survey-worker:
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20250214.0
+        version: 4.20260207.0
+      typescript:
+        specifier: 5.4.5
+        version: 5.4.5
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@22.18.8)(happy-dom@20.0.11)(jiti@2.6.1)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.29.2)(sass-embedded@1.70.0)(terser@5.19.1)(tsx@4.20.5)(yaml@2.8.2)
+      wrangler:
+        specifier: ^4.0.0
+        version: 4.60.0(@cloudflare/workers-types@4.20260207.0)
+
 packages:
 
   '@aashutoshrathi/word-wrap@1.2.6':
