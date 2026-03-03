@@ -59,6 +59,13 @@ class SnowflakeAuthTypeConfig(config.Config):
 
 
 @config.config
+class StripeAuthMethodConfig(config.Config):
+    stripe_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    selection: Literal["oauth", "api_key"] = "oauth"
+    stripe_secret_key: str | None = None
+
+
+@config.config
 class VitallyRegionConfig(config.Config):
     subdomain: str
     selection: Literal["EU", "US"] = "EU"
@@ -740,7 +747,7 @@ class SquareSourceConfig(config.Config):
 
 @config.config
 class StripeSourceConfig(config.Config):
-    stripe_secret_key: str
+    auth_method: StripeAuthMethodConfig
     stripe_account_id: str | None = None
 
 

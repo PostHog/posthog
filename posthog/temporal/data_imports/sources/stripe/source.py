@@ -13,6 +13,9 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
     SuggestedTable,
 )
 
@@ -25,6 +28,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookDeletionResult,
     WebhookSource,
 )
+from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -107,7 +111,11 @@ def _is_webhook_feature_flag_enabled(team_id: int) -> bool:
 
 
 @SourceRegistry.register
-class StripeSource(ResumableSource[StripeSourceConfig, StripeResumeConfig], WebhookSource[StripeSourceConfig]):
+class StripeSource(
+    ResumableSource[StripeSourceConfig, StripeResumeConfig],
+    WebhookSource[StripeSourceConfig],
+    OAuthMixin,
+):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.STRIPE
@@ -126,36 +134,58 @@ class StripeSource(ResumableSource[StripeSourceConfig, StripeResumeConfig], Webh
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption=f"""Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse. You will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL}).
-
-By clicking the link above, you will be taken to a form that pre-fills everything you need to get started to match the required permissions.
-""",
-            permissionsCaption="""Currently, **read permissions are required** for the following resources:
-
-- Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
-- Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
-- Under the **Connect** resource type, select *read* for the **entire resource**
-
-These permissions are automatically pre-filled in the API key creation form if you use the link above, so all you need to do is scroll down and click "Create Key".
-""",
+            caption="Connect your Stripe account to automatically sync your Stripe data into PostHog.",
             iconPath="/static/services/stripe.png",
             docsUrl="https://posthog.com/docs/cdp/sources/stripe",
             fields=cast(
                 list[FieldType],
                 [
+                    SourceFieldSelectConfig(
+                        name="auth_method",
+                        label="Authentication type",
+                        required=True,
+                        defaultValue="oauth",
+                        options=[
+                            SourceFieldSelectConfigOption(
+                                label="Connect with Stripe",
+                                value="oauth",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldOauthConfig(
+                                            name="stripe_integration_id",
+                                            label="Stripe account",
+                                            required=False,
+                                            kind="stripe",
+                                        ),
+                                    ],
+                                ),
+                            ),
+                            SourceFieldSelectConfigOption(
+                                label="Restricted API key",
+                                value="api_key",
+                                deprecated=True,
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldInputConfig(
+                                            name="stripe_secret_key",
+                                            label="API key",
+                                            type=SourceFieldInputConfigType.PASSWORD,
+                                            required=False,
+                                            placeholder="rk_live_...",
+                                        ),
+                                    ],
+                                ),
+                            ),
+                        ],
+                    ),
                     SourceFieldInputConfig(
                         name="stripe_account_id",
                         label="Account id",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="stripe_account_id",
-                    ),
-                    SourceFieldInputConfig(
-                        name="stripe_secret_key",
-                        label="API key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="rk_live_...",
                     ),
                 ],
             ),
@@ -207,15 +237,33 @@ Once created, copy the **Signing secret** from the webhook details page and add 
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url: https://api.stripe.com": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
-            "403 Client Error: Forbidden for url: https://api.stripe.com": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
+            "401 Client Error: Unauthorized for url: https://api.stripe.com": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
+            "403 Client Error: Forbidden for url: https://api.stripe.com": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
             "Expired API Key provided": "Your Stripe API key has expired. Please create a new key and reconnect.",
             "Invalid API Key provided": None,
-            "PermissionError": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
+            "PermissionError": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
         }
 
+    def _get_api_key(self, config: StripeSourceConfig, team_id: int) -> str:
+        if config.auth_method.selection == "api_key":
+            if not config.auth_method.stripe_secret_key:
+                raise ValueError("Missing Stripe API key")
+            return config.auth_method.stripe_secret_key
+
+        if not config.auth_method.stripe_integration_id:
+            raise ValueError("Missing Stripe integration ID")
+        integration = self.get_oauth_integration(config.auth_method.stripe_integration_id, team_id)
+
+        if not integration.access_token:
+            raise ValueError("Stripe access token not found")
+        return integration.access_token
+
     def get_schemas(
-        self, config: StripeSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: StripeSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -235,16 +283,20 @@ Once created, copy the **Signing secret** from the webhook details page and add 
         return schemas
 
     def validate_credentials(
-        self, config: StripeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: StripeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
         try:
-            if validate_stripe_credentials(config.stripe_secret_key, schema_name):
+            api_key = self._get_api_key(config, team_id)
+            if validate_stripe_credentials(api_key, schema_name):
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"
         except StripePermissionError as e:
             missing_resources = ", ".join(e.missing_permissions.keys())
-            return False, f"Stripe API key lacks permissions for {missing_resources}"
+            return False, f"Stripe credentials lack permissions for {missing_resources}"
         except Exception as e:
             return False, str(e)
 
@@ -270,9 +322,10 @@ Once created, copy the **Signing secret** from the webhook details page and add 
         inputs: SourceInputs,
     ) -> SourceResponse:
         webhook_source_manager = self.get_webhook_source_manager(inputs)
+        api_key = self._get_api_key(config, inputs.team_id)
 
         return stripe_source(
-            api_key=config.stripe_secret_key,
+            api_key=api_key,
             account_id=config.stripe_account_id,
             endpoint=inputs.schema_name,
             should_use_incremental_field=inputs.should_use_incremental_field,
