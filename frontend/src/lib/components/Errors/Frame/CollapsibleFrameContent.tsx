@@ -24,7 +24,7 @@ export function CollapsibleFrameContent({
         return null
     }
     return (
-        <CollapsiblePrimitiveContent className="transition-[height] border-t-1">
+        <CollapsiblePrimitiveContent className="border-t-1">
             <div onClick={(e) => onFrameContextClick?.(record.context!, e)}>
                 <FrameContext context={record.context} language={getLanguage(lang)} />
                 {hasCodeVariables ? <FrameVariables variables={code_variables!} /> : <CodeVariablesInlineBanner />}
