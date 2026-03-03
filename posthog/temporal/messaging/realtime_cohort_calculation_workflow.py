@@ -141,6 +141,15 @@ async def flush_kafka_batch(
     return batch_size
 
 
+@database_sync_to_async
+def _update_cohort_duration(cohort_id: int, duration_ms: int) -> None:
+    """Update cohort duration and last calculation timestamp."""
+    Cohort.objects.filter(id=cohort_id).update(
+        last_calculation_duration_ms=duration_ms,
+        last_calculation=dt.datetime.now(dt.UTC),
+    )
+
+
 @temporalio.activity.defn
 async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCalculationWorkflowInputs) -> None:
     """Process a batch of realtime cohorts using HogQLRealtimeCohortQuery."""
@@ -154,7 +163,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
     else:
         num_cohorts_desc = "0 cohorts"
 
-    logger.info(f"Starting realtime cohort calculation workflow for {num_cohorts_desc}")
+    logger.info("Starting realtime cohort calculation workflow", num_cohorts_desc=num_cohorts_desc)
 
     async with Heartbeater(details=(f"Starting to process {num_cohorts_desc}",)) as heartbeater:
         start_time = time.monotonic()
@@ -204,7 +213,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
         for idx, cohort in enumerate(cohorts, 1):
             heartbeater.details = (f"Processing cohort {idx}/{len(cohorts)} (cohort_id={cohort.pk})",)
-            logger.info(f"Processing cohort {idx}/{len(cohorts)}", cohort_id=cohort.pk)
+            logger.info("Processing cohort", cohort_index=idx, total_cohorts=len(cohorts), cohort_id=cohort.pk)
 
             # Start timing the entire cohort processing (query + Kafka production + flushing)
             cohort_start_time = time.monotonic()
@@ -260,7 +269,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     total_messages = 0
                     total_flushed = 0
 
-                    logger.info(f"Executing query for cohort {cohort.pk}", cohort_id=cohort.pk)
+                    logger.info("Executing query for cohort", cohort_id=cohort.pk)
 
                     async with get_client(team_id=cohort.team_id) as client:
                         async for row in client.stream_query_as_jsonl(
@@ -342,13 +351,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 cohort_end_time = time.monotonic()
                 duration_ms = int((cohort_end_time - cohort_start_time) * 1000)
 
-                @database_sync_to_async
-                def update_cohort_duration(cohort_id=cohort.pk, duration_ms=duration_ms):
-                    Cohort.objects.filter(id=cohort_id).update(
-                        last_calculation_duration_ms=duration_ms, last_calculation=dt.datetime.now(dt.UTC)
-                    )
-
-                await update_cohort_duration()
+                await _update_cohort_duration(cohort.pk, duration_ms)
 
                 logger.info(
                     f"Cohort {cohort.pk} processing completed",

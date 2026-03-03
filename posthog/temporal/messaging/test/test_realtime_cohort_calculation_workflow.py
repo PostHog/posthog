@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import flush_kafka_batch
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
+    CachedQuantiles,
     CohortSelectionActivityInput,
     QueryPercentileThresholds,
     QueryPercentileThresholdsInput,
@@ -1095,3 +1096,148 @@ class TestDurationFilteringIntegration:
 
         # Should NOT apply duration filtering because percentile params are None
         assert mock_queryset.filter.call_count == 0
+
+
+class TestCachedQuantiles:
+    """Tests for the CachedQuantiles dataclass and its edge cases."""
+
+    def test_get_thresholds_p0_edge_case(self):
+        """Test that p0 correctly returns 0 (no minimum threshold)."""
+        quantiles = list(range(100, 200))  # p1=100, p2=101, ..., p99=198
+        max_value = 250
+        cached_quantiles = CachedQuantiles(quantiles=quantiles, max_value=max_value)
+
+        result = cached_quantiles.get_thresholds(min_percentile=0.0, max_percentile=50.0)
+
+        assert result.min_threshold_ms == 0  # p0 should be 0 (no minimum threshold)
+        assert result.max_threshold_ms == 149  # p50 should use 50th quantile
+
+    def test_get_thresholds_p100_edge_case(self):
+        """Test that p100 correctly uses max_value instead of p99."""
+        quantiles = list(range(100, 200))  # p1=100, p2=101, ..., p99=198
+        max_value = 250
+        cached_quantiles = CachedQuantiles(quantiles=quantiles, max_value=max_value)
+
+        result = cached_quantiles.get_thresholds(min_percentile=50.0, max_percentile=100.0)
+
+        assert result.min_threshold_ms == 149  # p50 should use 50th quantile
+        assert result.max_threshold_ms == 250  # p100 should use max_value, not p99 (198)
+
+    def test_get_thresholds_p100_with_none_max_percentile(self):
+        """Test that None max_percentile is treated as p100."""
+        quantiles = list(range(100, 200))
+        max_value = 300
+        cached_quantiles = CachedQuantiles(quantiles=quantiles, max_value=max_value)
+
+        result = cached_quantiles.get_thresholds(min_percentile=90.0, max_percentile=None)
+
+        assert result.min_threshold_ms == 189  # p90
+        assert result.max_threshold_ms == 300  # Should use max_value for None (p100)
+
+    def test_get_thresholds_edge_percentiles_exactly_100(self):
+        """Test edge case where max_percentile is exactly 100.0."""
+        quantiles = list(range(1, 100))  # [1, 2, 3, ..., 99]
+        max_value = 500
+        cached_quantiles = CachedQuantiles(quantiles=quantiles, max_value=max_value)
+
+        result = cached_quantiles.get_thresholds(min_percentile=95.0, max_percentile=100.0)
+
+        assert result.min_threshold_ms == 95  # p95 (index 94 -> value 95)
+        assert result.max_threshold_ms == 500  # Should use max_value for exactly 100.0
+
+    def test_get_thresholds_single_value_dataset(self):
+        """Test edge case with single quantile value (all durations the same)."""
+        quantiles = [42] * 99  # All quantiles are the same value
+        max_value = 42
+        cached_quantiles = CachedQuantiles(quantiles=quantiles, max_value=max_value)
+
+        result = cached_quantiles.get_thresholds(min_percentile=10.0, max_percentile=90.0)
+
+        assert result.min_threshold_ms == 42
+        assert result.max_threshold_ms == 42
+        assert result.min_threshold_ms == result.max_threshold_ms
+
+    def test_get_thresholds_p0_to_p100_full_range(self):
+        """Test the full range from p0 to p100."""
+        quantiles = list(range(1, 100))  # p1=1, p2=2, ..., p99=99
+        max_value = 200
+        cached_quantiles = CachedQuantiles(quantiles=quantiles, max_value=max_value)
+
+        result = cached_quantiles.get_thresholds(min_percentile=0.0, max_percentile=100.0)
+
+        assert result.min_threshold_ms == 0  # p0 should be 0 (no minimum)
+        assert result.max_threshold_ms == 200  # p100 uses max_value
+
+
+@patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.cache")
+class TestCacheLockEdgeCases:
+    """Tests for cache lock timeout and edge cases."""
+
+    @pytest.mark.asyncio
+    async def test_cache_available_no_lock_needed(self, mock_cache):
+        """Test that lock is not attempted when cache data is available."""
+        import json
+
+        from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
+            QueryPercentileThresholdsInput,
+            get_cached_percentile_thresholds,
+        )
+
+        # Mock cached data available
+        cached_data = json.dumps({"quantiles": list(range(100, 200)), "max_value": 250})
+        mock_cache.get.return_value = cached_data
+
+        inputs = QueryPercentileThresholdsInput(min_percentile=90.0, max_percentile=95.0)
+        result = await get_cached_percentile_thresholds(inputs)
+
+        assert result is not None
+        assert result.min_threshold_ms == 189  # p90
+        assert result.max_threshold_ms == 194  # p95
+        # Should only check cache, no lock or calculation needed
+        mock_cache.get.assert_called_once()
+        mock_cache.get_or_set.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cache_miss_falls_back_to_direct_calculation(self, mock_cache):
+        """Test that cache miss falls back to direct percentile calculation."""
+        from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
+            QueryPercentileThresholdsInput,
+            get_cached_percentile_thresholds,
+        )
+
+        # Mock cache miss
+        mock_cache.get.return_value = None
+        mock_cache.get_or_set.return_value = None  # Lock timeout
+
+        inputs = QueryPercentileThresholdsInput(min_percentile=0.0, max_percentile=100.0)
+
+        # This should fall back to calculate_percentile_thresholds
+        # which should return None due to lock timeout
+        result = await get_cached_percentile_thresholds(inputs)
+
+        assert result is None
+        # Should attempt cache then lock
+        mock_cache.get.assert_called_once()
+        mock_cache.get_or_set.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cache_corrupted_falls_back(self, mock_cache):
+        """Test that corrupted cache data falls back to calculation."""
+        from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
+            QueryPercentileThresholdsInput,
+            get_cached_percentile_thresholds,
+        )
+
+        # Mock corrupted cache data
+        mock_cache.get.return_value = "invalid json"
+        mock_cache.get_or_set.return_value = None  # Lock timeout in fallback
+
+        inputs = QueryPercentileThresholdsInput(min_percentile=50.0, max_percentile=90.0)
+
+        # Should fall back to calculation due to JSON error
+        result = await get_cached_percentile_thresholds(inputs)
+
+        assert result is None  # Returns None due to lock timeout
+        # Should attempt cache then lock
+        mock_cache.get.assert_called_once()
+        mock_cache.get_or_set.assert_called_once()

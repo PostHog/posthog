@@ -15,6 +15,10 @@ import temporalio.activity
 import temporalio.workflow
 
 from posthog.models.cohort.cohort import Cohort, CohortType
+from posthog.settings.schedules import (
+    REALTIME_COHORT_PERCENTILE_CACHE_LOCK_TTL_SECONDS,
+    REALTIME_COHORT_PERCENTILE_CACHE_TTL_SECONDS,
+)
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
@@ -25,10 +29,6 @@ from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
 )
 
 LOGGER = get_logger(__name__)
-
-# Cache settings for shared threshold calculation
-PERCENTILE_CACHE_TTL_SECONDS = 10 * 60  # 10 minutes (shortest schedule interval)
-PERCENTILE_CACHE_LOCK_TTL_SECONDS = 5 * 60  # 5 minutes for calculation lock
 
 
 @dataclasses.dataclass
@@ -150,7 +150,6 @@ def _apply_duration_filtering(queryset, thresholds: QueryPercentileThresholds | 
     if not thresholds:
         return queryset
 
-    # Convert thresholds from seconds to milliseconds to match database field
     min_threshold_ms = thresholds.min_threshold_ms
     max_threshold_ms = thresholds.max_threshold_ms
 
@@ -234,9 +233,8 @@ class RealtimeCohortSelectionResult:
 
 
 def get_quantiles_cache_key() -> str:
-    """Generate cache key for quantiles array (daily key to allow fresh calculations)."""
-    today = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d")
-    return f"cohort_quantiles:{today}"
+    """Generate cache key for quantiles array."""
+    return "cohort_quantiles"
 
 
 def get_quantiles_lock_key() -> str:
@@ -257,9 +255,9 @@ async def get_cached_percentile_thresholds(
 
     # Try to get quantiles from cache first
     try:
-        cached_data = cache.get(cache_key)
+        cached_data = await database_sync_to_async(lambda: cache.get(cache_key))()
         if cached_data:
-            LOGGER.info(f"Using cached quantiles from {cache_key}")
+            LOGGER.info("Using cached quantiles", cache_key=cache_key)
             quantiles = CachedQuantiles.from_dict(json.loads(cached_data))
             return quantiles.get_thresholds(inputs.min_percentile, inputs.max_percentile)
     except (json.JSONDecodeError, KeyError, TypeError) as e:
@@ -274,7 +272,9 @@ async def get_cached_percentile_thresholds(
     # Use distributed lock to prevent multiple schedules from calculating simultaneously
     try:
         # Use cache.add() which only sets if key doesn't exist (like Redis SET ... NX)
-        lock_acquired = cache.add(lock_key, "calculating", timeout=PERCENTILE_CACHE_LOCK_TTL_SECONDS)
+        lock_acquired = await database_sync_to_async(
+            lambda: cache.add(lock_key, "calculating", timeout=REALTIME_COHORT_PERCENTILE_CACHE_LOCK_TTL_SECONDS)
+        )()
     except Exception as e:
         LOGGER.warning(f"Cache locking unavailable, calculating directly: {e}")
         # Cache service is down - calculate directly without locking
@@ -282,7 +282,7 @@ async def get_cached_percentile_thresholds(
 
     if lock_acquired:
         try:
-            LOGGER.info(f"Calculating fresh quantiles (lock acquired)")
+            LOGGER.info("Calculating fresh quantiles (lock acquired)")
             # Calculate new quantiles
             calculated_quantiles = await calculate_quantiles()
             if calculated_quantiles is None:
@@ -291,8 +291,14 @@ async def get_cached_percentile_thresholds(
 
             # Store quantiles in cache for other schedules to use
             try:
-                cache.set(cache_key, json.dumps(calculated_quantiles.to_dict()), timeout=PERCENTILE_CACHE_TTL_SECONDS)
-                LOGGER.info(f"Cached fresh quantiles for {PERCENTILE_CACHE_TTL_SECONDS}s")
+                await database_sync_to_async(
+                    lambda: cache.set(
+                        cache_key,
+                        json.dumps(calculated_quantiles.to_dict()),
+                        timeout=REALTIME_COHORT_PERCENTILE_CACHE_TTL_SECONDS,
+                    )
+                )()
+                LOGGER.info("Cached fresh quantiles", cache_ttl_seconds=REALTIME_COHORT_PERCENTILE_CACHE_TTL_SECONDS)
             except Exception as e:
                 LOGGER.warning(f"Failed to cache quantiles, continuing anyway: {e}")
             # Derive specific thresholds for this request
@@ -300,7 +306,7 @@ async def get_cached_percentile_thresholds(
         finally:
             # Always release the lock (ignore failures)
             try:
-                cache.delete(lock_key)
+                await database_sync_to_async(lambda: cache.delete(lock_key))()
             except Exception as e:
                 LOGGER.warning(f"Failed to release cache lock (continuing): {e}")
     else:
@@ -310,7 +316,7 @@ async def get_cached_percentile_thresholds(
 
         # Try cache one more time
         try:
-            cached_data = cache.get(cache_key)
+            cached_data = await database_sync_to_async(lambda: cache.get(cache_key))()
             if cached_data:
                 try:
                     quantiles = CachedQuantiles.from_dict(json.loads(cached_data))
@@ -327,6 +333,7 @@ async def get_cached_percentile_thresholds(
 
 async def calculate_quantiles() -> CachedQuantiles | None:
     """Calculate quantiles array from database for caching."""
+<<<<<<< HEAD
 
     @database_sync_to_async
     def get_quantiles():
@@ -378,11 +385,14 @@ async def calculate_percentile_thresholds(
 
         # Calculate percentiles directly from cohort last_calculation_duration_ms field
         # This uses the same metric that we store during cohort calculation (Python timing)
+=======
+
+    @database_sync_to_async
+    def get_quantiles():
+        # Calculate quantiles directly from cohort last_calculation_duration_ms field
+>>>>>>> b3337c75e4 (feat(cohort-calculation): implement code reviewer suggestions for production readiness)
 
         # Get cohorts with recent duration data (past 24 hours)
-        # NOTE: This queries ALL teams, not just the teams we're about to process.
-        # This provides stable percentile thresholds but may include teams with different
-        # performance characteristics than the ones we're currently processing.
         recent_cohorts = Cohort.objects.filter(
             last_calculation__gte=timezone.now() - dt.timedelta(hours=24),
             last_calculation_duration_ms__isnull=False,
@@ -391,60 +401,37 @@ async def calculate_percentile_thresholds(
         ).values_list("last_calculation_duration_ms", flat=True)
 
         if not recent_cohorts:
-            # No historical data available - return None to disable duration filtering
             return None
 
-        # Calculate percentiles using Python (since we're already in Python context)
+        # Calculate percentiles using Python statistics module
         import statistics
 
         durations_list = list(recent_cohorts)
 
         if len(durations_list) < 2:
-            # Need at least 2 data points for meaningful percentiles
             return None
 
-        # Convert percentiles to quantiles and calculate thresholds (keep in milliseconds)
-        # Use inclusive method which works with smaller sample sizes than the default exclusive method
+        # Convert percentiles to quantiles (keep in milliseconds)
         try:
             quantiles = statistics.quantiles(durations_list, n=100, method="inclusive")
-        except statistics.StatisticsError:
-            # Fall back to simple min/max if we don't have enough data for percentile calculation
-            return None
-
-        # Special handling for p0: use 0 instead of calculating from data
-        if min_percentile <= 0.0:
-            min_threshold = 0  # p0 means "duration > 0", not the minimum data value
-        else:
-            min_index = max(0, min(int(min_percentile) - 1, len(quantiles) - 1))
-            min_threshold = quantiles[min_index]
-
-        # Calculate max threshold from data percentiles
-        # Note: p100 is handled specially in _apply_duration_filtering() with is_p100=True
-        max_index = max(0, min(int(max_percentile) - 1, len(quantiles) - 1))
-        max_threshold = quantiles[max_index]
-
-        try:
-            # Handle NULL/None values - if we can't get meaningful thresholds, disable filtering
-            if min_threshold is None or max_threshold is None:
-                return None
-
-            # Ensure thresholds are valid numbers
-            try:
-                float(min_threshold)
-                float(max_threshold)
-            except (ValueError, TypeError):
-                return None
-
-            return QueryPercentileThresholds(
-                min_threshold_ms=int(min_threshold),
-                max_threshold_ms=int(max_threshold),
+            return CachedQuantiles(
+                quantiles=[int(q) for q in quantiles],
+                max_value=int(max(durations_list)),  # Store actual maximum for p100
             )
-        except Exception as e:
-            LOGGER.exception(f"Error querying percentile thresholds: {e}")
-            # Disable duration filtering on any error - better to process all cohorts than use arbitrary thresholds
+        except statistics.StatisticsError:
             return None
 
-    return await get_percentile_thresholds()
+    return await get_quantiles()
+
+
+async def calculate_percentile_thresholds(
+    inputs: QueryPercentileThresholdsInput,
+) -> QueryPercentileThresholds | None:
+    """Calculate percentile thresholds by reusing quantiles calculation logic."""
+    quantiles = await calculate_quantiles()
+    if quantiles is None:
+        return None
+    return quantiles.get_thresholds(inputs.min_percentile, inputs.max_percentile)
 
 
 @temporalio.activity.defn
@@ -562,16 +549,16 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
     async def run(self, inputs: RealtimeCohortCalculationCoordinatorWorkflowInputs) -> None:
         """Run the coordinator workflow that spawns child workflows."""
         workflow_logger = temporalio.workflow.logger
-        workflow_logger.info(f"Starting realtime cohort calculation coordinator with parallelism={inputs.parallelism}")
+        workflow_logger.info("Starting realtime cohort calculation coordinator", parallelism=inputs.parallelism)
         workflow_logger.info(
-            f"Cohort selection config: team_ids={inputs.team_ids}, global_percentage={inputs.global_percentage}"
+            "Cohort selection config", team_ids=inputs.team_ids, global_percentage=inputs.global_percentage
         )
 
         # Log duration percentile filtering parameters
         if inputs.duration_percentile_min is not None or inputs.duration_percentile_max is not None:
             min_p = inputs.duration_percentile_min if inputs.duration_percentile_min is not None else 0.0
             max_p = inputs.duration_percentile_max if inputs.duration_percentile_max is not None else 100.0
-            workflow_logger.info(f"Duration percentile filtering: p{min_p}-p{max_p}")
+            workflow_logger.info("Duration percentile filtering", min_percentile=min_p, max_percentile=max_p)
 
             # Get actual query percentile thresholds from the last 24 hours
             thresholds_input = QueryPercentileThresholdsInput(
@@ -650,7 +637,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
             )
 
         total_workflows = len(workflow_configs)
-        workflow_logger.info(f"Prepared {total_workflows} workflow configurations")
+        workflow_logger.info("Prepared workflow configurations", total_workflows=total_workflows)
 
         # Step 4: Launch workflows in batches and collect handles
         child_workflow_handles = []
@@ -695,16 +682,18 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
             # Wait before starting next batch (unless this is the last batch)
             if batch_end < total_workflows:
                 delay_seconds = inputs.batch_delay_minutes * 60
-                workflow_logger.info(f"Waiting {inputs.batch_delay_minutes} minutes before starting next batch...")
+                workflow_logger.info("Waiting before starting next batch", delay_minutes=inputs.batch_delay_minutes)
                 await temporalio.workflow.sleep(delay_seconds)
 
-        workflow_logger.info(f"All {workflows_scheduled} child workflows scheduled, waiting for completion...")
+        workflow_logger.info(
+            "All child workflows scheduled, waiting for completion", workflows_scheduled=workflows_scheduled
+        )
 
         # Step 5: Wait for all child workflows to complete
         completed_count = 0
         failed_count = 0
 
-        workflow_logger.info(f"Waiting for {len(child_workflow_handles)} child workflows to complete...")
+        workflow_logger.info("Waiting for child workflows to complete", total_workflows=len(child_workflow_handles))
         for handle in asyncio.as_completed(child_workflow_handles):
             try:
                 await handle  # Get the result (raises if failed)
@@ -718,5 +707,5 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                     f"Child workflow failed ({completed_count + failed_count}/{workflows_scheduled}): {e}"
                 )
 
-        workflow_logger.info(f"Coordinator completed: {completed_count} succeeded, {failed_count} failed")
+        workflow_logger.info("Coordinator completed", succeeded=completed_count, failed=failed_count)
         return

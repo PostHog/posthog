@@ -97,3 +97,15 @@ REALTIME_COHORT_CALCULATION_P95_P100_INTERVAL_MINUTES: int = get_from_env(
     30,
     type_cast=int,
 )
+
+# Realtime cohort calculation cache settings (in seconds)
+REALTIME_COHORT_PERCENTILE_CACHE_TTL_SECONDS: int = get_from_env(
+    "REALTIME_COHORT_PERCENTILE_CACHE_TTL_SECONDS",
+    10 * 60,  # 10 minutes (shortest schedule interval)
+    type_cast=int,
+)
+REALTIME_COHORT_PERCENTILE_CACHE_LOCK_TTL_SECONDS: int = get_from_env(
+    "REALTIME_COHORT_PERCENTILE_CACHE_LOCK_TTL_SECONDS",
+    5 * 60,  # 5 minutes for calculation lock
+    type_cast=int,
+)
