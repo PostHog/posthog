@@ -412,6 +412,8 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
             logger.info("No DuckLake copy metadata resolved - nothing to do")
             return
 
+        pending_staging_cleanup: list[str] = []
+        failed = False
         try:
             for model in model_list:
                 activity_inputs = DuckLakeCopyActivityInputs(team_id=inputs.team_id, job_id=inputs.job_id, model=model)
@@ -424,6 +426,9 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
                         maximum_attempts=2,
                     ),
                 )
+
+                if model.staging_uri:
+                    pending_staging_cleanup.append(model.staging_uri)
 
                 verification_results = await workflow.execute_activity(
                     verify_ducklake_copy_activity,
@@ -463,11 +468,31 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
                         start_to_close_timeout=dt.timedelta(minutes=5),
                         retry_policy=RetryPolicy(maximum_attempts=2),
                     )
+                    pending_staging_cleanup.remove(model.staging_uri)
         except Exception:
+            failed = True
             get_ducklake_copy_data_modeling_finished_metric(status="failed").add(1)
             raise
+        finally:
+            for staging_uri in pending_staging_cleanup:
+                try:
+                    await workflow.execute_activity(
+                        cleanup_data_modeling_staging_activity,
+                        DuckLakeDataModelingStagingCleanupInputs(
+                            team_id=inputs.team_id,
+                            staging_uri=staging_uri,
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                except Exception:
+                    workflow.logger.warning(
+                        "Failed to clean up staging files",
+                        staging_uri=staging_uri,
+                    )
 
-        get_ducklake_copy_data_modeling_finished_metric(status="completed").add(1)
+        if not failed:
+            get_ducklake_copy_data_modeling_finished_metric(status="completed").add(1)
 
 
 def _copy_data_modeling_via_duckgres(inputs: DuckLakeCopyActivityInputs, logger) -> None:
