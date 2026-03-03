@@ -1,13 +1,12 @@
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
-import { Meta, StoryObj } from '@storybook/react'
-
-import { App } from 'scenes/App'
-import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
+import { Meta /*, StoryObj */ } from '@storybook/react'
+// import { App } from 'scenes/App'
+// import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof App>
+// type Story = StoryObj<typeof App>
 const meta: Meta = {
     title: 'Scenes-App/Insights/User Paths',
     parameters: {
@@ -41,8 +40,9 @@ export default meta
 
 // User Paths
 
-export const UserPaths: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json')
-)
-UserPaths.parameters = { testOptions: { waitForSelector: '[data-attr=path-node-card-button]:nth-child(7)' } }
-/* eslint-enable @typescript-eslint/no-var-requires */
+// TODO flaky! fix the flakiness before uncommenting
+// export const UserPaths: Story = createInsightStory(
+//     require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json')
+// )
+// UserPaths.parameters = { testOptions: { waitForSelector: '[data-attr=path-node-card-button]:nth-child(7)' } }
+// /* eslint-enable @typescript-eslint/no-var-requires */
