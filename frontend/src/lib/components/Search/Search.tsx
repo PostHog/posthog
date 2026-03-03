@@ -365,7 +365,7 @@ function SearchRoot({
         }
 
         return [...normalizedSuggestedItems, ...items]
-    }, [allItems, searchValue, showAskAiLink, suggestedItems, aiPreviewConversationId, isDarkModeOn])
+    }, [allItems, searchValue, showAskAiLink, suggestedItems, aiPreviewConversationId, isDarkModeOn, aiPreviewEnabled])
 
     useEffect(() => {
         if (!isActive) {

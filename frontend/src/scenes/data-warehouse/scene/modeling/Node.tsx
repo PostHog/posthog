@@ -379,7 +379,7 @@ const NodeComponent = React.memo(function NodeComponent(props: { id: string; dat
         } else if (canOpenInEditor) {
             newTab(urls.sqlEditor({ view_id: savedQueryId }))
         }
-    }, [type, canOpenInEditor, savedQueryId, newTab])
+    }, [type, canOpenInEditor, savedQueryId, newTab, props.data.name])
 
     const handleMouseEnter = useCallback(() => setHoveredNodeId(id), [id, setHoveredNodeId])
     const handleMouseLeave = useCallback(() => setHoveredNodeId(null), [setHoveredNodeId])

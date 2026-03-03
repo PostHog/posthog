@@ -3281,7 +3281,7 @@ const api = {
                 recordingId?: SessionRecordingType['id']
             },
             data: { raw_password?: string; note?: string }
-        ): Promise<{ id: string; password: string; note: string; created_at: string; created_by_email: string }> {
+        ): Promise<SharingConfigurationType | null> {
             return dashboardId
                 ? new ApiRequest().dashboardSharingPasswords(dashboardId).create({ data })
                 : insightId
@@ -3303,7 +3303,7 @@ const api = {
             },
             passwordId: string
         ): Promise<void> {
-            return dashboardId
+            dashboardId
                 ? new ApiRequest().dashboardSharingPassword(dashboardId, passwordId).delete()
                 : insightId
                   ? new ApiRequest().insightSharingPassword(insightId, passwordId).delete()
@@ -5924,7 +5924,7 @@ const api = {
                 .create()
         },
     },
-}
+} as const
 
 async function handleFetch(url: string, method: string, fetcher: () => Promise<Response>): Promise<Response> {
     const startTime = new Date().getTime()
