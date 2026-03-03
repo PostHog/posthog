@@ -49,11 +49,7 @@ from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
-from posthog.temporal.ducklake.types import (
-    DataModelingDuckLakeCopyInputs,
-    DuckLakeCopyModelInput,
-    ducklake_copy_data_modeling_workflow_id,
-)
+from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
 from products.data_warehouse.backend.data_load.saved_query_service import a_pause_saved_query_schedule
@@ -1722,7 +1718,7 @@ class RunWorkflow(PostHogWorkflow):
                 await temporalio.workflow.start_child_workflow(
                     DuckLakeCopyDataModelingWorkflow.run,
                     self.ducklake_copy_inputs,
-                    id=ducklake_copy_data_modeling_workflow_id(inputs.team_id, self.ducklake_copy_inputs.models),
+                    id=f"ducklake-copy-data-modeling-{inputs.team_id}-{self.ducklake_copy_inputs.models[0].saved_query_id}",
                     task_queue=settings.DUCKLAKE_TASK_QUEUE,
                     parent_close_policy=ParentClosePolicy.ABANDON,
                     retry_policy=temporalio.common.RetryPolicy(

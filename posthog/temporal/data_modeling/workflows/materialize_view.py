@@ -24,11 +24,7 @@ from posthog.temporal.data_modeling.activities import (
     prepare_queryable_table_activity,
     succeed_materialization_activity,
 )
-from posthog.temporal.ducklake.types import (
-    DataModelingDuckLakeCopyInputs,
-    DuckLakeCopyModelInput,
-    ducklake_copy_data_modeling_workflow_id,
-)
+from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 # these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [
@@ -161,7 +157,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 await temporalio.workflow.start_child_workflow(
                     workflow="ducklake-copy.data-modeling",
                     arg=dataclasses.asdict(ducklake_inputs),
-                    id=ducklake_copy_data_modeling_workflow_id(inputs.team_id, ducklake_inputs.models),
+                    id=f"ducklake-copy-data-modeling-{inputs.team_id}-{materialize_result.saved_query_id}",
                     task_queue=settings.DUCKLAKE_TASK_QUEUE,
                     parent_close_policy=ParentClosePolicy.ABANDON,
                     retry_policy=temporalio.common.RetryPolicy(
