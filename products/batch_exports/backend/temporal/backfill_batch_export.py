@@ -839,7 +839,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             )
 
             # Step 3: Update backfill with adjusted start and estimated count
-            # If estimated count is 0, complete early; if None (non-events), proceed normally
+            # If estimated count is 0, complete early; if None (sessions/other models), proceed normally
             update_inputs.estimated_records_count = backfill_info.total_records_count
             should_complete_early = backfill_info.total_records_count == 0
 
