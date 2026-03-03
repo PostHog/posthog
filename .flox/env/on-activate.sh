@@ -136,6 +136,31 @@ if [[ -t 0 ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE
   echo
 fi
 
+# ── Xcode license check (macOS only) ─────────────────────────────────
+if [[ "$(uname -s)" == "Darwin" ]] && command -v xcodebuild >/dev/null 2>&1; then
+  if ! xcodebuild -license check >/dev/null 2>&1; then
+    echo -e "${C_YELLOW}⚠${C_RESET}  Xcode license not accepted. Native builds may fail."
+    if [[ -t 0 ]]; then
+      read -p "$(echo -e "   Accept Xcode license now? (Y/n) ")" -n 1 -r
+      echo
+      if [[ $REPLY =~ ^[Yy]$ || -z $REPLY ]]; then
+        echo -e "   ${C_DIM}Running: sudo xcodebuild -license accept${C_RESET}"
+        if sudo xcodebuild -license accept; then
+          echo -e "   ${C_GREEN}✓${C_RESET} Xcode license accepted"
+        else
+          echo -e "   ${C_RED}✗${C_RESET} Failed to accept Xcode license"
+          echo -e "   ${C_DIM}Run 'sudo xcodebuild -license' manually to resolve.${C_RESET}"
+        fi
+      else
+        echo -e "   ${C_DIM}Skipped. Run 'sudo xcodebuild -license' if builds fail.${C_RESET}"
+      fi
+    else
+      echo -e "   ${C_DIM}Run 'sudo xcodebuild -license' to accept.${C_RESET}"
+    fi
+    echo
+  fi
+fi
+
 # ── Header ──────────────────────────────────────────────────────────
 _branch=$(git -C "$FLOX_ENV_PROJECT" branch --show-current 2>/dev/null || echo "???")
 echo -e "\n${C_CYAN}PostHog dev${C_RESET} ${C_DIM}── ${_branch}${C_RESET}\n"
