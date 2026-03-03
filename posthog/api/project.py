@@ -264,7 +264,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
-        return len(self.get_group_types(project)) > 0
+        return bool(get_group_types_for_project(project.id))
 
     def get_group_types(self, project: Project) -> list[dict[str, Any]]:
         return get_group_types_for_project(project.id)

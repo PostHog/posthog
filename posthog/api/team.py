@@ -395,7 +395,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
-        return len(self.get_group_types(team)) > 0
+        return bool(get_group_types_for_project(team.project_id))
 
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
         return get_group_types_for_project(team.project_id)
