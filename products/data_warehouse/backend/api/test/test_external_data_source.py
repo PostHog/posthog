@@ -571,6 +571,30 @@ class TestExternalDataSource(APIBaseTest):
         # sensitive fields like stripe_secret_key should be stripped, but auth_method selection is kept
         assert result.get("job_inputs") == {"auth_method": {"selection": "api_key"}}
 
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_after_get_preserves_stripe_secret_key(self, _mock_validate):
+        source = self._create_external_data_source()
+
+        # GET strips stripe_secret_key from auth_method
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        get_data = get_response.json()
+        assert "stripe_secret_key" not in get_data["job_inputs"]["auth_method"]
+
+        # PATCH with the sanitized data from GET (simulating user saving without changes)
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": get_data["job_inputs"]},
+        )
+        assert patch_response.status_code == 200
+
+        # stripe_secret_key must still be in the DB
+        source.refresh_from_db()
+        assert source.job_inputs["auth_method"]["stripe_secret_key"] == "sk_test_123"
+
     def test_get_external_data_source_with_schema(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
