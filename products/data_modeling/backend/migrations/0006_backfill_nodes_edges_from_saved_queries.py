@@ -40,9 +40,7 @@ def backfill_nodes_and_edges(apps, schema_editor):
         Node.objects.create(
             team_id=saved_query.team_id,
             saved_query=saved_query,
-            # mypy flags this as an unknown field but its a historical migration so i'm just
-            # type ignoring it
-            dag_id=get_dag_id(saved_query.team_id),  # type: ignore
+            dag_id=get_dag_id(saved_query.team_id),
             name=saved_query.name,
             type=node_type,
             properties={"backfilled": True},
