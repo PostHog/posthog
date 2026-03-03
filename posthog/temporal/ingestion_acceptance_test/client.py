@@ -13,6 +13,8 @@ import structlog
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from posthog.security.outbound_proxy import external_requests_session
+
 from .config import Config
 
 if TYPE_CHECKING:
@@ -85,7 +87,7 @@ class PostHogClient:
 
     def _create_http_session(self) -> requests.Session:
         """Create an HTTP session with urllib3 retry logic for transient failures."""
-        session = requests.Session()
+        session = external_requests_session()
         retry_strategy = Retry(
             total=self.HTTP_RETRY_TOTAL,
             backoff_factor=self.HTTP_RETRY_BACKOFF_FACTOR,
@@ -159,18 +161,23 @@ class PostHogClient:
 
         return event_uuid
 
-    def alias(self, alias: str, distinct_id: str) -> None:
+    def alias(self, alias: str, distinct_id: str) -> str:
         """Create an alias linking alias to distinct_id.
 
         After this call, events sent to `alias` will be associated with the same
         person as `distinct_id`.
+
+        Returns:
+            The event UUID of the alias event.
         """
-        logger.info("Creating alias", alias=alias, distinct_id=distinct_id)
+        event_uuid = str(uuid.uuid4())
+        logger.info("Creating alias", alias=alias, distinct_id=distinct_id, event_uuid=event_uuid)
         self._retry_on_error(
-            lambda: self._posthog.alias(alias, distinct_id),
+            lambda: self._posthog.alias(alias, distinct_id, uuid=event_uuid),
             description=f"alias {alias} -> {distinct_id}",
         )
-        logger.info("Alias created", alias=alias, distinct_id=distinct_id)
+        logger.info("Alias created", alias=alias, distinct_id=distinct_id, event_uuid=event_uuid)
+        return event_uuid
 
     def merge_dangerously(self, merge_into_distinct_id: str, merge_from_distinct_id: str) -> str:
         """Merge two persons using $merge_dangerously.

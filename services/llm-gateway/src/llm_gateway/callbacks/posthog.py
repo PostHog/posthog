@@ -7,7 +7,13 @@ import posthoganalytics
 import structlog
 
 from llm_gateway.callbacks.base import InstrumentedCallback
-from llm_gateway.request_context import get_auth_user, get_product, get_time_to_first_token
+from llm_gateway.request_context import (
+    get_auth_user,
+    get_posthog_flags,
+    get_posthog_properties,
+    get_product,
+    get_time_to_first_token,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -116,6 +122,16 @@ class PostHogCallback(InstrumentedCallback):
             "ai_product": product,
         }
 
+        posthog_properties = get_posthog_properties() or {}
+        if isinstance(posthog_properties, dict):
+            for key, value in posthog_properties.items():
+                properties[key] = value
+
+        posthog_flags = get_posthog_flags() or {}
+        if isinstance(posthog_flags, dict):
+            for flag_key, variant in posthog_flags.items():
+                properties[f"$feature/{flag_key}"] = variant
+
         if team_id:
             properties["team_id"] = team_id
 
@@ -184,6 +200,16 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_error": standard_logging_object.get("error_str", ""),
             "ai_product": product,
         }
+
+        posthog_properties = get_posthog_properties() or {}
+        if isinstance(posthog_properties, dict):
+            for key, value in posthog_properties.items():
+                properties[key] = value
+
+        posthog_flags = get_posthog_flags() or {}
+        if isinstance(posthog_flags, dict):
+            for flag_key, variant in posthog_flags.items():
+                properties[f"$feature/{flag_key}"] = variant
 
         if team_id:
             properties["team_id"] = team_id

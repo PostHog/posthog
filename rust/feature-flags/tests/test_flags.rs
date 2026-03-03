@@ -1003,7 +1003,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+    let team_id = rand::thread_rng().gen_range(1_000_000..i32::MAX);
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(team_id)).await.unwrap();
 
@@ -2765,7 +2765,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_with_numeric_group".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+    let team_id = rand::thread_rng().gen_range(1_000_000..i32::MAX);
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(team_id)).await.unwrap();
 

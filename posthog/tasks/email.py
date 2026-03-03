@@ -1454,6 +1454,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         return
 
     all_org_teams = {t.id: t for t in Team.objects.filter(organization_id=org.id)}
+    excluded_project_count = len(all_org_teams) - len(team_exception_counts)
 
     # Pre-compute per-team digest data only for teams that have exceptions
     team_digest_data: dict[int, dict] = {}
@@ -1489,7 +1490,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         else list(all_memberships)
     )
 
-    date_suffix = timezone.now().strftime("%Y-%W-%d-%H")
+    date_suffix = timezone.now().strftime("%Y-%W")
     sent_count = 0
 
     for membership in memberships:
@@ -1519,6 +1520,8 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         if not user_team_sections:
             continue
 
+        user_team_sections.sort(key=lambda d: d["exception_count"], reverse=True)
+
         campaign_key = f"error_tracking_weekly_digest_{org_id}_{user.uuid}_{date_suffix}"
         message = EmailMessage(
             campaign_key=campaign_key,
@@ -1528,7 +1531,8 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
                 "organization": org,
                 "project_sections": user_team_sections,
                 "disabled_project_names": disabled_team_names,
-                "settings_url": f"{settings.SITE_URL}/settings/user-notifications",
+                "excluded_project_count": excluded_project_count,
+                "settings_url": f"{settings.SITE_URL}/settings/user-notifications?highlight=et-weekly-digest",
                 "contact_support_url": "https://posthog.com/support",
                 "feedback_survey_url": f"https://us.posthog.com/external_surveys/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={user.distinct_id}",
             },

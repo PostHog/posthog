@@ -153,8 +153,29 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         }
 
         if (source) {
-            target.width = source.clientWidth || source.width
-            target.height = source.clientHeight || source.height
+            // Priority for resolving the target canvas dimensions:
+            // 1. displayWidth/displayHeight — explicit fields added to mutation data (new recordings)
+            // 2. clearRect args — first command is clearRect(0, 0, w, h) (existing recordings)
+            // 3. clientWidth/clientHeight — works unless canvas is in a flex/grid container
+            // 4. canvas.width/height attributes — last resort, may be internal resolution
+            let snapshotWidth = 0
+            let snapshotHeight = 0
+
+            const displayWidth = 'displayWidth' in data ? (data.displayWidth as number) : 0
+            const displayHeight = 'displayHeight' in data ? (data.displayHeight as number) : 0
+            if (displayWidth && displayHeight) {
+                snapshotWidth = displayWidth
+                snapshotHeight = displayHeight
+            } else if ('commands' in data && data.commands.length > 0) {
+                const firstCmd = data.commands[0]
+                if (firstCmd.property === 'clearRect' && firstCmd.args?.length >= 4) {
+                    snapshotWidth = firstCmd.args[2] as number
+                    snapshotHeight = firstCmd.args[3] as number
+                }
+            }
+
+            target.width = snapshotWidth || source.clientWidth || source.width
+            target.height = snapshotHeight || source.clientHeight || source.height
         }
 
         await canvasMutation({

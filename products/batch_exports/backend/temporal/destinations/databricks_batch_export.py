@@ -78,6 +78,8 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     "DatabricksCatalogNotFoundError",
     # Raised when the Databricks schema is not found.
     "DatabricksSchemaNotFoundError",
+    # Raised when the Databricks warehouse is stopped.
+    "DatabricksWarehouseStoppedError",
 ]
 
 DatabricksField = tuple[str, str]
@@ -85,12 +87,6 @@ DatabricksField = tuple[str, str]
 
 class DatabricksConnectionError(Exception):
     """Error for Databricks connection."""
-
-    pass
-
-
-class DatabricksInsufficientPermissionsError(Exception):
-    """Error for Databricks permission."""
 
     pass
 
@@ -115,7 +111,18 @@ class DatabricksSchemaNotFoundError(Exception):
         super().__init__(f"Schema '{schema}' not found")
 
 
-class DatabricksOperationTimeoutError(Exception):
+class DatabricksOperationError(Exception):
+    """Super class for errors raised while executing an operation in databricks."""
+
+    def __init__(self, operation: str, reason: str, remediation: str | None = None):
+        msg = f"Failed to execute '{operation}': {reason}"
+        if remediation:
+            msg += f". {remediation}"
+
+        super().__init__(msg)
+
+
+class DatabricksOperationTimeoutError(DatabricksOperationError):
     """Error raised when we hit our self-imposed long running operation timeout.
 
     We impose this timeout to prevent operations from running for too long, which could cause SLA violations and consume
@@ -124,8 +131,22 @@ class DatabricksOperationTimeoutError(Exception):
 
     def __init__(self, operation: str, timeout: float):
         super().__init__(
-            f"{operation} timed out after {timeout} seconds. If this happens regularly, you may want to increase the size of your Databricks SQL warehouse."
+            operation,
+            f"Timed out after {timeout} seconds",
+            "If this happens regularly, you may want to increase the size of your Databricks SQL warehouse.",
         )
+
+
+class DatabricksInsufficientPermissionsError(DatabricksOperationError):
+    """Error for Databricks permission."""
+
+    pass
+
+
+class DatabricksWarehouseStoppedError(DatabricksOperationError):
+    """Error for when a Databricks warehouse is stopped."""
+
+    pass
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -423,6 +444,8 @@ class DatabricksClient:
         except ServerOperationError as err:
             if err.message and "[NO_SUCH_CATALOG_EXCEPTION]" in err.message:
                 raise DatabricksCatalogNotFoundError(catalog)
+            elif _is_warehouse_stopped_error(err):
+                raise DatabricksWarehouseStoppedError("USE CATALOG", err.message)
             raise
 
     async def use_schema(self, schema: str):
@@ -477,7 +500,7 @@ class DatabricksClient:
             await self.execute_query(query, fetch_results=False)
         except ServerOperationError as err:
             if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError(f"Failed to create table: {err.message}")
+                raise DatabricksInsufficientPermissionsError("CREATE TABLE", err.message)
             raise
 
     async def adelete_table(self, table_name: str):
@@ -486,7 +509,7 @@ class DatabricksClient:
             await self.execute_query(f"DROP TABLE IF EXISTS `{table_name}`", fetch_results=False)
         except ServerOperationError as err:
             if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError(f"Failed to delete table: {err.message}")
+                raise DatabricksInsufficientPermissionsError("DROP TABLE", err.message)
             raise
 
     async def aput_file_stream_to_volume(self, file: io.BytesIO, volume_path: str, file_name: str):
@@ -512,12 +535,10 @@ class DatabricksClient:
         try:
             await self.execute_async_query(query, fetch_results=False, timeout=timeout)
         except TimeoutError:
-            raise DatabricksOperationTimeoutError(operation="Copy into table from volume", timeout=timeout)
+            raise DatabricksOperationTimeoutError(operation=f"COPY INTO {table_name} FROM VOLUME", timeout=timeout)
         except ServerOperationError as err:
             if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError(
-                    f"Failed to copy data from volume into table: {err.message}"
-                )
+                raise DatabricksInsufficientPermissionsError(f"COPY INTO {table_name} FROM VOLUME", err.message)
             raise
 
     def _get_copy_into_table_from_volume_query(
@@ -585,7 +606,7 @@ class DatabricksClient:
             )
         except ServerOperationError as err:
             if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError(f"Failed to create volume: {err.message}")
+                raise DatabricksInsufficientPermissionsError("CREATE VOLUME", err.message)
             raise
 
     async def adelete_volume(self, volume: str):
@@ -597,7 +618,7 @@ class DatabricksClient:
             )
         except ServerOperationError as err:
             if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError(f"Failed to delete volume: {err.message}")
+                raise DatabricksInsufficientPermissionsError("DELETE VOLUME", err.message)
             raise
 
     async def aget_table_columns(self, table_name: str) -> list[str]:
@@ -619,7 +640,7 @@ class DatabricksClient:
             except DatabaseError as err:
                 if "Expected field named: DataAccessConfigID" in str(err):
                     raise DatabricksInsufficientPermissionsError(
-                        f"Failed to get table columns: {err}. Please check that you have SELECT permissions on the table."
+                        "GET TABLE COLUMNS", str(err), "Please check that you have SELECT permissions on the table."
                     )
                 raise
             return column_names
@@ -909,6 +930,13 @@ def _is_insufficient_permissions_error(err: ServerOperationError) -> bool:
     if err.message is None:
         return False
     return "INSUFFICIENT_PERMISSIONS" in err.message or "PERMISSION_DENIED" in err.message
+
+
+def _is_warehouse_stopped_error(err: ServerOperationError) -> bool:
+    """Check if the error is a warehouse stopped error."""
+    if err.message is None:
+        return False
+    return "warehouse" in err.message and "is stopped" in err.message
 
 
 def _get_long_running_query_timeout(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime) -> float:

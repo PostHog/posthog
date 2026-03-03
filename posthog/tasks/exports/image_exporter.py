@@ -16,7 +16,6 @@ from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.proxy import Proxy, ProxyType
 from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
@@ -61,6 +60,9 @@ CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", "
 # NOTE: We purposefully DON'T re-use the driver. It would be slightly faster but would keep an in-memory browser
 # window permanently around which is unnecessary
 def get_driver() -> webdriver.Chrome:
+    # this instance of Chrome does *not* use the egress proxy.
+    # after multiple attempts, we were not able to get selenium to actually use the proxy.
+    # the risk is minimal though, since this always uses a URL hardoded to settings.SITE_URL
     options = Options()
     options.add_argument("--headless=new")  # Hint: Try removing this line when debugging
     options.add_argument("--force-device-scale-factor=2")  # Scale factor for higher res image
@@ -72,13 +74,6 @@ def get_driver() -> webdriver.Chrome:
     options.add_experimental_option(
         "excludeSwitches", ["enable-automation"]
     )  # Removes the "Chrome is being controlled by automated test software" bar
-
-    if settings.OUTBOUND_PROXY_ENABLED and settings.OUTBOUND_PROXY_URL:
-        proxy = Proxy()
-        proxy.proxy_type = ProxyType.MANUAL
-        proxy.http_proxy = settings.OUTBOUND_PROXY_URL
-        proxy.ssl_proxy = settings.OUTBOUND_PROXY_URL
-        options.proxy = proxy
 
     # Create a unique prefix for the temporary directory
     pid = os.getpid()
