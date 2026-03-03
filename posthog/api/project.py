@@ -668,7 +668,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 activity="deleted",
                 detail=Detail(name=str(team.name)),
             )
-            report_user_action(user, f"team deleted", team=team)
+            report_user_action(user, "team deleted", team=team, request=self.request)
         log_activity(
             organization_id=cast(UUIDT, organization_id),
             team_id=project_id,
@@ -681,9 +681,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         )
         report_user_action(
             user,
-            f"project deleted",
+            "project deleted",
             {"project_name": project_name},
             team=teams[0],
+            request=self.request,
         )
 
     @action(
@@ -829,14 +830,13 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 "product onboarding completed",
                 {
                     "product_key": product_type,
-                    "$current_url": current_url,
-                    "$session_id": session_id,
                     "intent_context": intent_context,
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
                     "realm": get_instance_realm(),
                 },
                 team=team,
+                request=request,
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
@@ -906,7 +906,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
         report_user_action(
             user,
-            f"project moved to another organization",
+            "project moved to another organization",
             {
                 "project_id": project.id,
                 "project_name": project.name,
@@ -916,6 +916,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 "new_organization_name": target_organization.name,
             },
             team=teams[0],
+            request=request,
         )
 
         return response.Response(

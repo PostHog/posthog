@@ -478,7 +478,7 @@ def team_api_test_factory():
                 call(
                     distinct_id=self.user.distinct_id,
                     event="team deleted",
-                    properties={},
+                    properties=mock.ANY,
                     groups=mock.ANY,
                 ),
             ]
@@ -487,7 +487,7 @@ def team_api_test_factory():
                     call(
                         distinct_id=self.user.distinct_id,
                         event="project deleted",
-                        properties={"project_name": "Default project"},
+                        properties=mock.ANY,
                         groups=mock.ANY,
                     )
                 )
@@ -1609,14 +1609,13 @@ def team_api_test_factory():
                 "product onboarding completed",
                 {
                     "product_key": "product_analytics",
-                    "$current_url": "https://posthogtest.com/my-url",
-                    "$session_id": "test_session_id",
                     "intent_context": None,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
                 },
                 team=self.team,
+                request=ANY,
             )
 
         @patch("posthog.api.project.report_user_action")
@@ -1665,14 +1664,13 @@ def team_api_test_factory():
                 "product onboarding completed",
                 {
                     "product_key": "product_analytics",
-                    "$current_url": "https://posthogtest.com/my-url",
-                    "$session_id": "test_session_id",
                     "intent_context": None,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
                 },
                 team=self.team,
+                request=ANY,
             )
 
         def _create_other_org_and_team(
