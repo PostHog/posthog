@@ -18,7 +18,6 @@ export function formatQueryForInsightEditor(query: InsightVizNode<TrendsQuery>):
                 date_to: null,
             },
         },
-        // Open in regular insight mode with full controls visible.
         full: true,
         showHeader: undefined,
         showTable: undefined,
