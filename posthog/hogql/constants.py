@@ -133,7 +133,6 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_memory_usage: Optional[int] = None  # default value coming from cloud config
     max_threads: Optional[int] = None
     allow_experimental_object_type: Optional[bool] = True
-    format_csv_allow_double_quotes: Optional[bool] = False  # global default: disable RFC 4180 quoting
     max_ast_elements: Optional[int] = 4_000_000  # default value 50000
     max_expanded_ast_elements: Optional[int] = 4_000_000
     max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
