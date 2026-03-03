@@ -13,6 +13,7 @@ pub struct DatabasePools {
     pub non_persons_writer: Arc<PgPool>,
     pub persons_reader: Arc<PgPool>,
     pub persons_writer: Arc<PgPool>,
+    pub behavioral_cohorts_reader: Option<Arc<PgPool>>,
     pub test_before_acquire: bool,
 }
 
@@ -261,11 +262,42 @@ impl DatabasePools {
             info!("Persons pools are aliased to non-persons pools (persons DB routing disabled)");
         }
 
+        // Optional behavioral cohorts database pool for realtime cohort membership lookups.
+        // Uses a small pool with tight timeouts since these are simple key lookups.
+        let behavioral_cohorts_reader = if config.is_behavioral_cohorts_db_configured() {
+            let pool_config = PoolConfig {
+                min_connections: 1,
+                max_connections: 5,
+                acquire_timeout: Duration::from_secs(config.acquire_timeout_secs),
+                idle_timeout: if config.idle_timeout_secs > 0 {
+                    Some(Duration::from_secs(config.idle_timeout_secs))
+                } else {
+                    None
+                },
+                test_before_acquire: *config.test_before_acquire,
+                statement_timeout_ms: Some(1000),
+            };
+            info!("Creating behavioral cohorts reader pool");
+            Some(Arc::new(
+                get_pool_with_config(&config.behavioral_cohorts_read_database_url, pool_config)
+                    .map_err(|e| {
+                        FlagError::DatabaseError(
+                            e,
+                            Some("Failed to create behavioral cohorts reader pool".to_string()),
+                        )
+                    })?,
+            ))
+        } else {
+            info!("Behavioral cohorts DB not configured, realtime cohort evaluation disabled");
+            None
+        };
+
         Ok(DatabasePools {
             non_persons_reader,
             non_persons_writer,
             persons_reader,
             persons_writer,
+            behavioral_cohorts_reader,
             test_before_acquire: *config.test_before_acquire,
         })
     }
