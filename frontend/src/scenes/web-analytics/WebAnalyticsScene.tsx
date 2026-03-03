@@ -1,5 +1,5 @@
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { WebAnalyticsDashboard } from 'scenes/web-analytics/WebAnalyticsDashboard'
 import { WebAnalyticsHeaderButtons } from 'scenes/web-analytics/WebAnalyticsHeaderButtons'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'

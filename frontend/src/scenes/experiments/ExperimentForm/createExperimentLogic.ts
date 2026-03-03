@@ -313,7 +313,17 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     })),
     events(({ actions, values, props }) => ({
         afterMount: () => {
-            if (props.experiment || values.experiment.id !== 'new') {
+            // When opened with an existing experiment (e.g. revisiting an
+            // incomplete draft), always sync the reducer to the prop value.
+            // This handles the case where a kea logic instance is reused
+            // across re-renders — the reducer's initial value was captured
+            // at first mount and won't reflect newer props without this.
+            if (props.experiment) {
+                actions.setExperiment(props.experiment)
+                return
+            }
+
+            if (values.experiment.id !== 'new') {
                 return
             }
 
@@ -484,7 +494,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         lemonToast.success('Experiment updated successfully!')
                     } else {
                         // Create flow
-                        actions.reportExperimentCreated(response)
+                        const isWizard = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]
+                        actions.reportExperimentCreated(response, {
+                            creation_source: isWizard ? 'wizard' : 'classic_form',
+                            has_linked_flag: !!response.feature_flag?.id,
+                        })
                         actions.addProductIntent({
                             product_type: ProductKey.EXPERIMENTS,
                             intent_context: ProductIntentContext.EXPERIMENT_CREATED,

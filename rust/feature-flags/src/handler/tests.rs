@@ -27,6 +27,7 @@ use crate::{
 use axum::http::HeaderMap;
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
+use common_cache::NegativeCache;
 use common_database::Client;
 use common_geoip::GeoIpClient;
 use reqwest::header::CONTENT_TYPE;
@@ -193,6 +194,7 @@ async fn test_evaluate_feature_flags() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -286,6 +288,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -693,6 +696,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -799,6 +803,7 @@ async fn test_evaluate_feature_flags_details() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -957,6 +962,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1050,6 +1056,7 @@ async fn test_long_distinct_id() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1183,6 +1190,7 @@ async fn test_fetch_and_filter_flags() {
         reader.clone(),
         team_hypercache_reader,
         hypercache_reader,
+        NegativeCache::new(100, 300),
     );
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();
@@ -1568,6 +1576,7 @@ async fn test_parallel_path_matches_sequential_results() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
     let sequential_result = evaluate_feature_flags(sequential_context, Uuid::new_v4()).await;
 
@@ -1590,6 +1599,7 @@ async fn test_parallel_path_matches_sequential_results() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 1,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
     let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4()).await;
 

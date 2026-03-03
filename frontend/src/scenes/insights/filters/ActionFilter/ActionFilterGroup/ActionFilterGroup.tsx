@@ -21,9 +21,8 @@ import {
     TaxonomicPopoverProps,
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { teamLogic } from 'scenes/teamLogic'
 import { MathCategory, mathsLogic } from 'scenes/trends/mathsLogic'
 
@@ -83,12 +82,10 @@ export function ActionFilterGroup({
     insightType,
     definitionPopoverRenderer,
 }: ActionFilterGroupProps): JSX.Element {
-    const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
-    const effectiveActionsTaxonomicGroupTypes = (
-        showQuickFilters
-            ? [TaxonomicFilterGroupType.SuggestedFilters, ...actionsTaxonomicGroupTypes]
-            : actionsTaxonomicGroupTypes
-    ).filter((groupType) => groupType !== TaxonomicFilterGroupType.DataWarehouse)
+    const effectiveActionsTaxonomicGroupTypes = [
+        TaxonomicFilterGroupType.SuggestedFilters,
+        ...actionsTaxonomicGroupTypes,
+    ].filter((groupType) => groupType !== TaxonomicFilterGroupType.DataWarehouse)
 
     const { currentTeamId } = useValues(teamLogic)
     const { removeLocalFilter, splitLocalFilter } = useActions(entityFilterLogic({ typeKey }))

@@ -19,6 +19,7 @@ class TestAITemporalModuleIntegrity:
             "TeamSignalGroupingWorkflow",
             "EmitSignalWorkflow",
             "SignalReportSummaryWorkflow",
+            "EmitEvalSignalWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS + ai.SIGNALS_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -66,9 +67,7 @@ class TestAITemporalModuleIntegrity:
             "get_sessions_to_prime_activity",
             "fetch_segments_activity",
             "cluster_segments_activity",
-            "match_clusters_activity",
-            "label_clusters_activity",
-            "persist_reports_activity",
+            "emit_signals_from_clusters_activity",
             "get_proactive_tasks_enabled_team_ids_activity",
             "actionability_judge_activity",
             "assign_and_emit_signal_activity",
@@ -82,10 +81,13 @@ class TestAITemporalModuleIntegrity:
             "mark_report_pending_input_activity",
             "mark_report_ready_activity",
             "reset_report_to_potential_activity",
+            "fetch_report_contexts_activity",
+            "verify_match_specificity_activity",
             "run_signal_semantic_search_activity",
             "safety_judge_activity",
             "wait_for_signal_in_clickhouse_activity",
             "summarize_signals_activity",
+            "emit_eval_signal_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES + ai.SIGNALS_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

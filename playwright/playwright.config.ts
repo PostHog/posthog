@@ -11,11 +11,11 @@ import { defineConfig, devices } from '@playwright/test'
  */
 export default defineConfig({
     testDir: '.',
-    /* 
+    /*
         Maximum time one test can run for. 
         Shorter timeout in local dev since it's annoying to wait 90 seconds for a test to run.
     */
-    timeout: process.env.CI ? 60 * 1000 : 30 * 1000,
+    timeout: process.env.CI ? 90 * 1000 : 30 * 1000,
     expect: {
         /**
          * Maximum time expect() should wait for the condition to be met.
@@ -32,7 +32,7 @@ export default defineConfig({
     forbidOnly: !!process.env.CI,
     /* Retry on CI only */
     retries: process.env.CI ? 3 : 2,
-    /* 
+    /*
         GitHub Actions has 4 cores so run 3 workers 
         and leave one core for all the rest
         For local running, our machines are all M3 or M4 by now so we can afford to run more workers

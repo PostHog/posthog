@@ -10,6 +10,7 @@ from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.security.outbound_proxy import external_requests
 
 from ee.api.authentication import BillingServiceAuthentication, BillingServiceUser
 
@@ -74,7 +75,7 @@ def forward_to_vercel(config_id: str, access_token: str, path: str, method: str,
         "Content-Type": "application/json",
     }
 
-    return requests.request(
+    return external_requests.request(
         method=method,
         url=url,
         headers=headers,

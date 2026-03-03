@@ -3,7 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconFilter } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -15,11 +15,14 @@ import { QueryContextColumn } from '~/queries/types'
 import { hogql, isDataTableNode, isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { AIDataLoading } from './components/AIDataLoading'
+import { SentimentBar } from './components/SentimentTag'
+import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { EventData, useAIData } from './hooks/useAIData'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { flattenGenerationMessages } from './sentimentUtils'
 import { CompatMessage } from './types'
 import { normalizeMessages, parseJSONPreview } from './utils'
 
@@ -185,6 +188,77 @@ function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Eleme
     return <PersonColumnCell person={personData} />
 }
 
+function LazySentimentColumnCell({ traceId }: { traceId: string }): JSX.Element {
+    const { sentimentByTraceId, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
+    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
+    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
+
+    const cached = sentimentByTraceId[traceId]
+    const loading = isTraceLoading(traceId)
+
+    if (cached === undefined && !loading) {
+        ensureSentimentLoaded(traceId, dateFilter)
+    }
+
+    if (loading || cached === undefined) {
+        return <AIDataLoading variant="inline" />
+    }
+
+    if (cached === null) {
+        return <>–</>
+    }
+
+    return (
+        <SentimentBar
+            label={cached.label}
+            score={cached.score}
+            size="full"
+            messages={flattenGenerationMessages(cached.generations)}
+        />
+    )
+}
+
+function LazyGenerationSentimentCell({
+    traceId,
+    generationEventId,
+}: {
+    traceId: string
+    generationEventId: string
+}): JSX.Element {
+    const { sentimentByTraceId, isTraceLoading, getGenerationSentiment } = useValues(llmSentimentLazyLoaderLogic)
+    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
+    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
+
+    const cached = sentimentByTraceId[traceId]
+    const loading = isTraceLoading(traceId)
+
+    if (cached === undefined && !loading) {
+        ensureSentimentLoaded(traceId, dateFilter)
+    }
+
+    if (loading || cached === undefined) {
+        return <AIDataLoading variant="inline" />
+    }
+
+    if (cached === null) {
+        return <>–</>
+    }
+
+    const generationSentiment = getGenerationSentiment(traceId, generationEventId)
+    if (!generationSentiment) {
+        return <>–</>
+    }
+
+    return (
+        <SentimentBar
+            label={generationSentiment.label}
+            score={generationSentiment.score}
+            size="full"
+            messages={generationSentiment.messages}
+        />
+    )
+}
+
 function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
     const { input, isLoading } = useAIData(eventData)
 
@@ -270,6 +344,30 @@ const getEventData = (record: unknown, query?: DataTableNode | DataVisualization
     }
 
     return undefined
+}
+
+const MAX_VISIBLE_TOOLS = 5
+
+function ToolsDisplay({ tools }: { tools: string[] | undefined | null }): JSX.Element {
+    if (!tools || tools.length === 0) {
+        return <>–</>
+    }
+    const visible = tools.slice(0, MAX_VISIBLE_TOOLS)
+    const remaining = tools.length - MAX_VISIBLE_TOOLS
+    return (
+        <div className="flex flex-wrap gap-1">
+            {visible.map((tool) => (
+                <LemonTag key={tool} type="muted">
+                    {tool}
+                </LemonTag>
+            ))}
+            {remaining > 0 && (
+                <Tooltip title={tools.slice(MAX_VISIBLE_TOOLS).join(', ')}>
+                    <LemonTag type="muted">+{remaining} more</LemonTag>
+                </Tooltip>
+            )}
+        </div>
+    )
 }
 
 export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
@@ -362,6 +460,68 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
             }
 
             return <PersonColumnCell person={null} />
+        },
+    },
+    sentiment: {
+        title: 'Sentiment',
+        render: ({ record }) => {
+            if (!record || typeof record !== 'object' || Array.isArray(record)) {
+                return <>–</>
+            }
+            const traceRecord = record as LLMTrace
+            if (!traceRecord.id) {
+                return <>–</>
+            }
+            return <LazySentimentColumnCell traceId={traceRecord.id} />
+        },
+    },
+    "'' -- Sentiment": {
+        title: 'Sentiment',
+        render: ({ record, query }) => {
+            if (!Array.isArray(record) || !isDataTableNode(query) || !isEventsQuery(query.source)) {
+                return <>–</>
+            }
+
+            const select = query.source.select ?? []
+            const uuidIdx = select.findIndex((c) => c === 'uuid')
+            const traceIdIdx = select.findIndex((c) => c === 'properties.$ai_trace_id')
+
+            if (uuidIdx < 0 || traceIdIdx < 0) {
+                return <>–</>
+            }
+
+            const uuid = record[uuidIdx]
+            const traceId = record[traceIdIdx]
+
+            if (typeof uuid !== 'string' || typeof traceId !== 'string') {
+                return <>–</>
+            }
+
+            return <LazyGenerationSentimentCell traceId={traceId} generationEventId={uuid} />
+        },
+    },
+    'properties.$ai_tools_called': {
+        title: 'Tools',
+        render: ({ value }) => {
+            if (!value || typeof value !== 'string') {
+                return <>–</>
+            }
+            const tools = [
+                ...new Set(
+                    value
+                        .split(',')
+                        .map((t) => t.trim())
+                        .filter(Boolean)
+                ),
+            ]
+            return <ToolsDisplay tools={tools} />
+        },
+    },
+    tools: {
+        title: 'Tools',
+        render: ({ record }) => {
+            const row = record as LLMTrace
+            return <ToolsDisplay tools={row.tools} />
         },
     },
     // LLM person column for Users tab - clicking filter redirects to traces page

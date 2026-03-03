@@ -1,6 +1,7 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useMountedLogic, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
@@ -9,9 +10,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ExperimentForm } from './ExperimentForm'
-import { ExperimentView } from './ExperimentView/ExperimentView'
+import { createExperimentLogic } from './ExperimentForm/createExperimentLogic'
 import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
 import { type ExperimentSceneLogicProps, experimentSceneLogic } from './experimentSceneLogic'
+import { ExperimentView } from './ExperimentView/ExperimentView'
+import { ExperimentWizard } from './ExperimentWizard/ExperimentWizard'
+import { experimentWizardLogic } from './ExperimentWizard/experimentWizardLogic'
 
 export const scene: SceneExport<ExperimentSceneLogicProps> = {
     component: Experiment,
@@ -37,7 +41,6 @@ export function Experiment(props: ExperimentSceneLogicProps): JSX.Element {
         type: 'experiment',
         ref: experimentId,
         enabled: Boolean(currentTeamId && !experimentMissing && typeof experimentId === 'number'),
-        deps: [currentTeamId, experimentId, experimentMissing],
     })
 
     const logicProps: ExperimentLogicProps = { experimentId, formMode, tabId }
@@ -47,13 +50,28 @@ export function Experiment(props: ExperimentSceneLogicProps): JSX.Element {
         return <NotFound object="experiment" />
     }
 
+    const isCreateMode = formMode && ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode)
+
     return (
         <BindLogic logic={experimentLogic} props={logicProps}>
-            {formMode && ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode) ? (
-                <ExperimentForm tabId={tabId} />
-            ) : (
-                <ExperimentView tabId={tabId} />
-            )}
+            {isCreateMode ? <ExperimentCreateMode tabId={tabId} /> : <ExperimentView tabId={tabId} />}
         </BindLogic>
     )
+}
+
+function ExperimentCreateMode({ tabId }: { tabId: string }): JSX.Element {
+    const logic = createExperimentLogic({ tabId })
+    useMountedLogic(logic)
+
+    const showWizard = useFeatureFlag('EXPERIMENTS_WIZARD_CREATION_FORM', 'test')
+
+    if (showWizard) {
+        return (
+            <BindLogic logic={experimentWizardLogic} props={{ tabId }}>
+                <ExperimentWizard />
+            </BindLogic>
+        )
+    }
+
+    return <ExperimentForm tabId={tabId} />
 }

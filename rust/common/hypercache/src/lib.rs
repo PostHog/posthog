@@ -409,17 +409,6 @@ impl HyperCacheReader {
             1,
         );
 
-        // Also increment the tombstone counter for hypercache misses - this should never happen
-        inc(
-            TOMBSTONE_COUNTER_NAME,
-            &[
-                ("namespace".to_string(), self.config.namespace.clone()),
-                ("operation".to_string(), "hypercache_miss".to_string()),
-                ("component".to_string(), self.config.value.clone()),
-            ],
-            1,
-        );
-
         Err(HyperCacheError::CacheMiss)
     }
 

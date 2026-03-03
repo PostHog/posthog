@@ -332,7 +332,7 @@ function buildProductManifests() {
     fse.mkdirSync(tsxTmpDir, { recursive: true })
     const tsxTmpFile = path.join(tsxTmpDir, 'products.tsx')
     fse.writeFileSync(tsxTmpFile, productsTsx)
-    ps.execFileSync('prettier', ['--write', tsxTmpFile])
+    ps.execFileSync('oxfmt', [tsxTmpFile])
     fse.renameSync(tsxTmpFile, path.join(__dirname, 'src/products.tsx'))
 
     // 8. Assemble `products.json`, write, format, move to src/
@@ -356,7 +356,7 @@ function buildProductManifests() {
     fse.mkdirSync(jsonTmpDir, { recursive: true })
     const jsonTmpFile = path.join(jsonTmpDir, 'products.json')
     fse.writeFileSync(jsonTmpFile, JSON.stringify(productsJson))
-    ps.execFileSync('prettier', ['--write', jsonTmpFile])
+    ps.execFileSync('oxfmt', [jsonTmpFile])
     fse.renameSync(jsonTmpFile, path.join(__dirname, 'src/products.json'))
 }
 

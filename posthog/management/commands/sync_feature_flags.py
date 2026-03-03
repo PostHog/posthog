@@ -79,7 +79,6 @@ class Command(BaseCommand):
                     if isinstance(flag_type, list):
                         FeatureFlag.objects.create(
                             team=team,
-                            rollout_percentage=100,
                             name=flag,
                             key=flag,
                             created_by=first_user,
@@ -101,7 +100,6 @@ class Command(BaseCommand):
                     else:
                         FeatureFlag.objects.create(
                             team=team,
-                            rollout_percentage=100,
                             name=flag,
                             key=flag,
                             created_by=first_user,

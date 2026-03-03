@@ -44,11 +44,10 @@ import {
     TaxonomicPopoverProps,
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, getEventNamesForAction } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -191,6 +190,7 @@ export interface ActionFilterRowProps {
     allowNonCapturedEvents?: boolean
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
+    operatorAllowlist?: PropertyOperator[]
 }
 
 export function ActionFilterRow({
@@ -231,11 +231,12 @@ export function ActionFilterRow({
     hogQLGlobals,
     inlineEventsDocLink,
     definitionPopoverRenderer,
+    operatorAllowlist,
 }: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
-    const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
-    const effectiveActionsTaxonomicGroupTypes = showQuickFilters
-        ? [TaxonomicFilterGroupType.SuggestedFilters, ...actionsTaxonomicGroupTypes]
-        : actionsTaxonomicGroupTypes
+    const effectiveActionsTaxonomicGroupTypes = [
+        TaxonomicFilterGroupType.SuggestedFilters,
+        ...actionsTaxonomicGroupTypes,
+    ]
 
     const { currentTeamId } = useValues(teamLogic)
     const { entityFilterVisible } = useValues(logic)
@@ -277,7 +278,14 @@ export function ActionFilterRow({
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
     const [isMenuVisible, setIsMenuVisible] = useState(false)
 
-    const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
+    const {
+        setNodeRef,
+        attributes: { 'aria-disabled': _, ...attributes },
+        transform,
+        transition,
+        listeners,
+        isDragging,
+    } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -373,9 +381,7 @@ export function ActionFilterRow({
             data-attr={'trend-element-subject-' + index}
             fullWidth
             truncate
-            groupType={
-                showQuickFilters ? TaxonomicFilterGroupType.SuggestedFilters : (filter.type as TaxonomicFilterGroupType)
-            }
+            groupType={TaxonomicFilterGroupType.SuggestedFilters}
             value={getValue(value, filter)}
             filter={filter}
             onChange={(changedValue, taxonomicGroupType, item) => {
@@ -478,7 +484,7 @@ export function ActionFilterRow({
             }}
             renderValue={() => (
                 <span className="text-overflow max-w-full">
-                    <EntityFilterInfo filter={filter} />
+                    <EntityFilterInfo filter={filter} showIcon />
                 </span>
             )}
             groupTypes={effectiveActionsTaxonomicGroupTypes}
@@ -923,6 +929,7 @@ export function ActionFilterRow({
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}
+                        operatorAllowlist={operatorAllowlist}
                     />
                 </div>
             )}
