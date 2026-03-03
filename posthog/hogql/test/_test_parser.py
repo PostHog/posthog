@@ -3,6 +3,8 @@ from typing import Optional, cast
 
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.ast import (
     ArithmeticOperation,
@@ -1533,9 +1535,16 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
-        def test_select_union_by_name(self):
+        @parameterized.expand(
+            [
+                ("union by name", "UNION BY NAME"),
+                ("union all by name", "UNION ALL BY NAME"),
+                ("union distinct by name", "UNION DISTINCT BY NAME"),
+            ]
+        )
+        def test_select_union_by_name(self, sql_operator, expected_operator):
             self.assertEqual(
-                self._select("select 1 as a, 2 as b union by name select 3 as b, 4 as a"),
+                self._select(f"select 1 as a, 2 as b {sql_operator} select 3 as b, 4 as a"),
                 ast.SelectSetQuery(
                     initial_select_query=ast.SelectQuery(
                         select=[
@@ -1545,7 +1554,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                     ),
                     subsequent_select_queries=[
                         SelectSetNode(
-                            set_operator="UNION BY NAME",
+                            set_operator=expected_operator,
                             select_query=ast.SelectQuery(
                                 select=[
                                     ast.Alias(alias="b", expr=ast.Constant(value=3)),
@@ -1556,10 +1565,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                     ],
                 ),
             )
-
-        def test_select_union_by_invalid_identifier(self):
-            with self.assertRaisesMessage(SyntaxError, "Only UNION BY NAME is supported"):
-                self._select("select 1 union by foo select 2")
 
         def test_nested_selects(self):
             self.assertEqual(

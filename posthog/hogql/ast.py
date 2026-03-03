@@ -964,6 +964,8 @@ SetOperator = Literal[
     "UNION ALL",
     "UNION DISTINCT",
     "UNION BY NAME",
+    "UNION ALL BY NAME",
+    "UNION DISTINCT BY NAME",
     "INTERSECT",
     "INTERSECT ALL",
     "INTERSECT DISTINCT",
