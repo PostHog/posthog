@@ -54,6 +54,15 @@ def _cross_validate_issuer(declared_issuer: str) -> dict:
     return metadata
 
 
+def _resolve_issuer(metadata: dict, expected_issuer: str) -> dict:
+    """Cross-validate if the metadata declares a different issuer, otherwise default it."""
+    declared_issuer = metadata.get("issuer", "").rstrip("/")
+    if declared_issuer and declared_issuer != expected_issuer.rstrip("/"):
+        return _cross_validate_issuer(declared_issuer)
+    metadata.setdefault("issuer", expected_issuer)
+    return metadata
+
+
 def discover_oauth_metadata(server_url: str) -> dict:
     parsed_server = urlparse(server_url)
     origin = f"{parsed_server.scheme}://{parsed_server.netloc}"
@@ -73,12 +82,7 @@ def discover_oauth_metadata(server_url: str) -> dict:
         auth_servers = resource_data.get("authorization_servers", [])
         if auth_servers:
             auth_server_url = auth_servers[0]
-            metadata = _fetch_auth_server_metadata(auth_server_url)
-            declared_issuer = metadata.get("issuer", "").rstrip("/")
-            if declared_issuer and declared_issuer != auth_server_url.rstrip("/"):
-                metadata = _cross_validate_issuer(declared_issuer)
-            else:
-                metadata.setdefault("issuer", auth_server_url)
+            metadata = _resolve_issuer(_fetch_auth_server_metadata(auth_server_url), auth_server_url)
             # Carry scopes from the protected resource metadata when the auth
             # server metadata doesn't declare them (e.g. Asana).
             if "scopes_supported" not in metadata and "scopes_supported" in resource_data:
@@ -88,12 +92,7 @@ def discover_oauth_metadata(server_url: str) -> dict:
     # Step 2: Fall back to fetching authorization server metadata directly from the origin.
     # Many MCP servers (e.g. Linear) serve /.well-known/oauth-authorization-server
     # without implementing the protected resource metadata endpoint.
-    metadata = _fetch_auth_server_metadata(origin)
-    declared_issuer = metadata.get("issuer", "").rstrip("/")
-    if declared_issuer and declared_issuer != origin.rstrip("/"):
-        return _cross_validate_issuer(declared_issuer)
-    metadata.setdefault("issuer", origin)
-    return metadata
+    return _resolve_issuer(_fetch_auth_server_metadata(origin), origin)
 
 
 def register_dcr_client(metadata: dict, redirect_uri: str) -> str:
