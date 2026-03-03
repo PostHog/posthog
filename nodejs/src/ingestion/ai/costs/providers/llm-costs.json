@@ -2504,16 +2504,12 @@
         "model": "meta-llama/llama-3.2-3b-instruct",
         "cost": {
             "default": {
-                "prompt_token": 2e-8,
-                "completion_token": 2e-8
+                "prompt_token": 5.1e-8,
+                "completion_token": 3.4e-7
             },
             "cloudflare": {
                 "prompt_token": 5.1e-8,
                 "completion_token": 3.4e-7
-            },
-            "deepinfra-bf16": {
-                "prompt_token": 2e-8,
-                "completion_token": 2e-8
             },
             "hyperbolic-fp8": {
                 "prompt_token": 1.0000000000000001e-7,
@@ -3580,7 +3576,7 @@
                 "completion_token": 0.0000025
             },
             "nextbit-fp4": {
-                "prompt_token": 0.000001,
+                "prompt_token": 0.0000011,
                 "completion_token": 0.0000045,
                 "cache_read_token": 7.5e-7
             },
@@ -6489,15 +6485,17 @@
         }
     },
     {
-        "model": "upstage/solar-pro-3:free",
+        "model": "upstage/solar-pro-3",
         "cost": {
             "default": {
-                "prompt_token": 0,
-                "completion_token": 0
+                "prompt_token": 1.5e-7,
+                "completion_token": 6e-7,
+                "cache_read_token": 1.5e-8
             },
             "upstage": {
-                "prompt_token": 0,
-                "completion_token": 0
+                "prompt_token": 1.5e-7,
+                "completion_token": 6e-7,
+                "cache_read_token": 1.5e-8
             }
         }
     },

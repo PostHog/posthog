@@ -8,7 +8,7 @@ import {
     ReorderDashboardTilesSchema,
     UpdateDashboardInputSchema,
 } from './dashboards'
-import { ErrorDetailsSchema, ListErrorsSchema } from './errors'
+import { ErrorDetailsSchema, ListErrorsSchema, UpdateIssueStatusSchema } from './errors'
 import { FilterGroupsSchema, UpdateFeatureFlagInputSchema } from './flags'
 import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
 import { LogsListAttributeValuesInputSchema, LogsListAttributesInputSchema, LogsQueryInputSchema } from './logs'
@@ -55,6 +55,8 @@ export const DocumentationSearchSchema = z.object({
 export const ErrorTrackingDetailsSchema = ErrorDetailsSchema
 
 export const ErrorTrackingListSchema = ListErrorsSchema
+
+export const ErrorTrackingUpdateIssueStatusSchema = UpdateIssueStatusSchema
 
 export const ExperimentGetAllSchema = z.object({
     data: z

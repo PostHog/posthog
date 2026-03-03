@@ -383,7 +383,7 @@ class ModalSandbox:
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
             f"cd {shlex.quote(org_path)} && "
-            f"git clone {shlex.quote(repo_url)} {shlex.quote(repo)}"
+            f"git clone --depth 1 --single-branch {shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
 
         logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")

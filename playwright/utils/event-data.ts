@@ -46,7 +46,7 @@ const defaultProperties: Record<string, any> = {
 export function daysAgo(days: number): string {
     const date = new Date()
     date.setDate(date.getDate() - days)
-    date.setHours(12, 0, 0, 0)
+    date.setHours(0, 1, 0, 0)
     return date.toISOString()
 }
 

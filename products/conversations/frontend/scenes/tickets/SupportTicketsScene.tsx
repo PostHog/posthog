@@ -7,6 +7,7 @@ import { LemonBadge, LemonButton, LemonCheckbox, LemonDropdown, LemonTable, Lemo
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -26,7 +27,15 @@ import {
 } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
-import { type Ticket, channelOptions, priorityMultiselectOptions, statusMultiselectOptions } from '../../types'
+import { SlaDisplay } from '../../components/SlaDisplay'
+import {
+    type Ticket,
+    type TicketSlaState,
+    channelOptions,
+    priorityMultiselectOptions,
+    slaOptions,
+    statusMultiselectOptions,
+} from '../../types'
 import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
 export const scene: SceneExport = {
@@ -42,6 +51,7 @@ export function SupportTicketsScene(): JSX.Element {
         statusFilter,
         priorityFilter,
         channelFilter,
+        slaFilter,
         assigneeFilter,
         dateFrom,
         dateTo,
@@ -53,6 +63,7 @@ export function SupportTicketsScene(): JSX.Element {
         setStatusFilter,
         setPriorityFilter,
         setChannelFilter,
+        setSlaFilter,
         setAssigneeFilter,
         setDateRange,
         setCurrentPage,
@@ -172,6 +183,29 @@ export function SupportTicketsScene(): JSX.Element {
                     >
                         <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
                             {channelOptions.find((o) => o.value === channelFilter)?.label ?? 'All channels'}
+                        </LemonButton>
+                    </LemonDropdown>
+                    <LemonDropdown
+                        closeOnClickInside
+                        overlay={
+                            <div className="space-y-px p-1">
+                                {slaOptions.map((option) => (
+                                    <LemonButton
+                                        key={option.value}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        onClick={() => setSlaFilter(option.value as TicketSlaState | 'all')}
+                                        active={slaFilter === option.value}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {slaOptions.find((o) => o.value === slaFilter)?.label ?? 'All SLA states'}
                         </LemonButton>
                     </LemonDropdown>
                     <AssigneeSelect
@@ -344,6 +378,28 @@ export function SupportTicketsScene(): JSX.Element {
                                 >
                                     {ticket.priority}
                                 </LemonTag>
+                            ) : (
+                                <span className="text-muted-alt text-xs">—</span>
+                            ),
+                    },
+                    {
+                        title: 'SLA',
+                        key: 'sla_due_at',
+                        sorter: (a, b) => {
+                            if (!a.sla_due_at && !b.sla_due_at) {
+                                return 0
+                            }
+                            if (!a.sla_due_at) {
+                                return 1
+                            }
+                            if (!b.sla_due_at) {
+                                return -1
+                            }
+                            return dayjs(a.sla_due_at).unix() - dayjs(b.sla_due_at).unix()
+                        },
+                        render: (_, ticket) =>
+                            ticket.sla_due_at ? (
+                                <SlaDisplay slaDueAt={ticket.sla_due_at} className="text-xs" />
                             ) : (
                                 <span className="text-muted-alt text-xs">—</span>
                             ),
