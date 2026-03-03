@@ -44,6 +44,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { UseCaseDefinition } from '../productRecommendations'
 import { availableOnboardingProducts } from '../utils'
 import { productSelectionLogic } from './productSelectionLogic'
+import { SimplifiedProductSelection } from './SimplifiedProductSelection'
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {
     IconBolt,
@@ -245,6 +246,22 @@ function ChoosePathStep(): JSX.Element {
     )
 }
 
+export function toSentenceCase(name: string): string {
+    return name
+        .split(' ')
+        .map((word, i) => {
+            if (i === 0) {
+                return word
+            }
+            // Preserve acronyms (e.g. "LLM")
+            if (word === word.toUpperCase() && word.length <= 4) {
+                return word
+            }
+            return word.toLowerCase()
+        })
+        .join(' ')
+}
+
 function ProductCard({
     productKey,
     selected,
@@ -259,7 +276,7 @@ function ProductCard({
     return (
         <LemonCard
             data-attr={`${productKey}-onboarding-card`}
-            className="cursor-pointer hover:transform-none p-4"
+            className="relative cursor-pointer hover:transform-none p-4"
             onClick={onToggle}
             focused={selected}
             hoverEffect
@@ -413,7 +430,12 @@ function ProductSelectionStep(): JSX.Element {
 }
 
 export function ProductSelection(): JSX.Element {
+    const simplified = useFeatureFlag('ONBOARDING_SIMPLIFIED_PRODUCT_SELECTION')
     const { currentStep } = useValues(productSelectionLogic)
+
+    if (simplified) {
+        return <SimplifiedProductSelection />
+    }
 
     return (
         <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
