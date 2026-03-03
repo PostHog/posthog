@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import contextlib
 import collections
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
@@ -12,6 +12,7 @@ from bson import ObjectId
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from pymongo import MongoClient
 from pymongo.collection import Collection
+from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
@@ -99,14 +100,14 @@ def _build_query(
     return query
 
 
-def _make_safe_server_selector(team_id: int):
+def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription]], list[ServerDescription]]:
     """Create a PyMongo server_selector that rejects servers resolving to internal IPs.
 
     Runs on every topology update (including SRV re-resolution), preventing
     TOCTOU attacks where DNS records change after initial validation.
     """
 
-    def selector(server_descriptions):
+    def selector(server_descriptions: list[ServerDescription]) -> list[ServerDescription]:
         safe = []
         for server in server_descriptions:
             host = server.address[0]
