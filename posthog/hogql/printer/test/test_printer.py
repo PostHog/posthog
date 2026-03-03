@@ -3436,6 +3436,13 @@ class TestPrinter(BaseTest):
                 "WITH stats(a, b) AS (SELECT event, timestamp FROM events) SELECT a, b FROM stats",
             )
 
+    def test_cte_using_key_not_supported(self):
+        with self.assertRaises(ImpossibleASTError) as ctx:
+            self._select(
+                "WITH x USING KEY (a) AS (SELECT 1 AS a, 2 AS b) SELECT * FROM x",
+            )
+        self.assertIn("not supported", str(ctx.exception))
+
 
 @snapshot_clickhouse_queries
 class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
@@ -4467,3 +4474,19 @@ class TestPostgresPrinter(BaseTest):
             self._select(query),
             "WITH events_cte AS NOT MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
         )
+
+    def test_cte_using_key_single_column(self):
+        query = "WITH RECURSIVE x(a, b) USING KEY (a) AS (SELECT 1 AS a, 2 AS b UNION ALL SELECT a + 1, b FROM x WHERE a < 5) SELECT * FROM x"
+        result = self._select(query)
+        self.assertIn("USING KEY", result)
+        self.assertIn("x(a, b) USING KEY (a) AS", result)
+
+    def test_cte_using_key_multiple_columns(self):
+        query = "WITH RECURSIVE x(a, b, c) USING KEY (a, b) AS (SELECT 1 AS a, 2 AS b, 3 AS c UNION ALL SELECT a + 1, b, c FROM x WHERE a < 5) SELECT * FROM x"
+        result = self._select(query)
+        self.assertIn("x(a, b, c) USING KEY (a, b) AS", result)
+
+    def test_cte_using_key_without_column_name_list(self):
+        query = "WITH RECURSIVE x USING KEY (a) AS (SELECT 1 AS a UNION ALL SELECT a + 1 FROM x WHERE a < 5) SELECT * FROM x"
+        result = self._select(query)
+        self.assertIn("USING KEY (a) AS", result)

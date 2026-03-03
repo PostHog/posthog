@@ -1137,3 +1137,33 @@ class TestResolver(BaseTest):
             f"CTE 'stats' has {n_cols} column(s) but {n_names} column name(s) were provided",
         ):
             resolve_types(self._select(query), self.context, dialect="postgres")
+
+    def test_cte_using_key_valid_with_column_list(self):
+        expr = self._select("WITH x(a, b) USING KEY (a) AS (SELECT 'hello' AS a, 'world' AS b) SELECT * FROM x")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert resolved.ctes is not None
+        assert resolved.ctes["x"].using_key == ["a"]
+
+    def test_cte_using_key_valid_without_column_list(self):
+        expr = self._select("WITH stats USING KEY (event) AS (SELECT event, timestamp FROM events) SELECT * FROM stats")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert resolved.ctes is not None
+        assert resolved.ctes["stats"].using_key == ["event"]
+
+    def test_cte_using_key_invalid_column_with_column_list(self):
+        with self.assertRaisesMessage(QueryError, "USING KEY column(s) 'd' not found in CTE 'x'"):
+            resolve_types(
+                self._select("WITH x(a, b, c) USING KEY (d) AS (SELECT 1, 2, 3) SELECT * FROM x"),
+                self.context,
+                dialect="postgres",
+            )
+
+    def test_cte_using_key_invalid_column_without_column_list(self):
+        with self.assertRaisesMessage(QueryError, "USING KEY column(s) 'nonexistent' not found in CTE 'stats'"):
+            resolve_types(
+                self._select(
+                    "WITH stats USING KEY (nonexistent) AS (SELECT event, timestamp FROM events) SELECT * FROM stats"
+                ),
+                self.context,
+                dialect="postgres",
+            )

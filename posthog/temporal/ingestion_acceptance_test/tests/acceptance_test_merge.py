@@ -15,29 +15,27 @@ class TestMergeDangerously(AcceptanceTest):
         distinct_id_a = str(uuid.uuid4())  # Person A - will survive the merge
         distinct_id_b = str(uuid.uuid4())  # Person B - will be merged into A
 
-        # Create event for Person A
+        # Capture both events before polling to reduce wall-clock time
         timestamp_a = time.time()
         event_uuid_a = self.client.capture_event(
             event_name, distinct_id_a, {"$set": {"name": "Person A", "$test_timestamp": timestamp_a}}
         )
-        found_a = self.client.query_event_by_uuid(event_uuid_a)
-        self.assert_event(found_a, event_uuid_a, event_name, distinct_id_a)
-
-        # Verify Person A exists
-        person_a = self.client.query_person_by_distinct_id(distinct_id_a)
-        assert person_a is not None, "Person A not found"
-
-        # Create event for Person B
         timestamp_b = time.time()
         event_uuid_b = self.client.capture_event(
             event_name,
             distinct_id_b,
             {"$set": {"name": "Person B", "extra_prop": "from_b", "$test_timestamp": timestamp_b}},
         )
+
+        # Poll for both events
+        found_a = self.client.query_event_by_uuid(event_uuid_a)
+        self.assert_event(found_a, event_uuid_a, event_name, distinct_id_a)
         found_b = self.client.query_event_by_uuid(event_uuid_b)
         self.assert_event(found_b, event_uuid_b, event_name, distinct_id_b)
 
-        # Verify Person B exists
+        # Verify both persons exist
+        person_a = self.client.query_person_by_distinct_id(distinct_id_a)
+        assert person_a is not None, "Person A not found"
         person_b = self.client.query_person_by_distinct_id(distinct_id_b)
         assert person_b is not None, "Person B not found"
 

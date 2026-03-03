@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-03-02 10:15:18 UTC
+// Generated at: 2026-03-02 20:05:57 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -14,7 +14,6 @@ export type CanonicalProvider =
     | 'arcee-ai-bf16'
     | 'arcee-ai-modal'
     | 'arcee-ai-prime'
-    | 'atlas-cloud-bf16'
     | 'atlas-cloud-fast'
     | 'atlas-cloud-fp16'
     | 'atlas-cloud-fp8'
@@ -28,7 +27,6 @@ export type CanonicalProvider =
     | 'chutes-int4'
     | 'cirrascale'
     | 'clarifai'
-    | 'clarifai-bf16'
     | 'clarifai-fp4'
     | 'cloudflare'
     | 'cloudflare-fp8'

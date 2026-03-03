@@ -1954,8 +1954,18 @@ class FeatureFlagViewSet(
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
 
+        # Exclude internal flags (survey targeting and product tour internal flags)
+        # These are auto-generated and not user-editable, same as the main flags list
+        survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
+            team__project_id=self.project_id, internal_targeting_flag__isnull=False
+        ).values_list("internal_targeting_flag_id", flat=True)
+
         feature_flags = list(
-            FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False).order_by("-created_at")
+            FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False)
+            .exclude(Q(id__in=survey_flag_ids))
+            .exclude(Q(id__in=product_tour_internal_targeting_flags))
+            .order_by("-created_at")
         )
 
         if not feature_flags:

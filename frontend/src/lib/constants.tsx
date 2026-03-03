@@ -297,7 +297,6 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_OFFLINE_EVALS: 'llm-analytics-offline-evals', // owner: #team-llm-analytics
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS: 'llm-analytics-evaluations-custom-models', // owner: #team-llm-analytics
-    LLM_ANALYTICS_EVALUATIONS_ONBOARDING_EXPERIMENT: 'llm-analytics-evaluations-onboarding-experiment', // owner: #team-llm-analytics, multivariate=control,test-b,test-c
     LLM_ANALYTICS_EVALUATIONS_SUMMARY: 'llm-analytics-evaluations-summary', // owner: #team-llm-analytics
     LLM_ANALYTICS_SESSION_SUMMARIZATION: 'llm-analytics-session-summarization', // owner: #team-llm-analytics
     LLM_ANALYTICS_CLUSTERS_TAB: 'llm-analytics-clusters-tab', // owner: #team-llm-analytics
@@ -336,7 +335,6 @@ export const FEATURE_FLAGS = {
     PHAI_PLAN_MODE: 'phai-plan-mode', // owner: #team-posthog-ai
     PHAI_SURVEY_MODE: 'posthog-ai-survey-mode', // owner: #team-posthog-ai
     PHAI_TASKS: 'phai-tasks', // owner: #team-array
-    PHAI_WEB_SEARCH: 'phai-web-search', // owner: @Twixes #team-posthog-ai
     PRODUCT_ANALYTICS_AI_INSIGHT_ANALYSIS: 'product-analytics-ai-insight-analysis', // owner: #team-analytics-platform, used to show AI analysis section in insights
     PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI: 'autoname-insights-with-ai', // owner: @gesh #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
@@ -410,6 +408,7 @@ export const FEATURE_FLAGS = {
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
     UNIFIED_HEALTH_PAGE: 'unified-health-page', // owner: @jordanm-posthog #team-web-analytics
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
+    UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_HEALTH_TAB: 'web_analytics_health_tab', // owner: @jordanm-posthog #team-web-analytics
