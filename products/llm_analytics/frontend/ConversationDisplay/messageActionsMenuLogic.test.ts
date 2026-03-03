@@ -26,7 +26,7 @@ describe('messageActionsMenuLogic', () => {
     }
 
     beforeEach(() => {
-        jest.clearAllMocks()
+        jest.resetAllMocks()
         window.localStorage.clear()
 
         useMocks({
@@ -38,9 +38,7 @@ describe('messageActionsMenuLogic', () => {
             },
         })
 
-        mockApi.llmAnalytics = {
-            translate: jest.fn().mockResolvedValue(mockTranslationResponse),
-        } as any
+        jest.spyOn(mockApi.llmAnalytics, 'translate').mockResolvedValue(mockTranslationResponse)
 
         initKeaTests()
     })
@@ -147,7 +145,7 @@ describe('messageActionsMenuLogic', () => {
                 logic.mount()
 
                 // Manually set an error state
-                mockApi.llmAnalytics.translate = jest.fn().mockRejectedValueOnce(new Error('API error'))
+                jest.spyOn(mockApi.llmAnalytics, 'translate').mockRejectedValueOnce(new Error('API error'))
 
                 await expectLogic(logic, () => {
                     logic.actions.translate()
@@ -171,7 +169,7 @@ describe('messageActionsMenuLogic', () => {
                 const logic = messageActionsMenuLogic({ content: mockContent })
                 logic.mount()
 
-                mockApi.llmAnalytics.translate = jest.fn().mockRejectedValue(new Error('Translation failed'))
+                jest.spyOn(mockApi.llmAnalytics, 'translate').mockRejectedValue(new Error('Translation failed'))
 
                 await expectLogic(logic, () => {
                     logic.actions.translate()

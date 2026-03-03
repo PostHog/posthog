@@ -338,16 +338,17 @@ export function validateGroup(
                     ? CohortClientErrors.EmptyEventFilters
                     : undefined
 
+            const cRecord = c as Record<string, unknown>
             const criteriaErrors = Object.fromEntries(
                 requiredFields.map(({ fieldKey, type }) => [
                     fieldKey,
                     (
-                        Array.isArray(c[fieldKey])
-                            ? c[fieldKey].length > 0
-                            : c[fieldKey] !== undefined && c[fieldKey] !== null && c[fieldKey] !== ''
+                        Array.isArray(cRecord[fieldKey])
+                            ? (cRecord[fieldKey] as unknown[]).length > 0
+                            : cRecord[fieldKey] !== undefined && cRecord[fieldKey] !== null && cRecord[fieldKey] !== ''
                     )
                         ? undefined
-                        : CRITERIA_VALIDATIONS?.[type](c[fieldKey]),
+                        : CRITERIA_VALIDATIONS?.[type](cRecord[fieldKey] as string | number | null | undefined),
                 ])
             )
 
@@ -434,7 +435,10 @@ export function resolveCohortFieldValue(
     if (fieldKey === 'value') {
         return criteriaToBehavioralFilterType(criteria)
     }
-    return criteria?.[fieldKey] ?? null
+    return (
+        (criteria as Record<string, string | number | boolean | null | undefined | AnyPropertyFilter[]>)[fieldKey] ??
+        null
+    )
 }
 
 export function applyAllCriteriaGroup(

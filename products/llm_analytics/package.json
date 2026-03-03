@@ -19,6 +19,7 @@
     "peerDependencies": {
         "@posthog/icons": "*",
         "@storybook/react": "*",
+        "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",
         "@testing-library/user-event": "*",
         "@types/react": "*",
