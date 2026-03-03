@@ -170,6 +170,31 @@ class Resolver(CloningVisitor):
 
         return result
 
+    def visit_values_query(self, node: ast.ValuesQuery):
+        resolved_rows: list[list[ast.Expr]] = []
+        for row in node.rows:
+            resolved_rows.append([self.visit(expr) for expr in row])
+
+        if resolved_rows:
+            expected_len = len(resolved_rows[0])
+            for i, row in enumerate(resolved_rows):
+                if len(row) != expected_len:
+                    raise QueryError(f"VALUES row {i + 1} has {len(row)} columns, expected {expected_len}")
+
+        columns: dict[str, ast.Type] = {}
+        if resolved_rows:
+            for j, expr in enumerate(resolved_rows[0]):
+                col_name = f"column{j + 1}"
+                columns[col_name] = expr.type or ast.UnknownType()
+
+        result = ast.ValuesQuery(
+            start=node.start,
+            end=node.end,
+            rows=resolved_rows,
+        )
+        result.type = ast.SelectQueryType(columns=columns)
+        return result
+
     def visit_cte(self, node: ast.CTE):
         self.cte_counter += 1
 
@@ -602,6 +627,42 @@ class Resolver(CloningVisitor):
                 scope.anonymous_tables.append(cast(ast.SelectQueryType | ast.SelectSetQueryType, node.type))
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
+            node.next_join = self.visit(node.next_join)
+            if node.constraint and node.constraint.constraint_type == "ON":
+                node.constraint = self.visit_join_constraint(node.constraint)
+            node.sample = self.visit(node.sample)
+
+            return node
+
+        elif isinstance(node.table, ast.ValuesQuery):
+            node = cast(ast.JoinExpr, clone_expr(node))
+            node.table = cast(ast.ValuesQuery, self.visit(node.table))
+
+            # Remap column names if alias_columns is provided
+            if node.alias_columns and node.table.type:
+                num_cols = len(node.table.type.columns)
+                if len(node.alias_columns) != num_cols:
+                    raise QueryError(
+                        f"VALUES has {num_cols} column(s) but {len(node.alias_columns)} column name(s) were provided"
+                    )
+                original_columns = node.table.type.columns
+                node.table.type.columns = {
+                    new_name: list(original_columns.values())[i] for i, new_name in enumerate(node.alias_columns)
+                }
+
+            if node.alias is not None:
+                if node.alias in scope.tables:
+                    raise QueryError(
+                        f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
+                    )
+                node.type = ast.SelectQueryAliasType(
+                    alias=node.alias, select_query_type=cast(ast.SelectQueryType, node.table.type)
+                )
+                scope.tables[node.alias] = node.type
+            else:
+                node.type = cast(ast.TableOrSelectType, node.table.type)
+                scope.anonymous_tables.append(cast(ast.SelectQueryType, node.type))
+
             node.next_join = self.visit(node.next_join)
             if node.constraint and node.constraint.constraint_type == "ON":
                 node.constraint = self.visit_join_constraint(node.constraint)

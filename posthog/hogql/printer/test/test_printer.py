@@ -4537,3 +4537,21 @@ class TestPostgresPrinter(BaseTest):
         query = "WITH RECURSIVE x USING KEY (a) AS (SELECT 1 AS a UNION ALL SELECT a + 1 FROM x WHERE a < 5) SELECT * FROM x"
         result = self._select(query)
         self.assertIn("USING KEY (a) AS", result)
+
+    def test_values_query(self):
+        self.assertEqual(
+            self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, name)"),
+            "SELECT v.id, v.name FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, name) LIMIT 50000",
+        )
+
+    def test_values_query_no_alias_columns(self):
+        self.assertEqual(
+            self._select("SELECT * FROM (VALUES (1, 'hello')) AS v"),
+            "SELECT v.column1, v.column2 FROM (VALUES (1, 'hello')) AS v LIMIT 50000",
+        )
+
+    def test_values_query_clickhouse_raises_error(self):
+        from posthog.hogql.errors import QueryError
+
+        with self.assertRaises(QueryError):
+            self._select("SELECT * FROM (VALUES (1, 'a')) AS v(id, name)", dialect="clickhouse")

@@ -1167,3 +1167,32 @@ class TestResolver(BaseTest):
                 self.context,
                 dialect="postgres",
             )
+
+    def test_values_query_basic(self):
+        expr = self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, name)")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.type, ast.SelectQueryAliasType)
+        assert expr.select_from.alias == "v"
+        columns = expr.select_from.type.select_query_type.columns
+        assert "id" in columns
+        assert "name" in columns
+
+    def test_values_query_default_column_names(self):
+        expr = self._select("SELECT * FROM (VALUES (1, 'a')) AS v")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.ValuesQuery)
+        columns = expr.select_from.table.type.columns
+        assert "column1" in columns
+        assert "column2" in columns
+
+    def test_values_query_row_length_mismatch(self):
+        with self.assertRaisesMessage(QueryError, "VALUES row 2 has 1 columns, expected 2"):
+            expr = self._select("SELECT * FROM (VALUES (1, 'a'), (2)) AS v")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_values_query_alias_column_count_mismatch(self):
+        with self.assertRaisesMessage(QueryError, "VALUES has 2 column(s) but 3 column name(s) were provided"):
+            expr = self._select("SELECT * FROM (VALUES (1, 'a')) AS v(id, name, extra)")
+            resolve_types(expr, self.context, dialect="postgres")
