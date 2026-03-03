@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -106,14 +106,7 @@ export function ErrorTrackingScene(): JSX.Element {
             ? [
                   {
                       key: 'insights' as const,
-                      label: (
-                          <span className="flex items-center gap-1.5">
-                              Insights
-                              <LemonTag size="small" type="success">
-                                  New
-                              </LemonTag>
-                          </span>
-                      ),
+                      label: 'Insights',
                       content: <ErrorTrackingInsights />,
                       link: urls.errorTracking({ activeTab: 'insights' }),
                   },

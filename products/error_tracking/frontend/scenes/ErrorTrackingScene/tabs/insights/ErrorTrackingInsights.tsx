@@ -43,20 +43,20 @@ export function ErrorTrackingInsights(): JSX.Element {
                 </div>
                 <div className="p-3 grid grid-cols-1 xl:grid-cols-2 gap-3">
                     <ChartCard
-                        key={`exception_volume-${refreshKey}`}
                         title="Exception volume"
                         description="Exceptions per day"
                         query={exceptionVolumeQuery}
                         chartKey="exception_volume"
+                        refreshKey={refreshKey}
                         loadStartTime={loadStartTime}
                         onLoad={handleChartLoad}
                     />
                     <ChartCard
-                        key={`crash_free_sessions-${refreshKey}`}
                         title="Crash-free sessions"
                         description="Percentage of sessions without any exceptions"
                         query={crashFreeQuery}
                         chartKey="crash_free_sessions"
+                        refreshKey={refreshKey}
                         loadStartTime={loadStartTime}
                         onLoad={handleChartLoad}
                     />

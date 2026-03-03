@@ -13,6 +13,7 @@ export function ChartCard({
     description,
     query,
     chartKey,
+    refreshKey,
     loadStartTime,
     onLoad,
 }: {
@@ -20,12 +21,13 @@ export function ChartCard({
     description: string
     query: InsightVizNode<TrendsQuery>
     chartKey: InsightsTrackableItem
+    refreshKey: number
     loadStartTime: number
     onLoad: (item: InsightsTrackableItem, durationMs: number) => void
 }): JSX.Element {
     const insightProps: InsightLogicProps = {
-        dashboardItemId: `new-AdHoc.error-tracking-insights-${chartKey}`,
-        dataNodeCollectionId: `error-tracking-insights-${chartKey}`,
+        dashboardItemId: `new-AdHoc.error-tracking-insights-${chartKey}-${refreshKey}`,
+        dataNodeCollectionId: `error-tracking-insights-${chartKey}-${refreshKey}`,
         query,
         onData: () => onLoad(chartKey, Math.round(performance.now() - loadStartTime)),
     }
