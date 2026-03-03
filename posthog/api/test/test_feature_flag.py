@@ -2725,6 +2725,28 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert flag.deleted is False
         assert flag.key == "renamed-flag"
 
+    def test_soft_delete_undo_suffixes_key_when_original_is_taken(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="taken-flag")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp.deleted = True
+        exp.save()
+
+        # Soft-delete renames the key to free it up
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.key == f"taken-flag:deleted:{flag.id}"
+
+        # Another flag claims the original key
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="taken-flag")
+
+        # Restoring falls back to a suffixed key instead of crashing
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": False})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is False
+        assert flag.key == "taken-flag-2"
+
     def test_soft_delete_flag_blocked_with_active_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
         exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)

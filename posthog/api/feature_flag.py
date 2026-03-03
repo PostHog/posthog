@@ -1222,10 +1222,21 @@ class FeatureFlagSerializer(
 
         if "deleted" in validated_data and validated_data["deleted"] is False:
             # Restoring a soft-deleted flag — if the key was renamed during
-            # soft-delete, restore the original key.
+            # soft-delete, restore the original key. If the original key has
+            # been claimed by another flag, append a numeric suffix.
             deleted_suffix = f":deleted:{instance.id}"
             if instance.key.endswith(deleted_suffix):
-                validated_data["key"] = instance.key[: -len(deleted_suffix)]
+                original_key = instance.key[: -len(deleted_suffix)]
+                candidate = original_key
+                counter = 2
+                while (
+                    FeatureFlag.objects.filter(key=candidate, team__project_id=self.context["project_id"])
+                    .exclude(pk=instance.pk)
+                    .exists()
+                ):
+                    candidate = f"{original_key}-{counter}"
+                    counter += 1
+                validated_data["key"] = candidate
 
         # Check for dependency conflicts when disabling a flag
         if "active" in validated_data and validated_data["active"] is False and instance.active is True:
