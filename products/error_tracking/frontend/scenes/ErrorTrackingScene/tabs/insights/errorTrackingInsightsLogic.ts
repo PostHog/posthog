@@ -1,14 +1,18 @@
+import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { Params } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { syncSearchParams, updateSearchParams } from '../../../../utils'
 import type { errorTrackingInsightsLogicType } from './errorTrackingInsightsLogicType'
 
 function getPeriodStart(date: Dayjs, viewMode: InsightsViewMode, weekStartDay: number): Dayjs {
@@ -54,6 +58,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
 
     actions({
         setViewMode: (mode: InsightsViewMode) => ({ mode }),
+        setViewModeOnly: (mode: InsightsViewMode) => ({ mode }),
         setAnchorDate: (date: Dayjs) => ({ date }),
         navigateBack: true,
         navigateForward: true,
@@ -70,6 +75,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             'week' as InsightsViewMode,
             {
                 setViewMode: (_, { mode }) => mode,
+                setViewModeOnly: (_, { mode }) => mode,
             },
         ],
         anchorDate: [
@@ -267,8 +273,52 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         },
     })),
 
+    urlToAction(({ actions, values }) => ({
+        '**/error_tracking': (_, params: Params) => {
+            if (params.insights_viewMode && params.insights_viewMode !== values.viewMode) {
+                actions.setViewModeOnly(params.insights_viewMode)
+            }
+            if (params.insights_filterGroup && !equal(params.insights_filterGroup, values.filterGroup)) {
+                actions.setFilterGroup(params.insights_filterGroup)
+            }
+            if (
+                params.insights_filterTestAccounts !== undefined &&
+                !equal(params.insights_filterTestAccounts, values.filterTestAccounts)
+            ) {
+                actions.setFilterTestAccounts(params.insights_filterTestAccounts)
+            }
+            if (params.insights_anchorDate) {
+                const urlDate = dayjs(params.insights_anchorDate)
+                if (!urlDate.isSame(values.anchorDate, 'day')) {
+                    actions.setAnchorDate(urlDate)
+                }
+            }
+        },
+    })),
+
+    actionToUrl(({ values }) => {
+        const buildURL = (): ReturnType<typeof syncSearchParams> =>
+            syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'insights_viewMode', values.viewMode, 'week')
+                updateSearchParams(params, 'insights_anchorDate', values.anchorDate.format('YYYY-MM-DD'), null)
+                updateSearchParams(params, 'insights_filterGroup', values.filterGroup, DEFAULT_FILTER_GROUP)
+                updateSearchParams(params, 'insights_filterTestAccounts', values.filterTestAccounts, false)
+                return params
+            })
+
+        return {
+            setViewMode: buildURL,
+            setViewModeOnly: buildURL,
+            setAnchorDate: buildURL,
+            setFilterGroup: buildURL,
+            setFilterTestAccounts: buildURL,
+        }
+    }),
+
     afterMount(({ actions, values }) => {
         posthog.capture('error_tracking_insights_viewed')
-        actions.setAnchorDate(getPeriodStart(dayjs(), values.viewMode, values.weekStartDay))
+        if (!router.values.searchParams.insights_anchorDate) {
+            actions.setAnchorDate(getPeriodStart(dayjs(), values.viewMode, values.weekStartDay))
+        }
     }),
 ])
