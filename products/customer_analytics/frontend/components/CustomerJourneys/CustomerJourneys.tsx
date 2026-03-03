@@ -11,6 +11,7 @@ import { Query } from '~/queries/Query/Query'
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { AddJourneyModal } from './AddJourneyModal'
 import { customerJourneysLogic } from './customerJourneysLogic'
+import { JourneyBuilder } from './JourneyBuilder'
 import { journeyBuilderLogic } from './journeyBuilderLogic'
 
 export function CustomerJourneys(): JSX.Element {
@@ -27,7 +28,7 @@ export function CustomerJourneys(): JSX.Element {
     } = useValues(mountedCustomerJourneysLogic)
     const { showAddJourneyModal, setActiveJourneyId, deleteJourney } = useActions(mountedCustomerJourneysLogic)
     const { isBuilderOpen } = useValues(journeyBuilderLogic)
-    const { openBuilder, closeBuilder } = useActions(journeyBuilderLogic)
+    const { openBuilder } = useActions(journeyBuilderLogic)
 
     if (journeysLoading) {
         return (
@@ -55,16 +56,7 @@ export function CustomerJourneys(): JSX.Element {
                         Build journey
                     </LemonButton>
                 </div>
-                {isBuilderOpen && (
-                    <div className="mt-4 p-4 border rounded bg-bg-light">
-                        <div className="flex items-center justify-between">
-                            <span>Journey builder coming soon...</span>
-                            <LemonButton type="secondary" size="small" onClick={closeBuilder}>
-                                Close
-                            </LemonButton>
-                        </div>
-                    </div>
-                )}
+                {isBuilderOpen && <JourneyBuilder />}
                 <AddJourneyModal />
             </>
         )
@@ -112,16 +104,7 @@ export function CustomerJourneys(): JSX.Element {
                 <div className="text-muted text-center p-8">Insight not found</div>
             )}
 
-            {isBuilderOpen && (
-                <div className="mt-4 p-4 border rounded bg-bg-light">
-                    <div className="flex items-center justify-between">
-                        <span>Journey builder coming soon...</span>
-                        <LemonButton type="secondary" size="small" onClick={closeBuilder}>
-                            Close
-                        </LemonButton>
-                    </div>
-                </div>
-            )}
+            {isBuilderOpen && <JourneyBuilder />}
 
             <AddJourneyModal />
         </div>

@@ -1,13 +1,19 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { PathExpansion } from 'scenes/funnels/FunnelFlowGraph/pathFlowUtils'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import { eventNameToEventsNode } from '~/queries/nodes/InsightQuery/utils/eventNameToEventsNode'
 import { EventsNode, FunnelsQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { FunnelPathType, FunnelVizType } from '~/types'
+import { FunnelPathType, FunnelVizType, InsightLogicProps } from '~/types'
 
 import type { journeyBuilderLogicType } from './journeyBuilderLogicType'
+
+export const JOURNEY_BUILDER_INSIGHT_PROPS: InsightLogicProps = {
+    dashboardItemId: 'new-AdHoc.InsightViz.journey-builder',
+    dataNodeCollectionId: 'InsightViz.journey-builder',
+}
 
 function createDefaultQuery(): InsightVizNode<FunnelsQuery> {
     const defaultEvent = getDefaultEventName()
@@ -33,6 +39,10 @@ function createDefaultQuery(): InsightVizNode<FunnelsQuery> {
 
 export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
     path(['products', 'customer_analytics', 'frontend', 'components', 'CustomerJourneys', 'journeyBuilderLogic']),
+
+    connect(() => ({
+        actions: [insightDataLogic(JOURNEY_BUILDER_INSIGHT_PROPS), ['setQuery as setInsightQuery']],
+    })),
 
     actions({
         openBuilder: true,
@@ -88,6 +98,14 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        openBuilder: () => {
+            actions.setInsightQuery(values.query)
+        },
+
+        resetBuilder: () => {
+            actions.setInsightQuery(createDefaultQuery())
+        },
+
         addStep: ({ insertAtIndex }) => {
             const series = [...values.query.source.series]
             const newStep: EventsNode = {
@@ -148,7 +166,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             })
         },
 
-        saveJourney: async ({ name: _name }) => {
+        saveJourney: async ({ name }) => {
             // Will be implemented in Step 10
         },
     })),
