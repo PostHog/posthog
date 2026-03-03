@@ -1,3 +1,1 @@
-from . import replica
-from . import service
-from . import types
+from . import replica, service, types

@@ -41,4 +41,8 @@ protol \
     raw "$FDSET"
 rm -f "$FDSET"
 
+echo "Linting and formatting generated files..."
+ruff check --fix --quiet "$OUT_DIR"
+ruff format --quiet "$OUT_DIR"
+
 echo "Done. Generated files are in $OUT_DIR"

@@ -298,7 +298,6 @@ exclude = [
     "./plugins/node_modules/",
     "./env",
     "./posthog/hogql/grammar",
-    "./posthog/personhog_client/proto/generated",
 ]
 
 [tool.ruff.lint]
@@ -337,6 +336,11 @@ select = [
     "UP",
     "W",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# protoletariat generates .pyi stubs with re-exports (e.g. `from . import person_pb2`)
+# that type checkers need to resolve the package structure
+"posthog/personhog_client/proto/generated/**/*.pyi" = ["F401"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
