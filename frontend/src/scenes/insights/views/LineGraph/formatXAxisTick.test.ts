@@ -185,11 +185,26 @@ describe('createXAxisTickCallback', () => {
             expect(callback('ignored', 2)).toBe('22:00')
         })
 
-        it('does not shift month labels across month boundaries', () => {
+        it.each([
+            { interval: 'month' as const, desc: 'month interval' },
+            { interval: 'day' as const, desc: 'day interval' },
+            { interval: undefined, desc: 'inferred interval' },
+        ])('does not shift month labels across month boundaries ($desc)', ({ interval }) => {
             const callback = createXAxisTickCallback({
-                interval: 'month',
+                interval,
                 allDays: ['2023-06-01', '2023-07-01', '2023-08-01'],
-                timezone: 'America/New_York',
+                timezone: 'US/Pacific',
+            })
+            expect(callback('ignored', 0)).toBe('June')
+            expect(callback('ignored', 1)).toBe('July')
+            expect(callback('ignored', 2)).toBe('August')
+        })
+
+        it('does not shift month labels with datetime strings from ClickHouse', () => {
+            const callback = createXAxisTickCallback({
+                interval: 'month' as const,
+                allDays: ['2023-06-01 00:00:00', '2023-07-01 00:00:00', '2023-08-01 00:00:00'],
+                timezone: 'US/Pacific',
             })
             expect(callback('ignored', 0)).toBe('June')
             expect(callback('ignored', 1)).toBe('July')
