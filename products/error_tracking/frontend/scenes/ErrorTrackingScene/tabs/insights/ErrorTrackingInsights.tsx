@@ -1,16 +1,14 @@
-import { useActions, useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { ChartCard } from './ChartCard'
-import { errorTrackingInsightsLogic, InsightsTrackableItem } from './errorTrackingInsightsLogic'
+import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 import { InsightsFilters } from './InsightsFilters'
 import { buildCrashFreeSessionsQuery, buildExceptionVolumeQuery } from './queries'
 import { SummaryStats } from './SummaryStats'
 
 export function ErrorTrackingInsights(): JSX.Element {
-    const { dateRange, mergedFilterGroup, filterTestAccounts, loadStartTime, refreshKey } =
-        useValues(errorTrackingInsightsLogic)
-    const { reportItemLoaded } = useActions(errorTrackingInsightsLogic)
+    const { dateRange, mergedFilterGroup, filterTestAccounts, refreshKey } = useValues(errorTrackingInsightsLogic)
 
     const filters = useMemo(
         () => ({ filterGroup: mergedFilterGroup, filterTestAccounts }),
@@ -24,11 +22,6 @@ export function ErrorTrackingInsights(): JSX.Element {
     const crashFreeQuery = useMemo(
         () => buildCrashFreeSessionsQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
         [dateRange, filters]
-    )
-
-    const handleChartLoad = useCallback(
-        (item: InsightsTrackableItem, durationMs: number) => reportItemLoaded(item, durationMs),
-        [reportItemLoaded]
     )
 
     return (
@@ -49,8 +42,6 @@ export function ErrorTrackingInsights(): JSX.Element {
                         query={exceptionVolumeQuery}
                         chartKey="exception_volume"
                         refreshKey={refreshKey}
-                        loadStartTime={loadStartTime}
-                        onLoad={handleChartLoad}
                     />
                     <ChartCard
                         title="Crash-free sessions"
@@ -58,8 +49,6 @@ export function ErrorTrackingInsights(): JSX.Element {
                         query={crashFreeQuery}
                         chartKey="crash_free_sessions"
                         refreshKey={refreshKey}
-                        loadStartTime={loadStartTime}
-                        onLoad={handleChartLoad}
                     />
                 </div>
             </div>

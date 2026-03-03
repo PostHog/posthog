@@ -5,7 +5,6 @@ import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
-import { InsightsTrackableItem } from './errorTrackingInsightsLogic'
 import { insightNewUrl } from './queries'
 
 export function ChartCard({
@@ -14,22 +13,17 @@ export function ChartCard({
     query,
     chartKey,
     refreshKey,
-    loadStartTime,
-    onLoad,
 }: {
     title: string
     description: string
     query: InsightVizNode<TrendsQuery>
-    chartKey: InsightsTrackableItem
+    chartKey: string
     refreshKey: number
-    loadStartTime: number
-    onLoad: (item: InsightsTrackableItem, durationMs: number) => void
 }): JSX.Element {
     const insightProps: InsightLogicProps = {
         dashboardItemId: `new-AdHoc.error-tracking-insights-${chartKey}-${refreshKey}`,
         dataNodeCollectionId: `error-tracking-insights-${chartKey}-${refreshKey}`,
         query,
-        onData: () => onLoad(chartKey, Math.round(performance.now() - loadStartTime)),
     }
 
     return (
