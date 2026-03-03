@@ -185,6 +185,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("force_refresh_true", "force_refresh=true", "CALCULATE_BLOCKING_ALWAYS"),
         ]
     )
+    @freeze_time("2020-01-10")
     def test_person_property_values_force_refresh(self, _name, param, expected_mode_name):
         from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryResponse
         from posthog.hogql_queries.query_runner import ExecutionMode
