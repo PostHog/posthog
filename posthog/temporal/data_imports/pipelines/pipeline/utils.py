@@ -45,6 +45,7 @@ DLT_TO_PA_TYPE_MAP = {
 
 DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
 DEFAULT_NUMERIC_SCALE = 18  # Good default scale for decimal128, 20 int digits plus 18 decimal cases
+MAX_NUMERIC_SCALE = 32  # Maximum scale for Delta Lake
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
@@ -577,7 +578,7 @@ def _decimal_array_from_values(values: list[decimal.Decimal | None]) -> pa.Array
         except pa.ArrowInvalid:
             pass
     try:
-        return pa.array(values, type=pa.decimal256(76, DEFAULT_NUMERIC_SCALE))
+        return pa.array(values, type=pa.decimal256(76, MAX_NUMERIC_SCALE))
     except Exception as exc:
         raise ValueError("Cannot build decimal array from values") from exc
 
