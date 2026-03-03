@@ -12,8 +12,8 @@ import { PropertyGroupFilter, SidePanelTab } from '~/types'
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 
 import { ParsedLogMessage } from '../../types'
-import { logsViewerFiltersLogic } from './Filters/logsViewerFiltersLogic'
 import { logsViewerDataLogic } from './data/logsViewerDataLogic'
+import { logsViewerFiltersLogic } from './Filters/logsViewerFiltersLogic'
 import type { logsExportLogicType } from './logsExportLogicType'
 import { logsViewerLogic } from './logsViewerLogic'
 

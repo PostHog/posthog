@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,7 +8,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BatchCheckRequestApi,
     BatchCheckResponseApi,
@@ -108,6 +108,26 @@ export const evaluationsCreate = async (
     options?: RequestInit
 ): Promise<EvaluationApi> => {
     return apiMutator<EvaluationApi>(getEvaluationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationApi),
+    })
+}
+
+/**
+ * Test Hog evaluation code against sample events without saving.
+ */
+export const getEvaluationsTestHogCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/evaluations/test_hog/`
+}
+
+export const evaluationsTestHogCreate = async (
+    projectId: string,
+    evaluationApi: NonReadonly<EvaluationApi>,
+    options?: RequestInit
+): Promise<EvaluationApi> => {
+    return apiMutator<EvaluationApi>(getEvaluationsTestHogCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

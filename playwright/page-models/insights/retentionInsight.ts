@@ -1,0 +1,181 @@
+import { Locator, Page, expect } from '@playwright/test'
+
+import { TaxonomicFilter } from '../taxonomicFilter'
+
+import { ChartInsightBase } from './chartInsightBase'
+
+export class RetentionInsight extends ChartInsightBase {
+    readonly table: Locator
+    readonly tableHeaders: Locator
+    readonly tableRows: Locator
+    readonly conditionPanel: Locator
+    readonly optionsPanel: Locator
+    readonly breakdownButton: Locator
+    readonly alertsButton: Locator
+    readonly chartFilter: Locator
+    readonly personsModal: Locator
+    readonly customBracketsCheckbox: Locator
+    readonly sectionHeaders: Locator
+    readonly taxonomicFilter: TaxonomicFilter
+
+    constructor(page: Page) {
+        super(page, page.getByTestId('trend-line-graph'))
+
+        this.table = page.getByTestId('retention-table')
+        this.tableHeaders = this.table.locator('th')
+        this.tableRows = this.table.locator('tr')
+        this.conditionPanel = page.locator('[data-attr="retention-condition"]')
+        this.optionsPanel = page.locator('[data-attr="retention-options"]')
+        this.breakdownButton = page.getByTestId('add-breakdown-button')
+        this.alertsButton = page.getByTestId('insight-alerts-dropdown-menu-item')
+        this.chartFilter = page.getByTestId('chart-filter')
+        this.personsModal = page
+            .locator('.LemonModal')
+            .filter({ has: page.locator('.RetentionTable--non-interactive') })
+        this.customBracketsCheckbox = page.locator('.LemonCheckbox', { hasText: 'Use custom return ranges' })
+        this.sectionHeaders = this.table.locator('tr.cursor-pointer')
+        this.taxonomicFilter = new TaxonomicFilter(page)
+    }
+
+    async selectTargetEvent(eventName: string): Promise<void> {
+        const button = this.conditionPanel.getByTestId('trend-element-subject-0').nth(0)
+        await this.pickEventFromButton(button, eventName)
+        await this.waitForChart()
+        await expect(button).toContainText(eventName, { timeout: 5000 })
+    }
+
+    async selectReturningEvent(eventName: string): Promise<void> {
+        const button = this.conditionPanel.getByTestId('trend-element-subject-0').nth(1)
+        await this.pickEventFromButton(button, eventName)
+        await this.waitForChart()
+        await expect(button).toContainText(eventName, { timeout: 5000 })
+    }
+
+    private async pickEventFromButton(button: Locator, eventName: string): Promise<void> {
+        await expect(async () => {
+            await this.page.keyboard.press('Escape')
+            await button.scrollIntoViewIfNeeded()
+            await button.click()
+            await this.taxonomicFilter.selectItem(eventName)
+        }).toPass({ timeout: 30000 })
+    }
+
+    async waitForChart(): Promise<void> {
+        const loading = this.page.getByTestId('insight-loading-waiting-message')
+        // Wait for the loading indicator to appear (query started), then disappear.
+        // Short timeout on 'attached' handles cached/instant queries where it never appears.
+        await loading.waitFor({ state: 'attached', timeout: 2000 }).catch(() => {})
+        await loading.waitFor({ state: 'detached', timeout: 30000 })
+        await expect(this.table).toBeVisible()
+    }
+
+    async selectPeriod(period: 'days' | 'weeks' | 'months'): Promise<void> {
+        const periodButton = this.conditionPanel.locator('button.LemonSelect', { hasText: /^(days|weeks|months)$/ })
+        await periodButton.scrollIntoViewIfNeeded()
+        await periodButton.click()
+        const menuItem = this.page.getByRole('menuitem', { name: period })
+        await menuItem.waitFor({ state: 'visible' })
+        await menuItem.click()
+        const periodLabel = period.slice(0, 1).toUpperCase() + period.slice(1, -1)
+        await expect(this.tableHeaders.filter({ hasText: new RegExp(`^${periodLabel} \\d`) }).first()).toBeVisible({
+            timeout: 30000,
+        })
+    }
+
+    async toggleCumulative(): Promise<void> {
+        const toggle = this.optionsPanel.locator('.LemonSegmentedButton li', { hasText: 'on or after' })
+        await toggle.scrollIntoViewIfNeeded()
+        await toggle.click()
+        await this.waitForChart()
+    }
+
+    async addBreakdown(property: string): Promise<void> {
+        await expect(async () => {
+            await this.page.keyboard.press('Escape')
+            await this.breakdownButton.click()
+            await this.taxonomicFilter.selectItem(property)
+        }).toPass({ timeout: 30000 })
+        await this.waitForChart()
+    }
+
+    get detailRows(): Locator {
+        return this.table.locator('tr:not(.cursor-pointer)').filter({ hasNot: this.page.locator('th') })
+    }
+
+    async getCohortSizes(): Promise<number[]> {
+        // Detail rows are only rendered after the breakdown section auto-expands,
+        // which happens asynchronously in afterMount. Wait for at least one detail
+        // row with a cohort size cell before reading.
+        await this.detailRows.first().locator('.RetentionTable__TextTab').waitFor({ timeout: 10000 })
+
+        const rows = this.detailRows
+        const count = await rows.count()
+        const sizes: number[] = []
+        for (let i = 0; i < count; i++) {
+            const text = await rows.nth(i).locator('.RetentionTable__TextTab').textContent()
+            sizes.push(Number(text))
+        }
+        return sizes
+    }
+
+    async getCellPercentages(rowIndex: number): Promise<string[]> {
+        const row = this.detailRows.nth(rowIndex)
+        await row.locator('.RetentionTable__Tab').first().waitFor({ timeout: 10000 })
+        return row.locator('.RetentionTable__Tab').allTextContents()
+    }
+
+    async getColumnHeaderTexts(): Promise<string[]> {
+        return this.tableHeaders.allTextContents()
+    }
+
+    async clickCohortRow(rowIndex: number): Promise<void> {
+        const row = this.detailRows.nth(rowIndex)
+        await expect(row).toBeVisible({ timeout: 15000 })
+        await expect(async () => {
+            await this.page.keyboard.press('Escape')
+            await row.scrollIntoViewIfNeeded()
+            await row.click()
+            await expect(this.personsModal).toBeVisible({ timeout: 5000 })
+        }).toPass({ timeout: 30000 })
+    }
+
+    async closePersonsModal(): Promise<void> {
+        await this.personsModal.locator('button[aria-label="close"]').click()
+        await expect(this.personsModal).not.toBeVisible()
+    }
+
+    private get customBracketsBox(): Locator {
+        return this.customBracketsCheckbox.locator('.LemonCheckbox__box')
+    }
+
+    async enableCustomBrackets(): Promise<void> {
+        await this.customBracketsBox.scrollIntoViewIfNeeded()
+        await this.customBracketsBox.click()
+        await this.addBracketButton.waitFor({ state: 'visible' })
+    }
+
+    async disableCustomBrackets(): Promise<void> {
+        await this.customBracketsBox.scrollIntoViewIfNeeded()
+        await this.customBracketsBox.click()
+        await this.addBracketButton.waitFor({ state: 'hidden' })
+        await this.waitForChart()
+    }
+
+    private get addBracketButton(): Locator {
+        return this.conditionPanel.getByRole('button', { name: 'Add another bracket' })
+    }
+
+    private get bracketInputs(): Locator {
+        return this.conditionPanel.locator('.flex.items-center.gap-2:has(.w-24) .LemonInput input')
+    }
+
+    async setCustomBracket(index: number, value: number): Promise<void> {
+        const input = this.bracketInputs.nth(index)
+        await input.fill(String(value))
+        await input.press('Tab')
+    }
+
+    async addCustomBracket(): Promise<void> {
+        await this.addBracketButton.click()
+    }
+}

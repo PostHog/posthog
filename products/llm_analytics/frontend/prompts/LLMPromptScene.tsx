@@ -15,8 +15,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Query } from '~/queries/Query/Query'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { Query } from '~/queries/Query/Query'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 

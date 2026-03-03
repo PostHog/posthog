@@ -4,12 +4,12 @@ import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { SessionAnalysisSetup } from './SessionAnalysisSetup'
+import { signalSourcesLogic } from './signalSourcesLogic'
 import { SourcesList } from './SourcesList'
-import { inboxSceneLogic } from './inboxSceneLogic'
 
 export function SourcesModal(): JSX.Element {
-    const { sourcesModalOpen, sessionAnalysisSetupOpen } = useValues(inboxSceneLogic)
-    const { closeSourcesModal, closeSessionAnalysisSetup } = useActions(inboxSceneLogic)
+    const { sourcesModalOpen, sessionAnalysisSetupOpen } = useValues(signalSourcesLogic)
+    const { closeSourcesModal, closeSessionAnalysisSetup } = useActions(signalSourcesLogic)
 
     return (
         <LemonModal

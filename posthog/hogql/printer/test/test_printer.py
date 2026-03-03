@@ -55,11 +55,11 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
-from posthog.models.property_definition import PropertyType
 from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 from ee.clickhouse.materialized_columns.columns import (
     get_bloom_filter_index_name,
@@ -3439,9 +3439,22 @@ class TestPrinter(BaseTest):
     def test_cte_using_key_not_supported(self):
         with self.assertRaises(ImpossibleASTError) as ctx:
             self._select(
-                "WITH RECURSIVE x(a, b) USING KEY (a) AS (SELECT 1, 2 UNION ALL SELECT a + 1, b FROM x WHERE a < 5) SELECT * FROM x",
+                "WITH x USING KEY (a) AS (SELECT 1 AS a, 2 AS b) SELECT * FROM x",
             )
         self.assertIn("not supported", str(ctx.exception))
+
+    def test_projection_pushdown_cte_with_lazy_table_join(self):
+        modifiers = HogQLQueryModifiers(optimizeProjections=True)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        # Pruning the CTE should not leave stale LazyTableType references
+        # in SelectQueryType.columns that cause KeyError during lazy table resolution
+        self._select(
+            """
+            WITH combined AS (SELECT * FROM persons LIMIT 10)
+            SELECT 1 FROM events AS e LEFT JOIN combined AS c ON e.distinct_id = c.id
+            """,
+            context=context,
+        )
 
 
 @snapshot_clickhouse_queries

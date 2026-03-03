@@ -76,11 +76,19 @@ export function MyApp() {
                 maskAllImages: true,
                 // Capture logs automatically. Default is true.
                 // Android only (Native Logcat only)
+                //
+                // Support for remote configuration 
+                // in the [session replay settings](https://app.posthog.com/settings/project-replay#replay-log-capture)
+                // requires SDK version 4.35.0 or higher.
                 captureLog: true,
                 // Whether network requests are captured in recordings. Default is true
                 // Only metric-like data like speed, size, and response code are captured.
                 // No data is captured from the request or response body.
                 // iOS only
+                //
+                // Support for remote configuration 
+                // in the [session replay settings](https://app.posthog.com/settings/project-replay#replay-network)
+                // requires SDK version 4.35.0 or higher.
                 captureNetworkTelemetry: true,
                 // Throttling delay used to reduce the number of snapshots captured and reduce performance impact
                 // The lower the number more snapshots will be captured but higher the performance impact

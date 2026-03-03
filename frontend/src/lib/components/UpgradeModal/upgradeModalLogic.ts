@@ -3,8 +3,8 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'

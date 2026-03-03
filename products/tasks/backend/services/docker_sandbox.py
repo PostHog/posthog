@@ -493,12 +493,13 @@ class DockerSandbox:
         )
 
         target_path = f"/tmp/workspace/repos/{org}/{repo}"
+        org_path = f"/tmp/workspace/repos/{org}"
 
         clone_command = (
-            f"rm -rf {target_path} && "
-            f"mkdir -p /tmp/workspace/repos/{org} && "
-            f"cd /tmp/workspace/repos/{org} && "
-            f"git clone {repo_url} {repo}"
+            f"rm -rf {shlex.quote(target_path)} && "
+            f"mkdir -p {shlex.quote(org_path)} && "
+            f"cd {shlex.quote(org_path)} && "
+            f"git clone --depth 1 --single-branch {shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
 
         logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
@@ -515,7 +516,7 @@ class DockerSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        result = self.execute(f"cd {repo_path} && git status --porcelain")
+        result = self.execute(f"cd {shlex.quote(repo_path)} && git status --porcelain")
         is_clean = not result.stdout.strip()
 
         return is_clean, result.stdout
@@ -540,7 +541,14 @@ class DockerSandbox:
         logger.info(f"Got connect credentials for sandbox {self.id}: {url}")
         return AgentServerResult(url=url, token=None)
 
-    def start_agent_server(self, repository: str, task_id: str, run_id: str, mode: str = "background") -> None:
+    def start_agent_server(
+        self,
+        repository: str,
+        task_id: str,
+        run_id: str,
+        mode: str = "background",
+        interaction_origin: str | None = None,
+    ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
         The sandbox URL should be obtained via get_connect_credentials()
@@ -555,10 +563,11 @@ class DockerSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
+        env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
         command = (
             f"cd /scripts && "
-            f"nohup npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {repo_path} "
-            f"--taskId {task_id} --runId {run_id} --mode {mode} "
+            f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
+            f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)} "
             f"> /tmp/agent-server.log 2>&1 &"
         )
 

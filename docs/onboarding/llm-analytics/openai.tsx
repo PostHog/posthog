@@ -1,4 +1,5 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
 export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
@@ -13,8 +14,8 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works
-                        best with our Python and Node SDKs.
+                        Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics
+                        works best with our Python and Node SDKs.
                     </Markdown>
 
                     <CodeBlock
@@ -44,8 +45,8 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Install the OpenAI SDK. The PostHog SDK instruments your LLM calls by wrapping the OpenAI client. The
-                        PostHog SDK **does not** proxy your calls.
+                        Install the OpenAI SDK. The PostHog SDK instruments your LLM calls by wrapping the OpenAI
+                        client. The PostHog SDK **does not** proxy your calls.
                     </Markdown>
 
                     <CodeBlock
@@ -75,7 +76,7 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project
+                        Initialize PostHog with your project token and host from [your project
                         settings](https://app.posthog.com/settings/project), then pass it to our OpenAI wrapper.
                     </Markdown>
 
@@ -89,7 +90,7 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     from posthog import Posthog
 
                                     posthog = Posthog(
-                                        "<ph_project_api_key>",
+                                        "<ph_project_token>",
                                         host="<ph_client_api_host>"
                                     )
 
@@ -107,7 +108,7 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     import { PostHog } from 'posthog-node'
 
                                     const phClient = new PostHog(
-                                      '<ph_project_api_key>',
+                                      '<ph_project_token>',
                                       { host: '<ph_client_api_host>' }
                                     );
 
@@ -132,9 +133,10 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                     <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
                         <Markdown>
                             These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
-                            background to send the data. You can also use LLM analytics with other SDKs or our API, but you
-                            will need to capture the data in the right format. See the schema in the [manual capture
-                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more details.
+                            background to send the data. You can also use LLM analytics with other SDKs or our API, but
+                            you will need to capture the data in the right format. See the schema in the [manual capture
+                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more
+                            details.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -146,9 +148,9 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Now, when you use the OpenAI SDK to call LLMs, PostHog automatically captures an `$ai_generation`
-                        event. You can enrich the event with additional data such as the trace ID, distinct ID, custom
-                        properties, groups, and privacy mode options.
+                        Now, when you use the OpenAI SDK to call LLMs, PostHog automatically captures an
+                        `$ai_generation` event. You can enrich the event with additional data such as the trace ID,
+                        distinct ID, custom properties, groups, and privacy mode options.
                     </Markdown>
 
                     <CodeBlock
@@ -221,8 +223,8 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        PostHog can also capture embedding generations as `$ai_embedding` events. Just make sure to use the
-                        same `posthog.ai.openai` client to do so:
+                        PostHog can also capture embedding generations as `$ai_embedding` events. Just make sure to use
+                        the same `posthog.ai.openai` client to do so:
                     </Markdown>
 
                     <CodeBlock

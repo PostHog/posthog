@@ -5,6 +5,8 @@ from typing import Any
 import requests
 import structlog
 
+from posthog.security.outbound_proxy import external_requests
+
 from .config import Config
 from .results import TestSuiteResult
 
@@ -36,7 +38,7 @@ def send_slack_notification(config: Config, result: TestSuiteResult) -> bool:
     payload = {"blocks": blocks}
 
     try:
-        response = requests.post(
+        response = external_requests.post(
             config.slack_webhook_url,
             json=payload,
             timeout=10,
@@ -113,6 +115,56 @@ def _build_context_block(config: Config, result: TestSuiteResult) -> dict[str, A
             },
         ],
     }
+
+
+def send_slack_timeout_notification(config: Config) -> bool:
+    """Send a timeout notification to Slack via incoming webhook.
+
+    Args:
+        config: Configuration containing the Slack webhook URL.
+
+    Returns:
+        True if notification was sent successfully or skipped, False on send failure.
+    """
+    if not config.slack_webhook_url:
+        logger.debug("Slack webhook URL not configured, skipping timeout notification")
+        return True
+
+    blocks: list[dict[str, Any]] = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": ":hourglass: *Ingestion Acceptance Tests Timed Out*",
+            },
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": (
+                        f":globe_with_meridians: Env: {config.api_host} | "
+                        f":file_folder: Project: {config.project_id} | "
+                        f":stopwatch: Timeout: {config.activity_timeout_seconds}s"
+                    ),
+                },
+            ],
+        },
+    ]
+
+    try:
+        response = external_requests.post(
+            config.slack_webhook_url,
+            json={"blocks": blocks},
+            timeout=10,
+        )
+        response.raise_for_status()
+        logger.info("Slack timeout notification sent successfully")
+        return True
+    except requests.RequestException as e:
+        logger.warning("Failed to send Slack timeout notification", error=str(e))
+        return False
 
 
 def _build_failed_tests_blocks(result: TestSuiteResult) -> list[dict[str, Any]]:

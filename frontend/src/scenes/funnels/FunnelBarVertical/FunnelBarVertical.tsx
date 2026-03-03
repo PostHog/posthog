@@ -9,9 +9,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ChartParams } from '~/types'
 
-import { useFunnelTooltip } from '../FunnelTooltip'
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
+import { useFunnelTooltip } from '../FunnelTooltip'
 import { StepBarLabels } from './StepBarLabels'
 import { StepBars } from './StepBars'
 import { StepLegend } from './StepLegend'

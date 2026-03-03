@@ -129,8 +129,9 @@ class UnavailableStorage(ObjectStorageClient):
 
 
 class ObjectStorage(ObjectStorageClient):
-    def __init__(self, aws_client) -> None:
+    def __init__(self, aws_client, presigned_client=None) -> None:
         self.aws_client = aws_client
+        self.presigned_client = presigned_client or aws_client
 
     def head_bucket(self, bucket: str) -> bool:
         try:
@@ -160,7 +161,7 @@ class ObjectStorage(ObjectStorageClient):
                 params["ResponseContentType"] = content_type
             if content_disposition:
                 params["ResponseContentDisposition"] = content_disposition
-            return self.aws_client.generate_presigned_url(
+            return self.presigned_client.generate_presigned_url(
                 ClientMethod="get_object",
                 Params=params,
                 ExpiresIn=expiration,
@@ -175,7 +176,7 @@ class ObjectStorage(ObjectStorageClient):
         self, bucket: str, file_key: str, conditions: list[Any], expiration: int = 3600
     ) -> Optional[dict]:
         try:
-            return self.aws_client.generate_presigned_post(
+            return self.presigned_client.generate_presigned_post(
                 bucket, file_key, Conditions=conditions, ExpiresIn=expiration
             )
         except Exception as e:
@@ -322,20 +323,30 @@ def object_storage_client() -> ObjectStorageClient:
     if not settings.OBJECT_STORAGE_ENABLED:
         _client = UnavailableStorage()
     elif isinstance(_client, UnavailableStorage):
-        _client = ObjectStorage(
-            client(
+        s3_config = Config(
+            signature_version="s3v4",
+            connect_timeout=1,
+            retries={"max_attempts": 1},
+        )
+        aws_client = client(
+            "s3",
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            config=s3_config,
+            region_name=settings.OBJECT_STORAGE_REGION,
+        )
+        presigned_client = None
+        if settings.OBJECT_STORAGE_PUBLIC_ENDPOINT != settings.OBJECT_STORAGE_ENDPOINT:
+            presigned_client = client(
                 "s3",
-                endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+                endpoint_url=settings.OBJECT_STORAGE_PUBLIC_ENDPOINT,
                 aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                 aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                config=Config(
-                    signature_version="s3v4",
-                    connect_timeout=1,
-                    retries={"max_attempts": 1},
-                ),
+                config=s3_config,
                 region_name=settings.OBJECT_STORAGE_REGION,
             )
-        )
+        _client = ObjectStorage(aws_client, presigned_client)
 
     return _client
 

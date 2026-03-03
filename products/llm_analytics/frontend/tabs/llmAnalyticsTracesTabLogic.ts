@@ -110,6 +110,8 @@ export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
                             ? ['inputState', 'outputState']
                             : []),
                         'person',
+                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] ? ['sentiment'] : []),
+                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB] ? ['tools'] : []),
                         'errors',
                         'totalLatency',
                         'usage',

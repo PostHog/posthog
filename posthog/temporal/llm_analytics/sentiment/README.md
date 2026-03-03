@@ -37,9 +37,18 @@ uv sync --group sentiment
 This pulls in `optimum[onnxruntime]` and `torch` (~2GB).
 In production these are pre-installed in `Dockerfile.llm-analytics`.
 
-The ONNX model is downloaded on first use and cached to `ONNX_CACHE_DIR`
-(default `/tmp/posthog-sentiment-onnx-cache`).
-In production the model is baked into the Docker image at build time.
+The ONNX model must be pre-baked — the worker raises `FileNotFoundError`
+if it's missing from `ONNX_CACHE_DIR` (default `/tmp/posthog-sentiment-onnx-cache`).
+In production the model is baked into the Docker image at build time
+(see `Dockerfile.llm-analytics`).
+
+To download the model locally for development:
+
+```bash
+bin/download-sentiment-model
+```
+
+This is a no-op if the model already exists.
 
 ## Running tests
 

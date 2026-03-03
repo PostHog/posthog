@@ -2,15 +2,15 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { Logomark } from 'lib/brand/Logomark'
-import { Thread } from 'scenes/max/Thread'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { ThreadAutoScroller } from 'scenes/max/components/ThreadAutoScroller'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
+import { Thread } from 'scenes/max/Thread'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 
-import { inboxSceneLogic } from './inboxSceneLogic'
+import { signalSourcesLogic } from './signalSourcesLogic'
 
 const INBOX_TAB_ID = 'inbox-setup'
 
@@ -88,7 +88,7 @@ function SessionAnalysisSetupChat(): JSX.Element {
 }
 
 export function SessionAnalysisSetup(): JSX.Element {
-    const { saveSessionAnalysisFilters } = useActions(inboxSceneLogic)
+    const { saveSessionAnalysisFilters } = useActions(signalSourcesLogic)
     const maxLogicProps = { tabId: INBOX_TAB_ID, onAcceptSessionFilters: saveSessionAnalysisFilters }
     const { threadLogicKey, conversation } = useValues(maxLogic(maxLogicProps))
 

@@ -4,11 +4,12 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { EventHeaders, Hub, Team } from '../../types'
+import { EventHeaders, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
     createApplyPersonProcessingRestrictionsStep,
@@ -17,7 +18,6 @@ import {
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
-    createValidateEventUuidStep,
 } from '../event-preprocessing'
 import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
 import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
@@ -35,7 +35,7 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     eventSchemaEnforcementEnabled: boolean
-    cookielessManager: Hub['cookielessManager']
+    cookielessManager: CookielessManager
     overflowTopic: string
     preservePartitionLocality: boolean
     overflowRedirectService?: OverflowRedirectService
@@ -77,7 +77,6 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
 
                 return schemaChecked
                     .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
-                    .pipe(createValidateEventUuidStep())
                     .pipe(createDropOldEventsStep())
             })
             // We want to call cookieless with the whole batch at once.
