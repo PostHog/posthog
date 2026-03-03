@@ -25,6 +25,7 @@ import type {
     TaskRunCommandResponseApi,
     TaskRunCreateRequestApi,
     TaskRunDetailApi,
+    TaskRunRelayMessageRequestApi,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
@@ -389,6 +390,29 @@ export const tasksRunsConnectionTokenRetrieve = async (
     return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Queue a Slack relay workflow to post a run message into the mapped Slack thread.
+ * @summary Relay run message to Slack
+ */
+export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/relay_message/`
+}
+
+export const tasksRunsRelayMessageCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunRelayMessageRequestApi: TaskRunRelayMessageRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsRelayMessageCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunRelayMessageRequestApi),
     })
 }
 

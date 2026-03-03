@@ -38,13 +38,6 @@ RECOMMENDED_SERVERS = [
         "icon_url": "",
         "auth_type": "oauth",
     },
-    {
-        "name": "GitHub",
-        "url": "https://api.githubcopilot.com/mcp/",
-        "description": "Manage GitHub issues, pull requests, and repositories.",
-        "icon_url": "",
-        "auth_type": "api_key",
-    },
 ]
 
 

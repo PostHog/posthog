@@ -10,7 +10,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { RecordingUniversalFilters } from '~/types'
 
 import type { signalSourcesLogicType } from './signalSourcesLogicType'
-import { SignalSourceConfig, SignalSourceProduct, SignalSourceType, ToggleSignalSourceParams } from './types'
+import {
+    SignalSourceConfig,
+    SignalSourceConfigStatus,
+    SignalSourceProduct,
+    SignalSourceType,
+    ToggleSignalSourceParams,
+} from './types'
 
 export const signalSourcesLogic = kea<signalSourcesLogicType>([
     path(['scenes', 'inbox', 'signalSourcesLogic']),
@@ -84,6 +90,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         config: {},
                         created_at: new Date().toISOString(),
                         updated_at: new Date().toISOString(),
+                        status: null,
                     },
                 ]
             },
@@ -99,6 +106,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         c.source_product === SignalSourceProduct.SESSION_REPLAY &&
                         c.source_type === SignalSourceType.SESSION_ANALYSIS_CLUSTER
                 ) ?? null,
+        ],
+        isClusteringRunning: [
+            (s) => [s.sessionAnalysisConfig],
+            (config: SignalSourceConfig | null): boolean => config?.status === SignalSourceConfigStatus.RUNNING,
         ],
         enabledSourcesCount: [
             (s) => [s.sourceConfigs],
