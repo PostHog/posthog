@@ -4,7 +4,7 @@ import {
     AngularInstallation,
     FlutterInstallation,
     HonoInstallation,
-    JSWebInstallation,
+    WebInstallation,
     NextJSInstallation,
     NodeJSInstallation,
     Nuxt36Installation,
@@ -35,8 +35,8 @@ const ErrorTrackingAngularInstructionsWrapper = withOnboardingDocsWrapper({
     snippets: JS_WEB_SNIPPETS,
     wizardIntegrationName: 'Angular',
 })
-const ErrorTrackingJSWebInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: JSWebInstallation,
+const ErrorTrackingWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: WebInstallation,
     snippets: JS_WEB_SNIPPETS,
     wizardIntegrationName: 'JavaScript Web',
 })
@@ -101,7 +101,7 @@ const ErrorTrackingAPIInstructionsWrapper = withOnboardingDocsWrapper({
 })
 export const ErrorTrackingSDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANGULAR]: ErrorTrackingAngularInstructionsWrapper,
-    [SDKKey.JS_WEB]: ErrorTrackingJSWebInstructionsWrapper,
+    [SDKKey.JS_WEB]: ErrorTrackingWebInstructionsWrapper,
     [SDKKey.NEXT_JS]: ErrorTrackingNextJSInstructionsWrapper,
     [SDKKey.NODE_JS]: ErrorTrackingNodeInstructionsWrapper,
     [SDKKey.NUXT_JS]: ErrorTrackingNuxt37InstructionsWrapper,

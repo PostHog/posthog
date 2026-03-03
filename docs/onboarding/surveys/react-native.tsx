@@ -85,7 +85,7 @@ function getSurveysReactNativeSteps(ctx: OnboardingComponentsContext): StepDefin
                                 language: 'typescript',
                                 file: 'App.tsx',
                                 code: dedent`
-                                    <PostHogSurveyProvider client={posthog}>
+                                    <PostHogSurveyProvider client={posthog}>{children}</PostHogSurveyProvider>
                                 `,
                             },
                         ]}

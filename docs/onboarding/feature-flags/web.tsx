@@ -1,9 +1,9 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-import { getJSWebSteps as getJSWebStepsPA } from '../product-analytics/js-web'
+import { getWebSteps as getWebStepsPA } from '../product-analytics/web'
 import { StepDefinition } from '../steps'
 
-export const getJSWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
@@ -11,10 +11,8 @@ export const getJSWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[
     const OnFeatureFlagsCallback = snippets?.OnFeatureFlagsCallbackSnippet
     const ReloadFlags = snippets?.ReloadFlagsSnippet
 
-    // Get installation steps from product-analytics
-    const installationSteps = getJSWebStepsPA(ctx)
+    const installationSteps = getWebStepsPA(ctx)
 
-    // Add flag-specific steps
     const flagSteps: StepDefinition[] = [
         {
             title: 'Use boolean feature flags',
@@ -93,4 +91,4 @@ export const getJSWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[
     return [...installationSteps, ...flagSteps]
 }
 
-export const JSWebInstallation = createInstallation(getJSWebSteps)
+export const WebInstallation = createInstallation(getWebSteps)

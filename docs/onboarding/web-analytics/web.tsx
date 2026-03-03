@@ -1,17 +1,15 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-import { getJSWebSteps as getJSWebStepsPA } from '../product-analytics/js-web'
+import { getWebSteps as getWebStepsPA } from '../product-analytics/web'
 import { StepDefinition } from '../steps'
 
-export const getJSWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { snippets } = ctx
     const WebFinalSteps = snippets?.WebFinalSteps
 
-    // Get installation steps from product-analytics
-    const paSteps = getJSWebStepsPA(ctx)
+    const paSteps = getWebStepsPA(ctx)
 
-    // Replace the "Send events" step with web analytics specific content
-    const webAnalyticsSteps = paSteps.map((step) => {
+    const webAnalyticsSteps = paSteps.map((step: StepDefinition) => {
         if (step.title === 'Send events') {
             return {
                 ...step,
@@ -24,4 +22,4 @@ export const getJSWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[
     return webAnalyticsSteps
 }
 
-export const JSWebInstallation = createInstallation(getJSWebSteps)
+export const WebInstallation = createInstallation(getWebSteps)
