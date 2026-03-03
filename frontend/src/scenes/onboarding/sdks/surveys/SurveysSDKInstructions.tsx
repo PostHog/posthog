@@ -6,9 +6,8 @@ import {
     SurveysFinalSteps,
     SurveysFlutterInstallation,
     SurveysFramerInstallation,
-    SurveysHTMLSnippetInstallation,
     SurveysIOSInstallation,
-    SurveysJSWebInstallation,
+    SurveysWebInstallation,
     SurveysNextJSInstallation,
     SurveysNuxtInstallation,
     SurveysReactInstallation,
@@ -29,12 +28,8 @@ const SNIPPETS = {
 }
 
 // JS Web SDKs
-const SurveysJSWebInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: SurveysJSWebInstallation,
-    snippets: SNIPPETS,
-})
-const SurveysHTMLSnippetInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: SurveysHTMLSnippetInstallation,
+const SurveysWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: SurveysWebInstallation,
     snippets: SNIPPETS,
 })
 
@@ -106,8 +101,7 @@ const SurveysRNInstructionsWrapper = withOnboardingDocsWrapper({
 })
 
 export const SurveysSDKInstructions: SDKInstructionsMap = {
-    [SDKKey.JS_WEB]: SurveysJSWebInstructionsWrapper,
-    [SDKKey.HTML_SNIPPET]: SurveysHTMLSnippetInstructionsWrapper,
+    [SDKKey.JS_WEB]: SurveysWebInstructionsWrapper,
     [SDKKey.ANGULAR]: SurveysAngularInstructionsWrapper,
     [SDKKey.ASTRO]: SurveysAstroInstructionsWrapper,
     [SDKKey.BUBBLE]: SurveysBubbleInstructionsWrapper,
