@@ -74,7 +74,7 @@ function EndpointHogQLQuery({
     query: HogQLQuery
 }): JSX.Element {
     const sqlEditorTabId = useMemo(() => `endpoint-query-${tabId}-${version ?? 'latest'}`, [tabId, version])
-    const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
+    const { setLocalQuery, keepSqlEditorMounted } = useActions(endpointSceneLogic({ tabId }))
     const { queryInput, sourceQuery } = useValues(
         sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
     )
@@ -83,18 +83,27 @@ function EndpointHogQLQuery({
     )
 
     useEffect(() => {
-        setQueryInput(query.query)
-        setSourceQuery({
-            kind: NodeKind.DataVisualizationNode,
-            source: {
-                kind: NodeKind.HogQLQuery,
-                query: query.query,
-                variables: query.variables,
-            },
-            display: ChartDisplayType.ActionsLineGraph,
-        })
-        runQuery(query.query)
-    }, [query.query, query.variables]) // eslint-disable-line react-hooks/exhaustive-deps
+        // Keep the sqlEditorLogic mounted even when this component unmounts (tab switches)
+        keepSqlEditorMounted(sqlEditorTabId)
+    }, [sqlEditorTabId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        // queryInput is null when the logic is freshly mounted — initialize and run.
+        // On remount (tab switch back), the logic is still alive so queryInput is already set.
+        if (queryInput === null) {
+            setQueryInput(query.query)
+            setSourceQuery({
+                kind: NodeKind.DataVisualizationNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: query.query,
+                    variables: query.variables,
+                },
+                display: ChartDisplayType.ActionsLineGraph,
+            })
+            runQuery(query.query)
+        }
+    }, [query.query, query.variables, queryInput]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         const sourceVariables = isHogQLQuery(sourceQuery.source) ? sourceQuery.source.variables : undefined
