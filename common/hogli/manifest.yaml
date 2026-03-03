@@ -217,6 +217,10 @@ start:
         bin_script: start-go-service
         description: Build and run Go microservices with auto-restart on crash
         hidden: true
+    start:duckgres:
+        bin_script: start-duckgres
+        description: Start Duckgres service with auto-restart on crash
+        hidden: true
 deploy:
     deploy:hobby:
         bin_script: deploy-hobby
@@ -525,6 +529,10 @@ tools:
             development
         services:
             - temporal
+    tool:download-duckgres:
+        bin_script: download-duckgres
+        description: Download Duckgres binary from GitHub releases
+        hidden: true
     tool:hog:
         bin_script: hog
         description: Run HogQL interpreter (TypeScript/Python) or compiled bytecode
@@ -622,11 +630,9 @@ utilities:
             - name: node_modules
               cmd: rm -rf **/node_modules
             - name: python venvs
-              cmd: rm -rf .venv .flox/cache/venv
+              cmd: rm -rf .venv .flox/cache/venv && uv sync --active
             - name: rust builds
               cmd: cd rust && cargo clean && find . -name 'index.node' -type f -delete
-            - name: flox on activate
-              cmd: ./.flox/env/on-activate.sh
             - dev:reset
         description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
         prompt: true

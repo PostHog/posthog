@@ -172,10 +172,6 @@ procs:
         shell: 'cd services/mcp && pnpm run build:ui-apps -- --watch'
         capability: mcp_server
 
-    stripe-app:
-        shell: 'bin/start-stripe-app'
-        capability: stripe_app
-
     migrate-postgres:
         shell: 'bin/wait-for-docker && bin/check_ducklake_up && bin/migrate --scope=postgres'
         capability: core_infra
@@ -225,6 +221,12 @@ procs:
         shell: 'bin/wait-for-docker && cd hedgebox-dummy && pnpm install && pnpm run dev'
         autostart: false
         # no capability - manual start
+
+    duckgres:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-duckgres
+        capability: duckgres
 
     warehouse-sources-load:
         shell: |-
