@@ -32,7 +32,6 @@ export const workflowsLogic = kea<workflowsLogicType>([
         restoreWorkflow: (workflow: HogFlow) => ({ workflow }),
         deleteWorkflow: (workflow: HogFlow) => ({ workflow }),
         deleteSelectedWorkflows: true,
-        deleteAllArchivedWorkflows: true,
         loadWorkflows: () => ({}),
         setFilters: (filters: Partial<WorkflowsFilters>) => ({ filters }),
         setSearchTerm: (search: string) => ({ search }),
@@ -239,40 +238,6 @@ export const workflowsLogic = kea<workflowsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        deleteAllArchivedWorkflows: () => {
-            const ids = values.archivedWorkflows.map((w) => w.id)
-            if (ids.length === 0) {
-                return
-            }
-            LemonDialog.open({
-                width: 500,
-                title: `Delete all ${ids.length} archived workflow${ids.length === 1 ? '' : 's'}?`,
-                description: `Are you sure you want to permanently delete all archived workflows? This action cannot be undone.`,
-                primaryButton: {
-                    children: 'Delete all',
-                    type: 'primary',
-                    status: 'danger',
-                    onClick: async () => {
-                        try {
-                            const result = await api.hogFlows.bulkDeleteHogFlows(ids)
-                            lemonToast.success(`${result.deleted} workflow${result.deleted === 1 ? '' : 's'} deleted`)
-                            for (const id of ids) {
-                                deleteFromTree('hog_flow/', id)
-                            }
-                            actions.clearArchivedWorkflowSelection()
-                            actions.loadWorkflows()
-                        } catch (error: any) {
-                            lemonToast.error(
-                                `Failed to delete workflows: ${error?.detail || error?.message || 'Unknown error'}`
-                            )
-                        }
-                    },
-                },
-                secondaryButton: {
-                    children: 'Cancel',
-                },
-            })
-        },
         deleteSelectedWorkflows: () => {
             const ids = Array.from(values.selectedArchivedWorkflowIds)
             if (ids.length === 0) {

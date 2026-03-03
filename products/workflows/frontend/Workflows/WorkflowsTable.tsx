@@ -112,7 +112,6 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
         restoreWorkflow,
         deleteWorkflow,
         deleteSelectedWorkflows,
-        deleteAllArchivedWorkflows,
         toggleArchivedWorkflowSelection,
         selectAllArchivedWorkflows,
         clearArchivedWorkflowSelection,
@@ -384,14 +383,6 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                                                 Delete selected ({selectedArchivedWorkflowIds.size})
                                             </LemonButton>
                                         )}
-                                        <LemonButton
-                                            type="secondary"
-                                            status="danger"
-                                            size="small"
-                                            onClick={() => deleteAllArchivedWorkflows()}
-                                        >
-                                            Delete all
-                                        </LemonButton>
                                     </div>
                                     <LemonTable
                                         dataSource={archivedWorkflows}
