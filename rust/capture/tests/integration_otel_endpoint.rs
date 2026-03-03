@@ -92,7 +92,7 @@ fn make_span(
     }
 }
 
-async fn send_request(sink: &CapturingSink, request: &ExportTraceServiceRequest) -> u16 {
+fn make_test_client(sink: &CapturingSink) -> TestClient {
     let liveness = HealthRegistry::new("otel_test");
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
@@ -135,11 +135,17 @@ async fn send_request(sink: &CapturingSink, request: &ExportTraceServiceRequest)
         256,
     );
 
-    let client = TestClient::new(app);
+    TestClient::new(app)
+}
+
+const ENDPOINT: &str = "/i/v0/ai/otel";
+
+async fn send_request(sink: &CapturingSink, request: &ExportTraceServiceRequest) -> u16 {
+    let client = make_test_client(sink);
     let body = request.encode_to_vec();
 
     let resp = client
-        .post("/i/v0/llma_otel")
+        .post(ENDPOINT)
         .header("Content-Type", "application/x-protobuf")
         .header("Authorization", format!("Bearer {}", TOKEN))
         .body(body)
@@ -324,7 +330,7 @@ async fn test_span_attributes_and_resource_attributes_passthrough() {
     let props = &data["properties"];
 
     assert_eq!(props["gen_ai.request.model"], "gpt-4");
-    assert_eq!(props["gen_ai.usage.input_tokens"], "100");
+    assert_eq!(props["gen_ai.usage.input_tokens"], 100);
     assert_eq!(props["custom.attr"], "custom-val");
     assert_eq!(props["service.name"], "my-service");
     assert_eq!(props["$ai_ingestion_source"], "otel");
@@ -390,4 +396,142 @@ async fn test_multiple_resource_spans() {
     let data1 = parse_event_data(&events[1]);
     assert_eq!(data0["properties"]["service.name"], "svc-a");
     assert_eq!(data1["properties"]["service.name"], "svc-b");
+}
+
+#[tokio::test]
+async fn test_empty_body_returns_400() {
+    let sink = CapturingSink::new();
+    let client = make_test_client(&sink);
+
+    let resp = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .body(vec![])
+        .send()
+        .await;
+
+    assert_eq!(resp.status().as_u16(), 400);
+}
+
+#[tokio::test]
+async fn test_missing_auth_returns_401() {
+    let sink = CapturingSink::new();
+    let client = make_test_client(&sink);
+
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: None,
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans: vec![make_span(vec![0; 16], vec![0; 8], vec![], 0, vec![])],
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    };
+
+    let resp = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .body(request.encode_to_vec())
+        .send()
+        .await;
+
+    assert_eq!(resp.status().as_u16(), 401);
+}
+
+#[tokio::test]
+async fn test_invalid_token_returns_401() {
+    let sink = CapturingSink::new();
+    let client = make_test_client(&sink);
+
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: None,
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans: vec![make_span(vec![0; 16], vec![0; 8], vec![], 0, vec![])],
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    };
+
+    let resp = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", "Bearer phx_personal_api_key_not_allowed")
+        .body(request.encode_to_vec())
+        .send()
+        .await;
+
+    assert_eq!(resp.status().as_u16(), 401);
+}
+
+#[tokio::test]
+async fn test_unsupported_content_encoding_returns_400() {
+    let sink = CapturingSink::new();
+    let client = make_test_client(&sink);
+
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: None,
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans: vec![make_span(vec![0; 16], vec![0; 8], vec![], 0, vec![])],
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    };
+
+    let resp = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Content-Encoding", "deflate")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .body(request.encode_to_vec())
+        .send()
+        .await;
+
+    assert_eq!(resp.status().as_u16(), 400);
+}
+
+#[tokio::test]
+async fn test_too_many_spans_returns_400() {
+    let sink = CapturingSink::new();
+    let client = make_test_client(&sink);
+
+    let spans: Vec<Span> = (0..101)
+        .map(|i| make_span(vec![0; 16], vec![i as u8; 8], vec![], 0, vec![]))
+        .collect();
+
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: Some(Resource {
+                attributes: vec![make_kv(
+                    "posthog.distinct_id",
+                    any_value::Value::StringValue("user-limit".to_string()),
+                )],
+                dropped_attributes_count: 0,
+            }),
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans,
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    };
+
+    let resp = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .body(request.encode_to_vec())
+        .send()
+        .await;
+
+    assert_eq!(resp.status().as_u16(), 400);
 }

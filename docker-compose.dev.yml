@@ -32,8 +32,6 @@ services:
                     @capture-ai {
                         path /i/v0/ai
                         path /i/v0/ai/*
-                        path /i/v0/llma_otel
-                        path /i/v0/llma_otel/
                     }
 
                     @capture {

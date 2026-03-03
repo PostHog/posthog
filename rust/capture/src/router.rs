@@ -273,18 +273,16 @@ pub fn router<
         )
         .layer(DefaultBodyLimit::max(ai_body_limit));
 
-    // OTEL LLMA endpoint for OpenTelemetry trace ingestion (4MB limit)
-    const OTEL_BODY_SIZE: usize = 4 * 1024 * 1024;
     let otel_router = Router::new()
         .route(
-            "/i/v0/llma_otel",
+            "/i/v0/ai/otel",
             post(otel::otel_handler).options(otel::options),
         )
         .route(
-            "/i/v0/llma_otel/",
+            "/i/v0/ai/otel/",
             post(otel::otel_handler).options(otel::options),
         )
-        .layer(DefaultBodyLimit::max(OTEL_BODY_SIZE));
+        .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
     let mut router = match capture_mode {
         CaptureMode::Events | CaptureMode::Ai => Router::new()
