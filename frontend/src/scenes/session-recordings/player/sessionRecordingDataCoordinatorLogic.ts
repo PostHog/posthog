@@ -27,6 +27,7 @@ import { getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
 import { processAllSnapshots } from './snapshot-processing/process-all-snapshots'
 import { keyForSource } from './snapshot-processing/source-key'
 import { SnapshotStore } from './snapshot-store/SnapshotStore'
+import { SourceLoadingState } from './snapshot-store/types'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { convertSegmentKinds } from './utils/segment-kind-conversion'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
@@ -453,6 +454,23 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             (s) => [s.snapshots],
             (snapshots): customEvent[] => {
                 return snapshots.filter((snapshot) => snapshot.type === EventType.Custom).map((x) => x as customEvent)
+            },
+        ],
+
+        effectiveSourceLoadingStates: [
+            (s) => [s.sourceLoadingStates, s.segments],
+            (states: SourceLoadingState[], segments: RecordingSegment[]): SourceLoadingState[] => {
+                let lastNonGapState: 'loaded' | 'unloaded' = 'unloaded'
+                return states.map((s) => {
+                    const inGap = !segments.some(
+                        (seg) => seg.kind !== 'gap' && seg.startTimestamp < s.endMs && seg.endTimestamp > s.startMs
+                    )
+                    if (inGap) {
+                        return { ...s, state: lastNonGapState }
+                    }
+                    lastNonGapState = s.state
+                    return s
+                })
             },
         ],
 
