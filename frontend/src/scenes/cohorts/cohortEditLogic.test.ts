@@ -864,7 +864,9 @@ describe('cohortEditLogic', () => {
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.ActorsQuery,
-                    fixedProperties: [{ type: PropertyFilterType.Cohort, key: 'id', value: 1 }],
+                    fixedProperties: [
+                        { type: PropertyFilterType.Cohort, key: 'id', value: 1, operator: PropertyOperator.In },
+                    ],
                     select: customColumns,
                 },
                 full: true,
@@ -923,7 +925,9 @@ describe('cohortEditLogic', () => {
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.ActorsQuery,
-                    fixedProperties: [{ type: PropertyFilterType.Cohort, key: 'id', value: 1 }],
+                    fixedProperties: [
+                        { type: PropertyFilterType.Cohort, key: 'id', value: 1, operator: PropertyOperator.In },
+                    ],
                     select: customColumns,
                 },
                 full: true,
