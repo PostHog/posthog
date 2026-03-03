@@ -132,8 +132,8 @@ async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam, monk
     assert len(result) == 1
     metadata = result[0]
     assert metadata.source_normalized_name == "customers"
-    assert metadata.ducklake_schema_name == f"data_imports_team_{ateam.id}"
-    assert metadata.ducklake_table_name.startswith("postgres_customers_")
+    assert metadata.ducklake_schema_name == "posthog_data_imports"
+    assert metadata.ducklake_table_name == "postgres_customers"
     assert metadata.source_partition_column == "created_at"
 
 
@@ -182,6 +182,51 @@ async def test_prepare_data_imports_ducklake_metadata_activity_no_partition(atea
     assert metadata.source_normalized_name == "charges"
     # No partition column when Delta table has no partitions
     assert metadata.source_partition_column is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_prepare_data_imports_ducklake_metadata_activity_with_prefix(ateam, monkeypatch):
+    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri: [])
+
+    credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
+        team=ateam, access_key="test_key", access_secret="test_secret"
+    )
+    source = await database_sync_to_async(ExternalDataSource.objects.create)(
+        team=ateam,
+        source_id="test_source",
+        connection_id="test_connection",
+        source_type="Stripe",
+        status="Running",
+        prefix="prod_",
+    )
+    table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+        team=ateam,
+        name="test_table",
+        format="Delta",
+        url_pattern="s3://bucket/path",
+        credential=credential,
+        external_data_source=source,
+        columns={
+            "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+        },
+    )
+    schema = await database_sync_to_async(ExternalDataSchema.objects.create)(
+        team=ateam,
+        name="invoices",
+        source=source,
+        table=table,
+        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+    )
+
+    inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job-prefix", schema_ids=[schema.id])
+
+    result = await prepare_data_imports_ducklake_metadata_activity(inputs)
+
+    assert len(result) == 1
+    metadata = result[0]
+    assert metadata.ducklake_schema_name == "posthog_data_imports"
+    assert metadata.ducklake_table_name == "stripe_prod_invoices"  # {source_type}_{prefix}_{name}
 
 
 @pytest.mark.asyncio
@@ -258,7 +303,7 @@ def test_copy_data_imports_to_ducklake_activity_executes_correct_sql(monkeypatch
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="data_imports_team_1",
+        ducklake_schema_name="posthog_data_imports",
         ducklake_table_name="postgres_customers_abc12345",
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
@@ -287,7 +332,7 @@ def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_querie
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="data_imports_team_1",
+        ducklake_schema_name="posthog_data_imports",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[],
     )
@@ -357,7 +402,7 @@ def test_verify_data_imports_ducklake_copy_activity_executes_configured_query(mo
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="data_imports_team_1",
+        ducklake_schema_name="posthog_data_imports",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[query],
     )
@@ -431,7 +476,7 @@ def test_verify_data_imports_ducklake_copy_activity_handles_query_failure(monkey
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="data_imports_team_1",
+        ducklake_schema_name="posthog_data_imports",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[query],
     )
@@ -514,7 +559,7 @@ def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeyp
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="data_imports_team_1",
+        ducklake_schema_name="posthog_data_imports",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[query_pass, query_fail],
     )
@@ -573,7 +618,7 @@ def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypat
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="data_imports_team_1",
+        ducklake_schema_name="posthog_data_imports",
         ducklake_table_name="postgres_customers_abc12345",
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
@@ -622,7 +667,7 @@ def test_verify_data_imports_ducklake_copy_activity_raises_when_no_catalog(monke
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="data_imports_team_1",
+        ducklake_schema_name="posthog_data_imports",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[query],
     )
@@ -650,7 +695,7 @@ async def test_ducklake_copy_data_imports_workflow_skips_when_feature_flag_disab
                 source_schema_name="customers",
                 source_normalized_name="customers",
                 source_table_uri="s3://bucket/team_1/customers",
-                ducklake_schema_name="data_imports_team_1",
+                ducklake_schema_name="posthog_data_imports",
                 ducklake_table_name="postgres_customers_abc12345",
             )
         ]
@@ -712,7 +757,7 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
                 source_schema_name="customers",
                 source_normalized_name="customers",
                 source_table_uri="s3://bucket/team_1/customers",
-                ducklake_schema_name="data_imports_team_1",
+                ducklake_schema_name="posthog_data_imports",
                 ducklake_table_name="postgres_customers_abc12345",
             )
         ]
