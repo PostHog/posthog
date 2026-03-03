@@ -2759,7 +2759,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             # Start event (day 0)
             _create_event(
                 team=self.team,
-                event="$pageview",
+                event="signup",
                 distinct_id=f"user_control_{i}",
                 timestamp="2020-01-02T12:01:00Z",
                 properties={feature_flag_property: "control"},
@@ -2768,7 +2768,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             if i % 2 == 0:
                 _create_event(
                     team=self.team,
-                    event="$pageview",
+                    event="login",
                     distinct_id=f"user_control_{i}",
                     timestamp="2020-01-03T12:01:00Z",
                     properties={feature_flag_property: "control"},
@@ -2793,7 +2793,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             # Start event (day 0)
             _create_event(
                 team=self.team,
-                event="$pageview",
+                event="signup",
                 distinct_id=f"user_test_{i}",
                 timestamp="2020-01-02T12:01:00Z",
                 properties={feature_flag_property: "test"},
@@ -2801,7 +2801,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             # Return event (day 1) - all test users return
             _create_event(
                 team=self.team,
-                event="$pageview",
+                event="login",
                 distinct_id=f"user_test_{i}",
                 timestamp="2020-01-03T12:01:00Z",
                 properties={feature_flag_property: "test"},
@@ -2856,19 +2856,18 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
-        # Create user with country = "US" at exposure time
+        # Control user with country = "US"
         _create_person(
-            distinct_ids=["user_1"],
+            distinct_ids=["user_control"],
             team_id=self.team.pk,
             properties={"country": "US"},
-            version=0,
         )
 
-        # Exposure with country = US
+        # Exposure event
         _create_event(
             team=self.team,
             event="$feature_flag_called",
-            distinct_id="user_1",
+            distinct_id="user_control",
             timestamp="2020-01-02T12:00:00Z",
             properties={
                 feature_flag_property: "control",
@@ -2877,25 +2876,47 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             },
         )
 
-        # User's country changes to UK (simulate person property update)
-        # In a real scenario, this would be a person property update via identify/set
-        # For this test, we'll create a new person version with updated properties
-        _create_person(
-            distinct_ids=["user_1"],
-            team_id=self.team.pk,
-            properties={"country": "UK"},  # Changed from US to UK
-            version=1,
-        )
-
-        # Purchase event happens AFTER country changed to UK
+        # Purchase event - should be attributed to US
         _create_event(
             team=self.team,
             event="purchase",
-            distinct_id="user_1",
+            distinct_id="user_control",
             timestamp="2020-01-02T12:02:00Z",
             properties={
                 feature_flag_property: "control",
                 "amount": 100,
+            },
+        )
+
+        # Test user with country = "UK"
+        _create_person(
+            distinct_ids=["user_test"],
+            team_id=self.team.pk,
+            properties={"country": "UK"},
+        )
+
+        # Exposure event
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_test",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "test",
+                "$feature_flag_response": "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+
+        # Purchase event - should be attributed to UK
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_test",
+            timestamp="2020-01-02T12:02:00Z",
+            properties={
+                feature_flag_property: "test",
+                "amount": 150,
             },
         )
 
@@ -2904,17 +2925,26 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        # The user should be attributed to "US" (exposure time) not "UK" (current time)
+        # Should have both US and UK breakdowns
         self.assertIsNotNone(result.breakdown_results)
         assert result.breakdown_results is not None
+        self.assertEqual(len(result.breakdown_results), 2)
 
-        # Should only have US breakdown (the country at exposure time)
         breakdown_values = [br.breakdown_value for br in result.breakdown_results]
         self.assertIn(["US"], breakdown_values)
+        self.assertIn(["UK"], breakdown_values)
 
-        # Find the US breakdown and verify it has data
+        # Verify US breakdown (control user)
         us_breakdown = next((br for br in result.breakdown_results if br.breakdown_value == ["US"]), None)
         self.assertIsNotNone(us_breakdown)
         assert us_breakdown is not None
         self.assertIsNotNone(us_breakdown.baseline)
         self.assertEqual(us_breakdown.baseline.number_of_samples, 1)
+
+        # Verify UK breakdown (test user)
+        uk_breakdown = next((br for br in result.breakdown_results if br.breakdown_value == ["UK"]), None)
+        self.assertIsNotNone(uk_breakdown)
+        assert uk_breakdown is not None
+        self.assertIsNotNone(uk_breakdown.variants)
+        self.assertEqual(len(uk_breakdown.variants), 1)
+        self.assertEqual(uk_breakdown.variants[0].number_of_samples, 1)
