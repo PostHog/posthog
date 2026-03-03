@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconFeatures } from '@posthog/icons'
+import { IconFeatures, IconRefresh } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import {
     AssigneeIconDisplay,
@@ -322,13 +322,45 @@ export function PropertyValue({
             size={size}
             disableCommaSplitting={isUserAgentProperty}
             status={validationError ? 'danger' : 'default'}
-            title={
-                PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
+            title={(() => {
+                const label = PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
                     ? 'Suggested values (last 7 days)'
                     : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
                       ? 'Suggested values'
-                      : undefined
-            }
+                      : null
+                if (!label) {
+                    return undefined
+                }
+                const disabledReason =
+                    propertyOptions?.status === 'loading'
+                        ? 'Loading values…'
+                        : isRefreshing
+                          ? 'Refreshing values…'
+                          : undefined
+                return (
+                    <span className="flex justify-between items-center gap-4">
+                        {label}
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconRefresh />}
+                            tooltip={disabledReason ?? 'Refresh values'}
+                            disabledReason={disabledReason}
+                            onClick={() =>
+                                loadPropertyValues({
+                                    endpoint,
+                                    type: propertyDefinitionType,
+                                    newInput: currentSearchInput.current || undefined,
+                                    propertyKey,
+                                    eventNames,
+                                    properties: [],
+                                    forceRefresh: true,
+                                })
+                            }
+                            noPadding
+                        />
+                    </span>
+                )
+            })()}
             popoverClassName="max-w-200"
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)
