@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { calculateSurveyRates } from 'scenes/surveys/utils'
 
 import {
+    RatingSurveyQuestion,
     ResponsesByQuestion,
     Survey,
     SurveyEventName,
@@ -139,7 +140,7 @@ function generateOpenResponse(question: SurveyQuestion): string {
 }
 
 function generateRatingResponse(question: SurveyQuestion): string {
-    const ratingQuestion = question as any // TODO: Improve typing for rating questions
+    const ratingQuestion = question as RatingSurveyQuestion
     const isNPS = ratingQuestion.scale === SURVEY_RATING_SCALE.NPS_10_POINT
 
     if (isNPS) {
