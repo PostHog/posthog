@@ -55,7 +55,6 @@ export class CyclotronJobQueue {
     private jobQueuePostgres: CyclotronJobQueuePostgres
     private jobQueueKafka: CyclotronJobQueueKafka
     private jobQueueDelay: CyclotronJobQueueDelay
-    private stripGroupsMatcher: ValueMatcher<number>
     private stripPersonMatcher: ValueMatcher<number>
     private shadowPostgres: CyclotronJobQueuePostgresShadow | null = null
     private shadowFailures = 0
@@ -71,7 +70,6 @@ export class CyclotronJobQueue {
         this.producerMapping = getProducerMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING)
         this.producerTeamMapping = getProducerTeamMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING)
         this.producerForceScheduledToPostgres = this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES
-        this.stripGroupsMatcher = buildIntegerMatcher(this.config.CDP_CYCLOTRON_STRIP_GROUPS_FROM_STATE_TEAMS, true)
         this.stripPersonMatcher = buildIntegerMatcher(this.config.CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS, true)
 
         this.jobQueueKafka = new CyclotronJobQueueKafka(this.config, this.queue, (invocations) =>
@@ -235,12 +233,8 @@ export class CyclotronJobQueue {
 
     public async queueInvocations(invocations: CyclotronJobInvocation[]) {
         const sanitized = invocations.map((inv) => {
-            const stripGroups = this.stripGroupsMatcher(inv.teamId)
             const stripPerson = this.stripPersonMatcher(inv.teamId)
-            if (!stripGroups && !stripPerson) {
-                return inv
-            }
-            return sanitizeInvocationForPersistence(inv, { stripGroups, stripPerson })
+            return sanitizeInvocationForPersistence(inv, { stripGroups: true, stripPerson })
         })
         const postgresInvocations: CyclotronJobInvocation[] = []
         const kafkaInvocations: CyclotronJobInvocation[] = []
@@ -302,17 +296,13 @@ export class CyclotronJobQueue {
         // TODO: Routing based on queue name is slightly tricky here as postgres jobs need to be acked no matter what...
         // We need to know if the job came from postgres and if so we need to ack, regardless of the target...
 
-        const sanitizedResults = invocationResults.map((result) => {
-            const stripGroups = this.stripGroupsMatcher(result.invocation.teamId)
-            const stripPerson = this.stripPersonMatcher(result.invocation.teamId)
-            if (!stripGroups && !stripPerson) {
-                return result
-            }
-            return {
-                ...result,
-                invocation: sanitizeInvocationForPersistence(result.invocation, { stripGroups, stripPerson }),
-            }
-        })
+        const sanitizedResults = invocationResults.map((result) => ({
+            ...result,
+            invocation: sanitizeInvocationForPersistence(result.invocation, {
+                stripGroups: true,
+                stripPerson: this.stripPersonMatcher(result.invocation.teamId),
+            }),
+        }))
 
         const postgresInvocationsToCreate: CyclotronJobInvocationResult[] = []
         const postgresInvocationsToUpdate: CyclotronJobInvocationResult[] = []
