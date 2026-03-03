@@ -595,6 +595,26 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["auth_method"]["stripe_secret_key"] == "sk_test_123"
 
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_switching_auth_method_drops_old_secret_key(self, _mock_validate):
+        source = self._create_external_data_source()
+
+        # Switch from api_key to oauth — old stripe_secret_key should NOT carry over
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"auth_method": {"selection": "oauth", "stripe_integration_id": "42"}}},
+        )
+        assert patch_response.status_code == 200
+
+        source.refresh_from_db()
+        assert source.job_inputs["auth_method"]["selection"] == "oauth"
+        assert source.job_inputs["auth_method"]["stripe_integration_id"] == "42"
+        # Old secret key must not carry over — config round-trip may include it as None (default)
+        assert source.job_inputs["auth_method"].get("stripe_secret_key") is None
+
     def test_get_external_data_source_with_schema(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
