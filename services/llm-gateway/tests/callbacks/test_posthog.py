@@ -1,9 +1,10 @@
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.callbacks.posthog import PostHogCallback, _replace_binary_content
+from llm_gateway.callbacks.posthog import PostHogCallback, _replace_binary_content, _truncate_for_capture
 
 
 def _run_sync(executor, fn, *args):
@@ -389,3 +390,135 @@ class TestReplaceBinaryContent:
     )
     def test_replace_binary_content(self, input_data, expected):
         assert _replace_binary_content(input_data) == expected
+
+
+_MAX_SIZE = 15 * 1024 * 1024
+_TRUNCATION_MARKER = "[truncated: content too large for capture]"
+
+
+class TestTruncateForCapture:
+    @pytest.mark.parametrize(
+        "description,properties",
+        [
+            (
+                "small event unchanged",
+                {
+                    "$ai_model": "claude-3-opus",
+                    "$ai_input": [{"role": "user", "content": "Hello"}],
+                    "$ai_output_choices": "Hi there!",
+                    "$ai_input_tokens": 10,
+                },
+            ),
+            (
+                "no content fields unchanged",
+                {
+                    "$ai_model": "gpt-4",
+                    "$ai_input_tokens": 100,
+                    "$ai_output_tokens": 200,
+                },
+            ),
+        ],
+    )
+    def test_small_events_not_truncated(self, description: str, properties: dict) -> None:
+        result = _truncate_for_capture(properties)
+        assert result == properties
+
+    def test_large_output_truncated(self) -> None:
+        large_output = "x" * (_MAX_SIZE + 1)
+        properties = {
+            "$ai_model": "claude-3-opus",
+            "$ai_input": [{"role": "user", "content": "short"}],
+            "$ai_output_choices": large_output,
+            "$ai_input_tokens": 10,
+            "$ai_output_tokens": 5000,
+        }
+
+        result = _truncate_for_capture(properties)
+
+        assert result["$ai_output_choices"] == _TRUNCATION_MARKER
+        assert result["$ai_input"] == [{"role": "user", "content": "short"}]
+        assert result["$ai_input_tokens"] == 10
+        assert result["$ai_output_tokens"] == 5000
+        assert len(json.dumps(result)) < _MAX_SIZE
+
+    def test_both_fields_truncated_when_both_large(self) -> None:
+        large_content = "y" * _MAX_SIZE
+        properties = {
+            "$ai_model": "claude-3-opus",
+            "$ai_input": [{"role": "user", "content": large_content}],
+            "$ai_output_choices": large_content,
+            "$ai_input_tokens": 10,
+        }
+
+        result = _truncate_for_capture(properties)
+
+        assert result["$ai_output_choices"] == _TRUNCATION_MARKER
+        assert result["$ai_input"] == _TRUNCATION_MARKER
+        assert result["$ai_input_tokens"] == 10
+        assert len(json.dumps(result)) < _MAX_SIZE
+
+    def test_does_not_mutate_original(self) -> None:
+        large_output = "z" * (_MAX_SIZE + 1)
+        original_input = [{"role": "user", "content": "hello"}]
+        properties = {
+            "$ai_input": original_input,
+            "$ai_output_choices": large_output,
+        }
+
+        result = _truncate_for_capture(properties)
+
+        assert result is not properties
+        assert properties["$ai_output_choices"] == large_output
+        assert properties["$ai_input"] is original_input
+
+    def test_small_fields_not_truncated_even_if_total_large(self) -> None:
+        properties = {
+            "$ai_input": "small input",
+            "$ai_output_choices": "x" * (_MAX_SIZE + 1),
+        }
+
+        result = _truncate_for_capture(properties)
+
+        assert result["$ai_input"] == "small input"
+        assert result["$ai_output_choices"] == _TRUNCATION_MARKER
+
+    @pytest.mark.asyncio
+    async def test_on_success_truncates_oversized_content(self) -> None:
+        mock_client = MagicMock()
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        auth_user = AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", distinct_id="user-123")
+        large_response = "R" * (16 * 1024 * 1024)
+        kwargs = {
+            "standard_logging_object": {
+                "model": "claude-3-opus",
+                "custom_llm_provider": "anthropic",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "prompt_tokens": 10,
+                "completion_tokens": 50000,
+                "response_time": 2.5,
+                "response_cost": 1.23,
+                "response": large_response,
+            },
+            "litellm_params": {},
+        }
+
+        mock_loop = MagicMock()
+        mock_loop.run_in_executor.side_effect = _run_sync
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+            patch("llm_gateway.callbacks.posthog.asyncio") as mock_asyncio,
+        ):
+            mock_asyncio.get_running_loop.return_value = mock_loop
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert props["$ai_output_choices"] == _TRUNCATION_MARKER
+            assert props["$ai_model"] == "claude-3-opus"
+            assert props["$ai_input_tokens"] == 10
+            assert props["$ai_output_tokens"] == 50000
+            assert props["$ai_total_cost_usd"] == 1.23
+            assert props["$ai_latency"] == 2.5
+            assert len(json.dumps(props)) < _MAX_SIZE

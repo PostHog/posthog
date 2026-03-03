@@ -1,5 +1,6 @@
 import ast
 import asyncio
+import json
 from functools import partial
 from typing import Any
 from uuid import uuid4
@@ -44,6 +45,30 @@ def _replace_binary_content(data: Any) -> Any:
             return {k: _replace_binary_content(v) for k, v in data.items()}
         case _:
             return data
+
+
+_MAX_CAPTURE_SIZE = 15 * 1024 * 1024
+_MIN_FIELD_SIZE_TO_TRUNCATE = 10 * 1024
+_TRUNCATION_MARKER = "[truncated: content too large for capture]"
+_TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")
+
+
+def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
+    serialized = json.dumps(properties, default=str)
+    if len(serialized) <= _MAX_CAPTURE_SIZE:
+        return properties
+
+    result = dict(properties)
+    for field in _TRUNCATABLE_FIELDS:
+        if field not in result:
+            continue
+        field_size = len(json.dumps(result[field], default=str))
+        if field_size < _MIN_FIELD_SIZE_TO_TRUNCATE:
+            continue
+        result[field] = _TRUNCATION_MARKER
+        if len(json.dumps(result, default=str)) <= _MAX_CAPTURE_SIZE:
+            break
+    return result
 
 
 class PostHogCallback(InstrumentedCallback):
@@ -122,6 +147,8 @@ class PostHogCallback(InstrumentedCallback):
         time_to_first_token = get_time_to_first_token()
         if time_to_first_token is not None:
             properties["$ai_time_to_first_token"] = time_to_first_token
+
+        properties = _truncate_for_capture(properties)
 
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,
