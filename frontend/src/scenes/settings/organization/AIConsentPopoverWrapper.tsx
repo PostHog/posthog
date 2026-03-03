@@ -1,5 +1,5 @@
 import { useAsyncActions, useValues } from 'kea'
-import React, { useCallback, useState } from 'react'
+import { useState } from 'react'
 
 import { IconArrowRight, IconLock } from '@posthog/icons'
 import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
@@ -24,17 +24,10 @@ export function AIConsentPopoverWrapper({
     const { dataProcessingApprovalDisabledReason, dataProcessingAccepted } = useValues(maxGlobalLogic)
     const [dismissed, setDismissed] = useState(false)
 
-    const handleDismiss = useCallback((): void => {
+    const handleDismiss = (): void => {
         setDismissed(true)
         onDismiss?.()
-    }, [onDismiss])
-
-    const wrappedChildren = React.cloneElement(children, {
-        onClick: (...args: unknown[]) => {
-            setDismissed(false)
-            children.props.onClick?.(...args)
-        },
-    })
+    }
 
     return (
         <Popover
@@ -92,7 +85,7 @@ export function AIConsentPopoverWrapper({
             onClickOutside={handleDismiss}
             {...popoverProps}
         >
-            {wrappedChildren}
+            {children}
         </Popover>
     )
 }
