@@ -41,6 +41,8 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
 
     const selectedInterval = retentionFilter?.selectedInterval ?? null
 
+    const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
+
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
         return (
             <p className="w-full m-0 text-center text-sm text-gray-500">
@@ -62,7 +64,7 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
             // in retention graph, we want the bars side by side so it's easier
             // to see the retention trend change for each cohort
             isStacked={retentionFilter?.display !== ChartDisplayType.ActionsBar}
-            trendsFilter={{ aggregationAxisFormat: 'percentage' } as TrendsFilter}
+            trendsFilter={{ aggregationAxisFormat: isPercentage ? 'percentage' : 'numeric' } as TrendsFilter}
             tooltip={{
                 altTitle: selectedInterval !== null ? `${retentionFilter?.period} ${selectedInterval}` : undefined,
                 renderSeries: function _renderCohortPrefix(value) {
@@ -79,7 +81,7 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
                 },
                 showHeader: selectedInterval !== null,
                 renderCount: (count) => {
-                    return `${roundToDecimal(count)}%`
+                    return isPercentage ? `${roundToDecimal(count)}%` : `${roundToDecimal(count)}`
                 },
             }}
             onClick={(payload) => {

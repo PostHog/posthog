@@ -96,6 +96,24 @@ export function EditableField({
         setLocalTentativeValue(value)
     }, [value])
 
+    // Save pending changes on unmount (e.g. when a parent popover closes while editing)
+    const saveOnUnmountRef = useRef({ localTentativeValue, value, localIsEditing, onSave, saveOnBlur })
+    saveOnUnmountRef.current = { localTentativeValue, value, localIsEditing, onSave, saveOnBlur }
+    useEffect(() => {
+        return () => {
+            const {
+                localTentativeValue: v,
+                value: orig,
+                localIsEditing: editing,
+                onSave: save,
+                saveOnBlur: sob,
+            } = saveOnUnmountRef.current
+            if (sob && editing && v !== orig) {
+                save?.(v)
+            }
+        }
+    }, [])
+
     useEffect(() => {
         setLocalIsEditing(mode === 'edit')
     }, [mode])
@@ -275,7 +293,9 @@ export function EditableField({
                 ) : (
                     <>
                         {localTentativeValue && markdown ? (
-                            <LemonMarkdown lowKeyHeadings>{localTentativeValue}</LemonMarkdown>
+                            <div className={clsx(clickToEdit && 'cursor-text')} onClick={handleClick}>
+                                <LemonMarkdown lowKeyHeadings>{localTentativeValue}</LemonMarkdown>
+                            </div>
                         ) : (
                             <Tooltip
                                 title={isDisplayTooltipNeeded ? localTentativeValue : undefined}

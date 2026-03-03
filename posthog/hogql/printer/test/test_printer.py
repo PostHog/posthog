@@ -55,11 +55,11 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
-from posthog.models.property_definition import PropertyType
 from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 from ee.clickhouse.materialized_columns.columns import (
     get_bloom_filter_index_name,
@@ -3407,18 +3407,54 @@ class TestPrinter(BaseTest):
         ]
     )
     def test_postgres_style_cast(self, name, expr, expected):
-        self.assertEqual(self._expr(expr, backend="cpp-json"), expected)
+        self.assertEqual(self._expr(expr), expected)
 
     def test_postgres_style_cast_datetime(self):
         # DateTime types include timezone, test separately
-        self.assertIn("toDateTime(events.event", self._expr("event::datetime", backend="cpp-json"))
-        self.assertIn("toDateTime(events.event", self._expr("event::timestamp", backend="cpp-json"))
-        self.assertIn("toDateTime(events.event", self._expr("event::timestamptz", backend="cpp-json"))
+        self.assertIn("toDateTime(events.event", self._expr("event::datetime"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamp"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamptz"))
 
     def test_postgres_style_cast_unsupported_type(self):
         with self.assertRaises(QueryError) as ctx:
-            self._expr("event::unsupported_type", backend="cpp-json")
+            self._expr("event::unsupported_type")
         self.assertIn("Unsupported type cast", str(ctx.exception))
+
+    def test_cte_materialization_hint_not_supported(self):
+        with self.assertRaises(ImpossibleASTError) as ctx:
+            self._select(
+                """
+                WITH some_cte AS MATERIALIZED (SELECT event FROM events)
+                SELECT event FROM some_cte
+                """,
+            )
+        self.assertIn("not supported", str(ctx.exception))
+
+    def test_cte_column_name_list_not_supported(self):
+        with self.assertRaises(NotImplementedError):
+            self._select(
+                "WITH stats(a, b) AS (SELECT event, timestamp FROM events) SELECT a, b FROM stats",
+            )
+
+    def test_cte_using_key_not_supported(self):
+        with self.assertRaises(ImpossibleASTError) as ctx:
+            self._select(
+                "WITH x USING KEY (a) AS (SELECT 1 AS a, 2 AS b) SELECT * FROM x",
+            )
+        self.assertIn("not supported", str(ctx.exception))
+
+    def test_projection_pushdown_cte_with_lazy_table_join(self):
+        modifiers = HogQLQueryModifiers(optimizeProjections=True)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        # Pruning the CTE should not leave stale LazyTableType references
+        # in SelectQueryType.columns that cause KeyError during lazy table resolution
+        self._select(
+            """
+            WITH combined AS (SELECT * FROM persons LIMIT 10)
+            SELECT 1 FROM events AS e LEFT JOIN combined AS c ON e.distinct_id = c.id
+            """,
+            context=context,
+        )
 
 
 @snapshot_clickhouse_queries
@@ -4142,6 +4178,18 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             not_in_matches = {d for (d,) in not_in_result.results}
             assert not_in_matches == not_in_expected, f"NOT IN {in_values}"
 
+    def test_recursive_cte_raises(self):
+        query = """
+        WITH RECURSIVE cte AS (
+            SELECT 1 AS n
+            UNION ALL
+            SELECT n + 1 FROM cte WHERE n < 5
+        )
+        SELECT * FROM cte;
+        """
+        with self.assertRaises(ImpossibleASTError):
+            execute_hogql_query(team=self.team, query=query)
+
 
 class TestPrinted(APIBaseTest):
     def test_can_call_parametric_function(self):
@@ -4187,7 +4235,7 @@ class TestPostgresPrinter(BaseTest):
         dialect: HogQLDialect = "postgres",
     ) -> str:
         return prepare_and_print_ast(
-            parse_select(query, placeholders=placeholders),
+            parse_select(query, placeholders=placeholders, backend="cpp-json"),
             context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             dialect,
         )[0]
@@ -4339,14 +4387,14 @@ class TestPostgresPrinter(BaseTest):
         )
 
     def test_postgres_style_cast(self):
-        self.assertEqual(self._expr("123::int", backend="cpp-json"), "CAST(123 AS int)")
-        self.assertEqual(self._expr("123.45::float", backend="cpp-json"), "CAST(123.45 AS float)")
-        self.assertEqual(self._expr("'2024-01-01'::date", backend="cpp-json"), "CAST('2024-01-01' AS date)")
-        self.assertEqual(self._expr("event::int", backend="cpp-json"), "CAST(events.event AS int)")
-        self.assertEqual(self._expr("event::text", backend="cpp-json"), "CAST(events.event AS text)")
-        self.assertEqual(self._expr("event::boolean", backend="cpp-json"), "CAST(events.event AS boolean)")
-        self.assertEqual(self._expr("event::INT", backend="cpp-json"), "CAST(events.event AS int)")
-        self.assertEqual(self._expr("(1 + 2)::int", backend="cpp-json"), "CAST((1 + 2) AS int)")
+        self.assertEqual(self._expr("123::int"), "CAST(123 AS int)")
+        self.assertEqual(self._expr("123.45::float"), "CAST(123.45 AS float)")
+        self.assertEqual(self._expr("'2024-01-01'::date"), "CAST('2024-01-01' AS date)")
+        self.assertEqual(self._expr("event::int"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("event::text"), "CAST(events.event AS text)")
+        self.assertEqual(self._expr("event::boolean"), "CAST(events.event AS boolean)")
+        self.assertEqual(self._expr("event::INT"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("(1 + 2)::int"), "CAST((1 + 2) AS int)")
 
     @parameterized.expand(
         [
@@ -4376,3 +4424,82 @@ class TestPostgresPrinter(BaseTest):
             type_name=type_name,
         )
         self.assertEqual(self._expr(node), f"CAST(123 AS {expected_escaped})")
+
+    @parameterized.expand(
+        [
+            (
+                "basic",
+                "WITH stats(a, b) AS (SELECT event, timestamp FROM events) SELECT a, b FROM stats",
+                "stats(a, b) AS",
+            ),
+            (
+                "single column",
+                "WITH single(x) AS (SELECT event FROM events) SELECT x FROM single",
+                "single(x) AS",
+            ),
+            (
+                "reserved word as column name",
+                "WITH stats(select, from) AS (SELECT event, timestamp FROM events) SELECT stats.select FROM stats",
+                'stats("select", "from") AS',
+            ),
+            (
+                "used in join",
+                """
+                WITH cte1(id, val) AS (SELECT event, timestamp FROM events),
+                     cte2(id, val) AS (SELECT event, timestamp FROM events)
+                SELECT c1.id, c2.val
+                FROM cte1 AS c1
+                JOIN cte2 AS c2 ON c1.id = c2.id
+                """,
+                "cte1(id, val) AS",
+            ),
+        ]
+    )
+    def test_cte_column_name_list(self, _name: str, query: str, expected_fragment: str):
+        result = self._select(query)
+        self.assertIn(expected_fragment, result)
+
+    def test_with_recursive(self):
+        query = "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte"
+        self.assertEqual(
+            self._select(query),
+            "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        )
+
+    def test_with_recursive_self_referencing(self):
+        query = "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT n FROM nums"
+        self.assertEqual(
+            self._select(query),
+            "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT (nums.n + 1) FROM nums WHERE (nums.n < 5)) "
+            "SELECT nums.n FROM nums LIMIT 50000",
+        )
+
+    def test_cte_materialization_hint_materialized(self):
+        query = "WITH events_cte AS MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte"
+        self.assertEqual(
+            self._select(query),
+            "WITH events_cte AS MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        )
+
+    def test_cte_materialization_hint_not_materialized(self):
+        query = "WITH events_cte AS NOT MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte"
+        self.assertEqual(
+            self._select(query),
+            "WITH events_cte AS NOT MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        )
+
+    def test_cte_using_key_single_column(self):
+        query = "WITH RECURSIVE x(a, b) USING KEY (a) AS (SELECT 1 AS a, 2 AS b UNION ALL SELECT a + 1, b FROM x WHERE a < 5) SELECT * FROM x"
+        result = self._select(query)
+        self.assertIn("USING KEY", result)
+        self.assertIn("x(a, b) USING KEY (a) AS", result)
+
+    def test_cte_using_key_multiple_columns(self):
+        query = "WITH RECURSIVE x(a, b, c) USING KEY (a, b) AS (SELECT 1 AS a, 2 AS b, 3 AS c UNION ALL SELECT a + 1, b, c FROM x WHERE a < 5) SELECT * FROM x"
+        result = self._select(query)
+        self.assertIn("x(a, b, c) USING KEY (a, b) AS", result)
+
+    def test_cte_using_key_without_column_name_list(self):
+        query = "WITH RECURSIVE x USING KEY (a) AS (SELECT 1 AS a UNION ALL SELECT a + 1 FROM x WHERE a < 5) SELECT * FROM x"
+        result = self._select(query)
+        self.assertIn("USING KEY (a) AS", result)

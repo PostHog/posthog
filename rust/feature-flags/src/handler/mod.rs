@@ -111,9 +111,10 @@ async fn process_request_inner(
             context.state.database_pools.non_persons_reader.clone(),
             context.state.team_hypercache_reader.clone(),
             context.state.flags_hypercache_reader.clone(),
+            context.state.team_negative_cache.clone(),
         );
 
-        let (original_distinct_id, verified_token, request) =
+        let (original_distinct_id, team, request) =
             authentication::parse_and_authenticate(&context, &flag_service).await?;
 
         let distinct_id_for_logging = original_distinct_id
@@ -141,10 +142,6 @@ async fn process_request_inner(
             distinct_id_for_logging
         );
 
-        let team = flag_service
-            .get_team_from_cache_or_pg(&verified_token)
-            .await?;
-
         metrics_data.team_id = Some(team.id);
         metrics_data.flags_disabled = Some(request.is_flags_disabled());
 
@@ -158,7 +155,7 @@ async fn process_request_inner(
             with_canonical_log(|log| log.flags_disabled = true);
             FlagsResponse::new(false, HashMap::new(), None, context.request_id)
         } else if let Some(quota_limited_response) =
-            billing::check_limits(&context, &verified_token).await?
+            billing::check_limits(&context, &team.api_token).await?
         {
             warn!("Request quota limited");
             with_canonical_log(|log| log.quota_limited = true);

@@ -699,7 +699,20 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
-  VISIT(WithClause) { return visit(ctx->withExprList()); }
+  VISIT(WithClause) {
+    Json json = visitAsJSON(ctx->withExprList());
+
+    // If RECURSIVE keyword is present, add recursive: true to each CTE
+    if (ctx->RECURSIVE()) {
+      for (auto& cte : json.getArrayMut()) {
+        if (cte.isObject()) {
+          cte.getObjectMut()["recursive"] = true;
+        }
+      }
+    }
+
+    return json;
+  }
 
   VISIT_UNSUPPORTED(TopClause)
 
@@ -1782,6 +1795,33 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["name"] = visitAsString(ctx->identifier());
     json["expr"] = visitAsJSON(ctx->selectSetStmt());
     json["cte_type"] = "subquery";
+    json["materialized"] = Json::Null();
+    if (ctx->MATERIALIZED()) {
+      json["materialized"] = ctx->NOT() ? false : true;
+    }
+    json["columns"] = Json::Null();
+    json["using_key"] = Json::Null();
+    const auto& columnNameLists = ctx->withExprColumnNameList();
+    if (ctx->USING()) {
+      // USING KEY present: last list is the key columns
+      const auto& usingKeyList = columnNameLists.back();
+      json["using_key"] = Json::array();
+      for (const auto& ident : usingKeyList->identifier()) {
+        json["using_key"].pushBack(visitAsString(ident));
+      }
+      // If there are two lists, the first is the CTE column names
+      if (columnNameLists.size() > 1) {
+        json["columns"] = Json::array();
+        for (const auto& ident : columnNameLists.front()->identifier()) {
+          json["columns"].pushBack(visitAsString(ident));
+        }
+      }
+    } else if (!columnNameLists.empty()) {
+      json["columns"] = Json::array();
+      for (const auto& ident : columnNameLists.front()->identifier()) {
+        json["columns"].pushBack(visitAsString(ident));
+      }
+    }
     return json;
   }
 
@@ -1917,6 +1957,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
     json["table"] = std::move(table_json);
     json["table_args"] = std::move(table_args_json);
+    json["next_join"] = nullptr;
+    json["alias"] = nullptr;
     return json;
   }
 

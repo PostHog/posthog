@@ -850,29 +850,33 @@ class ActivityLogTestHelper(APILicensedTest):
         from unittest.mock import patch
 
         # Mock the Stripe validation to avoid needing real credentials
-        with patch("posthog.temporal.data_imports.sources.stripe.stripe.validate_credentials", return_value=True):
-            with patch("products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow"):
-                data = {
-                    "source_type": source_type,
-                    "payload": {
-                        "stripe_account_id": "acct_test_placeholder",
-                        "stripe_secret_key": "test_key_placeholder_not_real",
-                        "schemas": [
-                            {
-                                "name": "Customer",
-                                "should_sync": kwargs.get("should_sync", True),
-                                "sync_type": kwargs.get("sync_type", "full_refresh"),
-                            }
-                        ],
-                        **kwargs.get("payload", {}),
-                    },
-                    **{k: v for k, v in kwargs.items() if k not in ["payload", "should_sync", "sync_type"]},
-                }
-                response = self.client.post(
-                    f"/api/environments/{self.team.id}/external_data_sources/", data, format="json"
-                )
-                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-                return response.json()
+        with (
+            patch("posthog.temporal.data_imports.sources.stripe.stripe.validate_credentials", return_value=True),
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+                return_value=(True, None),
+            ),
+            patch("products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow"),
+        ):
+            data = {
+                "source_type": source_type,
+                "payload": {
+                    "stripe_account_id": "acct_test_placeholder",
+                    "stripe_secret_key": "test_key_placeholder_not_real",
+                    "schemas": [
+                        {
+                            "name": "Customer",
+                            "should_sync": kwargs.get("should_sync", True),
+                            "sync_type": kwargs.get("sync_type", "full_refresh"),
+                        }
+                    ],
+                    **kwargs.get("payload", {}),
+                },
+                **{k: v for k, v in kwargs.items() if k not in ["payload", "should_sync", "sync_type"]},
+            }
+            response = self.client.post(f"/api/environments/{self.team.id}/external_data_sources/", data, format="json")
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            return response.json()
 
     def update_external_data_source(self, source_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         """Update an external data source via API."""

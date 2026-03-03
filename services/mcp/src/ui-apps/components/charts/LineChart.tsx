@@ -30,9 +30,10 @@ export interface LineChartProps {
     labels: string[]
     maxValue: number
     showLegend?: boolean
+    yAxisLabel?: string | undefined
 }
 
-export function LineChart({ series, labels, maxValue, showLegend = true }: LineChartProps): ReactElement {
+export function LineChart({ series, labels, maxValue, showLegend = true, yAxisLabel }: LineChartProps): ReactElement {
     const innerWidth = CHART_WIDTH - PADDING.left - PADDING.right
     const innerHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom
 
@@ -42,6 +43,19 @@ export function LineChart({ series, labels, maxValue, showLegend = true }: LineC
     return (
         <div>
             <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} style={{ width: '100%', height: '400px' }}>
+                {yAxisLabel && (
+                    <text
+                        x={12}
+                        y={PADDING.top + innerHeight / 2}
+                        textAnchor="middle"
+                        fontSize="11"
+                        fill="var(--color-text-secondary, #6b7280)"
+                        transform={`rotate(-90, 12, ${PADDING.top + innerHeight / 2})`}
+                    >
+                        {yAxisLabel}
+                    </text>
+                )}
+
                 {/* Y-axis labels */}
                 {[0, 0.5, 1].map((ratio) => {
                     const value = maxValue * ratio

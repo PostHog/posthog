@@ -19,8 +19,8 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 
 import { ReleasePreviewPill } from 'products/error_tracking/frontend/components/ReleasesPreview/ReleasePreviewPill'
 
-import { UploadModal } from './UploadModal'
 import { SymbolSetOrder, symbolSetLogic } from './symbolSetLogic'
+import { UploadModal } from './UploadModal'
 
 const SYMBOL_SET_FILTER_OPTIONS = [
     {

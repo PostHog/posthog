@@ -202,6 +202,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "insight_id": response_1.json()["short_id"],
                     "$current_url": "https://posthog.com/my-referer",
                     "$session_id": "my-session-id",
+                    "source": "web",
+                    "was_impersonated": False,
                 },
                 groups=ANY,
             )
@@ -237,6 +239,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "insight_id": insight_short_id,
                     "$current_url": "https://posthog.com/my-referer",
                     "$session_id": "my-session-id",
+                    "source": "web",
+                    "was_impersonated": False,
                 },
                 groups=ANY,
             )

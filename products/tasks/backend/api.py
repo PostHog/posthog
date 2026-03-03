@@ -9,6 +9,7 @@ from typing import cast
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 
+import requests as http_requests
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -37,14 +38,17 @@ from .serializers import (
     TaskRunArtifactPresignResponseSerializer,
     TaskRunArtifactsUploadRequestSerializer,
     TaskRunArtifactsUploadResponseSerializer,
+    TaskRunCommandRequestSerializer,
+    TaskRunCommandResponseSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
+    TaskRunRelayMessageRequestSerializer,
     TaskRunSessionLogsQuerySerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
 )
 from .services.connection_token import create_sandbox_connection_token
-from .temporal.client import execute_task_processing_workflow
+from .temporal.client import execute_task_processing_workflow, execute_twig_agent_relay_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +232,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "partial_update",
             "set_output",
             "append_log",
+            "relay_message",
             "session_logs",
+            "command",
         ]
     }
     http_method_names = ["get", "post", "patch", "head", "options"]
@@ -303,8 +309,50 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
         task_run.save()
+        self._post_slack_update_for_pr(task_run)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+
+    def _post_slack_update_for_pr(self, task_run: TaskRun) -> None:
+        pr_url = (task_run.output or {}).get("pr_url") if isinstance(task_run.output, dict) else None
+        if not pr_url:
+            return
+
+        try:
+            from products.slack_app.backend.models import SlackThreadTaskMapping
+            from products.tasks.backend.temporal.process_task.activities.post_slack_update import (
+                PostSlackUpdateInput,
+                post_slack_update,
+            )
+
+            mapping = (
+                SlackThreadTaskMapping.objects.filter(task_run=task_run)
+                .order_by("-updated_at")
+                .values(
+                    "integration_id",
+                    "channel",
+                    "thread_ts",
+                    "mentioning_slack_user_id",
+                )
+                .first()
+            )
+
+            if not mapping:
+                return
+
+            post_slack_update(
+                PostSlackUpdateInput(
+                    run_id=str(task_run.id),
+                    slack_thread_context={
+                        "integration_id": mapping["integration_id"],
+                        "channel": mapping["channel"],
+                        "thread_ts": mapping["thread_ts"],
+                        "mentioning_slack_user_id": mapping["mentioning_slack_user_id"],
+                    },
+                )
+            )
+        except Exception:
+            logger.exception("task_run_slack_update_for_pr_failed for run %s", task_run.id)
 
     def _signal_workflow_completion(self, task_run: TaskRun, status: str, error_message: str | None) -> None:
         """Send completion signal to Temporal workflow."""
@@ -314,8 +362,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             client = sync_connect()
-            workflow_id = f"task-processing-{task_run.task_id}-{task_run.id}"
-            handle = client.get_workflow_handle(workflow_id)
+            handle = client.get_workflow_handle(task_run.workflow_id)
 
             import asyncio
 
@@ -369,6 +416,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # TODO: Validate output data according to schema for the task type.
         task_run.output = output_data
         task_run.save(update_fields=["output", "updated_at"])
+        self._post_slack_update_for_pr(task_run)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
@@ -392,9 +440,45 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         with timer("s3_append"):
             task_run.append_log(entries)
 
+        task_run.heartbeat_workflow()
+
         response = Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
         response["Server-Timing"] = timer.to_header_string()
         return response
+
+    @validated_request(
+        request_serializer=TaskRunRelayMessageRequestSerializer,
+        responses={
+            200: OpenApiResponse(description="Relay accepted"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Relay run message to Slack",
+        description="Queue a Slack relay workflow to post a run message into the mapped Slack thread.",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="relay_message", required_scopes=["task:write"])
+    def relay_message(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        if task_run.is_terminal:
+            return Response({"status": "skipped"})
+
+        text = request.validated_data["text"].strip()
+        if not text:
+            return Response({"status": "skipped"})
+
+        try:
+            relay_id = execute_twig_agent_relay_workflow(
+                run_id=str(task_run.id),
+                text=text,
+                delete_progress=True,
+            )
+        except Exception:
+            logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(task_run.id)})
+            return Response(
+                ErrorResponseSerializer({"error": "Failed to queue Slack relay"}).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({"status": "accepted", "relay_id": relay_id})
 
     @validated_request(
         request_serializer=TaskRunArtifactsUploadRequestSerializer,
@@ -561,6 +645,163 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response(ConnectionTokenResponseSerializer({"token": token}).data)
+
+    @validated_request(
+        request_serializer=TaskRunCommandRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunCommandResponseSerializer, description="Agent server response"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid command or no active sandbox"),
+            404: OpenApiResponse(description="Task run not found"),
+            502: OpenApiResponse(response=ErrorResponseSerializer, description="Agent server unreachable"),
+        },
+        summary="Send command to agent server",
+        description="Forward a JSON-RPC command to the agent server running in the sandbox. "
+        "Supports user_message, cancel, and close commands.",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="command", required_scopes=["task:write"])
+    def command(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        state = task_run.state or {}
+
+        sandbox_url = state.get("sandbox_url")
+        if not sandbox_url:
+            return Response(
+                ErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not self._is_valid_sandbox_url(sandbox_url):
+            logger.warning(f"Blocked request to disallowed sandbox URL for task run {task_run.id}")
+            return Response(
+                ErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        connection_token = create_sandbox_connection_token(
+            task_run=task_run,
+            user_id=request.user.id,
+            distinct_id=request.user.distinct_id,
+        )
+
+        sandbox_connect_token = state.get("sandbox_connect_token")
+
+        command_payload: dict = {
+            "jsonrpc": request.validated_data["jsonrpc"],
+            "method": request.validated_data["method"],
+        }
+        if request.validated_data.get("params"):
+            command_payload["params"] = request.validated_data["params"]
+        if "id" in request.validated_data and request.validated_data["id"] is not None:
+            command_payload["id"] = request.validated_data["id"]
+
+        try:
+            agent_response = self._proxy_command_to_agent_server(
+                sandbox_url=sandbox_url,
+                connection_token=connection_token,
+                sandbox_connect_token=sandbox_connect_token,
+                payload=command_payload,
+            )
+
+            if agent_response.ok:
+                return Response(agent_response.json())
+
+            try:
+                error_body = agent_response.json()
+            except Exception:
+                error_body = {}
+
+            if agent_response.status_code == 401:
+                error_msg = error_body.get("error", "Agent server authentication failed")
+                logger.warning(f"Agent server auth failed for task run {task_run.id}: {error_msg}")
+            elif agent_response.status_code == 400:
+                error_msg = error_body.get("error", "Agent server rejected the command")
+                logger.warning(f"Agent server rejected command for task run {task_run.id}: {error_msg}")
+            else:
+                error_msg = error_body.get("error", f"Agent server returned {agent_response.status_code}")
+
+            return Response(
+                ErrorResponseSerializer({"error": error_msg}).data,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        except http_requests.ConnectionError:
+            logger.warning(f"Agent server unreachable for task run {task_run.id}")
+            return Response(
+                ErrorResponseSerializer({"error": "Agent server is not reachable"}).data,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except http_requests.Timeout:
+            logger.warning(f"Agent server request timed out for task run {task_run.id}")
+            return Response(
+                ErrorResponseSerializer({"error": "Agent server request timed out"}).data,
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+        except Exception:
+            logger.exception(f"Failed to proxy command to agent server for task run {task_run.id}")
+            return Response(
+                ErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+    @staticmethod
+    def _is_valid_sandbox_url(url: str) -> bool:
+        """Validate sandbox URL against allowlist to prevent SSRF.
+
+        Only allows:
+        - http://localhost:{port} (Docker sandboxes)
+        - http://127.0.0.1:{port} (Docker sandboxes)
+        - https://*.modal.run (Modal sandboxes)
+        - https://*.modal.host (Modal connect token sandboxes)
+        """
+        from urllib.parse import urlparse
+
+        try:
+            parsed = urlparse(url)
+        except Exception:
+            return False
+
+        if parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1"):
+            return True
+
+        if (
+            parsed.scheme == "https"
+            and parsed.hostname
+            and (parsed.hostname.endswith(".modal.run") or parsed.hostname.endswith(".modal.host"))
+        ):
+            return True
+
+        return False
+
+    @staticmethod
+    def _proxy_command_to_agent_server(
+        sandbox_url: str,
+        connection_token: str,
+        sandbox_connect_token: str | None,
+        payload: dict,
+    ) -> http_requests.Response:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {connection_token}",
+        }
+
+        command_url = f"{sandbox_url.rstrip('/')}/command"
+
+        # Modal connect tokens use Authorization: Bearer for tunnel auth,
+        # which conflicts with the JWT auth the agent server expects.
+        # Pass the Modal token as a query parameter instead so both
+        # auth mechanisms can coexist.
+        params = {}
+        if sandbox_connect_token:
+            params["_modal_connect_token"] = sandbox_connect_token
+
+        return http_requests.post(
+            command_url,
+            json=payload,
+            headers=headers,
+            params=params,
+            timeout=600,
+        )
 
     @validated_request(
         query_serializer=TaskRunSessionLogsQuerySerializer,

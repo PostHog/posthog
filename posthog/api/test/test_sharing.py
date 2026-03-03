@@ -1156,7 +1156,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         response = self.client.get(f"/shared/{self.sharing_config.access_token}?cache_keys={cache_keys_param}")
 
         assert response.status_code == 200
-        mock_fetch_cached.assert_called_once_with("expected_cache_key_abc123")
+        mock_fetch_cached.assert_called_once_with("expected_cache_key_abc123", team_id=self.insight.team_id)
         mock_calculate.assert_not_called()
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
@@ -1181,7 +1181,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         response = self.client.get(f"/shared/{self.sharing_config.access_token}?cache_keys={cache_keys_param}")
 
         assert response.status_code == 200
-        mock_fetch_cached.assert_called_once_with("missing_cache_key")
+        mock_fetch_cached.assert_called_once_with("missing_cache_key", team_id=self.insight.team_id)
         mock_calculate.assert_called_once()
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")

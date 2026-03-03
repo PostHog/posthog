@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { isExperimentMetric } from '~/queries/schema-guards'
 import {
     ExperimentExposureCriteria,
     ExperimentMetric,
@@ -161,7 +162,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         setExperiment: (experiment: Experiment) => ({ experiment }),
         setExperimentValue: (name: string, value: any) => ({ name, value }),
         resetExperiment: true,
-        clearDraft: true,
+        cancelForm: true,
         setExposureCriteria: (criteria: ExperimentExposureCriteria) => ({ criteria }),
         setFeatureFlagConfig: (config: {
             feature_flag_key?: string
@@ -260,6 +261,12 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 resetExperiment: () => ({}),
             },
         ],
+        formCanceled: [
+            false,
+            {
+                cancelForm: () => true,
+            },
+        ],
     })),
     selectors(() => ({
         canSubmitExperiment: [
@@ -312,23 +319,60 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     })),
     events(({ actions, values, props }) => ({
         afterMount: () => {
-            if (props.experiment || values.experiment.id !== 'new') {
+            // When opened with an existing experiment (e.g. revisiting an
+            // incomplete draft), always sync the reducer to the prop value.
+            // This handles the case where a kea logic instance is reused
+            // across re-renders — the reducer's initial value was captured
+            // at first mount and won't reflect newer props without this.
+            if (props.experiment) {
+                actions.setExperiment(props.experiment)
                 return
             }
+
+            if (values.experiment.id !== 'new') {
+                return
+            }
+
+            try {
+                const { searchParams } = router.values.currentLocation
+                const { metric, name } = searchParams
+
+                const parsedMetric = typeof metric === 'string' ? JSON.parse(metric) : metric
+
+                if (name && isExperimentMetric(parsedMetric)) {
+                    actions.setExperiment({
+                        ...NEW_EXPERIMENT,
+                        metrics: parsedMetric ? [parsedMetric] : [],
+                        name: name ?? '',
+                    })
+
+                    lemonToast.success('Metric added successfully!')
+
+                    return
+                }
+            } catch (error) {
+                console.error('Error parsing metric from URL', error)
+                lemonToast.error('Error parsing metric from URL')
+                // Continue to draft fallback
+            }
+
             const draft = readDraftFromStorage(props.tabId)
             if (draft) {
                 actions.setExperiment(draft)
             }
         },
         beforeUnmount: () => {
-            if (props.experiment || values.experiment.id !== 'new') {
+            if (values.formCanceled || props.experiment || values.experiment.id !== 'new') {
                 return
             }
+            // Use cases covered:
+            // - switching in-app tabs to avoid side effects while having multiple experiment forms open
+            // - navigating away from the form without saving
             writeDraftToStorage(props.tabId, values.experiment)
         },
     })),
     listeners(({ values, actions, props }) => ({
-        clearDraft: () => {
+        cancelForm: () => {
             if (props.experiment || values.experiment.id !== 'new') {
                 return
             }
@@ -459,7 +503,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         lemonToast.success('Experiment updated successfully!')
                     } else {
                         // Create flow
-                        actions.reportExperimentCreated(response)
+                        const isWizard = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]
+                        actions.reportExperimentCreated(response, {
+                            creation_source: isWizard ? 'wizard' : 'classic_form',
+                            has_linked_flag: !!response.feature_flag?.id,
+                        })
                         actions.addProductIntent({
                             product_type: ProductKey.EXPERIMENTS,
                             intent_context: ProductIntentContext.EXPERIMENT_CREATED,

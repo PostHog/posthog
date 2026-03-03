@@ -10,28 +10,11 @@ from posthog.hogql_queries.web_analytics.test.test_web_stats_table import FloatA
 from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
 from posthog.models import Person, Team
 from posthog.models.utils import uuid7
-from posthog.models.web_preaggregated.sql import (
-    WEB_BOUNCES_DAILY_SQL,
-    WEB_BOUNCES_HOURLY_SQL,
-    WEB_BOUNCES_INSERT_SQL,
-    WEB_STATS_DAILY_SQL,
-    WEB_STATS_HOURLY_SQL,
-    WEB_STATS_INSERT_SQL,
-)
+from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
 
 @snapshot_clickhouse_queries
 class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, FloatAwareTestCase):
-    def setUp(self):
-        super().setUp()
-        self._create_test_tables()
-
-    def _create_test_tables(self):
-        sync_execute(WEB_STATS_DAILY_SQL())
-        sync_execute(WEB_BOUNCES_DAILY_SQL())
-        sync_execute(WEB_STATS_HOURLY_SQL())
-        sync_execute(WEB_BOUNCES_HOURLY_SQL())
-
     def _setup_test_data(self):
         """Required by WebAnalyticsPreAggregatedTestBase. Each test handles its own data setup."""
         pass

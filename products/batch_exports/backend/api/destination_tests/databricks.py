@@ -61,8 +61,8 @@ class DatabricksTestStep(DestinationTestStep):
             http_path=self.http_path,
             client_id=self.client_id,
             client_secret=self.client_secret,
-            catalog="",
-            schema="",
+            catalog=self.catalog or "",
+            schema=self.schema or "",
         )
         async with client.connect(set_context=False) as databricks_client:
             yield databricks_client

@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
 import { router } from 'kea-router'
 import {
+    Fragment,
     type MutableRefObject,
     type ReactNode,
     type RefObject,
@@ -14,11 +15,12 @@ import {
     useRef,
     useState,
 } from 'react'
-import { TextMorph } from 'torph/react'
 
-import { IconSearch, IconX } from '@posthog/icons'
+import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
@@ -27,15 +29,20 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { fileSystemTypes } from '~/products'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
+import type { UserTheme } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
+import { searchAiPreviewLogic } from './searchAiPreviewLogic'
 import { RECENTS_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
+import { shouldSkipAiHighlight } from './shouldSkipAiHighlight'
 import { formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
 // ============================================================================
@@ -63,27 +70,46 @@ const PLACEHOLDER_OPTIONS = [
 
 const PLACEHOLDER_CYCLE_INTERVAL = 3000
 
+const ASK_AI_ITEM_ID = '__ask_posthog_ai__'
+
+const SETTINGS_THEME_ITEM_ID = '__settings_theme__'
+
+const SETTINGS_THEME_ITEM_QUERY = ['dark', 'light', 'theme', 'appearance']
+
 // ============================================================================
 // Hooks
 // ============================================================================
 
-const useRotatingPlaceholder = (isActive: boolean): string => {
+const useRotatingPlaceholder = (isActive: boolean): { text: string; isVisible: boolean } => {
     const [index, setIndex] = useState(0)
+    const [isVisible, setIsVisible] = useState(true)
 
     useEffect(() => {
         if (!isActive) {
             setIndex(0)
+            setIsVisible(true)
             return
         }
 
+        let timeoutId: ReturnType<typeof setTimeout> | undefined
+
         const interval = setInterval(() => {
-            setIndex((prev) => (prev + 1) % PLACEHOLDER_OPTIONS.length)
+            setIsVisible(false)
+            timeoutId = setTimeout(() => {
+                setIndex((prev) => (prev + 1) % PLACEHOLDER_OPTIONS.length)
+                setIsVisible(true)
+            }, 200)
         }, PLACEHOLDER_CYCLE_INTERVAL)
 
-        return () => clearInterval(interval)
+        return () => {
+            clearInterval(interval)
+            if (timeoutId !== undefined) {
+                clearTimeout(timeoutId)
+            }
+        }
     }, [isActive])
 
-    return PLACEHOLDER_OPTIONS[index]
+    return { text: PLACEHOLDER_OPTIONS[index], isVisible }
 }
 
 // ============================================================================
@@ -189,6 +215,7 @@ const commandItemToTreeDataItem = (item: SearchItem): TreeDataItem => {
 // ============================================================================
 
 interface SearchContextValue {
+    logicKey: string
     searchValue: string
     setSearchValue: (value: string) => void
     filteredItems: SearchItem[]
@@ -232,6 +259,8 @@ export interface SearchRootProps {
     className?: string
     /** Initial search value (useful for stories/tests) */
     defaultSearchValue?: string
+    /** Optional suggested items shown above recents/apps */
+    suggestedItems?: SearchItem[]
 }
 
 function SearchRoot({
@@ -243,9 +272,15 @@ function SearchRoot({
     onAskAiClick,
     className = '',
     defaultSearchValue = '',
+    suggestedItems = [],
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
+    const { isDarkModeOn } = useValues(themeLogic)
+    const { toggleTheme } = useActions(themeLogic)
+    const { updateUser } = useActions(userLogic)
+    const aiPreviewEnabled = useFeatureFlag('SEARCH_AI_PREVIEW')
+    const { conversationId: aiPreviewConversationId } = useValues(searchAiPreviewLogic({ logicKey }))
 
     const [searchValue, setSearchValue] = useState(defaultSearchValue)
     const inputRef = useRef<HTMLInputElement>(null!)
@@ -262,9 +297,11 @@ function SearchRoot({
 
     // Compute filteredItems synchronously to avoid render gap between loading and content
     const filteredItems = useMemo(() => {
+        const normalizedSuggestedItems = suggestedItems.map((item) => ({ ...item, category: 'suggested' }))
+        let items: SearchItem[]
         if (searchValue.trim()) {
             const searchLower = searchValue.toLowerCase()
-            return allItems.filter((item) => {
+            items = allItems.filter((item) => {
                 // Filter recents and apps by name (client-side filtering)
                 if (item.category === 'recents' || item.category === 'apps') {
                     const name = (item.displayName || item.name || '').toLowerCase()
@@ -273,10 +310,62 @@ function SearchRoot({
                 // Other categories come from server search, keep all
                 return true
             })
+        } else {
+            // When not searching, show recents and apps
+            items = allItems.filter((item) => item.category === 'recents' || item.category === 'apps')
         }
-        // When not searching, show recents and apps
-        return allItems.filter((item) => item.category === 'recents' || item.category === 'apps')
-    }, [allItems, searchValue])
+
+        // Add a direct shortcut to the theme setting when searching for dark/light/theme
+        const normalizedQuery = searchValue.trim().toLowerCase()
+        if (normalizedQuery && SETTINGS_THEME_ITEM_QUERY.some((keyword) => normalizedQuery.includes(keyword))) {
+            const hasDark = normalizedQuery.includes('dark')
+            const hasLight = normalizedQuery.includes('light')
+
+            let targetTheme: UserTheme
+            let record: Record<string, unknown> | undefined
+
+            if (!hasDark && !hasLight) {
+                targetTheme = isDarkModeOn ? 'light' : 'dark'
+                record = { toggleTheme: true }
+            } else {
+                targetTheme = hasDark ? 'dark' : 'light'
+                record = { themeMode: targetTheme }
+            }
+
+            const themeItem: SearchItem = {
+                id: SETTINGS_THEME_ITEM_ID,
+                name: targetTheme === 'dark' ? 'Dark mode' : 'Light mode',
+                displayName: targetTheme === 'dark' ? 'Dark mode' : 'Light mode',
+                category: 'settings',
+                href: urls.settings('user-customization', 'theme'),
+                record,
+                searchKeywords: SETTINGS_THEME_ITEM_QUERY,
+                icon: targetTheme === 'dark' ? <IconNight /> : <IconDay />,
+            }
+            const hasThemeItemAlready = items.some((item) => item.id === themeItem.id)
+            if (!hasThemeItemAlready) {
+                items = [themeItem, ...items]
+            }
+        }
+
+        // Prepend "Ask PostHog AI" as the first result when there's a search query
+        if (showAskAiLink && searchValue.trim()) {
+            const askAiItem: SearchItem = {
+                id: ASK_AI_ITEM_ID,
+                name: `Ask PostHog AI: "${searchValue.trim()}"`,
+                displayName: `Ask PostHog AI: "${searchValue.trim()}"`,
+                category: 'ai',
+                href:
+                    aiPreviewEnabled && aiPreviewConversationId
+                        ? urls.ai(aiPreviewConversationId)
+                        : urls.ai(undefined, searchValue.trim()),
+                icon: <IconSparkles className="text-ai" />,
+            }
+            items = [askAiItem, ...items]
+        }
+
+        return [...normalizedSuggestedItems, ...items]
+    }, [allItems, searchValue, showAskAiLink, suggestedItems, aiPreviewConversationId, isDarkModeOn])
 
     useEffect(() => {
         if (!isActive) {
@@ -300,15 +389,81 @@ function SearchRoot({
         }
     }, [isActive, setSearch])
 
+    // Auto-highlight first real result when heuristics determine high confidence match
+    const lastHighlightedQueryRef = useRef<string>('')
+    useEffect(() => {
+        if (!isActive || !showAskAiLink || !searchValue.trim() || filteredItems.length < 2) {
+            return
+        }
+
+        const trimmedQuery = searchValue.trim()
+
+        // Debounce to avoid triggering on every keystroke
+        const timeoutId = setTimeout(() => {
+            // Skip if we already highlighted for this exact query
+            if (lastHighlightedQueryRef.current === trimmedQuery) {
+                return
+            }
+
+            // filteredItems[0] is the AI item, filteredItems[1] is the first real result
+            const realItems = filteredItems.slice(1)
+            const skipAi = shouldSkipAiHighlight(trimmedQuery, realItems)
+
+            if (skipAi && inputRef.current) {
+                // Mark this query as highlighted to prevent re-triggering
+                lastHighlightedQueryRef.current = trimmedQuery
+
+                // Programmatically trigger a single ArrowDown to move highlight from AI (position 0) to first real result (position 1)
+                // Use requestAnimationFrame to ensure autocomplete has processed current state
+                requestAnimationFrame(() => {
+                    const arrowDownEvent = new KeyboardEvent('keydown', {
+                        key: 'ArrowDown',
+                        code: 'ArrowDown',
+                        keyCode: 40,
+                        which: 40,
+                        bubbles: true,
+                        cancelable: true,
+                    })
+                    inputRef.current?.dispatchEvent(arrowDownEvent)
+                })
+            } else {
+                // If we shouldn't skip AI, clear the last highlighted query
+                lastHighlightedQueryRef.current = ''
+            }
+        }, 150) // 150ms debounce
+
+        return () => clearTimeout(timeoutId)
+    }, [isActive, showAskAiLink, searchValue, filteredItems, inputRef])
+
     const handleItemClick = useCallback(
         (item: SearchItem) => {
+            if (item.id === ASK_AI_ITEM_ID) {
+                onAskAiClick?.()
+                router.actions.push(item.href!)
+                return
+            }
+            if (item.id === SETTINGS_THEME_ITEM_ID) {
+                const record = item.record as { themeMode?: UserTheme; toggleTheme?: boolean } | undefined
+                if (record?.themeMode) {
+                    updateUser({ theme_mode: record.themeMode })
+                    return
+                }
+                if (record?.toggleTheme) {
+                    toggleTheme()
+                    return
+                }
+                if (item.href) {
+                    router.actions.push(item.href)
+                    return
+                }
+            }
             if (onItemSelect) {
                 onItemSelect(item)
             } else if (item.href) {
                 router.actions.push(item.href)
             }
         },
-        [onItemSelect]
+        [onItemSelect, onAskAiClick, updateUser, toggleTheme]
     )
 
     const groupedItems = useMemo(() => {
@@ -330,8 +485,8 @@ function SearchRoot({
             loadingByCategory.set(cat.key, cat.isLoading ?? false)
         }
 
-        // Fixed order: recents first, then apps, then create, then everything else
-        const orderedCategories = ['recents', 'apps', 'create']
+        // Fixed order: ai first (when searching), then recents, apps, create, then everything else
+        const orderedCategories = ['suggested', 'ai', 'recents', 'apps', 'create']
         const hasSearchValue = searchValue.trim().length > 0
 
         for (const category of orderedCategories) {
@@ -340,10 +495,10 @@ function SearchRoot({
 
             // When searching: hide empty groups (unless still loading)
             // When not searching: always show recents/apps (with skeleton if loading)
-            // "create" is only shown when searching
+            // "ai" and "create" are only shown when searching
             const shouldShow = hasSearchValue
                 ? items.length > 0 || isLoading
-                : category === 'recents' || category === 'apps'
+                : (category === 'suggested' && items.length > 0) || category === 'recents' || category === 'apps'
 
             if (shouldShow) {
                 groups.push({ category, items, isLoading })
@@ -362,6 +517,7 @@ function SearchRoot({
 
     const contextValue: SearchContextValue = useMemo(
         () => ({
+            logicKey,
             searchValue,
             setSearchValue,
             filteredItems,
@@ -374,7 +530,17 @@ function SearchRoot({
             onAskAiClick,
             highlightedItemRef,
         }),
-        [searchValue, filteredItems, groupedItems, isSearching, isActive, handleItemClick, showAskAiLink, onAskAiClick]
+        [
+            logicKey,
+            searchValue,
+            filteredItems,
+            groupedItems,
+            isSearching,
+            isActive,
+            handleItemClick,
+            showAskAiLink,
+            onAskAiClick,
+        ]
     )
 
     return (
@@ -409,10 +575,9 @@ export interface SearchInputProps {
 }
 
 function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
-    const { searchValue, setSearchValue, isActive, inputRef, showAskAiLink, onAskAiClick, highlightedItemRef } =
-        useSearchContext()
+    const { searchValue, setSearchValue, isActive, inputRef, highlightedItemRef } = useSearchContext()
 
-    const placeholderText = useRotatingPlaceholder(isActive && !searchValue)
+    const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(isActive && !searchValue)
 
     const handleInputChange = useCallback(
         (value: string) => {
@@ -420,10 +585,6 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
         },
         [setSearchValue]
     )
-
-    const handleAskAiLinkClick = useCallback(() => {
-        onAskAiClick?.()
-    }, [onAskAiClick])
 
     const handleInputKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
@@ -458,8 +619,13 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                 />
                 {searchValue ? null : (
                     <span className="text-tertiary pointer-events-none absolute left-8 top-1/2 -translate-y-1/2 ">
-                        <span className="text-tertiary">Search for </span>
-                        <TextMorph as="span">{placeholderText}</TextMorph>
+                        <span className="text-tertiary">Ask PostHog AI or search </span>
+                        <span
+                            className="transition-opacity duration-200"
+                            style={{ opacity: placeholderVisible ? 1 : 0 }}
+                        >
+                            {placeholderText}
+                        </span>
                     </span>
                 )}
                 <Autocomplete.Input
@@ -471,21 +637,6 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                     id="app-autocomplete-search"
                     className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
                 />
-
-                {showAskAiLink && (
-                    <Link
-                        className="shrink-0 text-tertiary -mr-1"
-                        buttonProps={{
-                            size: 'sm',
-                            className: 'rounded-sm',
-                        }}
-                        onClick={handleAskAiLinkClick}
-                        to={urls.ai(undefined, searchValue || undefined)}
-                    >
-                        <KeyboardShortcut tab minimal />
-                        {searchValue ? 'Ask PostHog' : 'Open PostHog AI'}
-                    </Link>
-                )}
 
                 <Autocomplete.Clear
                     render={
@@ -510,7 +661,8 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
 // ============================================================================
 
 function SearchStatus(): JSX.Element {
-    const { isSearching, searchValue, filteredItems } = useSearchContext()
+    const { isSearching, searchValue, filteredItems, showAskAiLink } = useSearchContext()
+    const aiPreviewEnabled = useFeatureFlag('SEARCH_AI_PREVIEW')
 
     const statusMessage = useMemo(() => {
         if (isSearching) {
@@ -528,12 +680,25 @@ function SearchStatus(): JSX.Element {
             if (!searchValue.trim()) {
                 return 'Recents and apps'
             }
-            return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}`
+            const hasAiItem = showAskAiLink && searchValue.trim()
+            const realResultCount = hasAiItem ? filteredItems.length - 1 : filteredItems.length
+            if (aiPreviewEnabled) {
+                if (realResultCount === 0 && hasAiItem) {
+                    return 'No matching items · 1 AI answer'
+                }
+                const resultText = `${realResultCount} result${realResultCount === 1 ? '' : 's'}`
+                return hasAiItem ? `${resultText} · 1 AI answer` : resultText
+            }
+            return `${realResultCount} result${realResultCount === 1 ? '' : 's'}`
         }
         return 'Type to search...'
-    }, [isSearching, searchValue, filteredItems.length])
+    }, [isSearching, searchValue, filteredItems.length, showAskAiLink, aiPreviewEnabled])
 
-    return <Autocomplete.Status className="px-3 pt-1 pb-2 text-xs text-muted">{statusMessage}</Autocomplete.Status>
+    return (
+        <Autocomplete.Status className="px-3 pb-2 text-xs text-muted flex items-center">
+            <span>{statusMessage}</span>
+        </Autocomplete.Status>
+    )
 }
 
 // ============================================================================
@@ -556,12 +721,15 @@ function SearchResults({
     className,
     listClassName,
     groupLabelClassName,
+    isModal = false,
 }: {
     className?: string
     listClassName?: string
     groupLabelClassName?: string
+    isModal?: boolean
 }): JSX.Element {
     const { groupedItems, handleItemClick, highlightedItemRef, isSearching } = useSearchContext()
+    const aiPreviewEnabled = useFeatureFlag('SEARCH_AI_PREVIEW')
 
     // Don't show "no results" while any category is still loading
     const isAnyLoading = groupedItems.some((g) => g.isLoading)
@@ -574,138 +742,232 @@ function SearchResults({
                 </Autocomplete.Empty>
             )}
 
-            <Autocomplete.List className={cn('pt-3 pb-1', listClassName)} tabIndex={-1}>
+            <Autocomplete.List className={cn('pt-3 pb-1 empty:hidden', listClassName)} tabIndex={-1}>
                 {groupedItems.map((group) => {
                     return (
-                        <Autocomplete.Group key={group.category} items={group.items} className="mb-4">
-                            <Autocomplete.GroupLabel
-                                render={
-                                    <Label
-                                        className={cn('px-3 sticky top-0 z-1 mb-1', groupLabelClassName)}
-                                        intent="menu"
-                                    >
-                                        {getCategoryDisplayName(group.category)}
-                                    </Label>
-                                }
-                            />
-                            {group.isLoading && !isSearching ? (
-                                <>
-                                    {Array.from({
-                                        length: group.category === 'recents' ? RECENTS_LIMIT : 10,
-                                    }).map((_, i) => (
-                                        // We give the height to the parent div and padding so the skeleton vibibily has some space and isn't a block
-                                        <div key={i} className="px-2 h-[30px] py-px">
-                                            <WrappingLoadingSkeleton fullWidth className="h-full">
-                                                <ButtonPrimitive fullWidth className="invisible">
-                                                    &nbsp;
-                                                </ButtonPrimitive>
-                                            </WrappingLoadingSkeleton>
-                                        </div>
-                                    ))}
-                                </>
-                            ) : (
-                                <Autocomplete.Collection>
-                                    {(item: SearchItem) => {
-                                        const typeLabel = getItemTypeDisplayName(item.itemType)
-                                        const icon = getIconForItem(item)
+                        <Fragment key={group.category}>
+                            <Autocomplete.Group items={group.items} className="mb-4">
+                                <Autocomplete.GroupLabel
+                                    render={
+                                        <Label
+                                            className={cn('px-3 sticky top-0 z-1 mb-1', groupLabelClassName)}
+                                            intent="menu"
+                                        >
+                                            {getCategoryDisplayName(group.category)}
+                                        </Label>
+                                    }
+                                />
+                                {group.isLoading && !isSearching ? (
+                                    <>
+                                        {Array.from({
+                                            length: group.category === 'recents' ? RECENTS_LIMIT : 10,
+                                        }).map((_, i) => (
+                                            // We give the height to the parent div and padding so the skeleton vibibily has some space and isn't a block
+                                            <div key={i} className="px-2 h-[30px] py-px">
+                                                <WrappingLoadingSkeleton fullWidth className="h-full">
+                                                    <ButtonPrimitive fullWidth className="invisible">
+                                                        &nbsp;
+                                                    </ButtonPrimitive>
+                                                </WrappingLoadingSkeleton>
+                                            </div>
+                                        ))}
+                                    </>
+                                ) : (
+                                    <Autocomplete.Collection>
+                                        {(item: SearchItem) => {
+                                            if (aiPreviewEnabled && item.id === ASK_AI_ITEM_ID) {
+                                                return (
+                                                    <AiSearchItem
+                                                        key={item.id}
+                                                        item={item}
+                                                        handleItemClick={handleItemClick}
+                                                        highlightedItemRef={highlightedItemRef}
+                                                        isModal={isModal}
+                                                    />
+                                                )
+                                            }
 
-                                        return (
-                                            <ContextMenu key={item.id}>
-                                                <ContextMenuTrigger asChild>
-                                                    <Autocomplete.Item
-                                                        value={item}
-                                                        onClick={(e) => {
-                                                            e.preventDefault()
-                                                            handleItemClick(item)
-                                                        }}
-                                                        render={(props) => {
-                                                            const isHighlighted =
-                                                                (props as Record<string, unknown>)[
-                                                                    'data-highlighted'
-                                                                ] === ''
-                                                            if (isHighlighted) {
-                                                                highlightedItemRef.current = item
-                                                            }
-                                                            return (
-                                                                <div className="px-2">
-                                                                    <Link
-                                                                        to={item.href}
-                                                                        buttonProps={{
-                                                                            fullWidth: true,
-                                                                        }}
-                                                                        {...props}
-                                                                        tabIndex={-1}
-                                                                    >
-                                                                        {icon}
-                                                                        <span className="truncate">
-                                                                            {item.displayName || item.name}
-                                                                        </span>
-                                                                        {(group.category === 'recents' ||
-                                                                            group.category === 'groups') &&
-                                                                            (item.groupNoun || typeLabel) && (
+                                            const typeLabel = getItemTypeDisplayName(item.itemType)
+                                            const icon = getIconForItem(item)
+
+                                            return (
+                                                <ContextMenu key={item.id}>
+                                                    <ContextMenuTrigger asChild>
+                                                        <Autocomplete.Item
+                                                            value={item}
+                                                            onClick={(e) => {
+                                                                e.preventDefault()
+                                                                handleItemClick(item)
+                                                            }}
+                                                            render={(props) => {
+                                                                const isHighlighted =
+                                                                    (props as Record<string, unknown>)[
+                                                                        'data-highlighted'
+                                                                    ] === ''
+                                                                if (isHighlighted) {
+                                                                    highlightedItemRef.current = item
+                                                                }
+                                                                return (
+                                                                    <div className="px-2">
+                                                                        <Link
+                                                                            to={item.href}
+                                                                            buttonProps={{
+                                                                                fullWidth: true,
+                                                                            }}
+                                                                            {...props}
+                                                                            tabIndex={-1}
+                                                                        >
+                                                                            {icon}
+                                                                            <span className="truncate">
+                                                                                {item.displayName || item.name}
+                                                                            </span>
+                                                                            {(group.category === 'recents' ||
+                                                                                group.category === 'groups') &&
+                                                                                (item.groupNoun || typeLabel) && (
+                                                                                    <span className="text-xs text-tertiary shrink-0 mt-[2px]">
+                                                                                        {capitalizeFirstLetter(
+                                                                                            item.groupNoun ||
+                                                                                                typeLabel ||
+                                                                                                ''
+                                                                                        )}
+                                                                                    </span>
+                                                                                )}
+                                                                            {item.productCategory && (
                                                                                 <span className="text-xs text-tertiary shrink-0 mt-[2px]">
-                                                                                    {capitalizeFirstLetter(
-                                                                                        item.groupNoun ||
-                                                                                            typeLabel ||
-                                                                                            ''
+                                                                                    {item.productCategory}
+                                                                                </span>
+                                                                            )}
+                                                                            {item.tags?.map((tag) => (
+                                                                                <LemonTag
+                                                                                    key={tag}
+                                                                                    type={
+                                                                                        tag === 'alpha'
+                                                                                            ? 'completion'
+                                                                                            : tag === 'beta'
+                                                                                              ? 'warning'
+                                                                                              : 'success'
+                                                                                    }
+                                                                                    size="small"
+                                                                                    className="shrink-0"
+                                                                                >
+                                                                                    {tag.toUpperCase()}
+                                                                                </LemonTag>
+                                                                            ))}
+                                                                            {item.lastViewedAt && (
+                                                                                <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
+                                                                                    {formatRelativeTimeShort(
+                                                                                        item.lastViewedAt
                                                                                     )}
                                                                                 </span>
                                                                             )}
-                                                                        {item.productCategory && (
-                                                                            <span className="text-xs text-tertiary shrink-0 mt-[2px]">
-                                                                                {item.productCategory}
-                                                                            </span>
-                                                                        )}
-                                                                        {item.tags?.map((tag) => (
-                                                                            <LemonTag
-                                                                                key={tag}
-                                                                                type={
-                                                                                    tag === 'alpha'
-                                                                                        ? 'completion'
-                                                                                        : tag === 'beta'
-                                                                                          ? 'warning'
-                                                                                          : 'success'
-                                                                                }
-                                                                                size="small"
-                                                                                className="shrink-0"
-                                                                            >
-                                                                                {tag.toUpperCase()}
-                                                                            </LemonTag>
-                                                                        ))}
-                                                                        {item.lastViewedAt && (
-                                                                            <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
-                                                                                {formatRelativeTimeShort(
-                                                                                    item.lastViewedAt
-                                                                                )}
-                                                                            </span>
-                                                                        )}
-                                                                    </Link>
-                                                                </div>
-                                                            )
-                                                        }}
-                                                    />
-                                                </ContextMenuTrigger>
-                                                <ContextMenuContent loop className="max-w-[250px] z-top">
-                                                    <ContextMenuGroup>
-                                                        <MenuItems
-                                                            item={commandItemToTreeDataItem(item)}
-                                                            type="context"
-                                                            root="project://"
-                                                            onlyTree={false}
-                                                            showSelectMenuOption={false}
+                                                                        </Link>
+                                                                    </div>
+                                                                )
+                                                            }}
                                                         />
-                                                    </ContextMenuGroup>
-                                                </ContextMenuContent>
-                                            </ContextMenu>
-                                        )
-                                    }}
-                                </Autocomplete.Collection>
-                            )}
-                        </Autocomplete.Group>
+                                                    </ContextMenuTrigger>
+                                                    <ContextMenuContent loop className="max-w-[250px] z-top">
+                                                        <ContextMenuGroup>
+                                                            <MenuItems
+                                                                item={commandItemToTreeDataItem(item)}
+                                                                type="context"
+                                                                root="project://"
+                                                                onlyTree={false}
+                                                                showSelectMenuOption={false}
+                                                            />
+                                                        </ContextMenuGroup>
+                                                    </ContextMenuContent>
+                                                </ContextMenu>
+                                            )
+                                        }}
+                                    </Autocomplete.Collection>
+                                )}
+                            </Autocomplete.Group>
+                        </Fragment>
                     )
                 })}
             </Autocomplete.List>
         </ScrollableShadows>
+    )
+}
+
+// ============================================================================
+// AiSearchItem (internal, not exported)
+// ============================================================================
+
+function AiSearchItem({
+    item,
+    handleItemClick,
+    highlightedItemRef,
+    isModal = false,
+}: {
+    item: SearchItem
+    handleItemClick: (item: SearchItem) => void
+    highlightedItemRef: MutableRefObject<SearchItem | null>
+    isModal?: boolean
+}): JSX.Element {
+    const { logicKey } = useSearchContext()
+    const { showPreview, truncatedPreviewText, streamingState, conversationId } = useValues(
+        searchAiPreviewLogic({ logicKey })
+    )
+
+    return (
+        <Autocomplete.Item
+            value={item}
+            onClick={(e) => {
+                e.preventDefault()
+                handleItemClick(item)
+            }}
+            render={(props) => {
+                const isHighlighted = (props as Record<string, unknown>)['data-highlighted'] === ''
+                if (isHighlighted) {
+                    highlightedItemRef.current = item
+                }
+                return (
+                    <div className="px-2">
+                        <Link
+                            to={item.href}
+                            buttonProps={{
+                                fullWidth: true,
+                                autoHeight: true,
+                                className: cn(
+                                    'flex-col items-start gap-0 bg-surface-primary',
+                                    showPreview &&
+                                        'shadow border-primary @2xl/main-content:-ml-3 @2xl/main-content:w-[calc(100%+(var(--spacing)*6))] max-w-none p-4 text-sm select-auto hover:border-ai not(:hover):[&[data-highlighted]:not(:hover)]:outline-ai',
+                                    isModal && 'm-0'
+                                ),
+                            }}
+                            {...props}
+                            tabIndex={-1}
+                            data-attr="ai-search-item"
+                        >
+                            {showPreview ? (
+                                <>
+                                    <IconSparkles className="text-ai size-4.5 shrink-0 mb-4" />
+                                    <div className="text-secondary line-clamp-3">
+                                        <LemonMarkdown lowKeyHeadings className="text-xs">
+                                            {truncatedPreviewText}
+                                        </LemonMarkdown>
+                                        {streamingState === 'streaming' && (
+                                            <span className="inline-block w-1.5 h-3 bg-ai/60 ml-0.5 animate-pulse" />
+                                        )}
+                                    </div>
+                                    <span className="text-xs text-ai inline-flex items-center gap-1 mt-3">
+                                        Continue in PostHog AI
+                                        {conversationId && <span className="text-ai/70"> · Conversation saved</span>}
+                                    </span>
+                                </>
+                            ) : (
+                                <div className="flex items-center gap-2 w-full">
+                                    <IconSparkles className="text-ai size-4 shrink-0" />
+                                    <span className="truncate">{item.displayName || item.name}</span>
+                                </div>
+                            )}
+                        </Link>
+                    </div>
+                )
+            }}
+        />
     )
 }
 
@@ -734,9 +996,6 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     </span>
                     <span>
                         <KeyboardShortcut shift enter /> to open in new tab
-                    </span>
-                    <span>
-                        <KeyboardShortcut tab /> to ask AI
                     </span>
                     <span>
                         <KeyboardShortcut escape /> to close

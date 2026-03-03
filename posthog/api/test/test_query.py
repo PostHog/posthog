@@ -21,6 +21,8 @@ from posthog.schema import (
     CachedRetentionQueryResponse,
     EventPropertyFilter,
     EventsQuery,
+    HogLanguage,
+    HogQLAutocomplete,
     HogQLPropertyFilter,
     HogQLQuery,
     MeanRetentionCalculation,
@@ -31,10 +33,11 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.api.services.query import process_query_dict
+from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.models.insight_variable import InsightVariable
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -145,6 +148,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "results": [[2, "sign out"], [1, "sign up"]],
                 },
             )
+
+    @patch("posthog.api.services.query.get_query_runner")
+    def test_hogql_autocomplete_bypasses_query_runner(self, mock_get_query_runner):
+        query = HogQLAutocomplete(
+            kind="HogQLAutocomplete",
+            query="select event from events",
+            language=HogLanguage.HOG_QL,
+            startPosition=6,
+            endPosition=6,
+        )
+
+        result = process_query_model(self.team, query, user=self.user)
+
+        self.assertIn("suggestions", result.model_dump())  # type: ignore
+        mock_get_query_runner.assert_not_called()
 
     @also_test_with_materialized_columns(["key"])
     @snapshot_clickhouse_queries
@@ -352,14 +370,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
             self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
 
-            self.assertEqual(
-                response_post.json(),
-                {
-                    "type": "validation_error",
-                    "code": "illegal_type_of_argument",
-                    "detail": "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: While processing plus(toTimeZone(timestamp, 'UTC'), 'string').",
-                    "attr": None,
-                },
+            response = response_post.json()
+            self.assertEqual(response["type"], "validation_error")
+            self.assertEqual(response["code"], "illegal_type_of_argument")
+            self.assertEqual(response["attr"], None)
+            self.assertIn(
+                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus",
+                response["detail"],
             )
 
     @patch(

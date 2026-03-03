@@ -36,7 +36,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--delete-existing", default=False, type=bool, help="Delete existing batch export if it exists"
         )
-        parser.add_argument("--dest-token", default=None, type=str, help="Destination Project API Key (token)")
+        parser.add_argument("--dest-token", default=None, type=str, help="Destination project token")
         parser.add_argument("--dest-region", default=None, type=str, help="Destination region")
         parser.add_argument(
             "--end-days-from-now",
@@ -175,7 +175,7 @@ def display_existing(*, existing_export: BatchExport, verbose: bool):
         )
 
         if most_recent_completed_run:
-            data_start_at = existing_backfill.start_at
+            data_start_at = existing_backfill.adjusted_start_at or existing_backfill.start_at
             data_end_at = most_recent_completed_run.data_interval_end
             display(
                 "Found an existing migration, range of data migrated:",
