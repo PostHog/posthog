@@ -222,6 +222,12 @@ procs:
         autostart: false
         # no capability - manual start
 
+    duckgres:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-duckgres
+        capability: duckgres
+
     warehouse-sources-load:
         shell: |-
             bin/wait-for-docker && \
