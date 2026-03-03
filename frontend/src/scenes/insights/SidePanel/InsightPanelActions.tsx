@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCode2, IconPencil, IconPeople, IconShare } from '@posthog/icons'
+import { IconCode2, IconPencil, IconPeople } from '@posthog/icons'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
@@ -19,7 +19,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
@@ -29,7 +28,7 @@ import { ExporterFormat, InsightLogicProps, InsightShortId, QueryBasedInsightMod
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 
 import { insightModalsLogic } from '../insightModalsLogic'
-import { openSaveAsCohortDialog, openShareTemplateDialog } from './insightSidePanelDialogs'
+import { openSaveAsCohortDialog } from './insightSidePanelDialogs'
 
 const RESOURCE_TYPE = 'insight'
 
@@ -44,11 +43,9 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
     const { createStaticCohort } = useActions(exportsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openCreateFromInsightModal } = useActions(endpointLogic({ tabId: insightProps.tabId || '' }))
-    const { preflight } = useValues(preflightLogic)
     const { push } = useActions(router)
     const { openAddToDashboardModal, openTerraformModal } = useActions(insightModalsLogic(insightLogicProps))
 
-    const siteUrl = preflight?.site_url || window.location.origin
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
     const canExport = exportContext != null && insight.short_id != null
     const canEditInSqlEditor =
@@ -122,11 +119,6 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                         : undefined
                 }
             />
-
-            <ButtonPrimitive onClick={() => openShareTemplateDialog(query, siteUrl)} menuItem>
-                <IconShare />
-                Share as template
-            </ButtonPrimitive>
 
             {canExport ? (
                 <SceneExportDropdownMenu
