@@ -138,7 +138,7 @@ fun parseQueryParams(url) {
         let kv := splitByString('=', pair, 2)
         let key := kv[1]
         if (length(kv) > 1 and notEmpty(kv[2])) {
-            params[key] := decodeURLComponent(kv[2])
+            params[key] := tryDecodeURLComponent(kv[2]) ?? kv[2]
         }
     }
     return params

@@ -6,6 +6,7 @@ import requests
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
+from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
@@ -20,7 +21,10 @@ def extract_data_center(api_key: str) -> str:
     """
     if "-" not in api_key:
         raise ValueError("Invalid Mailchimp API key format. Expected format: key-dc")
-    return api_key.split("-")[-1]
+    dc = api_key.split("-")[-1]
+    if not dc.isalnum():
+        raise ValueError("Invalid Mailchimp API key format. Expected format: key-dc")
+    return dc
 
 
 def _format_incremental_value(value: Any) -> str:
@@ -119,7 +123,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = external_requests.get(url, headers=headers, timeout=10)
 
         if response.status_code == 200:
             return True, None
@@ -154,7 +158,7 @@ def _fetch_all_lists(api_key: str, dc: str) -> list[dict[str, Any]]:
     }
 
     while True:
-        response = requests.get(
+        response = external_requests.get(
             f"https://{dc}.api.mailchimp.com/3.0/lists",
             headers=headers,
             params={"count": page_size, "offset": offset},
@@ -197,7 +201,7 @@ def _fetch_contacts_for_list(
         if since_last_changed:
             params["since_last_changed"] = since_last_changed
 
-        response = requests.get(
+        response = external_requests.get(
             f"https://{dc}.api.mailchimp.com/3.0/lists/{list_id}/members",
             headers=headers,
             params=params,

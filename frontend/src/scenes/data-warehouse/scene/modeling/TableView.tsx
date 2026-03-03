@@ -22,6 +22,7 @@ const NODE_TYPE_TAG_SETTINGS: Record<DataModelingNodeType, { label: string; type
     table: { label: 'Table', type: 'default' },
     view: { label: 'View', type: 'primary' },
     matview: { label: 'Materialized view', type: 'success' },
+    endpoint: { label: 'Endpoint', type: 'completion' },
 }
 
 function NodeDependencyCount({ count, loading }: { count?: number; loading?: boolean }): JSX.Element {

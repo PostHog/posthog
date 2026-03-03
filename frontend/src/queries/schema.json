@@ -366,7 +366,8 @@
                 "survey",
                 "onboarding",
                 "research",
-                "flags"
+                "flags",
+                "llm_analytics"
             ],
             "type": "string"
         },
@@ -1998,8 +1999,11 @@
                 "manage_memories",
                 "create_notebook",
                 "list_data",
+                "upsert_alert",
                 "finalize_plan",
-                "recommend_products"
+                "call_mcp_server",
+                "recommend_products",
+                "search_llm_traces"
             ],
             "type": "string"
         },
@@ -5438,6 +5442,81 @@
                 "results": {
                     "items": {
                         "$ref": "#/definitions/PathsLink"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedPropertyValuesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/PropertyValueItem"
                     },
                     "type": "array"
                 },
@@ -11902,6 +11981,13 @@
         "EndpointRequest": {
             "additionalProperties": false,
             "properties": {
+                "bucket_overrides": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).",
+                    "type": "object"
+                },
                 "cache_age_seconds": {
                     "type": "number"
                 },
@@ -11961,6 +12047,10 @@
                 "limit": {
                     "$ref": "#/definitions/integer",
                     "description": "Maximum number of results to return. If not provided, returns all results."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
                 },
                 "refresh": {
                     "$ref": "#/definitions/EndpointRefreshMode",
@@ -15796,6 +15886,7 @@
                 "pipeline_status",
                 "llm_evaluations",
                 "llm_datasets",
+                "llm_playground",
                 "llm_prompts",
                 "llm_clusters",
                 "exports"
@@ -17199,56 +17290,6 @@
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate", "liquid"],
             "type": "string"
         },
-        "HogQLASTQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "explain": {
-                    "deprecated": "use modifiers.debug instead",
-                    "type": "boolean"
-                },
-                "filters": {
-                    "$ref": "#/definitions/HogQLFilters"
-                },
-                "kind": {
-                    "const": "HogQLASTQuery",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "name": {
-                    "description": "Client provided name of the query",
-                    "type": "string"
-                },
-                "query": {
-                    "type": "object"
-                },
-                "response": {
-                    "$ref": "#/definitions/HogQLQueryResponse"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "values": {
-                    "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
-                    "type": "object"
-                },
-                "variables": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/HogQLVariable"
-                    },
-                    "description": "Variables to be substituted into the query",
-                    "type": "object"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["kind", "query"],
-            "type": "object"
-        },
         "HogQLAutocomplete": {
             "additionalProperties": false,
             "properties": {
@@ -17584,6 +17625,10 @@
                 },
                 "inCohortVia": {
                     "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
+                    "type": "string"
+                },
+                "inlineCohortCalculation": {
+                    "enum": ["off", "auto", "always"],
                     "type": "string"
                 },
                 "materializationMode": {
@@ -18696,7 +18741,8 @@
                 "vercel",
                 "azure-blob",
                 "firebase",
-                "jira"
+                "jira",
+                "pinterest-ads"
             ],
             "type": "string"
         },
@@ -18747,6 +18793,12 @@
                 },
                 "person": {
                     "$ref": "#/definitions/LLMTracePerson"
+                },
+                "tools": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "totalCost": {
                     "type": "number"
@@ -19707,7 +19759,8 @@
                 "CTR",
                 "Reported Conversion",
                 "Reported Conversion Value",
-                "Reported ROAS"
+                "Reported ROAS",
+                "Cost per Reported Conversion"
             ],
             "type": "string"
         },
@@ -21505,6 +21558,7 @@
                 "query": {
                     "$ref": "#/definitions/QuerySchema"
                 },
+                "result": {},
                 "type": {
                     "const": "insight",
                     "type": "string"
@@ -21972,7 +22026,6 @@
                 "PersonsNode",
                 "HogQuery",
                 "HogQLQuery",
-                "HogQLASTQuery",
                 "HogQLMetadata",
                 "HogQLAutocomplete",
                 "ActorsQuery",
@@ -22044,7 +22097,8 @@
                 "UsageMetricsQuery",
                 "EndpointsUsageOverviewQuery",
                 "EndpointsUsageTableQuery",
-                "EndpointsUsageTrendsQuery"
+                "EndpointsUsageTrendsQuery",
+                "PropertyValuesQuery"
             ],
             "type": "string"
         },
@@ -23145,6 +23199,106 @@
                 "not_icontains_multi"
             ],
             "type": "string"
+        },
+        "PropertyType": {
+            "enum": ["event", "person"],
+            "type": "string"
+        },
+        "PropertyValueItem": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "name": {
+                    "type": ["string", "number", "boolean", "null"]
+                }
+            },
+            "required": ["name"],
+            "type": "object"
+        },
+        "PropertyValuesQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "event_names": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "is_column": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "PropertyValuesQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "property_key": {
+                    "type": "string"
+                },
+                "property_type": {
+                    "$ref": "#/definitions/PropertyType"
+                },
+                "response": {
+                    "$ref": "#/definitions/PropertyValuesQueryResponse"
+                },
+                "search_value": {
+                    "type": "string"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "property_key", "property_type"],
+            "type": "object"
+        },
+        "PropertyValuesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/PropertyValueItem"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
         },
         "ProsemirrorJSONContent": {
             "properties": {
@@ -27630,6 +27784,46 @@
                     },
                     "required": ["results"],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/PropertyValueItem"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
                 }
             ]
         },
@@ -27682,9 +27876,6 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLAutocomplete"
-                },
-                {
-                    "$ref": "#/definitions/HogQLASTQuery"
                 },
                 {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
@@ -27850,6 +28041,9 @@
                 },
                 {
                     "$ref": "#/definitions/EndpointsUsageTrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PropertyValuesQuery"
                 }
             ],
             "required": ["kind"],
@@ -28402,6 +28596,12 @@
             "properties": {
                 "aggregationProperty": {
                     "description": "The property to aggregate when aggregationType is sum or avg",
+                    "type": "string"
+                },
+                "aggregationPropertyType": {
+                    "default": "event",
+                    "description": "The type of property to aggregate on (event or person). Defaults to event.",
+                    "enum": ["event", "person"],
                     "type": "string"
                 },
                 "aggregationType": {

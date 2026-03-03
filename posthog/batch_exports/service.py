@@ -1,7 +1,6 @@
 import json
 import typing
 import datetime as dt
-import collections.abc
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
@@ -28,7 +27,6 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
-from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.topics import KAFKA_CDP_BACKFILL_EVENTS
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
@@ -933,7 +931,6 @@ def create_batch_export_backfill(
 ) -> BatchExportBackfill:
     """Create a BatchExportBackfill.
 
-
     Args:
         batch_export_id: The UUID of the BatchExport the BatchExportBackfill to create belongs to.
         team_id: The id of the Team the BatchExportBackfill to create belongs to.
@@ -962,7 +959,6 @@ async def acreate_batch_export_backfill(
 ) -> BatchExportBackfill:
     """Create a BatchExportBackfill.
 
-
     Args:
         batch_export_id: The UUID of the BatchExport the BatchExportBackfill to create belongs to.
         team_id: The id of the Team the BatchExportBackfill to create belongs to.
@@ -982,19 +978,40 @@ async def acreate_batch_export_backfill(
     return backfill
 
 
-def update_batch_export_backfill_status(
-    backfill_id: UUID, status: str, finished_at: dt.datetime | None = None
+def update_batch_export_backfill(
+    backfill_id: UUID,
+    *,
+    adjusted_start_at: str | None = None,
+    total_records_count: int | None = None,
+    status: str | None = None,
+    finished_at: dt.datetime | None = None,
 ) -> BatchExportBackfill:
-    """Update the status of an BatchExportBackfill with given id.
+    """Update a BatchExportBackfill with the given fields.
 
-    Arguments:
-        id: The id of the BatchExportBackfill to update.
-        status: The new status to assign to the BatchExportBackfill.
+    Args:
+        backfill_id: The id of the BatchExportBackfill to update.
+        adjusted_start_at: The adjusted start time after validation.
+        total_records_count: The total number of records to export.
+        status: The new status for the BatchExportBackfill.
         finished_at: The time the BatchExportBackfill finished.
     """
+    update_fields: dict[str, dt.datetime | int | str] = {}
+
+    if adjusted_start_at is not None:
+        update_fields["adjusted_start_at"] = dt.datetime.fromisoformat(adjusted_start_at)
+    if total_records_count is not None:
+        update_fields["total_records_count"] = total_records_count
+    if status is not None:
+        update_fields["status"] = status
+    if finished_at is not None:
+        update_fields["finished_at"] = finished_at
+
+    if not update_fields:
+        raise ValueError("At least one field must be provided to update")
+
     # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
     model = BatchExportBackfill.objects.filter(id=backfill_id)
-    updated = model.update(status=status, finished_at=finished_at)
+    updated = model.update(**update_fields)
 
     if not updated:
         raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
@@ -1040,75 +1057,6 @@ async def afetch_batch_export_runs_in_range(
     ).order_by("data_interval_start")
 
     return [run async for run in queryset]
-
-
-def fetch_earliest_backfill_start_at(
-    *,
-    team_id: int,
-    model: str,
-    interval_time_delta: dt.timedelta,
-    exclude_events: collections.abc.Iterable[str] | None = None,
-    include_events: collections.abc.Iterable[str] | None = None,
-) -> dt.datetime | None:
-    """Get the earliest start_at for a batch export backfill.
-
-    If there is no data for the given model, return None.
-    """
-    interval_seconds = int(interval_time_delta.total_seconds())
-    if model == "events":
-        exclude_events = exclude_events or []
-        include_events = include_events or []
-        query = """
-            SELECT MIN(toStartOfInterval(timestamp, INTERVAL %(interval_seconds)s SECONDS))
-            FROM events
-            WHERE team_id = %(team_id)s
-            AND timestamp > '2000-01-01'
-            AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
-            AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
-        """
-        query_args = {
-            "team_id": team_id,
-            "include_events": include_events,
-            "exclude_events": exclude_events,
-            "interval_seconds": interval_seconds,
-        }
-        result = sync_execute(query, query_args)[0][0]
-        # if no data, ClickHouse returns 1970-01-01 00:00:00
-        # (we just compare the year rather than the whole object because in some cases the timestamp returned by
-        # ClickHouse has a timezone and sometimes it doesn't)
-        if result.year == 1970:
-            return None
-        return result
-    elif model == "persons":
-        # In the case of persons, we need to check 2 tables: person and person_distinct_id2
-        # It's more efficient querying both tables separately and taking the minimum timestamp, rather than trying to
-        # join them together.
-        # In some cases we might have invalid timestamps, so we use an arbitrary date in the past to filter these out.
-        query = """
-            SELECT toStartOfInterval(MIN(_timestamp), INTERVAL %(interval_seconds)s SECONDS)
-            FROM person
-            WHERE team_id = %(team_id)s
-            AND _timestamp > '2000-01-01'
-            UNION ALL
-            SELECT toStartOfInterval(MIN(_timestamp), INTERVAL %(interval_seconds)s SECONDS)
-            FROM person_distinct_id2
-            WHERE team_id = %(team_id)s
-            AND _timestamp > '2000-01-01'
-        """
-        query_args = {
-            "team_id": team_id,
-            "interval_seconds": interval_seconds,
-        }
-        results = sync_execute(query, query_args)
-        # if no data, ClickHouse returns 1970-01-01 00:00:00
-        # (we just compare the year rather than the whole object because in some cases the timestamp returned by
-        # ClickHouse has a timezone and sometimes it doesn't)
-        results = [result[0] for result in results if result[0].year != 1970]
-        if not results:
-            return None
-        return min(results)
-    else:
-        raise NotImplementedError(f"Invalid model: {model}")
 
 
 @dataclass(kw_only=True)

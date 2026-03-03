@@ -21,8 +21,11 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
+import { SentimentBar } from './components/SentimentTag'
 import { TraceSummary, llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
+import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { flattenGenerationMessages } from './sentimentUtils'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
 const LLMASessionFeedbackDisplay = lazy(() =>
@@ -50,11 +53,37 @@ export function LLMAnalyticsSessionScene({ tabId }: { tabId?: string }): JSX.Ele
     )
 }
 
+function SessionTraceSentimentBar({ traceId }: { traceId: string }): JSX.Element | null {
+    const { sentimentByTraceId, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
+    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
+
+    const cached = sentimentByTraceId[traceId]
+    const loading = isTraceLoading(traceId)
+
+    if (cached === undefined && !loading) {
+        ensureSentimentLoaded(traceId)
+    }
+
+    if (cached === null) {
+        return null
+    }
+
+    return (
+        <SentimentBar
+            label={cached?.label ?? 'neutral'}
+            score={cached?.score ?? 0}
+            loading={loading || cached === undefined}
+            messages={cached ? flattenGenerationMessages(cached.generations) : undefined}
+        />
+    )
+}
+
 function SessionSceneWrapper(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
     const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
+    const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
 
     const {
         traces,
@@ -218,6 +247,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                             {formatLLMCost(trace.totalCost)}
                                                         </LemonTag>
                                                     )}
+                                                    {showSentiment && <SessionTraceSentimentBar traceId={trace.id} />}
                                                     <Link
                                                         to={
                                                             combineUrl(urls.llmAnalyticsTrace(trace.id), {
@@ -274,6 +304,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                         isLoading={loadingFullTraces.has(trace.id)}
                                                         expandedEventIds={expandedGenerationIds}
                                                         onToggleEventExpand={toggleGenerationExpanded}
+                                                        traceId={trace.id}
                                                     />
                                                 </div>
                                             </div>

@@ -420,6 +420,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return new Fuse(haystack, {
                     keys: ['name', 'posthogName'],
                     threshold: 0.3,
+                    ignoreLocation: true,
                 })
             },
         ],

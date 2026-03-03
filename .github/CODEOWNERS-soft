@@ -106,6 +106,9 @@ nodejs/src/ingestion/ai/ @PostHog/team-llm-analytics
 nodejs/src/session-replay/ @PostHog/team-replay
 nodejs/src/session-replay/shared/ @PostHog/team-replay @PostHog/team-ingestion
 
+# CDP / Workflows - owned by @PostHog/team-workflows
+posthog/cdp/** @PostHog/team-workflows
+
 # Web Analytics - owned by @PostHog/team-web-analytics
 products/web_analytics/** @PostHog/team-web-analytics
 frontend/src/scenes/web-analytics/** @PostHog/team-web-analytics

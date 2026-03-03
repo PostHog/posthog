@@ -14,6 +14,16 @@ type TooltipInstance = {
 
 const tooltipInstances = new Map<string, TooltipInstance>()
 
+let globalScrollEndListenerActive = false
+
+function initGlobalScrollEndListener(): void {
+    if (globalScrollEndListenerActive) {
+        return
+    }
+    globalScrollEndListenerActive = true
+    document.addEventListener('scrollend', () => hideTooltip(), { capture: true, passive: true })
+}
+
 export function ensureTooltip(id: string): [Root, HTMLElement] {
     let instance = tooltipInstances.get(id)
 
@@ -21,6 +31,7 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
         const tooltipEl = document.createElement('div')
         tooltipEl.id = `InsightTooltipWrapper-${id}`
         tooltipEl.classList.add('InsightTooltipWrapper')
+        tooltipEl.setAttribute('data-attr', 'insight-tooltip-wrapper')
         document.body.appendChild(tooltipEl)
 
         const root = createRoot(tooltipEl)
@@ -155,14 +166,9 @@ export function useInsightTooltip(): {
 } {
     const tooltipId = useMemo(() => Math.random().toString(36).substring(2, 11), [])
 
-    // Hide tooltip on scroll and clean up on unmount
     useOnMountEffect(() => {
-        const handleScrollEnd = (): void => hideTooltip(tooltipId)
-        // Tooltips are absolutely positioned on document.body and don't move with their chart.
-        // Use capture to catch scrollend from any scrollable ancestor (main, AI chat, side panels, etc.)
-        document.addEventListener('scrollend', handleScrollEnd, true)
+        initGlobalScrollEndListener()
         return () => {
-            document.removeEventListener('scrollend', handleScrollEnd, true)
             cleanupTooltip(tooltipId)
         }
     })

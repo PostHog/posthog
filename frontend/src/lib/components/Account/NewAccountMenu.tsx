@@ -67,7 +67,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                         <ButtonPrimitive
                             {...props}
                             iconOnly={isLayoutNavCollapsed}
-                            className={cn('flex-1 py-1', {
+                            className={cn('flex-1 py-1 min-w-0', {
                                 'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
                             })}
                             variant="panel"

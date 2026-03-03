@@ -6,12 +6,12 @@ from uuid import UUID
 
 from django.core.cache import cache
 
-import requests
 import structlog
 from celery import shared_task
 
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
+from posthog.security.outbound_proxy import external_requests
 from posthog.storage import object_storage
 
 from products.conversations.backend.formatting import extract_images_from_rich_content, rich_content_to_slack_payload
@@ -41,11 +41,18 @@ def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id
         logger.info("supporthog_event_duplicate_skipped", event_id=event_id)
         return
 
-    team = Team.objects.filter(conversations_settings__slack_team_id=slack_team_id).first()
-    if not team:
+    from products.conversations.backend.models import TeamConversationsSlackConfig
+
+    config = (
+        TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id, slack_bot_token__isnull=False)
+        .select_related("team")
+        .first()
+    )
+    if not config:
         logger.warning("supporthog_no_team", slack_team_id=slack_team_id)
         return
 
+    team = config.team
     support_settings = team.conversations_settings or {}
     if not support_settings.get("slack_enabled"):
         logger.info(
@@ -249,7 +256,7 @@ def _upload_image_to_slack_thread(
     if not _is_allowed_slack_upload_url(upload_url):
         raise ValueError("files.getUploadURLExternal returned disallowed upload URL")
 
-    upload_response = requests.post(
+    upload_response = external_requests.post(
         upload_url,
         data=image_bytes,
         headers={"Content-Type": "application/octet-stream"},

@@ -34,7 +34,7 @@ GET_PARENTS_TEST_CASES = [
           ) num on 1 = 1
         )
         """,
-        {"events", "numbers"},
+        {"events"},
     ),
     ("select * from (select * from (select * from (select * from events)))", {"events"}),
     (
@@ -46,8 +46,10 @@ GET_PARENTS_TEST_CASES = [
           select event from events
         )
         """,
-        {"numbers", "events"},
+        {"events"},
     ),
+    # Table function as the only source
+    ("select number from numbers(10)", set()),
     # CTE with UNION ALL at top level - the CTE should not be treated as a parent
     (
         """
@@ -157,6 +159,7 @@ class TestModelPath(BaseTest):
         self.assertIn([table.id.hex, saved_query.id.hex], paths)
 
     def test_create_from_table_functions_root_nodes_query(self):
+        """Table functions like numbers() are not real parents — they produce root nodes."""
         query = "select * from numbers(10)"
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -168,7 +171,7 @@ class TestModelPath(BaseTest):
         paths = [model_path.path for model_path in model_paths]
 
         self.assertEqual(len(paths), 1)
-        self.assertIn(["numbers", saved_query.id.hex], paths)
+        self.assertIn([saved_query.id.hex], paths)
 
     def test_create_from_existing_path(self):
         """Test creation of a model path from a query that reads from another query."""

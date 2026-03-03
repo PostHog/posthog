@@ -10,6 +10,7 @@ import requests
 from posthog.models import Team, User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.user_home_settings import UserHomeSettings
+from posthog.security.outbound_proxy import external_requests
 
 
 class Command(BaseCommand):
@@ -204,14 +205,16 @@ class Command(BaseCommand):
     def _fetch_user_settings(self, host: str, api_key: str) -> dict[str, Any]:
         """Fetch user settings from PostHog cloud API"""
         headers = {"Authorization": f"Bearer {api_key}"}
-        response = requests.get(f"{host}/api/users/@me/", headers=headers, timeout=30)
+        response = external_requests.get(f"{host}/api/users/@me/", headers=headers, timeout=30)
         response.raise_for_status()
         return response.json()
 
     def _fetch_home_settings(self, host: str, api_key: str, team_id: int) -> dict[str, Any] | None:
         """Fetch user home settings from PostHog cloud API"""
         headers = {"Authorization": f"Bearer {api_key}"}
-        response = requests.get(f"{host}/api/projects/{team_id}/user_home_settings/", headers=headers, timeout=30)
+        response = external_requests.get(
+            f"{host}/api/projects/{team_id}/user_home_settings/", headers=headers, timeout=30
+        )
         if response.status_code == 404:
             return None
         response.raise_for_status()
@@ -220,7 +223,9 @@ class Command(BaseCommand):
     def _fetch_shortcuts(self, host: str, api_key: str, team_id: int) -> list[dict[str, Any]]:
         """Fetch shortcuts from PostHog cloud API"""
         headers = {"Authorization": f"Bearer {api_key}"}
-        response = requests.get(f"{host}/api/projects/{team_id}/file_system_shortcuts/", headers=headers, timeout=30)
+        response = external_requests.get(
+            f"{host}/api/projects/{team_id}/file_system_shortcuts/", headers=headers, timeout=30
+        )
         if response.status_code == 404:
             return []
         response.raise_for_status()
