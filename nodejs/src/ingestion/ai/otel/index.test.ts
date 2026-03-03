@@ -417,4 +417,217 @@ describe('convertOtelEvent', () => {
             expect(event.properties!['$ai_lib']).toBe('opentelemetry/pydantic-ai')
         })
     })
+
+    describe('traceloop library detection', () => {
+        it.each([
+            ['llm.request.type', { 'llm.request.type': 'chat' }],
+            ['traceloop.span.kind', { 'traceloop.span.kind': 'workflow' }],
+            ['traceloop.entity.name', { 'traceloop.entity.name': 'openai.chat' }],
+        ])('detects traceloop library from %s attribute', (_label, properties) => {
+            const event = createEvent('$ai_span', properties)
+            convertOtelEvent(event)
+            expect(mockedMapOtelAttributes).toHaveBeenCalledWith(event)
+        })
+
+        it('pydantic-ai markers take priority over traceloop markers', () => {
+            const event = createEvent('$ai_span', {
+                'logfire.msg': 'agent run',
+                'llm.request.type': 'chat',
+                'traceloop.span.kind': 'workflow',
+            })
+            convertOtelEvent(event)
+            expect(event.properties!['$ai_lib']).toBe('opentelemetry/pydantic-ai')
+        })
+
+        it('does not detect traceloop when no marker keys present', () => {
+            const event = createEvent('$ai_generation', { 'gen_ai.system': 'openai' })
+            convertOtelEvent(event)
+            expect(event.properties!['$ai_lib']).toBeUndefined()
+        })
+    })
+
+    describe('traceloop middleware reassembles flattened prompts', () => {
+        beforeEach(() => {
+            mockedMapOtelAttributes.mockImplementation((e) => {
+                if (e.event === '$ai_span' && !e.properties?.['$ai_parent_id']) {
+                    e.event = '$ai_trace'
+                }
+            })
+        })
+
+        it('reassembles gen_ai.prompt.* into $ai_input', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'gen_ai.prompt.0.role': 'system',
+                'gen_ai.prompt.0.content': 'You are helpful',
+                'gen_ai.prompt.1.role': 'user',
+                'gen_ai.prompt.1.content': 'Hello',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_input']).toEqual([
+                { role: 'system', content: 'You are helpful' },
+                { role: 'user', content: 'Hello' },
+            ])
+            expect(event.properties!['gen_ai.prompt.0.role']).toBeUndefined()
+            expect(event.properties!['gen_ai.prompt.1.content']).toBeUndefined()
+        })
+
+        it('reassembles gen_ai.completion.* into $ai_output_choices', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'gen_ai.completion.0.role': 'assistant',
+                'gen_ai.completion.0.content': 'Hi there!',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_output_choices']).toEqual([{ role: 'assistant', content: 'Hi there!' }])
+            expect(event.properties!['gen_ai.completion.0.role']).toBeUndefined()
+        })
+
+        it('reassembles prompts with tool_calls nested objects', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'gen_ai.prompt.0.role': 'assistant',
+                'gen_ai.prompt.0.content': '',
+                'gen_ai.prompt.0.tool_calls.0.name': 'get_weather',
+                'gen_ai.prompt.0.tool_calls.0.arguments': '{"city":"NYC"}',
+                'gen_ai.prompt.0.tool_calls.1.name': 'get_time',
+                'gen_ai.prompt.0.tool_calls.1.arguments': '{"tz":"EST"}',
+                'gen_ai.prompt.1.role': 'tool',
+                'gen_ai.prompt.1.content': 'Sunny, 72F',
+                'gen_ai.prompt.1.tool_call_id': 'call-123',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_input']).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        { name: 'get_weather', arguments: '{"city":"NYC"}' },
+                        { name: 'get_time', arguments: '{"tz":"EST"}' },
+                    ],
+                },
+                { role: 'tool', content: 'Sunny, 72F', tool_call_id: 'call-123' },
+            ])
+        })
+
+        it('reassembles llm.request.functions.* into $ai_tools', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'llm.request.functions.0.name': 'get_weather',
+                'llm.request.functions.0.description': 'Get weather for a city',
+                'llm.request.functions.0.parameters': '{"type":"object"}',
+                'llm.request.functions.1.name': 'get_time',
+                'llm.request.functions.1.description': 'Get current time',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_tools']).toEqual([
+                { name: 'get_weather', description: 'Get weather for a city', parameters: '{"type":"object"}' },
+                { name: 'get_time', description: 'Get current time' },
+            ])
+            expect(event.properties!['llm.request.functions.0.name']).toBeUndefined()
+        })
+
+        it('handles non-contiguous indices gracefully', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'gen_ai.prompt.0.role': 'user',
+                'gen_ai.prompt.0.content': 'First',
+                'gen_ai.prompt.5.role': 'assistant',
+                'gen_ai.prompt.5.content': 'Second',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_input']).toEqual([
+                { role: 'user', content: 'First' },
+                { role: 'assistant', content: 'Second' },
+            ])
+        })
+
+        it('does not override $ai_input when already set by generic mapping', () => {
+            mockedMapOtelAttributes.mockImplementation((e) => {
+                if (e.properties) {
+                    e.properties['$ai_input'] = [{ role: 'user', content: 'from generic' }]
+                }
+            })
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'gen_ai.prompt.0.role': 'user',
+                'gen_ai.prompt.0.content': 'from traceloop',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_input']).toEqual([{ role: 'user', content: 'from generic' }])
+        })
+
+        it('does not override $ai_output_choices when already set by generic mapping', () => {
+            mockedMapOtelAttributes.mockImplementation((e) => {
+                if (e.properties) {
+                    e.properties['$ai_output_choices'] = [{ role: 'assistant', content: 'from generic' }]
+                }
+            })
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'gen_ai.completion.0.role': 'assistant',
+                'gen_ai.completion.0.content': 'from traceloop',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_output_choices']).toEqual([{ role: 'assistant', content: 'from generic' }])
+        })
+
+        it('returns undefined when no matching prefix keys exist', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'some.other.key': 'value',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_input']).toBeUndefined()
+            expect(event.properties!['$ai_output_choices']).toBeUndefined()
+        })
+    })
+
+    describe('traceloop middleware strips keys and sets $ai_lib', () => {
+        it('strips traceloop-specific keys', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'traceloop.span.kind': 'workflow',
+                'traceloop.entity.name': 'openai.chat',
+                'traceloop.entity.path': 'app.main',
+                'traceloop.workflow.name': 'my_workflow',
+                'traceloop.entity.input': '{}',
+                'traceloop.entity.output': '{}',
+                'traceloop.association.properties.user_id': '123',
+                'traceloop.association.properties.session_id': 'abc',
+                'llm.is_streaming': false,
+                'llm.usage.total_tokens': 200,
+                'llm.response.finish_reason': 'stop',
+                'llm.response.stop_reason': 'end_turn',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['traceloop.span.kind']).toBeUndefined()
+            expect(event.properties!['traceloop.entity.name']).toBeUndefined()
+            expect(event.properties!['traceloop.entity.path']).toBeUndefined()
+            expect(event.properties!['traceloop.workflow.name']).toBeUndefined()
+            expect(event.properties!['traceloop.entity.input']).toBeUndefined()
+            expect(event.properties!['traceloop.entity.output']).toBeUndefined()
+            expect(event.properties!['traceloop.association.properties.user_id']).toBeUndefined()
+            expect(event.properties!['traceloop.association.properties.session_id']).toBeUndefined()
+            expect(event.properties!['llm.is_streaming']).toBeUndefined()
+            expect(event.properties!['llm.usage.total_tokens']).toBeUndefined()
+            expect(event.properties!['llm.response.finish_reason']).toBeUndefined()
+            expect(event.properties!['llm.response.stop_reason']).toBeUndefined()
+        })
+
+        it('sets $ai_lib to opentelemetry/traceloop', () => {
+            const event = createEvent('$ai_generation', { 'llm.request.type': 'chat' })
+            convertOtelEvent(event)
+            expect(event.properties!['$ai_lib']).toBe('opentelemetry/traceloop')
+        })
+    })
 })
