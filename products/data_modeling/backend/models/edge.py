@@ -57,6 +57,9 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     source = models.ForeignKey(Node, related_name="outgoing_edges", on_delete=models.CASCADE, editable=False)
     # the target node of the edge (i.e. the node this edge is pointed toward)
     target = models.ForeignKey(Node, related_name="incoming_edges", on_delete=models.CASCADE, editable=False)
+    # the name of the DAG this edge belongs to
+    dag_id = models.TextField(max_length=256, default="posthog", db_index=True, editable=False)
+    # duplicate of dag_id, will replace it after code refs are migrated
     dag_id_text = models.TextField(max_length=256, default="posthog", editable=False)
     properties = models.JSONField(default=dict)
 
