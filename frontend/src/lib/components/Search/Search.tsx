@@ -29,12 +29,14 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { fileSystemTypes } from '~/products'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
+import type { UserTheme } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { searchAiPreviewLogic } from './searchAiPreviewLogic'
@@ -269,6 +271,8 @@ function SearchRoot({
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
+    const { themeMode } = useValues(userLogic)
+    const { updateUser } = useActions(userLogic)
     const aiPreviewEnabled = useFeatureFlag('SEARCH_AI_PREVIEW')
     const { conversationId: aiPreviewConversationId } = useValues(searchAiPreviewLogic({ logicKey }))
 
@@ -308,15 +312,26 @@ function SearchRoot({
         // Add a direct shortcut to the theme setting when searching for dark/light/theme
         const normalizedQuery = searchValue.trim().toLowerCase()
         if (normalizedQuery && ['dark', 'light', 'theme'].some((keyword) => normalizedQuery.includes(keyword))) {
-            const isDark = normalizedQuery.includes('dark')
+            const hasDark = normalizedQuery.includes('dark')
+            const hasLight = normalizedQuery.includes('light')
+
+            let targetTheme: UserTheme
+            if (!hasDark && !hasLight) {
+                // Toggle the current theme when the query doesn't explicitly mention dark/light
+                targetTheme = themeMode === 'dark' ? 'light' : 'dark'
+            } else {
+                targetTheme = hasDark ? 'dark' : 'light'
+            }
+
             const themeItem: SearchItem = {
                 id: '__settings_theme__',
-                name: isDark ? 'Dark mode' : 'Light mode',
-                displayName: isDark ? 'Dark mode' : 'Light mode',
+                name: targetTheme === 'dark' ? 'Dark mode' : 'Light mode',
+                displayName: targetTheme === 'dark' ? 'Dark mode' : 'Light mode',
                 category: 'settings',
                 href: urls.settings('user-customization', 'theme'),
+                record: { themeMode: targetTheme },
                 searchKeywords: ['dark', 'light', 'theme', 'appearance', 'color scheme'],
-                icon: isDark ? <IconNight /> : <IconDay />,
+                icon: targetTheme === 'dark' ? <IconNight /> : <IconDay />,
             }
             const hasThemeItemAlready = items.some((item) => item.id === themeItem.id)
             if (!hasThemeItemAlready) {
@@ -341,7 +356,7 @@ function SearchRoot({
         }
 
         return [...normalizedSuggestedItems, ...items]
-    }, [allItems, searchValue, showAskAiLink, suggestedItems, aiPreviewConversationId])
+    }, [allItems, searchValue, showAskAiLink, suggestedItems, aiPreviewConversationId, themeMode])
 
     useEffect(() => {
         if (!isActive) {
@@ -418,13 +433,24 @@ function SearchRoot({
                 router.actions.push(item.href!)
                 return
             }
+            if (item.id === '__settings_theme__') {
+                const themeMode = (item.record as { themeMode?: UserTheme } | undefined)?.themeMode
+                if (themeMode) {
+                    updateUser({ theme_mode: themeMode as UserTheme })
+                    return
+                }
+                if (item.href) {
+                    router.actions.push(item.href)
+                    return
+                }
+            }
             if (onItemSelect) {
                 onItemSelect(item)
             } else if (item.href) {
                 router.actions.push(item.href)
             }
         },
-        [onItemSelect, onAskAiClick]
+        [onItemSelect, onAskAiClick, updateUser]
     )
 
     const groupedItems = useMemo(() => {
