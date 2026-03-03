@@ -40,6 +40,27 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
         assert data["properties"][1]["name"] == "user_id"
         assert data["properties"][1]["is_required"] is True
 
+    def test_create_property_group_with_any_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.project.id}/schema_property_groups/",
+            {
+                "name": "Any Type Group",
+                "properties": [
+                    {
+                        "name": "flexible_prop",
+                        "property_type": "Any",
+                        "is_required": True,
+                        "description": "Accepts any type",
+                    },
+                ],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        prop = response.json()["properties"][0]
+        assert prop["property_type"] == "Any"
+        assert prop["is_required"] is True
+
     def test_create_property_group_with_is_optional_in_types(self):
         response = self.client.post(
             f"/api/projects/{self.project.id}/schema_property_groups/",
@@ -228,6 +249,7 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
             ("numeric_null_rules", "Numeric", None),
             ("boolean_null_rules", "Boolean", None),
             ("datetime_null_rules", "DateTime", None),
+            ("any_null_rules", "Any", None),
         ]
     )
     def test_create_with_valid_validation_rules(self, _name, property_type, validation_rules):
@@ -266,6 +288,7 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
             ("not_without_enum", "String", {"not": {"min": 0}}, "exactly one key"),
             ("unrecognized_key", "Numeric", {"minimum": 0, "pattern": "abc"}, "Unrecognized keys"),
             ("object_with_rules", "Object", {"enum": ["a"]}, "not supported"),
+            ("any_with_rules", "Any", {"enum": ["a"]}, "not supported"),
         ]
     )
     def test_create_with_invalid_validation_rules(self, _name, property_type, validation_rules, expected_error):

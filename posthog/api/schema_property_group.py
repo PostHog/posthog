@@ -29,7 +29,7 @@ def validate_validation_rules(property_type: str, rules: dict | None) -> None:
     if rules is None or rules == {}:
         return
 
-    if property_type in ("DateTime", "Boolean", "Object"):
+    if property_type in ("DateTime", "Boolean", "Object", "Any"):
         raise serializers.ValidationError(
             {"validation_rules": f"Validation rules are not supported for {property_type} properties"}
         )

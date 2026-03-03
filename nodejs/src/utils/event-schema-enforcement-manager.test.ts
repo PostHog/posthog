@@ -160,12 +160,12 @@ describe('EventSchemaEnforcementManager', () => {
             const schema = result.get('purchase')
             expect(schema).toBeDefined()
             expect(schema!.event_name).toBe('purchase')
-            expect(schema!.required_properties.size).toBe(2)
-            expect(schema!.required_properties.get('product_id')).toEqual(['String'])
-            expect(schema!.required_properties.get('amount')).toEqual(['Numeric'])
+            expect(schema!.properties.size).toBe(2)
+            expect(schema!.properties.get('product_id')).toEqual({ types: ['String'], is_required: true })
+            expect(schema!.properties.get('amount')).toEqual({ types: ['Numeric'], is_required: true })
         })
 
-        it('only returns required properties, not optional ones', async () => {
+        it('returns both required and optional properties with correct is_required flag', async () => {
             const eventDefId = await createEventDefinition(teamId, 'test_event', 'reject')
             const propGroupId = await createPropertyGroup(teamId)
             await createEventSchema(eventDefId, propGroupId)
@@ -176,8 +176,26 @@ describe('EventSchemaEnforcementManager', () => {
 
             expect(result.size).toBe(1)
             const schema = result.get('test_event')
-            expect(schema!.required_properties.size).toBe(1)
-            expect(schema!.required_properties.has('required_prop')).toBe(true)
+            expect(schema!.properties.size).toBe(2)
+            expect(schema!.properties.get('required_prop')).toEqual({ types: ['String'], is_required: true })
+            expect(schema!.properties.get('optional_prop')).toEqual({ types: ['String'], is_required: false })
+        })
+
+        it('treats property as required if any property group marks it required', async () => {
+            const eventDefId = await createEventDefinition(teamId, 'test_event', 'reject')
+
+            const propGroup1 = await createPropertyGroup(teamId)
+            await createEventSchema(eventDefId, propGroup1)
+            await createProperty(propGroup1, 'prop', 'String', false)
+
+            const propGroup2 = await createPropertyGroup(teamId)
+            await createEventSchema(eventDefId, propGroup2)
+            await createProperty(propGroup2, 'prop', 'String', true)
+
+            const result = await schemaManager.getSchemas(teamId)
+
+            const schema = result.get('test_event')
+            expect(schema!.properties.get('prop')).toEqual({ types: ['String'], is_required: true })
         })
 
         it('returns empty Map for non-existent team', async () => {
@@ -224,9 +242,15 @@ describe('EventSchemaEnforcementManager', () => {
 
             expect(result.size).toBe(1)
             const schema = result.get('test_event')
-            expect(schema!.required_properties.size).toBe(2)
-            expect(schema!.required_properties.get('multi_type_prop')).toEqual(['Numeric', 'String'])
-            expect(schema!.required_properties.get('consistent_prop')).toEqual(['Numeric'])
+            expect(schema!.properties.size).toBe(2)
+            expect(schema!.properties.get('multi_type_prop')).toEqual({
+                types: ['Numeric', 'String'],
+                is_required: true,
+            })
+            expect(schema!.properties.get('consistent_prop')).toEqual({
+                types: ['Numeric'],
+                is_required: true,
+            })
         })
     })
 

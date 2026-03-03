@@ -14,6 +14,7 @@ class SchemaPropertyType(models.TextChoices):
     Numeric = "Numeric", "Numeric"
     Boolean = "Boolean", "Boolean"
     Object = "Object", "Object"
+    Any = "Any", "Any"
 
 
 class SchemaPropertyGroup(UUIDTModel):

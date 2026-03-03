@@ -23,7 +23,8 @@ export function PropertyTypeTag({ propertyName, schemaPropertyType }: PropertyTy
         propertyDefinition &&
         propertyDefinition.property_type &&
         propertyDefinition.property_type !== schemaPropertyType &&
-        !(schemaPropertyType === 'Object' && propertyDefinition.property_type === 'String')
+        !(schemaPropertyType === 'Object' && propertyDefinition.property_type === 'String') &&
+        schemaPropertyType !== 'Any'
 
     const getTooltipMessage = (): string => {
         if (!propertyDefinition?.property_type) {

@@ -291,6 +291,7 @@ class Migration(migrations.Migration):
                             ("Numeric", "Numeric"),
                             ("Boolean", "Boolean"),
                             ("Object", "Object"),
+                            ("Any", "Any"),
                         ],
                         max_length=50,
                     ),

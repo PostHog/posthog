@@ -11,6 +11,7 @@ interface RawSchemaPropertyRow {
     event_name: string
     property_name: string
     property_types: string[]
+    is_required: boolean
     validation_rules: object[] | null
 }
 
@@ -78,13 +79,13 @@ export class EventSchemaEnforcementManager {
                 ed.name as event_name,
                 p.name as property_name,
                 array_agg(DISTINCT p.property_type ORDER BY p.property_type) as property_types,
+                bool_or(p.is_required) as is_required,
                 jsonb_agg(p.validation_rules) FILTER (WHERE p.validation_rules IS NOT NULL) as validation_rules
             FROM posthog_eventdefinition ed
             JOIN posthog_eventschema es ON es.event_definition_id = ed.id
             JOIN posthog_schemapropertygroupproperty p ON p.property_group_id = es.property_group_id
             WHERE ed.team_id = ANY($1)
               AND ed.enforcement_mode = 'reject'
-              AND p.is_required = true
             GROUP BY ed.team_id, ed.name, p.name
             ORDER BY ed.team_id, ed.name, p.name`,
             [numericTeamIds],
@@ -116,13 +117,16 @@ export class EventSchemaEnforcementManager {
             if (!schema) {
                 schema = {
                     event_name: row.event_name,
-                    required_properties: new Map(),
+                    properties: new Map(),
                     property_validation_rules: new Map(),
                 }
                 result[teamId].set(row.event_name, schema)
             }
 
-            schema.required_properties.set(row.property_name, row.property_types)
+            schema.properties.set(row.property_name, {
+                types: row.property_types,
+                is_required: row.is_required,
+            })
 
             if (row.validation_rules && row.validation_rules.length > 0) {
                 schema.property_validation_rules.set(

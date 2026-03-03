@@ -14,6 +14,9 @@ function canCoerceToType(value: unknown, propertyType: string): boolean {
     }
 
     switch (propertyType) {
+        case 'Any':
+            return true
+
         case 'String':
             // Everything can be coerced to string
             return true
@@ -156,7 +159,7 @@ function validatePropertyValue(value: unknown, ruleSets: PropertyValidationRules
 
 /**
  * Validates an event's properties against an enforced schema.
- * Only required properties are validated - optional properties are not included in the schema.
+ * Required properties must be present; optional properties are only type-checked when present.
  */
 export function validateEventAgainstSchema(
     eventProperties: Record<string, unknown> | undefined,
@@ -164,22 +167,24 @@ export function validateEventAgainstSchema(
 ): SchemaValidationResult {
     const errors: SchemaValidationError[] = []
 
-    for (const [propertyName, propertyTypes] of schema.required_properties) {
+    for (const [propertyName, config] of schema.properties) {
         const value = eventProperties?.[propertyName]
 
         if (value === null || value === undefined) {
-            errors.push({
-                propertyName,
-                reason: 'missing_required',
-            })
+            if (config.is_required) {
+                errors.push({
+                    propertyName,
+                    reason: 'missing_required',
+                })
+            }
             continue
         }
 
-        if (!propertyTypes.some((type) => canCoerceToType(value, type))) {
+        if (!config.types.some((type) => canCoerceToType(value, type))) {
             errors.push({
                 propertyName,
                 reason: 'type_mismatch',
-                expectedTypes: propertyTypes,
+                expectedTypes: config.types,
                 actualValue: value,
             })
             continue

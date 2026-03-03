@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { schemaManagementLogicType } from './schemaManagementLogicType'
 
-export type PropertyType = 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Object'
+export type PropertyType = 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Object' | 'Any'
 
 export interface StringEnumRules {
     enum: string[]
@@ -35,6 +35,7 @@ export const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
     { value: 'Boolean', label: 'Boolean' },
     { value: 'DateTime', label: 'DateTime' },
     { value: 'Object', label: 'Object' },
+    { value: 'Any', label: 'Any' },
 ]
 
 function getErrorMessage(error: any, defaultMessage: string): string {
