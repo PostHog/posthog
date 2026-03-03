@@ -507,7 +507,10 @@ async def test_stripe_balance_transactions(team, stripe_balance_transaction, moc
         schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         table_name="stripe_balancetransaction",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_balance_transaction["data"],
     )
 
@@ -520,7 +523,10 @@ async def test_stripe_charges(team, stripe_charge, mock_stripe_client):
         schema_name=STRIPE_CHARGE_RESOURCE_NAME,
         table_name="stripe_charge",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_charge["data"],
     )
 
@@ -537,7 +543,10 @@ async def test_stripe_customer(team, stripe_customer, mock_stripe_client):
         schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
         table_name="stripe_customer",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_customer["data"],
     )
 
@@ -550,7 +559,10 @@ async def test_stripe_invoice(team, stripe_invoice, mock_stripe_client):
         schema_name=STRIPE_INVOICE_RESOURCE_NAME,
         table_name="stripe_invoice",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_invoice["data"],
     )
 
@@ -563,7 +575,10 @@ async def test_stripe_price(team, stripe_price, mock_stripe_client):
         schema_name=STRIPE_PRICE_RESOURCE_NAME,
         table_name="stripe_price",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_price["data"],
     )
 
@@ -576,7 +591,10 @@ async def test_stripe_product(team, stripe_product, mock_stripe_client):
         schema_name=STRIPE_PRODUCT_RESOURCE_NAME,
         table_name="stripe_product",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_product["data"],
     )
 
@@ -589,7 +607,10 @@ async def test_stripe_subscription(team, stripe_subscription, mock_stripe_client
         schema_name=STRIPE_SUBSCRIPTION_RESOURCE_NAME,
         table_name="stripe_subscription",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_subscription["data"],
     )
 
@@ -602,7 +623,10 @@ async def test_stripe_dispute(team, stripe_dispute, mock_stripe_client):
         schema_name=STRIPE_DISPUTE_RESOURCE_NAME,
         table_name="stripe_dispute",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_dispute["data"],
     )
 
@@ -615,7 +639,10 @@ async def test_stripe_payout(team, stripe_payout, mock_stripe_client):
         schema_name=STRIPE_PAYOUT_RESOURCE_NAME,
         table_name="stripe_payout",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_payout["data"],
     )
 
@@ -628,7 +655,10 @@ async def test_stripe_refund(team, stripe_refund, mock_stripe_client):
         schema_name=STRIPE_REFUND_RESOURCE_NAME,
         table_name="stripe_refund",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_refund["data"],
     )
 
@@ -641,7 +671,10 @@ async def test_stripe_invoiceitem(team, stripe_invoiceitem, mock_stripe_client):
         schema_name=STRIPE_INVOICE_ITEM_RESOURCE_NAME,
         table_name="stripe_invoiceitem",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_invoiceitem["data"],
     )
 
@@ -654,7 +687,10 @@ async def test_stripe_credit_note(team, stripe_credit_note, mock_stripe_client):
         schema_name=STRIPE_CREDIT_NOTE_RESOURCE_NAME,
         table_name="stripe_creditnote",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_credit_note["data"],
     )
 
@@ -667,7 +703,10 @@ async def test_stripe_customer_balance_transaction(team, stripe_customer_balance
         schema_name=STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
         table_name="stripe_customerbalancetransaction",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_customer_balance_transaction["data"],
     )
 
@@ -680,7 +719,10 @@ async def test_stripe_customer_payment_method(team, stripe_customer_payment_meth
         schema_name=STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
         table_name="stripe_customerpaymentmethod",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_customer_payment_method["data"],
     )
 
@@ -859,7 +901,10 @@ async def test_reset_pipeline(team, stripe_balance_transaction, mock_stripe_clie
         schema_name="BalanceTransaction",
         table_name="stripe_balancetransaction",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_balance_transaction["data"],
         sync_type_config={"reset_pipeline": True},
     )
@@ -915,7 +960,10 @@ async def test_delta_wrapper_files(team, stripe_balance_transaction, mock_stripe
             schema_name="BalanceTransaction",
             table_name="stripe_balancetransaction",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
             mock_data_response=stripe_balance_transaction["data"],
         )
 
@@ -948,7 +996,10 @@ async def test_funnels_lazy_joins_ordering(team, stripe_customer, mock_stripe_cl
         schema_name="Customer",
         table_name="stripe_customer",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_customer["data"],
     )
 
@@ -1137,7 +1188,10 @@ async def test_billing_limits(team, stripe_customer, mock_stripe_client):
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
@@ -1181,7 +1235,10 @@ async def test_create_external_job_failure(team, stripe_customer, mock_stripe_cl
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
@@ -1225,7 +1282,10 @@ async def test_create_external_job_failure_no_job_model(team, stripe_customer, m
         team=team,
         status="running",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
@@ -1333,7 +1393,10 @@ async def test_non_retryable_error_with_special_characters(team, stripe_customer
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
@@ -1457,7 +1520,10 @@ async def test_postgres_uuid_type(team, mock_stripe_client):
         schema_name="BalanceTransaction",
         table_name="stripe_balancetransaction",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=[{"id": uuid.uuid4()}],
     )
 
@@ -1603,7 +1669,10 @@ async def test_delete_table_on_reset(team, stripe_balance_transaction, mock_stri
             schema_name="BalanceTransaction",
             table_name="stripe_balancetransaction",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
             mock_data_response=stripe_balance_transaction["data"],
             sync_type_config={"reset_pipeline": True},
         )
@@ -1633,7 +1702,10 @@ async def test_billable_job(team, stripe_balance_transaction, mock_stripe_client
         schema_name="BalanceTransaction",
         table_name="stripe_balancetransaction",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_balance_transaction["data"],
         billable=False,
     )
@@ -2579,7 +2651,10 @@ async def test_stripe_earliest_incremental_value(team, stripe_balance_transactio
         schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         table_name="stripe_balancetransaction",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=stripe_balance_transaction["data"],
         sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
@@ -2597,7 +2672,10 @@ async def test_append_only_table(team, mock_stripe_client):
         schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         table_name="stripe_balancetransaction",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
         mock_data_response=[],
         sync_type=ExternalDataSchema.SyncType.APPEND,
         sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
@@ -3034,7 +3112,10 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
             schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
             table_name="stripe_balancetransaction",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
             mock_data_response=stripe_balance_transaction["data"],
         )
 
@@ -3161,7 +3242,10 @@ async def test_resumable_source_shutdown(team, stripe_customer, mock_stripe_clie
             schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
             table_name="stripe_customer",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
             mock_data_response=stripe_customer["data"],
             ignore_assertions=True,
         )
@@ -3181,7 +3265,10 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
                 schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
                 table_name="stripe_customer",
                 source_type="Stripe",
-                job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+                job_inputs={
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                    "stripe_account_id": "acct_id",
+                },
                 mock_data_response=stripe_customer["data"],
                 ignore_assertions=True,
             )
@@ -3202,7 +3289,10 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
                 schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
                 table_name="stripe_customer",
                 source_type="Stripe",
-                job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+                job_inputs={
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                    "stripe_account_id": "acct_id",
+                },
                 mock_data_response=stripe_customer["data"],
                 ignore_assertions=True,
             )
@@ -3228,7 +3318,10 @@ async def test_cdp_producer_push_to_s3(team, stripe_customer, mock_stripe_client
             schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
             table_name="stripe_customer",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
             mock_data_response=stripe_customer["data"],
         )
 
@@ -3288,7 +3381,10 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
             schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
             table_name="stripe_customer",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
             mock_data_response=stripe_customer["data"],
         )
 

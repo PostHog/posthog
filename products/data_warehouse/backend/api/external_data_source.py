@@ -185,6 +185,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             # stripe
             "stripe_account_id",
             "stripe_integration_id",
+            "auth_method",
             # sql
             "database",
             "host",
@@ -252,6 +253,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     },
                 }
                 job_inputs["ssh_tunnel"] = ssh_tunnel
+
+            # Strip sensitive fields from auth_method, keeping only selection and integration ID
+            if "auth_method" in job_inputs and isinstance(job_inputs["auth_method"], dict):
+                auth_method = job_inputs["auth_method"]
+                job_inputs["auth_method"] = {
+                    k: v for k, v in auth_method.items() if k in ("selection", "stripe_integration_id")
+                }
 
             # Remove sensitive fields
             for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration

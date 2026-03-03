@@ -53,7 +53,7 @@ class TestExternalDataSource(APIBaseTest):
             created_by=self.user,
             prefix="test",
             job_inputs={
-                "stripe_secret_key": "sk_test_123",
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
             },
         )
 
@@ -72,7 +72,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -123,7 +123,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": False,
                 },
             },
@@ -142,7 +142,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {"name": "SomeOtherSchema", "should_sync": True, "sync_type": "full_refresh"},
                     ],
@@ -165,7 +165,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -196,7 +196,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -228,7 +228,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -260,7 +260,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -297,7 +297,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -364,7 +364,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -425,7 +425,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -568,8 +568,8 @@ class TestExternalDataSource(APIBaseTest):
         assert len(results) == 1
 
         result = results[0]
-        # we should scrape out `stripe_secret_key` from job_inputs
-        assert result.get("job_inputs") == {}
+        # sensitive fields like stripe_secret_key should be stripped, but auth_method selection is kept
+        assert result.get("job_inputs") == {"auth_method": {"selection": "api_key"}}
 
     def test_get_external_data_source_with_schema(self):
         source = self._create_external_data_source()
@@ -1361,7 +1361,7 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "stripe_secret_key": "blah",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "blah"},
                     "stripe_account_id": "blah",
                 },
             )
@@ -1378,7 +1378,7 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "stripe_secret_key": "invalid_key",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "invalid_key"},
                 },
             )
 
@@ -1398,12 +1398,12 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "stripe_secret_key": "invalid_key",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "invalid_key"},
                 },
             )
 
             assert response.status_code == 400
-            assert "Stripe API key lacks permissions for Account, Invoice" in response.json()["message"]
+            assert "Stripe credentials lack permissions for Account, Invoice" in response.json()["message"]
 
     def test_database_schema_zendesk_credentials(self):
         with patch(
@@ -1450,7 +1450,7 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "stripe_secret_key": "sk_test_123",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "stripe_account_id": "blah",
                 },
             )
@@ -1756,7 +1756,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "stripe_secret_key": "  sk_test_123   ",
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "  sk_test_123   "},
                     "stripe_account_id": "  blah   ",
                     "schemas": [
                         {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
@@ -1771,7 +1771,7 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=payload["id"])
         assert source.job_inputs is not None
 
-        assert source.job_inputs["stripe_secret_key"] == "sk_test_123"
+        assert source.job_inputs["auth_method"]["stripe_secret_key"] == "  sk_test_123   "
         assert source.job_inputs["stripe_account_id"] == "blah"
 
     def test_update_then_get_external_data_source_with_ssh_tunnel(self):
@@ -2699,7 +2699,7 @@ class TestExternalDataSource(APIBaseTest):
                         "source_type": "Stripe",
                         "prefix": prefix,
                         "payload": {
-                            "stripe_secret_key": "sk_test_123",
+                            "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                             "schemas": [
                                 {
                                     "name": STRIPE_CUSTOMER_RESOURCE_NAME,
@@ -2745,7 +2745,7 @@ class TestExternalDataSource(APIBaseTest):
                         "source_type": "Stripe",
                         "prefix": prefix,
                         "payload": {
-                            "stripe_secret_key": "sk_test_123",
+                            "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                             "schemas": [
                                 {
                                     "name": STRIPE_CUSTOMER_RESOURCE_NAME,

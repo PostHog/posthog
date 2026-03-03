@@ -4,8 +4,11 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
 from posthog.temporal.data_imports.sources.stripe.constants import ACCOUNT_RESOURCE_NAME
+from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripePermissionError,
     StripeResumeConfig,
@@ -327,3 +330,48 @@ def test_validate_credentials_with_missing_table_name():
     mock_client.credit_notes.list.assert_not_called()
 
     assert "bad_table" in str(e)
+
+
+class TestGetApiKey:
+    @pytest.fixture
+    def stripe_source(self):
+        return StripeSource()
+
+    @pytest.fixture
+    def stripe_integration(self, team):
+        return Integration.objects.create(
+            team=team,
+            kind="stripe",
+            config={"account_name": "Test Business (acct_123)"},
+            sensitive_config={"access_token": "sk_live_oauth_token"},
+            integration_id="acct_123",
+        )
+
+    def test_api_key_selection_returns_key(self, stripe_source):
+        config = StripeSourceConfig.from_dict(
+            {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}}
+        )
+        assert stripe_source._get_api_key(config, team_id=1) == "sk_test_123"
+
+    def test_api_key_selection_raises_when_key_missing(self, stripe_source):
+        config = StripeSourceConfig.from_dict({"auth_method": {"selection": "api_key"}})
+        with pytest.raises(ValueError, match="Missing Stripe API key"):
+            stripe_source._get_api_key(config, team_id=1)
+
+    @pytest.mark.django_db
+    def test_oauth_selection_returns_access_token(self, stripe_source, team, stripe_integration):
+        config = StripeSourceConfig.from_dict(
+            {"auth_method": {"selection": "oauth", "stripe_integration_id": stripe_integration.id}}
+        )
+        assert stripe_source._get_api_key(config, team.pk) == "sk_live_oauth_token"
+
+    def test_oauth_selection_raises_when_integration_id_missing(self, stripe_source):
+        config = StripeSourceConfig.from_dict({"auth_method": {"selection": "oauth"}})
+        with pytest.raises(ValueError, match="Missing Stripe integration ID"):
+            stripe_source._get_api_key(config, team_id=1)
+
+    @pytest.mark.django_db
+    def test_oauth_selection_raises_when_integration_not_found(self, stripe_source, team):
+        config = StripeSourceConfig.from_dict({"auth_method": {"selection": "oauth", "stripe_integration_id": 99999}})
+        with pytest.raises(ValueError, match="Integration not found"):
+            stripe_source._get_api_key(config, team.pk)
