@@ -27,8 +27,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.schema import InsightVizNode
 
-from posthog.hogql.ai import hit_openai
-
+from posthog.api.dashboards.dashboard_ai import generate_refresh_analysis
 from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
@@ -136,6 +135,10 @@ class CanEditDashboard(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         return view.user_permissions.dashboard(dashboard).can_edit
+
+
+class DashboardSnapshotSerializer(serializers.Serializer):
+    client_results = serializers.DictField(child=serializers.DictField(), required=False, allow_null=True)
 
 
 class TextSerializer(serializers.ModelSerializer):
@@ -814,70 +817,6 @@ class DashboardsViewSet(
 
         return results
 
-    def _generate_refresh_analysis(self, before_results: dict, after_results: dict) -> Optional[str]:
-        """
-        Compare before and after results and generate AI analysis of changes.
-        Returns AI summary string or None if no significant changes.
-        """
-        changes = []
-
-        for tile_id, before in before_results.items():
-            after = after_results.get(tile_id)
-            if not after:
-                continue
-
-            # Skip if data is identical (using default=str to handle datetime and other non-serializable types)
-            if json.dumps(before["data"], sort_keys=True, default=str) == json.dumps(
-                after["data"], sort_keys=True, default=str
-            ):
-                continue
-
-            changes.append(
-                {
-                    "insight_name": before.get("insight_name", f"Tile {tile_id}"),
-                    "before": before["data"],
-                    "after": after["data"],
-                }
-            )
-
-        if not changes:
-            return None
-
-        # Dynamic instruction for large dashboards to prevent verbosity
-        prioritization_instruction = (
-            "List ONLY the top 3-5 most significant changes." if len(changes) > 5 else "List the significant changes."
-        )
-
-        prompt = (
-            "You are a product data analyst. A user just refreshed their dashboard. "
-            "Compare the 'before' and 'after' data for the following insights and summarize what changed.\n\n"
-            "Style Rules:\n"
-            "- Focus ONLY on significant changes (drops, spikes, trend reversals).\n"
-            "- If including a summary, put it at the beginning of the response."
-            "- If nothing significant changed, say so.\n"
-            f"{prioritization_instruction}\n"
-            "- Group related findings.\n"
-            "- Use concise bullet points.\n"
-            "- Be direct and quantify changes when possible (e.g., '+15%', 'dropped by 30%').\n"
-            "- Do NOT use markdown formatting (no bold, italics, etc). Use plain text.\n\n"
-            f"Changes:\n{json.dumps(changes, default=str)}"
-        )
-
-        messages = [{"role": "user", "content": prompt}]
-        try:
-            content, _, _ = hit_openai(
-                messages,
-                f"team/{self.team.id}/dashboard_refresh",
-                posthog_properties={
-                    "ai_product": "product_analytics",
-                    "ai_feature": "dashboard-refresh-analysis",
-                },
-            )
-            return content
-        except Exception:
-            logger.exception("dashboard_refresh_analysis_failed")
-            return None
-
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
@@ -898,15 +837,14 @@ class DashboardsViewSet(
         """
         dashboard = self.get_object()
 
-        client_results = request.data.get("client_results")
+        input_serializer = DashboardSnapshotSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        client_results = input_serializer.validated_data.get("client_results")
 
-        if client_results and isinstance(client_results, dict):
-            # Use client-provided data (robust fallback)
+        if client_results:
             before_results = {}
             for tile_id, item in client_results.items():
-                # Ensure we summarize the data just like we do for cached results
-                # to keep the format consistent for the AI prompt
-                if isinstance(item, dict) and "data" in item:
+                if "data" in item:
                     before_results[int(tile_id)] = {
                         "insight_name": item.get("insight_name"),
                         "data": summarize_insight_result(item["data"]),
@@ -942,7 +880,7 @@ class DashboardsViewSet(
         after_results = self._get_cached_results_for_analysis(dashboard, request)
 
         # Generate AI analysis
-        analysis = self._generate_refresh_analysis(before_results, after_results)
+        analysis = generate_refresh_analysis(before_results, after_results, self.team.id)
 
         if not analysis:
             return Response({"result": "No significant changes detected in the dashboard data."})
