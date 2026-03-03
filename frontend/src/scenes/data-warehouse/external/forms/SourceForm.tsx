@@ -250,9 +250,14 @@ export function SourceFormComponent({
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { sourceConnectionDetails } = useValues(sourceWizardLogic)
 
     // Default showDescription to same as showPrefix for backward compatibility
     const shouldShowDescription = showDescription ?? showPrefix
+    const isPostgresDirectQuery =
+        sourceConfig.name === 'Postgres' &&
+        featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
+        sourceConnectionDetails.access_method === 'direct'
 
     useEffect(() => {
         if (jobInputs && setSourceConfigValue) {
@@ -324,11 +329,11 @@ export function SourceFormComponent({
                 </LemonField>
             )}
             <Group name="payload">
-                {availableSources[sourceConfig.name].fields.map((field) =>
-                    sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode)
-                )}
+                {availableSources[sourceConfig.name].fields
+                    .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
+                    .map((field) => sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode))}
             </Group>
-            {showPrefix && (
+            {showPrefix && !isPostgresDirectQuery && (
                 <LemonField
                     name="prefix"
                     label="Table prefix (optional)"
