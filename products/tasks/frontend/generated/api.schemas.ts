@@ -30,6 +30,7 @@ export interface PaginatedTaskListApi {
  * * `error_tracking` - Error Tracking
  * `eval_clusters` - Eval Clusters
  * `user_created` - User Created
+ * `slack` - Slack
  * `support_queue` - Support Queue
  * `session_summaries` - Session Summaries
  */
@@ -39,6 +40,7 @@ export const OriginProductEnumApi = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
+    Slack: 'slack',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
 } as const
@@ -453,6 +455,11 @@ export interface TaskRunCommandResponseApi {
 export interface ConnectionTokenResponseApi {
     /** JWT token for authenticating with the sandbox */
     token: string
+}
+
+export interface TaskRunRelayMessageRequestApi {
+    /** @maxLength 10000 */
+    text: string
 }
 
 /**

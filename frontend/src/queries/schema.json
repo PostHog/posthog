@@ -18703,6 +18703,7 @@
         "IntegrationKind": {
             "enum": [
                 "slack",
+                "slack-twig",
                 "salesforce",
                 "hubspot",
                 "google-pubsub",
@@ -32765,6 +32766,10 @@
                         "$ref": "#/definitions/integer"
                     },
                     "type": "array"
+                },
+                "hideWeekends": {
+                    "default": false,
+                    "type": "boolean"
                 },
                 "minDecimalPlaces": {
                     "type": "number"

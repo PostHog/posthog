@@ -3504,6 +3504,7 @@ export interface ProductTourDisplayConditions {
     } | null
     linkedFlagVariant?: string
     seenTourWaitPeriod?: ProductTourWaitPeriod
+    deviceTypes?: string[]
 }
 
 export interface ProductTourAppearance {
@@ -4616,8 +4617,6 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Action/event filter defition */
         action?: ActionFilter | null
         yAxisID?: string
-        /** Total number of respondents for survey questions (for per-respondent percentage calculation) */
-        totalResponses?: number
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }
@@ -4817,6 +4816,7 @@ export enum EventDefinitionType {
 
 export const INTEGRATION_KINDS = [
     'slack',
+    'slack-twig',
     'salesforce',
     'hubspot',
     'google-pubsub',
@@ -5802,6 +5802,7 @@ export type RawBatchExportBackfill = {
     start_at?: string
     end_at?: string
     last_updated_at?: string
+    total_records_count?: number
     progress?: BatchExportBackfillProgress
 }
 
@@ -5822,6 +5823,7 @@ export type BatchExportBackfill = {
     start_at?: Dayjs
     end_at?: Dayjs
     last_updated_at?: Dayjs
+    total_records_count?: number
     progress?: BatchExportBackfillProgress
 }
 

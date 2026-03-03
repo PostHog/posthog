@@ -4191,7 +4191,7 @@ const api = {
         async createBackfill(
             id: BatchExportConfiguration['id'],
             data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
-        ): Promise<BatchExportRun> {
+        ): Promise<{ backfill_id: string }> {
             return await new ApiRequest().batchExportBackfills(id).create({ data })
         },
         async listBackfills(
@@ -4199,6 +4199,13 @@ const api = {
             params: Record<string, any> = {}
         ): Promise<PaginatedResponse<RawBatchExportBackfill>> {
             return await new ApiRequest().batchExportBackfills(id).withQueryString(toParams(params)).get()
+        },
+        async getBackfill(
+            id: BatchExportConfiguration['id'],
+            backfillId: string,
+            teamId?: TeamType['id']
+        ): Promise<RawBatchExportBackfill> {
+            return await new ApiRequest().batchExportBackfill(id, backfillId, teamId).get()
         },
         async cancelBackfill(
             id: BatchExportConfiguration['id'],
@@ -4383,6 +4390,7 @@ const api = {
                 limit?: number
                 offset?: number
                 search?: string
+                archived?: boolean
             } = {
                 limit: SURVEY_PAGE_SIZE,
             }
