@@ -89,14 +89,13 @@ export function buildCrashFreeSessionsQuery(
 }
 
 export function insightNewUrl(query: InsightVizNode<TrendsQuery>): string {
-    return urls.insightNew({
-        query: {
-            ...query,
-            full: true,
-            showHeader: undefined,
-            showTable: undefined,
-            showFilters: undefined,
-            embedded: undefined,
-        },
-    })
+    const editorQuery: InsightVizNode<TrendsQuery> = {
+        ...query,
+        full: true,
+        showHeader: undefined,
+        showTable: undefined,
+        showFilters: undefined,
+        embedded: undefined,
+    }
+    return urls.insightNew({ query: editorQuery })
 }
