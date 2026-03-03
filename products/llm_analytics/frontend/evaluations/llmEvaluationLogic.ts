@@ -18,7 +18,6 @@ import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
-import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import {
     EvaluationConditionSet,
@@ -409,7 +408,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     )
                     actions.saveEvaluationSuccess(response)
                 }
-                llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
                 router.actions.push(urls.llmAnalyticsEvaluations(), router.values.searchParams)
             } catch (error) {
                 console.error('Failed to save evaluation:', error)
