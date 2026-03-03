@@ -833,6 +833,11 @@ export interface HogQLQueryApi {
      */
     name?: string | null
     query: string
+    /**
+     * Optional direct query connection id for running against a specific source
+     * @nullable
+     */
+    connectionId?: string | null
     response?: HogQLQueryResponseApi | null
     tags?: QueryLogTagsApi | null
     /**
