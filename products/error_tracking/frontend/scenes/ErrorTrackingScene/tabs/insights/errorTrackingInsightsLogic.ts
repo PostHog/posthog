@@ -9,8 +9,9 @@ import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, UniversalFiltersGroup } from '~/types'
 
 import { issueFiltersLogic } from '../../../../components/IssueFilters/issueFiltersLogic'
-import { ERROR_TRACKING_SCENE_LOGIC_KEY } from '../../errorTrackingSceneLogic'
 import type { errorTrackingInsightsLogicType } from './errorTrackingInsightsLogicType'
+
+export const INSIGHTS_LOGIC_KEY = 'insights'
 
 export interface InsightsSummaryStats {
     totalExceptions: number
@@ -32,11 +33,11 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
 
     connect(() => ({
         values: [
-            issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
+            issueFiltersLogic({ logicKey: INSIGHTS_LOGIC_KEY }),
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'mergedFilterGroup'],
         ],
         actions: [
-            issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
+            issueFiltersLogic({ logicKey: INSIGHTS_LOGIC_KEY }),
             ['setDateRange', 'setFilterGroup', 'setFilterTestAccounts'],
         ],
     })),

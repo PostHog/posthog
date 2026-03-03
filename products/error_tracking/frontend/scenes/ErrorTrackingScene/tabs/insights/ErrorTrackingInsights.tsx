@@ -1,13 +1,23 @@
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
+
 import { ChartCard } from './ChartCard'
-import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
+import { errorTrackingInsightsLogic, INSIGHTS_LOGIC_KEY } from './errorTrackingInsightsLogic'
 import { InsightsFilters } from './InsightsFilters'
 import { buildCrashFreeSessionsQuery, buildExceptionVolumeQuery } from './queries'
 import { SummaryStats } from './SummaryStats'
 
 export function ErrorTrackingInsights(): JSX.Element {
+    return (
+        <BindLogic logic={issueFiltersLogic} props={{ logicKey: INSIGHTS_LOGIC_KEY }}>
+            <InsightsContent />
+        </BindLogic>
+    )
+}
+
+function InsightsContent(): JSX.Element {
     const { dateRange, mergedFilterGroup, filterTestAccounts, refreshKey } = useValues(errorTrackingInsightsLogic)
 
     const filters = useMemo(

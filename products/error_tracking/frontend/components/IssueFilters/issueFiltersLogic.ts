@@ -21,6 +21,36 @@ const DEFAULT_FILTER_GROUP = {
 const DEFAULT_TEST_ACCOUNT = false
 const DEFAULT_SEARCH_QUERY = ''
 
+export function mergeFilterGroupWithQuickFilters(
+    filterGroup: UniversalFiltersGroup,
+    selectedQuickFilters: Record<string, SelectedQuickFilter>
+): UniversalFiltersGroup {
+    let omnisearchFilters: any[] = []
+    if (filterGroup.values?.length > 0 && isUniversalGroupFilterLike(filterGroup.values[0])) {
+        omnisearchFilters = filterGroup.values[0].values
+    }
+
+    const filtersFromQuickFilters = Object.values(selectedQuickFilters).map((qf: SelectedQuickFilter) => {
+        const filterValue = qf.value === null ? undefined : Array.isArray(qf.value) ? qf.value : [qf.value]
+        return {
+            type: PropertyFilterType.Event,
+            key: qf.propertyName,
+            operator: qf.operator,
+            ...(filterValue !== undefined && { value: filterValue }),
+        }
+    })
+
+    return {
+        type: FilterLogicalOperator.And,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [...omnisearchFilters, ...filtersFromQuickFilters],
+            },
+        ],
+    } as UniversalFiltersGroup
+}
+
 export interface IssueFiltersLogicProps {
     logicKey: string
 }
@@ -30,9 +60,12 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
     props({} as IssueFiltersLogicProps),
     key(({ logicKey }) => logicKey),
 
-    connect(() => ({
+    connect((props: IssueFiltersLogicProps) => ({
         values: [
-            quickFiltersSectionLogic({ context: QuickFilterContext.ErrorTrackingIssueFilters }),
+            quickFiltersSectionLogic({
+                context: QuickFilterContext.ErrorTrackingIssueFilters,
+                logicKey: props.logicKey,
+            }),
             ['selectedQuickFilters'],
         ],
         actions: [
@@ -78,44 +111,7 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
         ],
     }),
     selectors({
-        mergedFilterGroup: [
-            (s) => [s.filterGroup, s.selectedQuickFilters],
-            (
-                filterGroup: UniversalFiltersGroup,
-                selectedQuickFilters: Record<string, SelectedQuickFilter>
-            ): UniversalFiltersGroup => {
-                let omnisearchFilters: any[] = []
-                if (
-                    !!filterGroup.values &&
-                    Array.isArray(filterGroup.values) &&
-                    filterGroup.values.length > 0 &&
-                    isUniversalGroupFilterLike(filterGroup.values[0])
-                ) {
-                    omnisearchFilters = filterGroup.values[0].values
-                }
-
-                const filtersFromQuickFilters = Object.values(selectedQuickFilters).map((qf: SelectedQuickFilter) => {
-                    const filterValue = qf.value === null ? undefined : Array.isArray(qf.value) ? qf.value : [qf.value]
-
-                    return {
-                        type: PropertyFilterType.Event,
-                        key: qf.propertyName,
-                        operator: qf.operator,
-                        ...(filterValue !== undefined && { value: filterValue }),
-                    }
-                })
-
-                return {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        {
-                            type: FilterLogicalOperator.And,
-                            values: [...omnisearchFilters, ...filtersFromQuickFilters],
-                        },
-                    ],
-                } as UniversalFiltersGroup
-            },
-        ],
+        mergedFilterGroup: [(s) => [s.filterGroup, s.selectedQuickFilters], mergeFilterGroupWithQuickFilters],
     }),
     listeners(({ actions }) => ({
         setSearchQuery: async ({ searchQuery }) => {

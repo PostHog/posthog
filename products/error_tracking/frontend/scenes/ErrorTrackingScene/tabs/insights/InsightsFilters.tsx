@@ -7,6 +7,8 @@ import { QuickFilterContext } from '~/queries/schema/schema-general'
 
 import { ErrorFilters } from 'products/error_tracking/frontend/components/IssueFilters'
 
+import { INSIGHTS_LOGIC_KEY } from './errorTrackingInsightsLogic'
+
 const INSIGHTS_TAXONOMIC_GROUP_TYPES = [
     TaxonomicFilterGroupType.ErrorTrackingProperties,
     TaxonomicFilterGroupType.EventProperties,
@@ -21,7 +23,10 @@ export function InsightsFilters(): JSX.Element {
             <div className="flex gap-2 flex-wrap">
                 <ErrorFilters.DateRange />
                 <LemonDivider vertical />
-                <QuickFiltersSection context={QuickFilterContext.ErrorTrackingIssueFilters} />
+                <QuickFiltersSection
+                    context={QuickFilterContext.ErrorTrackingIssueFilters}
+                    logicKey={INSIGHTS_LOGIC_KEY}
+                />
             </div>
             <div className="flex gap-2 items-start">
                 <div className="flex-1">
