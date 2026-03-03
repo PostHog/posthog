@@ -109,6 +109,42 @@ class TestPostHogCallback:
             assert props["$ai_trace_id"] == "trace-id-123"
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("method_name", ["_on_success", "_on_failure"])
+    async def test_oauth_uses_auth_user_distinct_id_not_end_user_id(
+        self, callback: PostHogCallback, method_name: str
+    ) -> None:
+        oauth_user = AuthenticatedUser(
+            user_id=123,
+            team_id=456,
+            auth_method="oauth_access_token",
+            distinct_id="real-posthog-distinct-id",
+        )
+        kwargs = {
+            "standard_logging_object": {
+                "model": "claude-3-opus",
+                "custom_llm_provider": "anthropic",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "response_time": 1.5,
+                "response_cost": 0.05,
+                "response": "Hi",
+            },
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=oauth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+            patch("llm_gateway.callbacks.posthog.posthoganalytics") as mock_posthog,
+        ):
+            method = getattr(callback, method_name)
+            await method(kwargs, None, 0.0, 1.0, end_user_id="123")
+
+            call_kwargs = mock_posthog.capture.call_args.kwargs
+            assert call_kwargs["distinct_id"] == "real-posthog-distinct-id"
+
+    @pytest.mark.asyncio
     async def test_on_failure_captures_error_event(
         self, callback: PostHogCallback, auth_user: AuthenticatedUser
     ) -> None:

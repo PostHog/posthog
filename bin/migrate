@@ -24,7 +24,7 @@ else
 fi
 
 # NOTE when running in docker, rust might not exist so we need to check for it
-if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
+if [ -d "$SCRIPT_DIR/../rust/bin" ] && [ "${DEPLOYMENT:-}" != "hobby" ]; then
     if run_scope "cyclotron"; then
         bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron
         if [ $? -ne 0 ]; then
@@ -40,16 +40,8 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
             exit 1
         fi
     fi
-    
-    if run_scope "persons"; then
-        echo "Running persons migrations via external non-django migrator..."
-        bash $SCRIPT_DIR/../rust/bin/migrate-persons
-        if [ $? -ne 0 ]; then
-            echo "Error in rust/bin/migrate-persons, exiting."
-            exit 1
-        fi
-    fi
-    
+
+
     if run_scope "behavioral-cohorts"; then
         echo "Running behavioral cohorts migrations via external non-django migrator..."
         bash $SCRIPT_DIR/../rust/bin/migrate-behavioral-cohorts
@@ -105,12 +97,18 @@ if [ "$RUN_POSTGRES" = "1" ]; then
     MIGRATE_SUCCESS=false
     MIGRATE_START_TIME=$(timestamp)
     
-    # Build migrate command - use direct connection if available
+    # Build migrate command
+    # --production skips local-dev features (orphan check, migration caching)
+    # Use direct connection if available (bypasses PgBouncer for lock_timeout support)
     if [ -n "$POSTHOG_POSTGRES_DIRECT_HOST" ]; then
         MIGRATE_CMD="python manage.py migrate --noinput --database=default_direct"
         echo "[migrate] Using direct database connection (lock_timeout enabled)"
     else
         MIGRATE_CMD="python manage.py migrate --noinput"
+    fi
+
+    if [ -n "${DEPLOYMENT:-}" ]; then
+        MIGRATE_CMD="$MIGRATE_CMD --production"
     fi
     
     while [ $MIGRATE_ATTEMPT -le $MIGRATE_MAX_RETRIES ]; do
@@ -149,6 +147,29 @@ if [ "$RUN_POSTGRES" = "1" ]; then
         exit 1
     fi
     
+fi
+
+# Persons migrations via Django management command.
+# Hobby: runs against default DB, skipping partitioning migrations.
+# Local dev (DEBUG=1): runs against persons_db_writer, creating the database
+# if needed and applying all migrations including partitioning.
+# Production: skipped — persons migrations are handled by the sqlx-migrate K8s job.
+if run_scope "persons"; then
+    if [ "${DEPLOYMENT:-}" = "hobby" ]; then
+        echo "Running persons migrations via Django management command (hobby)..."
+        python manage.py apply_persons_migrations --hobby
+        if [ $? -ne 0 ]; then
+            echo "Error in apply_persons_migrations, exiting."
+            exit 1
+        fi
+    elif [ "${DEBUG:-0}" = "1" ]; then
+        echo "Running persons migrations via Django management command..."
+        python manage.py apply_persons_migrations --database=persons_db_writer --ensure-database
+        if [ $? -ne 0 ]; then
+            echo "Error in apply_persons_migrations, exiting."
+            exit 1
+        fi
+    fi
 fi
 
 if run_scope "async"; then

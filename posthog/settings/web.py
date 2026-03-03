@@ -56,6 +56,8 @@ PRODUCTS_APPS = [
     "products.workflows.backend.apps.WorkflowsConfig",
     "products.posthog_ai.backend.apps.PosthogAiConfig",
     "products.signals.backend.apps.SignalsConfig",
+    "products.mcp_store.backend.apps.McpStoreConfig",
+    "products.event_definitions.backend.apps.EventDefinitionsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -97,6 +99,7 @@ MIDDLEWARE = [
     "django_structlog.middlewares.RequestMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
+    "posthog.middleware.ToolbarOAuthCoopMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
@@ -351,6 +354,7 @@ if DEBUG:
 
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
+    "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
@@ -358,7 +362,9 @@ SPECTACULAR_SETTINGS = {
     ],
     "ENUM_NAME_OVERRIDES": {
         "DashboardRestrictionLevel": "posthog.models.dashboard.Dashboard.RestrictionLevel",
+        "PropertyGroupOperator": ["AND", "OR"],
         "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
+        "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "posthog.models.surveys.survey.Survey.SurveyType",
     },
 }
@@ -428,6 +434,12 @@ PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1, float("inf")]
 
 ####
 # Proxy and IP egress config
+
+# CONNECT proxy for outbound HTTP — blocks connections to private IPs at the network level (SSRF prevention).
+# Only configured on clients making external/user-controlled requests;
+# internal service-to-service calls bypass the proxy by simply not configuring it.
+OUTBOUND_PROXY_URL = get_from_env("OUTBOUND_PROXY_URL", "")  # e.g. http://proxy:8080
+OUTBOUND_PROXY_ENABLED = get_from_env("OUTBOUND_PROXY_ENABLED", False, type_cast=str_to_bool)
 
 # Used only to display in the UI to inform users of allowlist options
 PUBLIC_EGRESS_IP_ADDRESSES = get_list(os.getenv("PUBLIC_EGRESS_IP_ADDRESSES", ""))
@@ -516,6 +528,14 @@ POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 # Comma-separated list of team IDs that should receive the digest
 HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS", ""))
 
+# Comma-separated list of org ids allowed to receive the Error Tracking weekly digest
+# "*" for all, empty to disable feature
+ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS", ""))
+
+# Comma-separated list of email addresses allowed to receive the Error Tracking weekly digest
+# "*" for all
+ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS", ""))
+
 ####
 # OAuth
 
@@ -567,6 +587,25 @@ OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
 OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
+
+TOOLBAR_OAUTH_STATE_TTL_SECONDS = 60 * 5
+TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS = 10
+TOOLBAR_OAUTH_APPLICATION_NAME = "PostHog Toolbar"
+TOOLBAR_OAUTH_SCOPES = [
+    "openid",
+    "user:read",
+    "action:read",
+    "action:write",
+    "feature_flag:read",
+    "experiment:read",
+    "experiment:write",
+    "query:read",
+    "product_tour:read",
+    "product_tour:write",
+    "heatmap:read",
+    "element:read",
+    "uploaded_media:write",
+]
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

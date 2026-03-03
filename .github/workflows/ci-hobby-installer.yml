@@ -15,12 +15,12 @@ jobs:
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Set up Go
               uses: actions/setup-go@v6
               with:
-                  go-version: '1.24'
+                  go-version: '1.25.5'
 
             - name: Run golangci-lint
               uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
@@ -44,12 +44,12 @@ jobs:
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Set up Go
               uses: actions/setup-go@v6
               with:
-                  go-version: '1.24'
+                  go-version: '1.25.5'
 
             - name: Build
               run: cd bin/hobby-installer && make build

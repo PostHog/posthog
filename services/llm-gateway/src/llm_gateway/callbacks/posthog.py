@@ -7,7 +7,13 @@ import posthoganalytics
 import structlog
 
 from llm_gateway.callbacks.base import InstrumentedCallback
-from llm_gateway.request_context import get_auth_user, get_product, get_time_to_first_token
+from llm_gateway.request_context import (
+    get_auth_user,
+    get_posthog_flags,
+    get_posthog_properties,
+    get_product,
+    get_time_to_first_token,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -86,7 +92,10 @@ class PostHogCallback(InstrumentedCallback):
         trace_id = (
             metadata.get("user_id") or str(uuid4())
         )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
-        distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+        if auth_user and auth_user.auth_method == "oauth_access_token":
+            distinct_id = auth_user.distinct_id
+        else:
+            distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(
@@ -112,6 +121,16 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_span_id": str(uuid4()),
             "ai_product": product,
         }
+
+        posthog_properties = get_posthog_properties() or {}
+        if isinstance(posthog_properties, dict):
+            for key, value in posthog_properties.items():
+                properties[key] = value
+
+        posthog_flags = get_posthog_flags() or {}
+        if isinstance(posthog_flags, dict):
+            for flag_key, variant in posthog_flags.items():
+                properties[f"$feature/{flag_key}"] = variant
 
         if team_id:
             properties["team_id"] = team_id
@@ -159,7 +178,10 @@ class PostHogCallback(InstrumentedCallback):
         trace_id = (
             metadata.get("user_id") or str(uuid4())
         )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
-        distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+        if auth_user and auth_user.auth_method == "oauth_access_token":
+            distinct_id = auth_user.distinct_id
+        else:
+            distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(
@@ -178,6 +200,16 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_error": standard_logging_object.get("error_str", ""),
             "ai_product": product,
         }
+
+        posthog_properties = get_posthog_properties() or {}
+        if isinstance(posthog_properties, dict):
+            for key, value in posthog_properties.items():
+                properties[key] = value
+
+        posthog_flags = get_posthog_flags() or {}
+        if isinstance(posthog_flags, dict):
+            for flag_key, variant in posthog_flags.items():
+                properties[f"$feature/{flag_key}"] = variant
 
         if team_id:
             properties["team_id"] = team_id

@@ -141,3 +141,32 @@ def validate_origin(request, team: Team) -> bool:
         return True
 
     return on_permitted_recording_domain(domains, request._request)
+
+
+def validate_url_domain(url: str, team: Team) -> bool:
+    """
+    Validate that a URL's domain is in the team's widget_domains allowlist.
+    Returns True if no allowlist configured (empty = allow all) or domain matches.
+    """
+    from urllib.parse import urlparse
+
+    settings = team.conversations_settings or {}
+    domains = settings.get("widget_domains") or []
+
+    if not domains:
+        return True
+
+    parsed = urlparse(url)
+    url_host = parsed.netloc.lower()
+
+    for domain in domains:
+        domain = domain.lower().strip()
+        if domain.startswith("*."):
+            # Wildcard: *.example.com matches sub.example.com and example.com
+            base = domain[2:]
+            if url_host == base or url_host.endswith("." + base):
+                return True
+        elif url_host == domain:
+            return True
+
+    return False

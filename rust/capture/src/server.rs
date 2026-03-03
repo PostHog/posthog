@@ -76,10 +76,7 @@ fn spawn_connection_handler(
             "stage" => stage,
         )
         .increment(1);
-        warn!(
-            "Hyper accept loop ({}): error setting TCP_NODELAY: {}",
-            stage, e
-        );
+        warn!("Hyper accept loop ({stage}): error setting TCP_NODELAY: {e:#}");
     }
 
     let service = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
@@ -245,41 +242,9 @@ where
     );
 
     let global_rate_limiter = if config.global_rate_limit_enabled {
-        // Use dedicated Redis if configured, otherwise fall back to shared client
-        let grl_redis_client: Arc<dyn common_redis::Client + Send + Sync> =
-            if let Some(ref grl_redis_url) = config.global_rate_limit_redis_url {
-                let response_timeout = config
-                    .global_rate_limit_redis_response_timeout_ms
-                    .unwrap_or(config.redis_response_timeout_ms);
-                let connection_timeout = config
-                    .global_rate_limit_redis_connection_timeout_ms
-                    .unwrap_or(config.redis_connection_timeout_ms);
-
-                Arc::new(
-                    RedisClient::with_config(
-                        grl_redis_url.clone(),
-                        common_redis::CompressionConfig::disabled(),
-                        common_redis::RedisValueFormat::default(),
-                        if response_timeout == 0 {
-                            None
-                        } else {
-                            Some(Duration::from_millis(response_timeout))
-                        },
-                        if connection_timeout == 0 {
-                            None
-                        } else {
-                            Some(Duration::from_millis(connection_timeout))
-                        },
-                    )
-                    .await
-                    .expect("failed to create global rate limiter redis client"),
-                )
-            } else {
-                redis_client.clone()
-            };
-
         Some(Arc::new(
-            GlobalRateLimiter::new(&config, vec![grl_redis_client])
+            GlobalRateLimiter::try_from_config(&config, redis_client.clone())
+                .await
                 .expect("failed to create global rate limiter"),
         ))
     } else {
@@ -495,13 +460,13 @@ where
                                 "err_type" => "connection",
                                 "stage" => "accept",
                             ).increment(1);
-                            error!("Hyper accept loop: connection error: {}", e);
+                            error!("Hyper accept loop: connection error: {e:#}");
                         } else {
                             metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
                                 "err_type" => "resources",
                                 "stage" => "accept",
                             ).increment(1);
-                            error!("Hyper accept loop: resource error: {}", e);
+                            error!("Hyper accept loop: resource error: {e:#}");
                             tokio::time::sleep(Duration::from_secs(1)).await;
                         }
                         continue;
@@ -564,8 +529,7 @@ where
                     error!(
                         error_type = "connection",
                         pause = "none",
-                        "Hyper accept loop (draining): {}",
-                        e
+                        "Hyper accept loop (draining): {e:#}"
                     );
                 } else {
                     metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
@@ -576,8 +540,7 @@ where
                     error!(
                         error_type = "resources",
                         pause = "none",
-                        "Hyper accept loop (draining): {}",
-                        e
+                        "Hyper accept loop (draining): {e:#}"
                     );
                 }
             }
@@ -604,7 +567,7 @@ where
         info!("Shutting down event restrictions refresh task...");
         cancel_token.cancel();
         if let Err(e) = handle.await {
-            warn!("Event restrictions refresh task failed: {}", e);
+            warn!("Event restrictions refresh task failed: {e:#}");
         }
         info!("Event restrictions refresh task stopped");
     }

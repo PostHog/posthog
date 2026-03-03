@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from langchain_core.messages import AIMessage
 
-from ee.hogai.chat_agent.memory.parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
+from ee.hogai.chat_agent.memory.parsers import check_memory_collection_completed, compressed_memory_parser
 
 
 class TestParsers(BaseTest):
@@ -10,14 +10,12 @@ class TestParsers(BaseTest):
         memory = "Hello\n\nWorld "
         self.assertEqual(compressed_memory_parser(memory), "Hello\nWorld ")
 
-    def test_raise_memory_updated(self):
+    def test_check_memory_collection_completed(self):
         message = AIMessage(content="Hello World")
-        with self.assertRaises(MemoryCollectionCompleted):
-            raise_memory_updated(message)
+        self.assertIsNone(check_memory_collection_completed(message))
 
         message = AIMessage(content="[Done]", tool_calls=[{"id": "1", "args": {}, "name": "function"}])
-        with self.assertRaises(MemoryCollectionCompleted):
-            raise_memory_updated(message)
+        self.assertIsNone(check_memory_collection_completed(message))
 
         message = AIMessage(content="Reasoning", tool_calls=[{"id": "1", "args": {}, "name": "function"}])
-        self.assertEqual(raise_memory_updated(message), message)
+        self.assertEqual(check_memory_collection_completed(message), message)

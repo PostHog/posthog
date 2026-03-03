@@ -2,6 +2,7 @@ import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
@@ -40,7 +41,7 @@ export function MarketingAnalyticsOverview(props: {
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
-    const { response, responseLoading } = useValues(logic)
+    const { response, responseLoading, responseError } = useValues(logic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     useAttachedLogic(logic, props.attachTo)
 
@@ -66,11 +67,20 @@ export function MarketingAnalyticsOverview(props: {
     const conversionGoalMetrics = conversion_goals.length * 2 // Each conversion goal adds 2 metrics: goal + cost per conversion
     const numSkeletons = BASE_METRICS_COUNT + conversionGoalMetrics
 
+    const hasResults = overviewItems.length > 0
+    if (responseError && !responseLoading && !hasResults) {
+        return <InsightErrorState title={responseError} />
+    }
+
+    // Combine validation warnings with any backend warnings (e.g. skipped conversion goals)
+    const allWarnings = [
+        ...(validationWarnings ?? []),
+        ...(responseError && hasResults ? [{ message: responseError, link: undefined } as const] : []),
+    ]
+
     return (
         <>
-            {validationWarnings && validationWarnings.length > 0 && (
-                <MarketingAnalyticsValidationWarningBanner warnings={validationWarnings} />
-            )}
+            {allWarnings.length > 0 && <MarketingAnalyticsValidationWarningBanner warnings={allWarnings} />}
             <OverviewGrid
                 compact
                 items={overviewItems}

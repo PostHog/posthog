@@ -1,37 +1,46 @@
+import { Collapsible } from '@base-ui/react/collapsible'
+import { Menubar } from '@base-ui/react/menubar'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { useRef, useState } from 'react'
+import { useCallback, useRef } from 'react'
 
-import { IconChevronRight, IconPlusSmall, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import {
+    IconChevronRight,
+    IconClock,
+    IconFolder,
+    IconHome,
+    IconNotification,
+    IconSearch,
+    IconSparkles,
+    IconStar,
+} from '@posthog/icons'
 
-import { AccountMenu } from 'lib/components/Account/AccountMenu'
+import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
-import { DebugNotice } from 'lib/components/DebugNotice'
-import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
+import { commandLogic } from 'lib/components/Command/commandLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
-import { newInternalTab } from 'lib/utils/newInternalTab'
+import { AiChatListItem } from 'scenes/max/components/List/AiChatListItem'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { AppsMenu } from '~/layout/panel-layout/ai-first/AppsMenu'
-import { ConversationsMenu } from '~/layout/panel-layout/ai-first/ConversationsMenu'
-import { RecentConversationsList } from '~/layout/panel-layout/ai-first/RecentConversationsList'
+import { DataMenu } from '~/layout/panel-layout/ai-first/DataMenu'
+import { FilesMenu } from '~/layout/panel-layout/ai-first/FilesMenu'
+import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
+import { RecentsMenu } from '~/layout/panel-layout/ai-first/RecentsMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
+import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
+import { maxGlobalLogic } from '~/scenes/max/maxGlobalLogic'
+import { ActivityTab } from '~/types'
 
-import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
-import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { DataMenu } from './ai-first/DataMenu'
+import { NavBarFooter } from './NavBarFooter'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
@@ -47,198 +56,280 @@ const navBarStyles = cva({
     },
 })
 
-export function AiFirstNavBar(): JSX.Element {
-    const containerRef = useRef<HTMLDivElement | null>(null)
-    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
-    const { toggleLayoutNavCollapsed } = useActions(panelLayoutLogic)
-    const { isLayoutPanelVisible, isLayoutNavCollapsed } = useValues(panelLayoutLogic)
-    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { user } = useValues(userLogic)
-    const { firstTabIsActive } = useValues(sceneLogic)
+function SectionChevron({ open }: { open: boolean }): JSX.Element {
+    return (
+        <IconChevronRight
+            className={cn(
+                'size-3 text-tertiary opacity-0 group-hover:opacity-100 transition-all duration-150',
+                open && 'rotate-90'
+            )}
+        />
+    )
+}
 
-    useAppShortcut({
-        name: 'open-new-chat',
-        keybind: [keyBinds.newChat],
-        intent: 'Open new chat',
-        interaction: 'function',
-        callback: () => {
-            newInternalTab(urls.ai())
-        },
-    })
+function SectionTrigger({
+    label,
+    open,
+    isCollapsed,
+    icon,
+}: {
+    label: string
+    open: boolean
+    isCollapsed: boolean
+    icon: React.ReactNode
+}): JSX.Element {
+    return (
+        <Collapsible.Trigger
+            className={cn('flex items-center w-full py-1 cursor-pointer group pl-2', isCollapsed && 'px-px')}
+        >
+            <Label
+                intent="menu"
+                className={cn(
+                    'text-xxs text-tertiary text-left group-hover:text-primary mr-1',
+                    isCollapsed && 'text-[7px] m-0 w-full text-center'
+                )}
+            >
+                {icon && !isCollapsed && <span className="size-3 mr-1">{icon}</span>}
+                {label}
+            </Label>
+            {!isCollapsed && <SectionChevron open={open} />}
+        </Collapsible.Trigger>
+    )
+}
+
+function MenubarWithHoverCone({
+    children,
+    className,
+    debug = false,
+    ...menubarProps
+}: React.ComponentProps<typeof Menubar> & { debug?: boolean }): JSX.Element {
+    const coneRef = useRef<HTMLDivElement>(null)
+
+    const handleMouseMove = useCallback((e: React.MouseEvent) => {
+        const el = coneRef.current
+        if (!el) {
+            return
+        }
+        const rect = el.getBoundingClientRect()
+        el.style.setProperty('--cone-x', `${e.clientX - rect.left}px`)
+        el.style.setProperty('--cone-y', `${e.clientY - rect.top}px`)
+    }, [])
 
     return (
-        <>
-            <div className="flex gap-0 relative">
-                <nav
+        <div ref={coneRef} className="menubar-hover-cone relative" onMouseMove={handleMouseMove}>
+            <Menubar className={className} {...menubarProps}>
+                {children}
+            </Menubar>
+            <div className={cn('menubar-hover-cone-overlay', debug && 'debug')} />
+        </div>
+    )
+}
+
+export function AiFirstNavBar(): JSX.Element {
+    const containerRef = useRef<HTMLDivElement | null>(null)
+    const { toggleLayoutNavCollapsed, toggleNavSection } = useActions(panelLayoutLogic)
+    const { isLayoutPanelVisible, isLayoutNavCollapsed, expandedNavSections } = useValues(panelLayoutLogic)
+    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
+    const { firstTabIsActive } = useValues(sceneLogic)
+    const { toggleCommand } = useActions(commandLogic)
+    const { conversationHistory, currentConversationId } = useValues(maxGlobalLogic)
+    const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
+    const recentChats = conversationHistory.slice(0, 3)
+
+    return (
+        <div className="flex gap-0 relative">
+            <nav
+                className={cn(
+                    navBarStyles({
+                        isLayoutNavCollapsed,
+                        isMobileLayout,
+                    }),
+                    isLayoutNavCollapsed && 'gap-px'
+                )}
+                ref={containerRef}
+            >
+                <div
                     className={cn(
-                        navBarStyles({
-                            isLayoutNavCollapsed,
-                            isMobileLayout,
-                        })
+                        'flex justify-between items-center',
+                        isLayoutNavCollapsed ? 'justify-center' : 'h-[var(--scene-layout-header-height)]'
                     )}
-                    ref={containerRef}
                 >
                     <div
-                        className={cn(
-                            'flex justify-between p-1 pl-[5px] items-center',
-                            isLayoutNavCollapsed ? 'justify-center' : 'h-[var(--scene-layout-header-height)]'
-                        )}
+                        className={cn('flex gap-1 rounded-md w-full px-1', {
+                            'flex-col items-center pt-2': isLayoutNavCollapsed,
+                        })}
                     >
-                        <div
-                            className={cn('flex gap-1 rounded-md w-full', {
-                                'flex-col items-center pt-px': isLayoutNavCollapsed,
-                            })}
+                        <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
+
+                        <ButtonPrimitive
+                            iconOnly
+                            tooltip={
+                                <>
+                                    <span>Search</span> <RenderKeybind keybind={[keyBinds.search]} />
+                                </>
+                            }
+                            onClick={() => toggleCommand()}
                         >
-                            <OrganizationMenu
-                                showName={false}
-                                buttonProps={{
-                                    variant: 'panel',
-                                    className: cn('px-px', {
-                                        hidden: isLayoutNavCollapsed,
-                                    }),
-                                    iconOnly: isLayoutNavCollapsed,
-                                    tooltipCloseDelayMs: 0,
-                                    tooltipPlacement: 'bottom',
-                                    tooltip: 'Switch organization',
-                                }}
-                            />
-                            <ProjectMenu
-                                buttonProps={{
-                                    className: 'max-w-full flex-1',
-                                    variant: 'panel',
-                                    tooltipCloseDelayMs: 0,
-                                    iconOnly: isLayoutNavCollapsed,
-                                    tooltipPlacement: 'bottom',
-                                    tooltip: 'Switch project',
-                                }}
-                            />
-
-                            {/* <RecentItemsMenu /> */}
-                        </div>
+                            <IconSearch className="size-4 text-secondary" />
+                        </ButtonPrimitive>
                     </div>
+                </div>
 
-                    <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
-                        <div className="flex-1 show-scrollbar-on-hover">
-                            <div className="flex flex-col gap-px">
-                                <div
-                                    className={cn('px-1 flex flex-col gap-2', {
-                                        'items-center': isLayoutNavCollapsed,
-                                    })}
-                                >
-                                    <LemonButton
-                                        tooltip={
-                                            <>
-                                                <span>New chat</span> <RenderKeybind keybind={[keyBinds.newChat]} />
-                                            </>
-                                        }
-                                        tooltipPlacement="right"
-                                        onClick={() => router.actions.push(urls.ai())}
-                                        type="secondary"
-                                        className="[--lemon-button-padding-horizontal:0.5rem] [--lemon-button-gap:1rem]"
-                                    >
-                                        <IconPlusSmall className="size-4 text-secondary" />
-                                        <span className="pl-[2px]">New chat</span>
-                                    </LemonButton>
-
-                                    <div className="flex flex-col gap-1">
-                                        <Label intent="menu" className="text-xxs px-2 text-tertiary">
-                                            Recent
-                                        </Label>
-                                        <div className="flex flex-col gap-px">
-                                            <RecentConversationsList isCollapsed={isLayoutNavCollapsed} />
-                                            <ConversationsMenu isCollapsed={isLayoutNavCollapsed} />
-                                        </div>
-                                    </div>
-
-                                    <div className="flex flex-col gap-px w-full">
-                                        {/* Data Menu */}
-                                        <DataMenu />
-
-                                        {/* Apps Menu */}
-                                        <AppsMenu isCollapsed={isLayoutNavCollapsed} />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="border-b border-primary h-px " />
-
-                        <div className="p-1 flex flex-col gap-px items-center">
-                            <DebugNotice isCollapsed={isLayoutNavCollapsed} />
-                            <NavPanelAdvertisement />
-
-                            <ButtonPrimitive
-                                iconOnly={isLayoutNavCollapsed}
-                                tooltip={isLayoutNavCollapsed ? 'Expand nav' : undefined}
-                                tooltipPlacement="right"
-                                onClick={() => toggleLayoutNavCollapsed(!isLayoutNavCollapsed)}
-                                menuItem={!isLayoutNavCollapsed}
-                                className="hidden lg:flex"
+                <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
+                    <ScrollableShadows
+                        className={cn('flex-1', { 'rounded-tr': !isLayoutPanelVisible && !firstTabIsActive })}
+                        innerClassName="overflow-y-auto overflow-x-hidden"
+                        direction="vertical"
+                        styledScrollbars
+                    >
+                        <Collapsible.Root
+                            open={expandedNavSections.ai ?? true}
+                            onOpenChange={() => toggleNavSection('ai')}
+                            className={cn('px-1 mt-2', isLayoutNavCollapsed && 'mt-0')}
+                        >
+                            {!isLayoutNavCollapsed && (
+                                <SectionTrigger
+                                    icon={<IconSparkles />}
+                                    label={isLayoutNavCollapsed ? 'AI' : 'PostHog AI'}
+                                    open={expandedNavSections.ai ?? true}
+                                    isCollapsed={isLayoutNavCollapsed}
+                                />
+                            )}
+                            <Collapsible.Panel
+                                className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}
                             >
-                                {isLayoutNavCollapsed ? (
-                                    <>
-                                        <IconSidebarClose className="text-tertiary" />
-                                    </>
-                                ) : (
-                                    <>
-                                        <IconSidebarOpen className="text-tertiary" />
-                                        Collapse nav
-                                    </>
-                                )}
-                            </ButtonPrimitive>
+                                <NavLink
+                                    to={urls.ai()}
+                                    label="New chat"
+                                    icon={
+                                        <span className="text-ai">
+                                            <svg
+                                                width="24"
+                                                height="24"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                            >
+                                                <line x1="12" y1="5" x2="12" y2="19" />
+                                                <line x1="5" y1="12" x2="19" y2="12" />
+                                            </svg>
+                                        </span>
+                                    }
+                                    isCollapsed={isLayoutNavCollapsed}
+                                />
+                                {!isLayoutNavCollapsed &&
+                                    recentChats.map((conversation) => (
+                                        <AiChatListItem
+                                            key={conversation.id}
+                                            conversationId={conversation.id}
+                                            title={conversation.title}
+                                            status={conversation.status}
+                                            updatedAt={conversation.updated_at}
+                                            isActive={conversation.id === currentConversationId}
+                                        />
+                                    ))}
+                            </Collapsible.Panel>
+                        </Collapsible.Root>
 
-                            <AccountMenu
-                                align="end"
-                                side="right"
-                                alignOffset={10}
-                                trigger={
-                                    <ButtonPrimitive
-                                        menuItem={!isLayoutNavCollapsed}
-                                        tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
-                                        tooltipPlacement="right"
-                                        iconOnly={isLayoutNavCollapsed}
-                                        data-attr="menu-item-me"
-                                    >
-                                        <ProfilePicture user={user} size="xs" />
-                                        {!isLayoutNavCollapsed && (
-                                            <>
-                                                {user?.first_name ? (
-                                                    <span>{user?.first_name}</span>
-                                                ) : (
-                                                    <span>{user?.email}</span>
-                                                )}
-                                                <IconChevronRight className="size-3 text-secondary ml-auto" />
-                                            </>
-                                        )}
-                                    </ButtonPrimitive>
-                                }
+                        <Collapsible.Root
+                            open={expandedNavSections.project ?? true}
+                            onOpenChange={() => toggleNavSection('project')}
+                            className="px-1 mt-2"
+                        >
+                            <SectionTrigger
+                                icon={<IconFolder />}
+                                label="Project"
+                                open={expandedNavSections.project ?? true}
+                                isCollapsed={isLayoutNavCollapsed}
                             />
-                        </div>
-                    </div>
-                    {!isMobileLayout && (
-                        <Resizer
-                            logicKey="panel-layout-navbar"
-                            placement="right"
-                            containerRef={containerRef}
-                            closeThreshold={100}
-                            onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
-                            onDoubleClick={() => toggleLayoutNavCollapsed()}
-                            data-attr="tree-navbar-resizer"
-                            // top + 7px is to match rounded-lg border-radius on <main>
-                            className={cn('top-[calc(var(--scene-layout-header-height)+7px)] right-[-1px] bottom-4', {
-                                // // If first tab is not active, we move the line down to match up with the curve (only present if not first tab is active)
-                                'top-[var(--scene-layout-header-height)]': firstTabIsActive,
-                                'top-0': isLayoutPanelVisible,
-                            })}
-                            offset={0}
-                        />
-                    )}
-                </nav>
-            </div>
-            <ConfigurePinnedTabsModal
-                isOpen={isConfigurePinnedTabsOpen}
-                onClose={() => setIsConfigurePinnedTabsOpen(false)}
-            />
-        </>
+                            <Collapsible.Panel
+                                className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}
+                            >
+                                <NavLink
+                                    to={urls.projectRoot()}
+                                    label="Home"
+                                    icon={<IconHome />}
+                                    isCollapsed={isLayoutNavCollapsed}
+                                />
+
+                                {isProductAutonomyEnabled && (
+                                    <NavLink
+                                        to={urls.inbox()}
+                                        label="Inbox"
+                                        icon={<IconNotification />}
+                                        isCollapsed={isLayoutNavCollapsed}
+                                    />
+                                )}
+
+                                <NavLink
+                                    to={urls.activity(ActivityTab.ExploreEvents)}
+                                    label="Activity"
+                                    icon={<IconClock />}
+                                    isCollapsed={isLayoutNavCollapsed}
+                                />
+
+                                <MenubarWithHoverCone
+                                    orientation="vertical"
+                                    modal={false}
+                                    className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}
+                                >
+                                    <AppsMenu isCollapsed={isLayoutNavCollapsed} />
+                                    <DataMenu isCollapsed={isLayoutNavCollapsed} />
+                                    <FilesMenu isCollapsed={isLayoutNavCollapsed} />
+                                    <RecentsMenu isCollapsed={isLayoutNavCollapsed} />
+                                </MenubarWithHoverCone>
+                            </Collapsible.Panel>
+                        </Collapsible.Root>
+
+                        <Collapsible.Root
+                            open={expandedNavSections.favorites ?? true}
+                            onOpenChange={() => toggleNavSection('favorites')}
+                            className="px-1 mt-2"
+                        >
+                            <SectionTrigger
+                                icon={<IconStar />}
+                                label="Starred"
+                                open={expandedNavSections.favorites ?? true}
+                                isCollapsed={isLayoutNavCollapsed}
+                            />
+                            <Collapsible.Panel
+                                className={cn(
+                                    '-ml-1 w-[calc(100%+(var(--spacing)*2))]',
+                                    isLayoutNavCollapsed ? 'items-center' : ''
+                                )}
+                            >
+                                <ProjectTree
+                                    root="shortcuts://"
+                                    onlyTree
+                                    treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'}
+                                />
+                            </Collapsible.Panel>
+                        </Collapsible.Root>
+                    </ScrollableShadows>
+
+                    <div className="border-b border-primary h-px" />
+
+                    <NavBarFooter isLayoutNavCollapsed={isLayoutNavCollapsed} />
+                </div>
+                {!isMobileLayout && (
+                    <Resizer
+                        logicKey="panel-layout-navbar"
+                        placement="right"
+                        containerRef={containerRef}
+                        closeThreshold={100}
+                        onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
+                        onDoubleClick={() => toggleLayoutNavCollapsed()}
+                        data-attr="tree-navbar-resizer"
+                        className={cn('top-[calc(var(--scene-layout-header-height)+7px)] right-[-1px] bottom-4', {
+                            'top-[var(--scene-layout-header-height)]': firstTabIsActive,
+                            'top-0': isLayoutPanelVisible,
+                        })}
+                        offset={0}
+                    />
+                )}
+            </nav>
+        </div>
     )
 }

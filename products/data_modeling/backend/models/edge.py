@@ -6,7 +6,7 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from .dag import DAG
 from .node import Node
 
-DISALLOWED_UPDATE_FIELDS = ("dag_id_text", "source", "source_id", "target", "target_id", "team", "team_id")
+DISALLOWED_UPDATE_FIELDS = ("dag_id", "dag_id_text", "source", "source_id", "target", "target_id", "team", "team_id")
 
 
 class CycleDetectionError(Exception):
@@ -64,11 +64,9 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     class Meta:
         db_table = "posthog_datamodelingedge"
-        constraints = [
-            models.UniqueConstraint(fields=["dag_id_text", "source", "target"], name="unique_within_dag_text"),
-        ]
 
     def save(self, *args, skip_validation: bool = False, **kwargs):
+        self.dag_id = self.dag_id_text
         if skip_validation:
             super().save(*args, **kwargs)
             return

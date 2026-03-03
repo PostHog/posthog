@@ -13,6 +13,7 @@ function __x_typeof (value) {
     return 'unknown'
 }
 function tuple (...args) { const tuple = args.slice(); tuple.__isHogTuple = true; return tuple; }
+function tryDecodeURLComponent (str) { try { return decodeURIComponent(str) } catch { return null } }
 function today() {
     const now = new Date();
     return __toHogDate(now.getUTCFullYear(), now.getUTCMonth()+1, now.getUTCDate());
@@ -452,6 +453,12 @@ print(encodeURLComponent("http://www.google.com"));
 print(encodeURLComponent("tom & jerry"));
 print(decodeURLComponent(encodeURLComponent("http://www.google.com")));
 print(decodeURLComponent(encodeURLComponent("tom & jerry")));
+print("");
+print("-- tryDecodeURLComponent --");
+print(tryDecodeURLComponent("hello%20world"));
+print(tryDecodeURLComponent("100%free"));
+print(tryDecodeURLComponent("valid%20and%20100%free"));
+print(tryDecodeURLComponent(""));
 print("");
 print("-- base64Encode, base64Decode --");
 print(base64Encode("http://www.google.com"));

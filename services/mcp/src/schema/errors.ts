@@ -16,9 +16,26 @@ export enum OrderDirectionErrors {
 export enum StatusErrors {
     Active = 'active',
     Resolved = 'resolved',
-    All = 'all',
+    Archived = 'archived',
     Suppressed = 'suppressed',
+    PendingRelease = 'pending_release',
+    All = 'all',
 }
+
+export enum IssueStatus {
+    Active = 'active',
+    Resolved = 'resolved',
+    Archived = 'archived',
+    Suppressed = 'suppressed',
+    PendingRelease = 'pending_release',
+}
+
+export const UpdateIssueStatusSchema = z.object({
+    issueId: z.string().uuid().describe('The ID of the error tracking issue to update'),
+    status: z
+        .nativeEnum(IssueStatus)
+        .describe('The new status for the issue: active, resolved, archived, suppressed, or pending_release'),
+})
 
 export const ListErrorsSchema = z.object({
     orderBy: z.nativeEnum(OrderByErrors).optional(),

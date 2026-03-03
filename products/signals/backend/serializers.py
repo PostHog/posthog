@@ -2,7 +2,31 @@ import json
 
 from rest_framework import serializers
 
-from .models import SignalReport, SignalReportArtefact
+from .models import SignalReport, SignalReportArtefact, SignalSourceConfig
+
+
+class SignalSourceConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SignalSourceConfig
+        fields = [
+            "id",
+            "source_product",
+            "source_type",
+            "enabled",
+            "config",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate(self, attrs: dict) -> dict:
+        source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))
+        config = attrs.get("config", {})
+        if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
+            recording_filters = config.get("recording_filters")
+            if recording_filters is not None and not isinstance(recording_filters, dict):
+                raise serializers.ValidationError({"config": "recording_filters must be a JSON object"})
+        return attrs
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
@@ -17,7 +41,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "status",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count
-            "relevant_user_count",
+            "signals_at_run",  # Snooze threshold: re-promote when signal_count >= this value
             "created_at",
             "updated_at",
             "artefact_count",
@@ -34,9 +58,7 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_content(self, obj: SignalReportArtefact) -> dict:
-        """Parse JSON from content BinaryField."""
         try:
-            content = bytes(obj.content) if isinstance(obj.content, memoryview) else obj.content
-            return json.loads(content.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
+            return json.loads(obj.content)
+        except (json.JSONDecodeError, ValueError):
             return {}

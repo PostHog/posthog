@@ -8,7 +8,7 @@ import {
     ReorderDashboardTilesSchema,
     UpdateDashboardInputSchema,
 } from './dashboards'
-import { ErrorDetailsSchema, ListErrorsSchema } from './errors'
+import { ErrorDetailsSchema, ListErrorsSchema, UpdateIssueStatusSchema } from './errors'
 import { FilterGroupsSchema, UpdateFeatureFlagInputSchema } from './flags'
 import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
 import { LogsListAttributeValuesInputSchema, LogsListAttributesInputSchema, LogsQueryInputSchema } from './logs'
@@ -55,6 +55,8 @@ export const DocumentationSearchSchema = z.object({
 export const ErrorTrackingDetailsSchema = ErrorDetailsSchema
 
 export const ErrorTrackingListSchema = ListErrorsSchema
+
+export const ErrorTrackingUpdateIssueStatusSchema = UpdateIssueStatusSchema
 
 export const ExperimentGetAllSchema = z.object({
     data: z
@@ -170,11 +172,6 @@ export const ExperimentCreateSchema = z.object({
         .describe(
             'Feature flag key (letters, numbers, hyphens, underscores only). IMPORTANT: First search for existing feature flags that might be suitable using the feature-flags-get-all tool, then suggest reusing existing ones or creating a new key based on the experiment name'
         ),
-
-    type: z
-        .enum(['product', 'web'])
-        .default('product')
-        .describe("Experiment type: 'product' for backend/API changes, 'web' for frontend UI changes"),
 
     // Primary metrics with guidance
     primary_metrics: z
@@ -484,6 +481,13 @@ export const DemoMcpUiAppsSchema = z.object({
 // PostHog AI tools
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
+    truncate: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe(
+            'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
+        ),
 })
 
 export const ReadDataWarehouseSchemaSchema = z

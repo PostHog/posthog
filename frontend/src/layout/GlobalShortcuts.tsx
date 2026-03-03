@@ -97,9 +97,9 @@ export function GlobalShortcuts(): null {
     })
 
     useAppShortcut({
-        name: 'toggle-scene-panel',
+        name: 'toggle-context-panel',
         keybind: [keyBinds.toggleRightNav],
-        intent: 'Toggle scene panel',
+        intent: 'Toggle context panel',
         interaction: 'function',
         callback: () => {
             if (sidePanelOpen) {

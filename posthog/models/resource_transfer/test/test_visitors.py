@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models.resource_transfer.visitors import InsightVisitor
+from posthog.models.resource_transfer.visitors import CohortVisitor, InsightVisitor
 
 
 class TestExtractActionIds(BaseTest):
@@ -448,3 +448,580 @@ class TestRewriteCohortIdInQuery(BaseTest):
     )
     def test_rewrite_cohort_id_in_query(self, _name: str, query, old_pk, new_pk, expected) -> None:
         assert InsightVisitor._rewrite_cohort_id_in_query(query, old_pk, new_pk) == expected
+
+
+class TestCohortExtractCohortIds(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "simple_cohort_reference",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "id", "type": "cohort", "value": 8814, "negation": False}],
+                            }
+                        ],
+                    }
+                },
+                {8814},
+            ),
+            (
+                "multiple_cohort_references",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {"key": "id", "type": "cohort", "value": 100},
+                                    {"key": "id", "type": "cohort", "value": 200},
+                                ],
+                            }
+                        ],
+                    }
+                },
+                {100, 200},
+            ),
+            (
+                "no_cohort_references",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "email", "type": "person", "value": "test@example.com"}],
+                            }
+                        ],
+                    }
+                },
+                set(),
+            ),
+            (
+                "none_filters",
+                None,
+                set(),
+            ),
+            (
+                "empty_filters",
+                {},
+                set(),
+            ),
+            (
+                "filters_without_properties",
+                {"some_other_key": "value"},
+                set(),
+            ),
+            (
+                "multiple_groups_with_cohort",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {"key": "email", "type": "person", "value": "test@test.com"},
+                                    {"key": "id", "type": "cohort", "value": 42},
+                                ],
+                            },
+                            {
+                                "type": "AND",
+                                "values": [{"key": "id", "type": "cohort", "value": 43}],
+                            },
+                        ],
+                    }
+                },
+                {42, 43},
+            ),
+        ]
+    )
+    def test_extract_cohort_ids(self, _name: str, filters, expected: set[int]) -> None:
+        assert CohortVisitor._extract_cohort_ids(filters) == expected
+
+
+class TestCohortExtractActionIds(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "behavioral_action_reference",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": 42,
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "actions",
+                                        "time_value": 30,
+                                        "time_interval": "day",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+                {42},
+            ),
+            (
+                "behavioral_event_reference_ignored",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                        "time_value": 30,
+                                        "time_interval": "day",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+                set(),
+            ),
+            (
+                "seq_event_action_reference",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "type": "behavioral",
+                                        "value": "performed_event_sequence",
+                                        "event_type": "events",
+                                        "seq_event": 99,
+                                        "seq_event_type": "actions",
+                                        "time_value": 30,
+                                        "time_interval": "day",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+                {99},
+            ),
+            (
+                "both_key_and_seq_event_are_actions",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": 10,
+                                        "type": "behavioral",
+                                        "value": "performed_event_sequence",
+                                        "event_type": "actions",
+                                        "seq_event": 20,
+                                        "seq_event_type": "actions",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+                {10, 20},
+            ),
+            (
+                "multiple_actions_across_groups",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": 1,
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "actions",
+                                    }
+                                ],
+                            },
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": 2,
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "actions",
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                },
+                {1, 2},
+            ),
+            (
+                "person_property_ignored",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "email", "type": "person", "value": "test@test.com"}],
+                            }
+                        ],
+                    }
+                },
+                set(),
+            ),
+            (
+                "none_filters",
+                None,
+                set(),
+            ),
+            (
+                "empty_filters",
+                {},
+                set(),
+            ),
+        ]
+    )
+    def test_extract_action_ids(self, _name: str, filters, expected: set[int]) -> None:
+        assert CohortVisitor._extract_action_ids(filters) == expected
+
+
+class TestCohortRewriteCohortIdInFilters(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "replaces_matching_cohort",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "id", "type": "cohort", "value": 100}],
+                            }
+                        ],
+                    }
+                },
+                100,
+                999,
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "id", "type": "cohort", "value": 999}],
+                            }
+                        ],
+                    }
+                },
+            ),
+            (
+                "ignores_non_matching_cohort",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "id", "type": "cohort", "value": 200}],
+                            }
+                        ],
+                    }
+                },
+                100,
+                999,
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "id", "type": "cohort", "value": 200}],
+                            }
+                        ],
+                    }
+                },
+            ),
+            (
+                "replaces_only_matching_among_multiple",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {"key": "id", "type": "cohort", "value": 100},
+                                    {"key": "id", "type": "cohort", "value": 200},
+                                ],
+                            }
+                        ],
+                    }
+                },
+                100,
+                999,
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {"key": "id", "type": "cohort", "value": 999},
+                                    {"key": "id", "type": "cohort", "value": 200},
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
+        ]
+    )
+    def test_rewrite_cohort_id_in_filters(self, _name: str, filters, old_pk, new_pk, expected) -> None:
+        assert CohortVisitor._rewrite_cohort_id_in_filters(filters, old_pk, new_pk) == expected
+
+
+class TestCohortRewriteActionIdInFilters(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "replaces_matching_behavioral_action_key",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": 42,
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "actions",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+                42,
+                999,
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": 999,
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "actions",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
+            (
+                "replaces_seq_event_action",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "type": "behavioral",
+                                        "value": "performed_event_sequence",
+                                        "event_type": "events",
+                                        "seq_event": 42,
+                                        "seq_event_type": "actions",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+                42,
+                999,
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "type": "behavioral",
+                                        "value": "performed_event_sequence",
+                                        "event_type": "events",
+                                        "seq_event": 999,
+                                        "seq_event_type": "actions",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
+            (
+                "replaces_both_key_and_seq_event",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": 42,
+                                        "type": "behavioral",
+                                        "value": "performed_event_sequence",
+                                        "event_type": "actions",
+                                        "seq_event": 42,
+                                        "seq_event_type": "actions",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+                42,
+                999,
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": 999,
+                                        "type": "behavioral",
+                                        "value": "performed_event_sequence",
+                                        "event_type": "actions",
+                                        "seq_event": 999,
+                                        "seq_event_type": "actions",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
+            (
+                "ignores_event_type_events",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+                42,
+                999,
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
+            (
+                "ignores_non_matching_action_id",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": 50,
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "actions",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+                42,
+                999,
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": 50,
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "actions",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
+        ]
+    )
+    def test_rewrite_action_id_in_filters(self, _name: str, filters, old_pk, new_pk, expected) -> None:
+        assert CohortVisitor._rewrite_action_id_in_filters(filters, old_pk, new_pk) == expected

@@ -12,6 +12,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import produce_discussion_mention_events
 from posthog.tasks.email import send_discussions_mentioned
@@ -80,6 +81,17 @@ class CommentSerializer(serializers.ModelSerializer):
 
         return data
 
+    def _filter_mentions_to_organization(self, mention_ids: list[int], organization_id: str) -> list[int]:
+        if not mention_ids:
+            return []
+        valid_ids = set(
+            User.objects.filter(
+                id__in=mention_ids,
+                organization_membership__organization_id=organization_id,
+            ).values_list("id", flat=True)
+        )
+        return [uid for uid in mention_ids if uid in valid_ids]
+
     def create(self, validated_data: Any) -> Any:
         mentions: list[int] = validated_data.pop("mentions", [])
 
@@ -88,6 +100,8 @@ class CommentSerializer(serializers.ModelSerializer):
 
         slug: str = validated_data.pop("slug", "")
         validated_data["team_id"] = self.context["team_id"]
+
+        mentions = self._filter_mentions_to_organization(mentions, self.context["get_organization"]().id)
 
         comment = super().create(validated_data)
 
@@ -105,6 +119,8 @@ class CommentSerializer(serializers.ModelSerializer):
 
         slug: str = validated_data.pop("slug", "")
         request = self.context["request"]
+
+        mentions = self._filter_mentions_to_organization(mentions, self.context["get_organization"]().id)
 
         with transaction.atomic():
             locked_instance = Comment.objects.select_for_update().get(pk=instance.pk)

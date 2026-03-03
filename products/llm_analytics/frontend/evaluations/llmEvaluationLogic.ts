@@ -1,19 +1,23 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { signalSourcesLogic } from 'scenes/inbox/signalSourcesLogic'
+import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { parseTrialProviderKeyId } from '../ModelPicker'
+import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
-import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import {
     EvaluationConditionSet,
@@ -24,24 +28,39 @@ import {
     ModelConfiguration,
 } from './types'
 
-export interface AvailableModel {
-    id: string
-    posthog_available: boolean
-}
-
 export interface LLMEvaluationLogicProps {
     evaluationId: string
     templateKey?: EvaluationTemplateKey
+    tabId?: string
 }
 
 export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     path(['products', 'llm_analytics', 'evaluations', 'llmEvaluationLogic']),
     props({} as LLMEvaluationLogicProps),
-    key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
+    key(
+        (props) =>
+            `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}::${props.tabId ?? 'default'}`
+    ),
 
     connect(() => ({
-        values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
-        actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadProviderKeysSuccess']],
+        values: [
+            llmProviderKeysLogic,
+            ['providerKeys', 'providerKeysLoading'],
+            signalSourcesLogic,
+            ['sourceConfigs', 'sourceConfigsLoading'],
+        ],
+        actions: [
+            llmProviderKeysLogic,
+            ['loadProviderKeys'],
+            signalSourcesLogic,
+            [
+                'loadSourceConfigs',
+                'loadSourceConfigsSuccess',
+                'toggleSignalSource',
+                'toggleSignalSourceSuccess',
+                'toggleSignalSourceFailure',
+            ],
+        ],
     })),
 
     actions({
@@ -54,6 +73,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
 
+        // Signal emission
+        setSignalEmission: (enabled: boolean) => ({ enabled }),
+
         // Evaluation management actions
         saveEvaluation: true,
         saveEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
@@ -65,9 +87,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         refreshEvaluationRuns: true,
 
         // Model selection actions
-        setSelectedProvider: (provider: LLMProvider) => ({ provider }),
-        setSelectedKeyId: (keyId: string | null) => ({ keyId }),
-        setSelectedModel: (model: string) => ({ model }),
+        selectModelFromPicker: (modelId: string, providerKeyId: string) => ({ modelId, providerKeyId }),
 
         // Evaluation summary actions
         setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter, previousFilter: EvaluationSummaryFilter) => ({
@@ -92,31 +112,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         evaluationId: props.evaluationId,
                         forceRefresh: values.isForceRefresh,
                     })
-                },
-            },
-        ],
-        availableModels: [
-            [] as AvailableModel[],
-            {
-                loadAvailableModels: async ({
-                    provider,
-                    keyId,
-                }: {
-                    provider: LLMProvider
-                    keyId: string | null
-                }): Promise<AvailableModel[]> => {
-                    const teamId = teamLogic.values.currentTeamId
-                    if (!teamId) {
-                        return []
-                    }
-                    const params = new URLSearchParams({ provider })
-                    if (keyId) {
-                        params.append('key_id', keyId)
-                    }
-                    const response = await api.get(
-                        `/api/environments/${teamId}/llm_analytics/models/?${params.toString()}`
-                    )
-                    return response.models
                 },
             },
         ],
@@ -175,25 +170,18 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
             },
         ],
-        selectedProvider: [
-            'openai' as LLMProvider,
-            {
-                setSelectedProvider: (_, { provider }) => provider,
-                loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.provider || 'openai',
-            },
-        ],
-        selectedKeyId: [
-            null as string | null,
-            {
-                setSelectedKeyId: (_, { keyId }) => keyId,
-                loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.provider_key_id || null,
-            },
-        ],
         selectedModel: [
             '' as string,
             {
-                setSelectedModel: (_, { model }) => model,
+                selectModelFromPicker: (_, { modelId }) => modelId,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.model || '',
+            },
+        ],
+        selectedPickerProviderKeyId: [
+            null as string | null,
+            {
+                selectModelFromPicker: (_, { providerKeyId }) => providerKeyId,
+                loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.provider_key_id || null,
             },
         ],
         isForceRefresh: [
@@ -216,6 +204,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 saveEvaluation: () => true,
                 saveEvaluationSuccess: () => false,
+            },
+        ],
+        signalEmissionOptimistic: [
+            null as boolean | null,
+            {
+                setSignalEmission: (_, { enabled }) => enabled,
+                loadSourceConfigsSuccess: () => null,
+                toggleSignalSourceFailure: () => null,
             },
         ],
         hasUnsavedChanges: [
@@ -310,48 +306,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
         },
 
-        loadEvaluationSuccess: ({ evaluation }) => {
-            // Load available models for the current provider/key combination
-            if (evaluation) {
-                const provider = evaluation.model_configuration?.provider || 'openai'
-                let keyId = evaluation.model_configuration?.provider_key_id || null
-
-                // Auto-select user's first key if none set (for new OR existing evals)
-                if (!keyId) {
-                    const keysForProvider = values.providerKeysByProvider[provider] || []
-                    if (keysForProvider.length > 0) {
-                        keyId = keysForProvider[0].id
-                        actions.setSelectedKeyId(keyId)
-                    }
-                }
-
-                actions.loadAvailableModels({ provider, keyId })
-            }
-        },
-
-        loadProviderKeysSuccess: () => {
-            const evaluation = values.evaluation
-
-            // For new evals without a key, auto-select first key
-            if (evaluation && !evaluation.id && !values.selectedKeyId) {
-                const keysForProvider = values.providerKeysByProvider[values.selectedProvider] || []
-                if (keysForProvider.length > 0) {
-                    const keyId = keysForProvider[0].id
-                    actions.setSelectedKeyId(keyId)
-                    actions.loadAvailableModels({ provider: values.selectedProvider, keyId })
-                }
-            }
-
-            // For existing evals, if selected key no longer exists, reload evaluation to get fresh data
-            if (evaluation && evaluation.id && values.selectedKeyId) {
-                const keysForProvider = values.providerKeysByProvider[values.selectedProvider] || []
-                const keyExists = keysForProvider.some((key) => key.id === values.selectedKeyId)
-                if (!keyExists) {
-                    actions.loadEvaluation()
-                }
-            }
-        },
-
         refreshEvaluationRuns: () => {
             actions.loadEvaluationRuns()
         },
@@ -416,6 +370,27 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
         },
 
+        setSignalEmission: ({ enabled }) => {
+            const configs: SignalSourceConfig[] = values.sourceConfigs ?? []
+            const existing = configs.find(
+                (c) =>
+                    c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
+                    c.source_type === SignalSourceType.EVALUATION
+            )
+
+            const currentIds: string[] = existing?.config?.evaluation_ids ?? []
+            const newIds = enabled
+                ? [...new Set([...currentIds, props.evaluationId])]
+                : currentIds.filter((id: string) => id !== props.evaluationId)
+
+            actions.toggleSignalSource({
+                sourceProduct: SignalSourceProduct.LLM_ANALYTICS,
+                sourceType: SignalSourceType.EVALUATION,
+                enabled: true,
+                config: { ...existing?.config, evaluation_ids: newIds },
+            })
+        },
+
         saveEvaluation: async () => {
             try {
                 const teamId = teamLogic.values.currentTeamId
@@ -426,7 +401,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (props.evaluationId === 'new') {
                     const response = await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
                     actions.saveEvaluationSuccess(response)
-                    llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
                 } else {
                     const response = await api.update(
                         `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
@@ -434,64 +408,57 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     )
                     actions.saveEvaluationSuccess(response)
                 }
-                router.actions.push(urls.llmAnalyticsEvaluations())
+                router.actions.push(urls.llmAnalyticsEvaluations(), router.values.searchParams)
             } catch (error) {
                 console.error('Failed to save evaluation:', error)
             }
         },
 
-        setSelectedProvider: ({ provider }) => {
-            // When provider changes, auto-select user's first key if they have one, otherwise use PostHog default
-            const keysForProvider = values.providerKeysByProvider[provider] || []
-            const keyId = keysForProvider.length > 0 ? keysForProvider[0].id : null
-            actions.loadAvailableModels({ provider, keyId })
-            actions.setSelectedKeyId(keyId)
-            actions.setSelectedModel('')
-        },
-
-        setSelectedKeyId: ({ keyId }) => {
-            // When key changes, reload available models and reset model selection
-            const provider = values.selectedProvider
-            actions.loadAvailableModels({ provider, keyId })
-            actions.setSelectedModel('')
-        },
-
-        setSelectedModel: ({ model }) => {
-            // When model is selected, update the model configuration
-            if (model) {
-                const modelConfig: ModelConfiguration = {
-                    provider: values.selectedProvider,
-                    model,
-                    provider_key_id: values.selectedKeyId,
-                }
-                actions.setModelConfiguration(modelConfig)
-            } else {
-                actions.setModelConfiguration(null)
+        selectModelFromPicker: ({ modelId, providerKeyId }) => {
+            if (!modelId) {
+                return
             }
-        },
-
-        loadAvailableModelsSuccess: ({ availableModels }) => {
-            // If the currently selected model is not in the available models, reset it
-            if (values.selectedModel && !availableModels.some((m: AvailableModel) => m.id === values.selectedModel)) {
-                actions.setSelectedModel('')
+            const trialProvider = parseTrialProviderKeyId(providerKeyId)
+            if (trialProvider) {
+                actions.setModelConfiguration({
+                    provider: trialProvider,
+                    model: modelId,
+                    provider_key_id: null,
+                })
+                return
             }
-            // Auto-select the first available model if none selected
-            if (!values.selectedModel && availableModels.length > 0) {
-                // When using PostHog key (no selectedKeyId), pick first PostHog-available model
-                if (!values.selectedKeyId) {
-                    const firstPostHogModel = availableModels.find((m: AvailableModel) => m.posthog_available)
-                    if (firstPostHogModel) {
-                        actions.setSelectedModel(firstPostHogModel.id)
-                    }
-                } else {
-                    actions.setSelectedModel(availableModels[0].id)
-                }
+            const key = values.providerKeys.find((k: LLMProviderKey) => k.id === providerKeyId)
+            if (key) {
+                actions.setModelConfiguration({
+                    provider: key.provider,
+                    model: modelId,
+                    provider_key_id: providerKeyId,
+                })
             }
         },
     })),
 
     selectors({
         isNewEvaluation: [(_, props) => [props.evaluationId], (evaluationId: string) => evaluationId === 'new'],
+
+        signalEmissionEnabled: [
+            (s, props) => [s.signalEmissionOptimistic, s.sourceConfigs, props.evaluationId],
+            (optimistic: boolean | null, sourceConfigs: SignalSourceConfig[] | null, evaluationId: string): boolean => {
+                if (optimistic !== null) {
+                    return optimistic
+                }
+                if (!sourceConfigs) {
+                    return false
+                }
+                const llmEvalConfig = sourceConfigs.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
+                        c.source_type === SignalSourceType.EVALUATION
+                )
+                const ids: string[] = llmEvalConfig?.config?.evaluation_ids ?? []
+                return !!llmEvalConfig?.enabled && ids.includes(evaluationId)
+            },
+        ],
 
         formValid: [
             (s) => [s.evaluation],
@@ -508,28 +475,21 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
 
-        providerKeysByProvider: [
-            (s) => [s.providerKeys],
-            (providerKeys: LLMProviderKey[]) => {
-                const byProvider: Record<LLMProvider, LLMProviderKey[]> = {
-                    openai: [],
-                    anthropic: [],
-                    gemini: [],
-                    openrouter: [],
+        evaluationProviderKeyIssue: [
+            (s) => [s.evaluation, s.providerKeys],
+            (evaluation: EvaluationConfig | null, providerKeys: LLMProviderKey[]): LLMProviderKey | null => {
+                const providerKeyId = evaluation?.model_configuration?.provider_key_id
+                if (!providerKeyId) {
+                    return null
                 }
-                for (const key of providerKeys) {
-                    if (key.provider in byProvider) {
-                        byProvider[key.provider as LLMProvider].push(key)
-                    }
-                }
-                return byProvider
-            },
-        ],
 
-        keysForSelectedProvider: [
-            (s) => [s.providerKeysByProvider, s.selectedProvider],
-            (providerKeysByProvider: Record<LLMProvider, LLMProviderKey[]>, selectedProvider: LLMProvider) =>
-                providerKeysByProvider[selectedProvider] || [],
+                const providerKey = providerKeys.find((key) => key.id === providerKeyId)
+                if (!providerKey || !isUnhealthyProviderKeyState(providerKey.state)) {
+                    return null
+                }
+
+                return providerKey
+            },
         ],
 
         runsLookup: [
@@ -598,11 +558,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.evaluation],
-            (evaluation): Breadcrumb[] => [
+            (s) => [s.evaluation, router.selectors.searchParams],
+            (evaluation: EvaluationConfig | null, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     name: 'Evaluations',
-                    path: urls.llmAnalyticsEvaluations(),
+                    path: combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url,
                     key: 'LLMAnalyticsEvaluations',
                     iconType: 'llm_evaluations',
                 },
@@ -615,7 +575,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
     }),
 
-    urlToAction(({ actions, props }) => ({
+    tabAwareUrlToAction(({ actions, props }) => ({
         '/llm-analytics/evaluations/:id': ({ id }, _, __, { method }) => {
             // Only reload when navigating to a different evaluation, not on search param changes (e.g., pagination)
             const newEvaluationId = id && id !== 'new' ? id : 'new'
@@ -630,6 +590,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
     afterMount(({ actions, props }) => {
         actions.loadProviderKeys()
+        actions.loadSourceConfigs()
         actions.loadEvaluation()
         if (props.evaluationId !== 'new') {
             actions.loadEvaluationRuns()

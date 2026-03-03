@@ -151,7 +151,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     Future<void> main() async {
                                       WidgetsFlutterBinding.ensureInitialized();
 
-                                      final config = PostHogConfig('<ph_project_api_key>');
+                                      final config = PostHogConfig('<ph_project_token>');
                                       config.host = '<ph_client_api_host>';
                                       config.debug = true;
                                       config.captureApplicationLifecycleEvents = true;

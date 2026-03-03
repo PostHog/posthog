@@ -1,3 +1,4 @@
+import { isFreeEmail } from 'bloommx'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -5,12 +6,15 @@ import { loaders } from 'kea-loaders'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
-import { SetupTaskId } from 'lib/components/ProductSetup/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isDomain } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { UserType } from '~/types'
 
 import type { proxyLogicType } from './proxyLogicType'
 
@@ -37,16 +41,41 @@ export function domainFor(proxyRecord: ProxyRecord | undefined): string {
     return domain
 }
 
-const RISKY_DOMAIN_PATTERNS = /posthog|analytics|tracking|tracker|pixel|telemetry|measure|collect|beacon/i
+const RISKY_DOMAIN_PATTERNS = /\bph\.|posthog|analytics|tracking|tracker|pixel|telemetry|measure|collect|beacon/i
 
 function isRiskyDomain(domain: string): boolean {
     return RISKY_DOMAIN_PATTERNS.test(domain)
 }
 
+const AVAILABLE_SUGGESTIONS_SUBDOMAIN = ['b', 'd', 'f', 'g', 'j', 'k', 'm', 'n', 'p', 'r', 's', 't', 'v', 'z']
+
+// Suggesting a domain based on the user's email domain, but only if it's not a free email provider (e.g. Gmail, Outlook, etc.)
+// since this only makes sense for users with a custom email domain who likely also have a custom domain they can use for the proxy
+function initialDomainFor(user: UserType | null): string {
+    if (!user?.email) {
+        return ''
+    }
+
+    const isFree = isFreeEmail(user.email)
+    if (isFree) {
+        return ''
+    }
+
+    const lastIndex = user.email.lastIndexOf('@')
+    if (lastIndex === -1 || lastIndex === user.email.length - 1) {
+        return ''
+    }
+
+    const domain = user.email.substring(lastIndex + 1, user.email.length)
+    const subdomain =
+        AVAILABLE_SUGGESTIONS_SUBDOMAIN[Math.floor(Math.random() * AVAILABLE_SUGGESTIONS_SUBDOMAIN.length)]
+    return `${subdomain}.${domain}`
+}
+
 export const proxyLogic = kea<proxyLogicType>([
     path(['scenes', 'project', 'Settings', 'proxyLogic']),
     connect(() => ({
-        values: [organizationLogic, ['currentOrganization']],
+        values: [organizationLogic, ['currentOrganization'], userLogic, ['user']],
     })),
     actions(() => ({
         collapseForm: true,
@@ -55,6 +84,7 @@ export const proxyLogic = kea<proxyLogicType>([
         maybeRefreshRecords: true,
         acknowledgeCloudflareOptIn: true,
         setCloudflareOptInChecked: (checked: boolean) => ({ checked }),
+        setMaxProxyRecords: (maxProxyRecords: number) => ({ maxProxyRecords }),
     })),
     reducers(() => ({
         formState: [
@@ -75,12 +105,20 @@ export const proxyLogic = kea<proxyLogicType>([
                 acknowledgeCloudflareOptIn: () => false, // Reset when acknowledged
             },
         ],
+        maxProxyRecords: [
+            2 as number, // default matching backend DEFAULT_MAX_PROXY_RECORDS
+            {
+                setMaxProxyRecords: (_, { maxProxyRecords }) => maxProxyRecords,
+            },
+        ],
     })),
     loaders(({ values, actions }) => ({
         proxyRecords: {
             __default: [] as ProxyRecord[],
             loadRecords: async () => {
-                return await api.get(`api/organizations/${values.currentOrganization?.id}/proxy_records`)
+                const response = await api.get(`api/organizations/${values.currentOrganization?.id}/proxy_records`)
+                actions.setMaxProxyRecords(response.max_proxy_records)
+                return response.results
             },
             createRecord: async ({ domain }: { domain: string }) => {
                 const response = await api.create(`api/organizations/${values.currentOrganization?.id}/proxy_records`, {
@@ -125,17 +163,20 @@ export const proxyLogic = kea<proxyLogicType>([
             }
         },
     })),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         createRecord: {
-            defaults: { domain: '' },
+            defaults: { domain: initialDomainFor(values.user) },
             errors: ({ domain }: { domain: string }) => ({
-                domain: domain.includes('*')
-                    ? 'Domains cannot include wildcards'
-                    : !isDomain('http://' + domain)
-                      ? 'Do not include the protocol e.g. https://'
-                      : !domain.match(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/)
-                        ? "Invalid domain. Please provide a lowercase RFC 1123 subdomain. It must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character"
-                        : undefined,
+                domain:
+                    domain === ''
+                        ? 'Domain is required'
+                        : domain.includes('*')
+                          ? 'Domains cannot include wildcards'
+                          : !isDomain('http://' + domain)
+                            ? 'Do not include the protocol e.g. https://'
+                            : !domain.match(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/)
+                              ? "Invalid domain. Please provide a lowercase RFC 1123 subdomain. It must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character"
+                              : undefined,
             }),
             submit: ({ domain }) => {
                 const doSubmit = (): void => {

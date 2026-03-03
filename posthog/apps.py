@@ -29,7 +29,7 @@ class PostHogConfig(AppConfig):
         posthoganalytics.super_properties = {
             "region": get_instance_region(),
             "service": settings.OTEL_SERVICE_NAME,
-            "environment": os.getenv("SENTRY_ENVIRONMENT"),
+            "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
 
         if str_to_bool(os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "false")):
@@ -44,7 +44,7 @@ class PostHogConfig(AppConfig):
             posthoganalytics.disabled = True
         elif settings.DEBUG:
             # In dev, analytics is by default turned to self-capture, i.e. data going into this very instance of PostHog
-            # Due to ASGI's workings, we can't query for the right project API key in this `ready()` method
+            # Due to ASGI's workings, we can't query for the right project token in this `ready()` method
             # Instead, we configure self-capture with `self_capture_wrapper()` in posthog/asgi.py - see that file
             # Self-capture for WSGI is initialized here
             posthoganalytics.disabled = True

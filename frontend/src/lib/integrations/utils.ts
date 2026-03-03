@@ -20,6 +20,7 @@ import IconLinear from 'public/services/linear.png'
 import IconLinkedIn from 'public/services/linkedin.png'
 import IconMailjet from 'public/services/mailjet.png'
 import IconMetaAds from 'public/services/meta-ads.png'
+import IconPinterest from 'public/services/pinterest_ads.png'
 import IconReddit from 'public/services/reddit.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
@@ -54,6 +55,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'azure-blob': IconAzureBlob,
     firebase: IconFirebase,
     jira: IconJira,
+    'pinterest-ads': IconPinterest,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
@@ -74,6 +76,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Bing Ads'
         case 'azure-blob':
             return 'Azure Blob Storage'
+        case 'pinterest-ads':
+            return 'Pinterest Ads'
         case 'email':
             return 'email'
         case 'github':

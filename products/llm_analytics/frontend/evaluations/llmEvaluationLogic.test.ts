@@ -42,6 +42,17 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_by: null,
         last_used_at: null,
     },
+    {
+        id: 'key-4',
+        provider: 'fireworks',
+        name: 'Fireworks Key',
+        state: 'ok',
+        error_message: null,
+        api_key_masked: 'fw-...3456',
+        created_at: '2024-01-04T00:00:00Z',
+        created_by: null,
+        last_used_at: null,
+    },
 ]
 
 const mockEvaluation: EvaluationConfig = {
@@ -257,23 +268,52 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
-        describe('providerKeysByProvider', () => {
+        describe('evaluationProviderKeyIssue', () => {
             beforeEach(() => {
-                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
                 logic.mount()
             })
 
-            it('groups keys by provider', async () => {
-                await expectLogic(keysLogic).toDispatchActions(['loadProviderKeysSuccess'])
+            it.each([
+                ['invalid' as const, 'Authentication failed'],
+                ['error' as const, 'Quota exceeded'],
+            ])('returns the provider key when state is %s', async (state, errorMessage) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
-                const byProvider = logic.values.providerKeysByProvider
-                expect(byProvider.openai).toHaveLength(1)
-                expect(byProvider.openai[0].id).toBe('key-1')
-                expect(byProvider.anthropic).toHaveLength(1)
-                expect(byProvider.anthropic[0].id).toBe('key-2')
-                expect(byProvider.gemini).toHaveLength(0)
-                expect(byProvider.openrouter).toHaveLength(1)
-                expect(byProvider.openrouter[0].id).toBe('key-3')
+                keysLogic.actions.loadProviderKeysSuccess(
+                    mockProviderKeys.map((key) =>
+                        key.id === 'key-1' ? { ...key, state, error_message: errorMessage } : key
+                    )
+                )
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationProviderKeyIssue: expect.objectContaining({
+                        id: 'key-1',
+                        state,
+                        error_message: errorMessage,
+                    }),
+                })
+            })
+
+            it('returns null when evaluation uses the PostHog default key', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    model_configuration: null,
+                })
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationProviderKeyIssue: null,
+                })
+            })
+
+            it('returns null when provider key state is healthy', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationProviderKeyIssue: null,
+                })
             })
         })
 
@@ -599,45 +639,55 @@ describe('llmEvaluationLogic', () => {
         })
     })
 
-    describe('provider selection', () => {
+    describe('selectModelFromPicker', () => {
         beforeEach(() => {
             logic = llmEvaluationLogic({ evaluationId: 'new' })
             logic.mount()
         })
 
-        it('setSelectedProvider dispatches loadAvailableModels', async () => {
+        it('sets model configuration from BYOK provider key', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+            await expectLogic(keysLogic).toDispatchActions(['loadProviderKeysSuccess'])
 
-            logic.actions.setSelectedProvider('anthropic')
+            logic.actions.selectModelFromPicker('gpt-5', 'key-1')
 
             await expectLogic(logic).toMatchValues({
-                selectedProvider: 'anthropic',
+                selectedModel: 'gpt-5',
+                evaluation: expect.objectContaining({
+                    model_configuration: {
+                        provider: 'openai',
+                        model: 'gpt-5',
+                        provider_key_id: 'key-1',
+                    },
+                }),
             })
         })
 
-        it('setSelectedKeyId resets model selection', async () => {
+        it('sets model configuration from trial provider key', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
-            logic.actions.setSelectedModel('gpt-5-mini')
-
-            await expectLogic(logic).toMatchValues({ selectedModel: 'gpt-5-mini' })
-
-            logic.actions.setSelectedKeyId('key-1')
-
-            await expectLogic(logic).toMatchValues({ selectedModel: '' })
-        })
-
-        it('setSelectedModel updates model configuration', async () => {
-            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-
-            logic.actions.setSelectedModel('gpt-5-mini')
+            logic.actions.selectModelFromPicker('gpt-5', 'trial:openai')
 
             await expectLogic(logic).toMatchValues({
-                selectedModel: 'gpt-5-mini',
+                selectedModel: 'gpt-5',
                 evaluation: expect.objectContaining({
-                    model_configuration: expect.objectContaining({
-                        model: 'gpt-5-mini',
-                    }),
+                    model_configuration: {
+                        provider: 'openai',
+                        model: 'gpt-5',
+                        provider_key_id: null,
+                    },
+                }),
+            })
+        })
+
+        it('ignores empty modelId', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.selectModelFromPicker('', 'key-1')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    model_configuration: null,
                 }),
             })
         })
