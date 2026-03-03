@@ -112,9 +112,10 @@ async function layoutNodes(
     }))
 }
 
+export type FunnelFlowGraphMode = 'profile' | 'builder'
+
 export interface FunnelFlowLogicProps extends InsightLogicProps {
-    /**Whether the funnel is being displayed in a customer profile (person or group profile canvas) */
-    isProfileMode: boolean
+    mode?: FunnelFlowGraphMode
 }
 
 export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
@@ -145,20 +146,22 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
     }),
 
     selectors({
+        isProfileMode: [() => [(_, props) => props.mode], (mode): boolean => mode === 'profile'],
         nodeType: [
-            () => [(_, props) => props.isProfileMode],
-            (isProfileMode): string => (isProfileMode ? 'profile' : 'journey'),
+            () => [(_, props) => props.mode],
+            (mode): string => (mode === 'profile' ? 'profile' : mode === 'builder' ? 'journeyCreate' : 'journey'),
         ],
+        edgeType: [(s) => [s.isProfileMode], (isProfileMode): string => (isProfileMode ? 'profile' : 'journey')],
         nodeWidth: [
-            () => [(_, props) => props.isProfileMode],
+            (s) => [s.isProfileMode],
             (isProfileMode): number => (isProfileMode ? PROFILE_NODE_WIDTH : NODE_WIDTH),
         ],
         nodeHeight: [
-            () => [(_, props) => props.isProfileMode],
+            (s) => [s.isProfileMode],
             (isProfileMode): number => (isProfileMode ? PROFILE_NODE_HEIGHT : NODE_HEIGHT),
         ],
         fitViewOptions: [
-            () => [(_, props) => props.isProfileMode],
+            (s) => [s.isProfileMode],
             (isProfileMode) => (isProfileMode ? PROFILE_FIT_VIEW_OPTIONS : FIT_VIEW_OPTIONS),
         ],
 
@@ -196,13 +199,13 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
             },
         ],
         funnelEdges: [
-            (s) => [s.funnelNodes, s.nodeType],
-            (nodes, nodeType): Edge<FunnelFlowEdgeData>[] =>
+            (s) => [s.funnelNodes, s.edgeType],
+            (nodes, edgeType): Edge<FunnelFlowEdgeData>[] =>
                 nodes.slice(0, -1).map((node, index) => {
                     const targetNode = nodes[index + 1]
                     const touchesOptionalStep = targetNode.data.isOptional
 
-                    const isProfileMode = nodeType === 'profile'
+                    const isProfileMode = edgeType === 'profile'
                     const isCompleted = targetNode.data.step.count > 0
                     const edgeColor = isProfileMode
                         ? isCompleted
@@ -214,7 +217,7 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                         id: `edge-${index}`,
                         source: node.id,
                         target: targetNode.id,
-                        type: nodeType,
+                        type: edgeType,
                         sourceHandle: `${node.id}-source`,
                         targetHandle: `${targetNode.id}-target`,
                         markerEnd: { type: MarkerType.ArrowClosed, ...(edgeColor && { color: edgeColor }) },
@@ -288,9 +291,9 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
         ],
     }),
 
-    subscriptions(({ actions, values, props }) => ({
+    subscriptions(({ actions, values }) => ({
         nodes: async () => {
-            const elkOverrides = props.isProfileMode ? { 'elk.layered.spacing.nodeNodeBetweenLayers': '40' } : undefined
+            const elkOverrides = values.isProfileMode ? { 'elk.layered.spacing.nodeNodeBetweenLayers': '40' } : undefined
             const elkNodeSize = {
                 width: values.nodeWidth,
                 height: values.nodeHeight,

@@ -19,23 +19,28 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { isInsightVizNode } from '~/queries/utils'
 
+import { journeyBuilderLogic } from 'products/customer_analytics/frontend/components/CustomerJourneys/journeyBuilderLogic'
+
+import { funnelDataLogic } from '../funnelDataLogic'
+import { BuilderStepNode } from './BuilderStepNode'
 import { JourneyFlowEdge, ProfileFlowEdge } from './FunnelFlowEdge'
 import { AnyFlowNode, funnelFlowGraphLogic } from './funnelFlowGraphLogic'
 import { JourneyFlowNode, ProfileFlowNode } from './FunnelFlowNode'
 import { PathFlowEdge } from './PathFlowEdge'
 import { PathFlowNode } from './PathFlowNode'
 
-const NODE_TYPES = {
-    journey: JourneyFlowNode,
-    profile: ProfileFlowNode,
-    pathNode: PathFlowNode,
-} as NodeTypes
-
 const EDGE_TYPES = {
     journey: JourneyFlowEdge,
     profile: ProfileFlowEdge,
     pathFlow: PathFlowEdge,
 } as EdgeTypes
+
+const NODE_TYPES = {
+    journey: JourneyFlowNode,
+    journeyCreate: BuilderStepNode,
+    profile: ProfileFlowNode,
+    pathNode: PathFlowNode,
+} as NodeTypes
 
 const PROFILE_GRAPH_HEIGHT = 140
 
@@ -49,7 +54,9 @@ function FunnelFlowGraphContent(): JSX.Element {
         isInsightVizNode(insightProps.query) &&
         Array.isArray(insightProps.query.source?.properties) &&
         insightProps.query.source.properties.length > 0
-    const { laidOutNodes, edges, fitViewOptions } = useValues(funnelFlowGraphLogic({ ...insightProps, isProfileMode }))
+    const isBuilderMode = !!journeyBuilderLogic.findMounted()
+    const mode = isProfileMode ? 'profile' : isBuilderMode ? 'builder' : undefined
+    const { laidOutNodes, edges, fitViewOptions } = useValues(funnelFlowGraphLogic({ ...insightProps, mode }))
 
     const onInit = useCallback(
         (instance: ReactFlowInstance<AnyFlowNode>) => {

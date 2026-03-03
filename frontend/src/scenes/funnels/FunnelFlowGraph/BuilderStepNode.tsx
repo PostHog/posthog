@@ -36,8 +36,9 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
     const { insightProps } = useValues(insightLogic)
     const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
     const { updateStepEvent, removeStep } = useActions(journeyBuilderLogic)
-    const { stepCount } = useValues(journeyBuilderLogic)
+    const { stepCount, taxonomicGroupTypes } = useValues(journeyBuilderLogic)
 
+    const canRemove = stepCount > 1
     const hasEvent = step.action_id !== null && step.name !== 'Select an event'
     const hasConversionData = step.count != null && step.count > 0
     const convertedPercentage = step.conversionRates?.fromBasisStep ? step.conversionRates.fromBasisStep * 100 : 0
@@ -48,8 +49,6 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
             : convertedPercentage >= 33
               ? 'var(--warning)'
               : 'var(--color-text-error)'
-
-    const canRemove = stepCount > 1
 
     return (
         <div
@@ -68,6 +67,7 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
                             <Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />
                             <TaxonomicPopover
                                 groupType={TaxonomicFilterGroupType.Events}
+                                groupTypes={taxonomicGroupTypes}
                                 value={hasEvent ? (step.action_id as string) : undefined}
                                 onChange={(value, _groupType, item) => {
                                     updateStepEvent(stepIndex, value as string, item?.name || (value as string))
@@ -92,7 +92,6 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
                                 <LemonButton
                                     icon={<IconX />}
                                     size="xsmall"
-                                    status="muted"
                                     onClick={() => removeStep(stepIndex)}
                                     tooltip="Remove step"
                                     noPadding

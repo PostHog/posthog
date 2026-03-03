@@ -1,6 +1,9 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
-import { getDefaultEventName } from 'lib/utils/getAppContext'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getDefaultEventName, getProjectEventExistence } from 'lib/utils/getAppContext'
 import { PathExpansion } from 'scenes/funnels/FunnelFlowGraph/pathFlowUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
@@ -42,6 +45,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
 
     connect(() => ({
         actions: [insightDataLogic(JOURNEY_BUILDER_INSIGHT_PROPS), ['setQuery as setInsightQuery']],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
 
     actions({
@@ -95,9 +99,28 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
     selectors({
         stepCount: [(s) => [s.query], (query): number => query.source.series.length],
         series: [(s) => [s.query], (query): EventsNode[] => query.source.series as EventsNode[]],
+        taxonomicGroupTypes: [
+            (s) => [s.featureFlags],
+            (featureFlags): TaxonomicFilterGroupType[] => {
+                const { hasPageview, hasScreen } = getProjectEventExistence()
+                const supportsDwhFunnels = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNEL_DWH_SUPPORT]
+                return [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
+                    ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
+                    TaxonomicFilterGroupType.AutocaptureEvents,
+                    ...(supportsDwhFunnels ? [TaxonomicFilterGroupType.DataWarehouse] : []),
+                ]
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
+        setQuery: () => {
+            actions.setInsightQuery(values.query)
+        },
+
         openBuilder: () => {
             actions.setInsightQuery(values.query)
         },
