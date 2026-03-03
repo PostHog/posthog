@@ -29,6 +29,10 @@ INACTIVE_FLAGS = [
     "ai-first",
 ]
 
+ROLLOUT_OVERRIDES: dict[str, int] = {
+    "growth.first_event_banner": 50,
+}
+
 
 class Command(BaseCommand):
     help = "Add and enable all feature flags in frontend/src/lib/constants.tsx for all projects"
@@ -98,13 +102,17 @@ class Command(BaseCommand):
                             },
                         )
                     else:
+                        rollout_percentage = ROLLOUT_OVERRIDES.get(flag, 100)
                         FeatureFlag.objects.create(
                             team=team,
                             name=flag,
                             key=flag,
                             created_by=first_user,
                             active=is_enabled,
-                            filters={"groups": [{"properties": [], "rollout_percentage": 100}], "payloads": {}},
+                            filters={
+                                "groups": [{"properties": [], "rollout_percentage": rollout_percentage}],
+                                "payloads": {},
+                            },
                         )
 
                     print(

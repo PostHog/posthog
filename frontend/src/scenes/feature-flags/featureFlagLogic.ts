@@ -190,8 +190,8 @@ export function validateFeatureFlagKey(key: string): string | undefined {
         ? 'Please set a key'
         : key.length > 400
           ? 'Key must be 400 characters or less.'
-          : !key.match?.(/^[a-zA-Z0-9_-]+$/)
-            ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+          : !key.match?.(/^[a-zA-Z0-9_.-]+$/)
+            ? 'Only letters, numbers, periods (.), hyphens (-) & underscores (_) are allowed.'
             : undefined
 }
 
