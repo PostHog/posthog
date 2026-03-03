@@ -92,16 +92,12 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             expect(testInput).toBeInTheDocument()
         })
 
-        it('renders rollout percentages for each variant', async () => {
-            const { container } = renderComponent(defaultExperiment)
+        it('renders variant split labels by default', () => {
+            renderComponent(defaultExperiment)
 
-            await userEvent.click(screen.getByRole('button', { name: /customize split/i }))
-
-            const percentageInputs = container.querySelectorAll(
-                '[data-attr="experiment-variant-rollout-percentage-input"]'
-            )
-
-            expect(percentageInputs).toHaveLength(2)
+            const splitLabels = screen.getAllByText('50%')
+            // 2 from the variants table + 2 from the distribution bar preview
+            expect(splitLabels).toHaveLength(4)
         })
 
         it('renders add variant button', () => {
@@ -181,16 +177,10 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             expect(hasVariantUpdate).toBe(true)
         })
 
-        it('control variant key is disabled', () => {
-            renderComponent(defaultExperiment)
-
-            const controlInput = screen.getByDisplayValue('control')
-            expect(controlInput).toBeDisabled()
-        })
-
-        it('updates rollout percentage', async () => {
+        it('updates rollout percentage after enabling custom split', async () => {
             const { container } = renderComponent(defaultExperiment)
 
+            // Click pencil button to enable custom split editing
             await userEvent.click(screen.getByRole('button', { name: /customize split/i }))
 
             const percentageInputs = container.querySelectorAll(
@@ -278,7 +268,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             )
 
             const rows = container.querySelectorAll('tbody tr')
-            const controlRow = rows[0] // First row is control
+            const controlRow = rows[0] // First row (control variant)
 
             // Control variant should not have a delete button
             const deleteButton = controlRow.querySelector('[data-attr^="delete-prop-filter"]')
@@ -312,6 +302,66 @@ describe('VariantsPanelCreateFeatureFlag', () => {
                 }),
             })
         })
+
+        it.each([
+            { inputValue: '70', expectedControl: 70, expectedTest: 30 },
+            { inputValue: '90', expectedControl: 90, expectedTest: 10 },
+            { inputValue: '0', expectedControl: 0, expectedTest: 100 },
+            { inputValue: '100', expectedControl: 100, expectedTest: 0 },
+        ])(
+            'auto-balances second variant to $expectedTest% when control is set to $expectedControl% with 2 variants',
+            async ({ inputValue, expectedControl, expectedTest }) => {
+                const { container } = renderComponent(defaultExperiment)
+
+                const customizeButton = screen.getByRole('button', { name: /customize split/i })
+                await userEvent.click(customizeButton)
+
+                const percentageInputs = container.querySelectorAll(
+                    '[data-attr="experiment-variant-rollout-percentage-input"]'
+                )
+
+                await userEvent.clear(percentageInputs[0] as Element)
+                await fireEvent.change(percentageInputs[0] as Element, { target: { value: inputValue } })
+
+                const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
+                expect(lastCall.parameters.feature_flag_variants).toEqual([
+                    expect.objectContaining({ key: 'control', rollout_percentage: expectedControl }),
+                    expect.objectContaining({ key: 'test', rollout_percentage: expectedTest }),
+                ])
+            }
+        )
+
+        it('does not auto-balance other variants when there are more than 2', async () => {
+            const threeVariantExperiment = {
+                ...defaultExperiment,
+                parameters: {
+                    feature_flag_variants: [
+                        { key: 'control', rollout_percentage: 34 },
+                        { key: 'test', rollout_percentage: 33 },
+                        { key: 'test-2', rollout_percentage: 33 },
+                    ],
+                },
+            }
+
+            const { container } = renderComponent(threeVariantExperiment)
+
+            const customizeButton = screen.getByRole('button', { name: /customize split/i })
+            await userEvent.click(customizeButton)
+
+            const percentageInputs = container.querySelectorAll(
+                '[data-attr="experiment-variant-rollout-percentage-input"]'
+            )
+
+            await userEvent.clear(percentageInputs[0] as Element)
+            await fireEvent.change(percentageInputs[0] as Element, { target: { value: '10' } })
+
+            const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
+            expect(lastCall.parameters.feature_flag_variants).toEqual([
+                expect.objectContaining({ key: 'control', rollout_percentage: 10 }),
+                expect.objectContaining({ key: 'test', rollout_percentage: 33 }),
+                expect.objectContaining({ key: 'test-2', rollout_percentage: 33 }),
+            ])
+        })
     })
 
     describe('experience continuity', () => {
@@ -334,6 +384,143 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             const checkbox = screen.getByRole('checkbox') as HTMLInputElement
             expect(checkbox.checked).toBe(false)
         })
+    })
+
+    describe('rollout percentage', () => {
+        it('renders rollout percentage section with default value of 100', () => {
+            renderComponent(defaultExperiment)
+
+            expect(screen.getByText('Rollout')).toBeInTheDocument()
+            const slider = screen.getByRole('slider')
+            expect(slider).toHaveAttribute('aria-valuenow', '100')
+        })
+
+        it('renders rollout percentage from experiment parameters', () => {
+            const experimentWithRollout = {
+                ...defaultExperiment,
+                parameters: {
+                    ...defaultExperiment.parameters,
+                    rollout_percentage: 75,
+                },
+            }
+
+            renderComponent(experimentWithRollout)
+
+            const slider = screen.getByRole('slider')
+            expect(slider).toHaveAttribute('aria-valuenow', '75')
+        })
+
+        it('calls onChange with rollout_percentage when input value changes', async () => {
+            const { container } = renderComponent(defaultExperiment)
+
+            const rolloutInput = container.querySelector(
+                '[data-attr="experiment-rollout-percentage-input"]'
+            ) as HTMLInputElement
+
+            await userEvent.clear(rolloutInput)
+            await fireEvent.change(rolloutInput, { target: { value: '50' } })
+
+            const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
+            expect(lastCall.parameters).toEqual(
+                expect.objectContaining({
+                    rollout_percentage: 50,
+                })
+            )
+        })
+
+        it('preserves rollout_percentage when variants are modified', async () => {
+            const experimentWithRollout = {
+                ...defaultExperiment,
+                parameters: {
+                    ...defaultExperiment.parameters,
+                    rollout_percentage: 75,
+                },
+            }
+
+            renderComponent(experimentWithRollout)
+
+            const addButton = screen.getByRole('button', { name: /add variant/i })
+            await userEvent.click(addButton)
+
+            const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
+            expect(lastCall.parameters.rollout_percentage).toBe(75)
+        })
+
+        it('preserves rollout_percentage when experience continuity is toggled', async () => {
+            const experimentWithRollout = {
+                ...defaultExperiment,
+                parameters: {
+                    ...defaultExperiment.parameters,
+                    rollout_percentage: 60,
+                },
+            }
+
+            renderComponent(experimentWithRollout)
+
+            const checkbox = screen.getByRole('checkbox')
+            await userEvent.click(checkbox)
+
+            const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
+            expect(lastCall.parameters.rollout_percentage).toBe(60)
+        })
+    })
+
+    describe('traffic preview with uneven splits', () => {
+        it.each([
+            {
+                name: '30/70 split at 50% rollout',
+                variants: [
+                    { key: 'control', rollout_percentage: 30 },
+                    { key: 'test', rollout_percentage: 70 },
+                ],
+                rolloutPercentage: 50,
+                expectedSlotWidths: ['30%', '70%'],
+                expectedLabels: ['15%', '35%'],
+            },
+            {
+                name: '90/10 split at 50% rollout',
+                variants: [
+                    { key: 'control', rollout_percentage: 90 },
+                    { key: 'test', rollout_percentage: 10 },
+                ],
+                rolloutPercentage: 50,
+                expectedSlotWidths: ['90%', '10%'],
+                expectedLabels: ['45%', '5%'],
+            },
+            {
+                name: '90/10 split at 80% rollout',
+                variants: [
+                    { key: 'control', rollout_percentage: 90 },
+                    { key: 'test', rollout_percentage: 10 },
+                ],
+                rolloutPercentage: 80,
+                expectedSlotWidths: ['90%', '10%'],
+                expectedLabels: ['72%', '8%'],
+            },
+        ])(
+            'renders correct slot widths and labels for $name',
+            ({ variants, rolloutPercentage, expectedSlotWidths, expectedLabels }) => {
+                const experiment = {
+                    ...defaultExperiment,
+                    parameters: {
+                        feature_flag_variants: variants,
+                        rollout_percentage: rolloutPercentage,
+                    },
+                }
+
+                const { container } = renderComponent(experiment)
+
+                const barSlots = container.querySelectorAll('.h-10 > .h-full.flex')
+                expect(barSlots).toHaveLength(variants.length)
+                expectedSlotWidths.forEach((width, i) => {
+                    expect((barSlots[i] as HTMLElement).style.width).toBe(width)
+                })
+
+                expectedLabels.forEach((label) => {
+                    expect(screen.getByText(label)).toBeInTheDocument()
+                })
+            }
+        )
     })
 
     describe('edge cases', () => {
