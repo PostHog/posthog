@@ -65,7 +65,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                     })
 
                     await api.externalDataSchemas.update(schema.id, schema)
-                    actions.loadSources(null)
+                    actions.loadSources()
 
                     return null
                 },
@@ -162,7 +162,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     }),
     urlToAction(({ actions }) => ({
         '/data-warehouse/*': () => {
-            actions.loadSources(null)
+            actions.loadSources()
         },
     })),
     listeners(({ actions, values, cache }) => ({
@@ -178,7 +178,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         },
         deleteSource: async ({ source }) => {
             await api.externalDataSources.delete(source.id)
-            actions.loadSources(null)
+            actions.loadSources()
             actions.sourceLoadingFinished(source)
 
             posthog.capture('source deleted', { sourceType: source.source_type })
@@ -208,7 +208,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
 
             try {
                 await api.externalDataSources.reload(source.id)
-                actions.loadSources(null)
+                actions.loadSources()
 
                 posthog.capture('source reloaded', { sourceType: source.source_type })
             } catch (e: any) {
@@ -227,7 +227,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             if (router.values.location.pathname.includes('data-warehouse')) {
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
-                        actions.loadSources(null)
+                        actions.loadSources()
                     }, REFRESH_INTERVAL)
                     return () => clearTimeout(timerId)
                 }, 'refreshTimeout')
@@ -237,7 +237,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             if (router.values.location.pathname.includes('data-warehouse')) {
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
-                        actions.loadSources(null)
+                        actions.loadSources()
                     }, REFRESH_INTERVAL)
                     return () => clearTimeout(timerId)
                 }, 'refreshTimeout')
@@ -260,7 +260,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadSources(null)
+        actions.loadSources()
     }),
     beforeUnmount(() => {
         // Disposables plugin handles cleanup automatically

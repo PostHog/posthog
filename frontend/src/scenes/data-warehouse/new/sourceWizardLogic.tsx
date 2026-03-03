@@ -741,7 +741,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         cancelWizard: () => {
             actions.onClear()
             actions.clearSource()
-            actions.loadSources(null)
+            actions.loadSources()
             actions.resetSourceConnectionDetails()
         },
         createSource: async () => {
@@ -760,7 +760,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 actions.setSourceId(id)
                 actions.resetSourceConnectionDetails()
-                actions.loadSources(null)
+                actions.loadSources()
                 actions.markTaskAsCompleted(SetupTaskId.ConnectSource)
                 actions.onNext()
             } catch (e: any) {
