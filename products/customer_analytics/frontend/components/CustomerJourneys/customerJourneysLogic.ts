@@ -32,8 +32,6 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         hideAddJourneyModal: true,
         setActiveJourneyId: (journeyId: string | null) => ({ journeyId }),
         selectFirstJourneyIfNeeded: (journeys: CustomerJourneyApi[]) => ({ journeys }),
-        openBuilder: true,
-        closeBuilder: true,
     }),
     lazyLoaders(({ values }) => ({
         journeys: {
@@ -84,13 +82,6 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
             null as string | null,
             {
                 setActiveJourneyId: (_, { journeyId }) => journeyId,
-            },
-        ],
-        isBuilderOpen: [
-            false,
-            {
-                openBuilder: () => true,
-                closeBuilder: () => false,
             },
         ],
     }),

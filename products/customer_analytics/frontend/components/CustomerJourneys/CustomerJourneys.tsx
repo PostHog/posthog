@@ -11,6 +11,7 @@ import { Query } from '~/queries/Query/Query'
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { AddJourneyModal } from './AddJourneyModal'
 import { customerJourneysLogic } from './customerJourneysLogic'
+import { journeyBuilderLogic } from './journeyBuilderLogic'
 
 export function CustomerJourneys(): JSX.Element {
     const mountedSceneLogic = useMountedLogic(customerAnalyticsSceneLogic)
@@ -23,10 +24,10 @@ export function CustomerJourneys(): JSX.Element {
         activeJourneyId,
         activeInsightLoading,
         activeJourneyFullQuery,
-        isBuilderOpen,
     } = useValues(mountedCustomerJourneysLogic)
-    const { showAddJourneyModal, setActiveJourneyId, deleteJourney, openBuilder, closeBuilder } =
-        useActions(mountedCustomerJourneysLogic)
+    const { showAddJourneyModal, setActiveJourneyId, deleteJourney } = useActions(mountedCustomerJourneysLogic)
+    const { isBuilderOpen } = useValues(journeyBuilderLogic)
+    const { openBuilder, closeBuilder } = useActions(journeyBuilderLogic)
 
     if (journeysLoading) {
         return (
