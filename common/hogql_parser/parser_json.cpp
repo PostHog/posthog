@@ -586,11 +586,13 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         set_operator = "INTERSECT DISTINCT";
       } else if (subsequent->INTERSECT()) {
         set_operator = "INTERSECT";
+      } else if (subsequent->EXCEPT() && subsequent->ALL()) {
+        set_operator = "EXCEPT ALL";
       } else if (subsequent->EXCEPT()) {
         set_operator = "EXCEPT";
       } else {
         throw SyntaxError(
-            "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT"
+            "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT ALL, INTERSECT DISTINCT, EXCEPT, and EXCEPT ALL"
         );
       }
 
