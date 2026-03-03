@@ -100,6 +100,21 @@ function StepTriggerConfigurationSupportMessage({ node }: { node: any }): JSX.El
 }
 
 registerTriggerType({
+    value: 'support_ticket_created',
+    label: 'New ticket created',
+    icon: <IconBolt />,
+    description: 'Trigger when a new support ticket is created',
+    featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT,
+    matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_ticket_created',
+    buildConfig: () => ({
+        type: 'event',
+        filters: {
+            events: [{ id: '$conversation_ticket_created', type: 'events', name: 'New ticket created' }],
+        },
+    }),
+})
+
+registerTriggerType({
     value: 'support_ticket_status_changed',
     label: 'Ticket status changed',
     icon: <IconBolt />,

@@ -8,7 +8,7 @@ import { EventType } from '~/types'
 
 import { AIDataLoading } from '../components/AIDataLoading'
 import { useAIData } from '../hooks/useAIData'
-import { llmAnalyticsPlaygroundLogic } from '../llmAnalyticsPlaygroundLogic'
+import { llmPlaygroundPromptsLogic } from '../playground/llmPlaygroundPromptsLogic'
 import { normalizeMessage, normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
@@ -19,7 +19,7 @@ export interface ConversationDisplayProps {
 }
 
 export function ConversationDisplay({ eventProperties, eventId }: ConversationDisplayProps): JSX.Element {
-    const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
+    const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
 
     const { input, output, isLoading } = useAIData({
         uuid: eventId,
@@ -30,6 +30,7 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
     const handleTryInPlayground = (): void => {
         setupPlaygroundFromEvent({
             model: eventProperties.$ai_model,
+            provider: eventProperties.$ai_provider,
             input,
         })
     }

@@ -2097,6 +2097,7 @@ name = "common-kafka"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "common-liveness",
  "envconfig",
  "health",
  "rdkafka",
@@ -2108,6 +2109,10 @@ dependencies = [
  "tracing",
  "uuid",
 ]
+
+[[package]]
+name = "common-liveness"
+version = "0.1.0"
 
 [[package]]
 name = "common-metrics"
@@ -3745,6 +3750,7 @@ name = "health"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
+ "common-liveness",
  "time",
  "tokio",
  "tracing",
@@ -4940,6 +4946,7 @@ name = "lifecycle"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
+ "common-liveness",
  "metrics",
  "thiserror 2.0.18",
  "tokio",

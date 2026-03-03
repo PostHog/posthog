@@ -12,6 +12,15 @@ class FlagValueQuerySerializer(serializers.Serializer):
     key = serializers.CharField(required=False, help_text="The flag ID", allow_blank=True)
 
 
+class FlagValueItemSerializer(serializers.Serializer):
+    name = serializers.JSONField()
+
+
+class FlagValueResponseSerializer(serializers.Serializer):
+    results = FlagValueItemSerializer(many=True)
+    refreshing = serializers.BooleanField()
+
+
 class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
     API endpoint for getting possible values for feature flags.
@@ -24,7 +33,7 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @validated_request(
         query_serializer=FlagValueQuerySerializer,
         responses={
-            200: OpenApiResponse(response=serializers.ListSerializer(child=serializers.DictField())),
+            200: OpenApiResponse(response=FlagValueResponseSerializer),
             400: OpenApiResponse(response=serializers.DictField()),
             404: OpenApiResponse(response=serializers.DictField()),
         },
@@ -65,4 +74,4 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 if variant_key:
                     values.append({"name": variant_key})
 
-        return response.Response(values)
+        return response.Response({"results": values, "refreshing": False})
