@@ -15,6 +15,7 @@ import numpy as np
 import structlog
 import temporalio
 from asgiref.sync import sync_to_async
+from future.moves.builtins import str
 from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -1238,7 +1239,8 @@ async def _process_signal_batch(
     """
     team_id = batch[0].team_id
     # Purely defensive
-    assert all(signal.team_id == team_id for signal in batch)
+    if not all(signal.team_id == team_id for signal in batch):
+        raise ValueError("All signals in a batch must belong to the same team")
     dropped = 0
 
     # === PARALLEL PHASE (steps 1-4) ===
@@ -1320,9 +1322,19 @@ async def _process_signal_batch(
     )
 
     # Regroup flat results back to per-signal
-    per_signal_queries: list[list[str]] = [[] for _ in batch]
-    per_signal_query_embeddings: list[list[list[float]]] = [[] for _ in batch]
-    per_signal_ch_results: list[list[list[SignalCandidate]]] = [[] for _ in batch]
+    # Each query becomes an embedding vector for lookup
+    type EmbeddingVector = list[float]
+    # For each new signal, we generate a number N of query strings
+    type SignalQueries = list[str]
+    # For each new signal, we generate an embedding for each query (so N embeddings)
+    type SignalQueryEmbeddings = list[EmbeddingVector]
+    # For each new signal, for each query, we get a list of M candidates back (10 at time of writing)
+    type SignalQueryResults = list[SignalCandidate]
+    # For each new signal, we run each query, so we get N * M total candidates for matching (although we fold down overlap across queries)
+    type SignalMatchCandidates = list[SignalQueryResults]
+    per_signal_queries: list[SignalQueries] = [[] for _ in batch]
+    per_signal_query_embeddings: list[SignalQueryEmbeddings] = [[] for _ in batch]
+    per_signal_ch_results: list[SignalMatchCandidates] = [[] for _ in batch]
     for flat_idx, (sig_idx, q_text) in enumerate(all_queries_flat):
         per_signal_queries[sig_idx].append(q_text)
         per_signal_query_embeddings[sig_idx].append(all_query_embeddings[flat_idx].embedding)
