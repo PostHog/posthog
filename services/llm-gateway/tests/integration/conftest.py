@@ -51,6 +51,22 @@ MOCK_MODEL_COSTS = {
         "input_cost_per_token": 0.000000075,
         "output_cost_per_token": 0.0000003,
     },
+    "openrouter/anthropic/claude-3.5-sonnet": {
+        "litellm_provider": "openrouter",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+        "input_cost_per_token": 0.000003,
+        "output_cost_per_token": 0.000015,
+    },
+    "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct": {
+        "litellm_provider": "fireworks_ai",
+        "max_input_tokens": 131072,
+        "supports_vision": False,
+        "mode": "chat",
+        "input_cost_per_token": 0.0000009,
+        "output_cost_per_token": 0.0000009,
+    },
 }
 
 
@@ -94,9 +110,13 @@ def run_gateway_server(configure_all_providers: bool = False):
         env_patches["LLM_GATEWAY_OPENAI_API_KEY"] = "sk-test-fake-key"
         env_patches["LLM_GATEWAY_ANTHROPIC_API_KEY"] = "sk-ant-test-fake-key"
         env_patches["LLM_GATEWAY_GEMINI_API_KEY"] = "gemini-test-fake-key"
+        env_patches["LLM_GATEWAY_OPENROUTER_API_KEY"] = "or-test-fake-key"
+        env_patches["LLM_GATEWAY_FIREWORKS_API_KEY"] = "fw-test-fake-key"
         env_patches["OPENAI_API_KEY"] = "sk-test-fake-key"
         env_patches["ANTHROPIC_API_KEY"] = "sk-ant-test-fake-key"
         env_patches["GEMINI_API_KEY"] = "gemini-test-fake-key"
+        env_patches["OPENROUTER_API_KEY"] = "or-test-fake-key"
+        env_patches["FIREWORKS_API_KEY"] = "fw-test-fake-key"
 
     with patch.dict(os.environ, env_patches):
         get_settings.cache_clear()

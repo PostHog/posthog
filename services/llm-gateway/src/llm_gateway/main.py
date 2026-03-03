@@ -116,6 +116,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         os.environ["OPENAI_BASE_URL"] = settings.openai_api_base_url
     if settings.gemini_api_key:
         os.environ["GEMINI_API_KEY"] = settings.gemini_api_key
+    if settings.openrouter_api_key:
+        os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key
+    if settings.fireworks_api_key:
+        os.environ["FIREWORKS_API_KEY"] = settings.fireworks_api_key
 
     logger.info("Initializing database pool...")
     app.state.db_pool = await init_db_pool(
