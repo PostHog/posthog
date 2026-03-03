@@ -75,8 +75,18 @@ class TestExpireOldChangeRequests(BaseTest):
         self.expired_request.refresh_from_db()
         self.assertEqual(self.expired_request.state, "pending")
 
-    def test_expire_task_skips_non_pending_requests(self):
+    def test_expire_task_expires_approved_requests(self):
         self.expired_request.state = "approved"
+        self.expired_request.save()
+
+        result = expire_old_change_requests()
+
+        self.assertEqual(result["expired_count"], 1)
+        self.expired_request.refresh_from_db()
+        self.assertEqual(self.expired_request.state, "expired")
+
+    def test_expire_task_skips_terminal_state_requests(self):
+        self.expired_request.state = "applied"
         self.expired_request.save()
 
         result = expire_old_change_requests()
@@ -87,4 +97,6 @@ class TestExpireOldChangeRequests(BaseTest):
     def test_expire_task_sends_notifications(self, mock_notification):
         expire_old_change_requests()
 
-        mock_notification.assert_called_once_with(self.expired_request)
+        mock_notification.assert_called_once()
+        notified_cr = mock_notification.call_args[0][0]
+        self.assertEqual(notified_cr.pk, self.expired_request.pk)
