@@ -378,7 +378,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select_query = ast.SelectQuery(
             ctes=self.visit(ctx.withClause()) if ctx.withClause() else None,
-            select=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
+            select=self.visit(ctx.selectColumnExprList()) if ctx.selectColumnExprList() else [],
             distinct=True if ctx.DISTINCT() else None,
             select_from=self.visit(ctx.fromClause()) if ctx.fromClause() else None,
             where=self.visit(ctx.whereClause()) if ctx.whereClause() else None,
