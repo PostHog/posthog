@@ -35,6 +35,7 @@ export interface ExceptionEntry {
         data?: Record<string, any>
     }
     stacktrace?: {
+        type?: 'raw' | 'resolved'
         frames: ExceptionFrame[]
     }
 }

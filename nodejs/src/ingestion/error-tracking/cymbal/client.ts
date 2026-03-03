@@ -120,6 +120,13 @@ export class CymbalClient {
                 status = `error_${response.status}`
                 const errorBody = await response.text().catch(() => 'unknown')
 
+                // Log the error for debugging - Cymbal returns {error, details} format
+                logger.warn('⚠️', 'cymbal_error_response', {
+                    status: response.status,
+                    errorBody,
+                    batchSize: requests.length,
+                })
+
                 // 5xx errors and 429 are retriable
                 const isRetriable = response.status >= 500 || response.status === 429
                 if (isRetriable) {
