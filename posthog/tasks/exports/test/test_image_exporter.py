@@ -7,6 +7,8 @@ from unittest.mock import mock_open, patch
 from boto3 import resource
 from botocore.client import Config
 
+from posthog.hogql.constants import LimitContext
+
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -312,3 +314,76 @@ class TestImageExporter(APIBaseTest):
             assert call_kwargs["tile_filters_override"] == tile_filters, (
                 "tile_filters_override should match tile filters"
             )
+
+    @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
+    @patch("posthog.tasks.exports.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
+    @patch("os.remove")
+    @patch("posthog.tasks.exports.image_exporter.calculate_for_query_based_insight")
+    def test_export_uses_export_limit_context_for_all_breakdowns(
+        self,
+        mock_calculate: Any,
+        *args: Any,
+    ) -> None:
+        mock_calculate.return_value = make_insight_result("test_key")
+
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Breakdown Insight",
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
+            },
+        )
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            insight=insight,
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(exported_asset)
+
+        assert mock_calculate.call_count == 1
+        call_kwargs = mock_calculate.call_args[1]
+        assert call_kwargs["limit_context"] == LimitContext.EXPORT, (
+            f"Image export should use EXPORT limit context for higher breakdown limits, got {call_kwargs['limit_context']}"
+        )
+
+    @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
+    @patch("posthog.tasks.exports.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
+    @patch("os.remove")
+    @patch("posthog.tasks.exports.image_exporter.calculate_for_query_based_insight")
+    def test_dashboard_export_uses_export_limit_context(
+        self,
+        mock_calculate: Any,
+        *args: Any,
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Dashboard Insight",
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
+            },
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        dashboard_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            dashboard=dashboard,
+        )
+
+        mock_calculate.return_value = make_insight_result("test_key")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(dashboard_asset)
+
+        assert mock_calculate.call_count == 1
+        call_kwargs = mock_calculate.call_args[1]
+        assert call_kwargs["limit_context"] == LimitContext.EXPORT, (
+            f"Dashboard image export should use EXPORT limit context, got {call_kwargs['limit_context']}"
+        )

@@ -52,6 +52,7 @@ def calculate_for_query_based_insight(
     filters_override: Optional[dict] = None,
     variables_override: Optional[dict] = None,
     tile_filters_override: Optional[dict] = None,
+    limit_context: LimitContext = LimitContext.QUERY_ASYNC,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
@@ -82,8 +83,7 @@ def calculate_for_query_based_insight(
         user=user,
         insight_id=insight.pk,
         dashboard_id=dashboard.pk if dashboard else None,
-        # QUERY_ASYNC provides extended max execution time for insight queries
-        limit_context=LimitContext.QUERY_ASYNC,
+        limit_context=limit_context,
     )
 
     if isinstance(process_response, BaseModel):

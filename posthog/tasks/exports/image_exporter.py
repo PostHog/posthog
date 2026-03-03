@@ -23,6 +23,8 @@ from webdriver_manager.core.os_manager import ChromeType
 
 from posthog.schema import FunnelLayout, NodeKind
 
+from posthog.hogql.constants import LimitContext
+
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.exceptions_capture import capture_exception
@@ -444,6 +446,7 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
                         user=None,
                         variables_override=dashboard_variables,
                         tile_filters_override=tile_filters_override,
+                        limit_context=LimitContext.EXPORT,
                     )
                     if result.cache_key:
                         insight_cache_keys[exported_asset.insight.id] = result.cache_key
@@ -476,6 +479,7 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
                             user=None,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile.filters_overrides,
+                            limit_context=LimitContext.EXPORT,
                         )
                         if result.cache_key:
                             insight_cache_keys[insight.id] = result.cache_key
