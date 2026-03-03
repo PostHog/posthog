@@ -185,7 +185,13 @@ export const lemonToast = {
                 },
                 error: {
                     render: (({ data }: ToastifyRenderProps<Error>) => {
-                        return <ToastContent type="error" message={data?.message || messages.error} button={button} />
+                        return (
+                            <ToastContent
+                                type="error"
+                                message={withIncidentNote(data?.message || messages.error)}
+                                button={button}
+                            />
+                        )
                     }) as (props: ToastifyRenderProps<unknown>) => React.ReactNode,
                     icon: <IconErrorOutline />,
                 },
