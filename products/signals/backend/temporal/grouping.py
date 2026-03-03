@@ -1099,7 +1099,9 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
             match_result.match_metadata.specificity = specificity_meta
         else:
             match_result = NewReportMatch(
-                title=inputs.description[:75],
+                # Picking the first line, as it's will usually represent the title of the signal
+                # TODO: Rework if we decide to store title/description and match them separately
+                title=inputs.description.split("\n")[0],
                 summary=f"Split from group: {report_title}",
                 match_metadata=NoMatchMetadata(
                     reason=f'PR-specificity rejected: "{specificity_result.pr_title}" — {specificity_result.reason}',
