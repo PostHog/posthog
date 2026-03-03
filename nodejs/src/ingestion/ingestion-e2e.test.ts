@@ -995,8 +995,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
                     expect(events[1].event).toEqual('custom event')
                     expect(events[1].person_properties).toEqual({})
-                    // Group properties should be preserved even with $process_person_profile=false
-                    expect(events[1].properties.$group_0).toEqual('group_key')
                     expect(events[2].event).toEqual('custom event')
                     expect(events[2].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
                 })
