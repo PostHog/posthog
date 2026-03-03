@@ -283,7 +283,7 @@ class BigQueryTable(Table[BigQueryField]):
         primary_key: collections.abc.Iterable[str],
         version_key: collections.abc.Iterable[str],
     ) -> typing.Self:
-        return cls.from_arrow_schema_with_field_type(
+        self = cls.from_arrow_schema_with_field_type(
             schema,
             BigQueryField,
             table_id,
@@ -291,6 +291,13 @@ class BigQueryTable(Table[BigQueryField]):
             primary_key,
             version_key,
         )
+        if "timestamp" in self:
+            # TODO: Choosing which column and granularity to use as partitioning should be a configuration parameter.
+            # 'timestamp' is used for backwards compatibility.
+            self.time_partitioning = bigquery.TimePartitioning(
+                type_=bigquery.TimePartitioningType.DAY, field="timestamp"
+            )
+        return self
 
     @property
     def project_id(self) -> str:
@@ -354,12 +361,8 @@ class BigQueryClient:
 
         bq_table = bigquery.Table(table.fully_qualified_name, schema=schema)
 
-        if isinstance(table, BigQueryTable) and "timestamp" in table:
-            # TODO: Maybe choosing which column to use as partitioning should be a configuration parameter.
-            # 'timestamp' is used for backwards compatibility.
-            bq_table.time_partitioning = bigquery.TimePartitioning(
-                type_=bigquery.TimePartitioningType.DAY, field="timestamp"
-            )
+        if isinstance(table, BigQueryTable) and table.time_partitioning is not None:
+            bq_table.time_partitioning = table.time_partitioning
 
         created_bq_table = await asyncio.to_thread(self.sync_client.create_table, bq_table, exists_ok=exists_ok)
 
