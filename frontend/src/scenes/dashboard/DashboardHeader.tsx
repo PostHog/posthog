@@ -12,7 +12,6 @@ import {
     IconPencil,
     IconPlusSmall,
     IconScreen,
-    IconShare,
     IconTrash,
 } from '@posthog/icons'
 
@@ -28,6 +27,7 @@ import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneFullscreen } from 'lib/components/Scenes/SceneFullscreen'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { ScenePin } from 'lib/components/Scenes/ScenePin'
+import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
 import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
@@ -230,6 +230,13 @@ export function DashboardHeader(): JSX.Element | null {
                 <ScenePanelActionsSection>
                     {dashboard && (
                         <>
+                            <SceneShareButton
+                                dataAttrKey={RESOURCE_TYPE}
+                                buttonProps={{
+                                    menuItem: true,
+                                    onClick: () => push(urls.dashboardSharing(dashboard.id)),
+                                }}
+                            />
                             <SceneDuplicate
                                 dataAttrKey={RESOURCE_TYPE}
                                 onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
@@ -533,15 +540,6 @@ export function DashboardHeader(): JSX.Element | null {
                             <>
                                 {dashboard && (
                                     <>
-                                        <LemonButton
-                                            type="secondary"
-                                            data-attr="dashboard-share-button"
-                                            onClick={() => push(urls.dashboardSharing(dashboard.id))}
-                                            size="small"
-                                            icon={<IconShare fontSize="16" />}
-                                            tooltip="Share"
-                                            tooltipPlacement="top"
-                                        />
                                         {canEditDashboard && hasTileRedesign && (
                                             <LemonButton
                                                 type="secondary"
