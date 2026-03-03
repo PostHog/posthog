@@ -590,8 +590,8 @@ pub fn match_flag_value_to_flag_filter(
 ///
 /// This function fetches any hash key overrides that have been set for feature flags
 /// for the given distinct IDs. It handles priority by giving precedence to the first
-/// distinct ID in the list. The operation is retried up to 3 times with exponential
-/// backoff on transient database errors.
+/// distinct ID in the list. The operation is retried once (2 total attempts) with
+/// exponential backoff on transient database errors.
 pub async fn get_feature_flag_hash_key_overrides(
     reader: PostgresReader,
     team_id: TeamId,
@@ -603,8 +603,8 @@ pub async fn get_feature_flag_hash_key_overrides(
 
     let retry_strategy = ExponentialBackoff::from_millis(50)
         .max_delay(Duration::from_millis(300))
-        .take(3)
-        .map(jitter); // Add jitter to prevent thundering herd
+        .take(1) // 1 retry = 2 total attempts; keeps retry budget tight (~350ms worst case)
+        .map(jitter);
 
     // Use tokio-retry to automatically retry on transient failures
     Retry::spawn(retry_strategy, || async {
@@ -2250,9 +2250,9 @@ mod tests {
     async fn test_should_retry_on_error() {
         use sqlx::Error as SqlxError;
 
-        // Test that database connection errors trigger retries
+        // PoolTimedOut is NOT retried — pool exhaustion is systemic, retrying amplifies load
         let pool_timeout_error = FlagError::DatabaseError(SqlxError::PoolTimedOut, None);
-        assert!(should_retry_on_error(&pool_timeout_error));
+        assert!(!should_retry_on_error(&pool_timeout_error));
 
         let pool_closed_error = FlagError::DatabaseError(SqlxError::PoolClosed, None);
         assert!(should_retry_on_error(&pool_closed_error));

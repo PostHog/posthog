@@ -8,7 +8,8 @@ use std::{
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
-    http::Method,
+    error_handling::HandleErrorLayer,
+    http::{Method, StatusCode},
     routing::{any, get},
     Router,
 };
@@ -21,7 +22,10 @@ use common_redis::Client as RedisClient;
 use health::{readiness_handler, HealthRegistry};
 use metrics::gauge;
 use sqlx::PgPool;
+use common_metrics::inc;
 use tower::limit::ConcurrencyLimitLayer;
+use tower::timeout::TimeoutLayer;
+use tower::ServiceBuilder;
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
     trace::TraceLayer,
@@ -36,7 +40,10 @@ use crate::{
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdCollection},
     metrics::{
-        consts::{FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER},
+        consts::{
+            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER,
+            FLAG_REQUEST_TIMEOUT_COUNTER,
+        },
         utils::team_id_label_filter,
     },
     rayon_dispatcher::RayonDispatcher,
@@ -190,6 +197,12 @@ pub fn router(
 
     // flags endpoint
     // IP rate limiting is now handled in the endpoint handler for better control and log-only mode support
+    //
+    // Layer ordering (bottom-up execution, top-down in code):
+    // 1. TimeoutLayer (outermost): cancels the entire request after request_timeout_ms,
+    //    ensuring zombie tasks don't hold connections after Envoy kills the downstream.
+    // 2. HandleErrorLayer: converts timeout errors into 503 responses.
+    // 3. ConcurrencyLimitLayer: bounds in-flight requests.
     let flags_router = Router::new()
         .route("/flags", any(endpoint::flags))
         .route("/flags/", any(endpoint::flags))
@@ -203,7 +216,17 @@ pub fn router(
         )
         .route("/decide", any(endpoint::flags))
         .route("/decide/", any(endpoint::flags))
-        .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
+        .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
+        .layer(
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(|_: tower::BoxError| async {
+                    inc(FLAG_REQUEST_TIMEOUT_COUNTER, &[], 1);
+                    (StatusCode::SERVICE_UNAVAILABLE, "Request timed out")
+                }))
+                .layer(TimeoutLayer::new(Duration::from_millis(
+                    config.request_timeout_ms,
+                ))),
+        );
 
     let router = Router::new()
         .merge(status_router)
