@@ -19957,7 +19957,6 @@ class SourceFieldSelectConfigOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    deprecated: bool | None = None
     fields: (
         list[
             SourceFieldInputConfig

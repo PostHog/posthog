@@ -82,7 +82,13 @@ class StripeSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="Connect your Stripe account to automatically sync your Stripe data into PostHog.",
+            caption="Connect your Stripe account to automatically sync your Stripe data into PostHog. You can choose between OAuth (recommended) or legacy RAK Stripe keys. If you choose the latter, you will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL})",
+            permissionsCaption="""Currently, **read permissions are required** for the following resources:
+            - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
+            - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
+            - Under the **Connect** resource type, select *read* for the **entire resource**
+            These permissions are automatically pre-filled in the API key creation form if you use the link above, so all you need to do is scroll down and click "Create Key".
+            """,
             iconPath="/static/services/stripe.png",
             docsUrl="https://posthog.com/docs/cdp/sources/stripe",
             fields=cast(
@@ -112,7 +118,6 @@ class StripeSource(
                             SourceFieldSelectConfigOption(
                                 label="Restricted API key",
                                 value="api_key",
-                                deprecated=True,
                                 fields=cast(
                                     list[FieldType],
                                     [
@@ -179,8 +184,8 @@ class StripeSource(
 
         if not config.auth_method.stripe_integration_id:
             raise ValueError("Missing Stripe integration ID")
-        integration = self.get_oauth_integration(config.auth_method.stripe_integration_id, team_id)
 
+        integration = self.get_oauth_integration(config.auth_method.stripe_integration_id, team_id)
         if not integration.access_token:
             raise ValueError("Stripe access token not found")
         return integration.access_token
