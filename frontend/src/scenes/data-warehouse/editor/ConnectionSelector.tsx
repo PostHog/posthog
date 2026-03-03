@@ -9,9 +9,9 @@ import { urls } from 'scenes/urls'
 
 import { sqlEditorLogic } from './sqlEditorLogic'
 
-const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
-const LOADING_CONNECTIONS = '__loading_connections__'
-const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
+export const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
+export const LOADING_CONNECTIONS = '__loading_connections__'
+export const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
 
 export function ConnectionSelector(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(externalDataSourcesLogic)
@@ -38,8 +38,8 @@ export function ConnectionSelector(): JSX.Element {
         const sourceOptions = dataWarehouseSourcesLoading
             ? [{ value: LOADING_CONNECTIONS, label: 'Loading...', disabled: true }]
             : directPostgresSources.map((source) => ({
-                  value: source.connection_id,
-                  label: source.prefix || source.source_id,
+                  value: source.id,
+                  label: source.prefix || source.id,
               }))
 
         return [
@@ -82,6 +82,14 @@ export function ConnectionSelector(): JSX.Element {
                     return
                 }
 
+                setSourceQuery({
+                    ...sourceQueryWithConnection,
+                    connectionId: nextValue,
+                    source: {
+                        ...sourceQuery.source,
+                        connectionId: nextValue,
+                    },
+                } as typeof sourceQuery)
                 setConnection(nextValue)
                 loadDatabase()
             }}
