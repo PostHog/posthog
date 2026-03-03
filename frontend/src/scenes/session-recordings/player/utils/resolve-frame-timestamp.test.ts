@@ -1,7 +1,7 @@
-import { FrameState, initialFrameState, resolveFrameTimestamp } from './resolve-frame-timestamp'
+import { FrameState, initialFrameState, resolveFrameTimestamp, STUCK_FRAME_THRESHOLD } from './resolve-frame-timestamp'
 
 const FPS_1X = 1 * (1000 / 60) // ~16.67ms
-const THRESHOLD = 10
+const THRESHOLD = STUCK_FRAME_THRESHOLD
 
 function state(stuckFrames: number, lastAnimTimestamp: number | undefined): FrameState {
     return { stuckFrames, lastAnimTimestamp }

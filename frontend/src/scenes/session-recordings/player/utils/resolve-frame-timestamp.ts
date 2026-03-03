@@ -1,4 +1,4 @@
-const STUCK_FRAME_THRESHOLD = 10
+export const STUCK_FRAME_THRESHOLD = 10
 
 export interface FrameState {
     stuckFrames: number

@@ -67,6 +67,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         updatePlaybackPosition: (timestamp: number) => ({ timestamp }),
         setPlayerActive: (active: boolean) => ({ active }),
         loadAllSources: true,
+        // dispatch after any cache.store mutation to trigger a new Redux notification cycle
         storeUpdated: true,
     }),
     reducers(() => ({

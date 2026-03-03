@@ -34,6 +34,48 @@ describe('selectNewEvents', () => {
         })
     })
 
+    describe('edge cases', () => {
+        it.each([
+            {
+                name: 'empty allSnapshots → empty result',
+                all: [] as eventWithTime[],
+                current: [evt(100)],
+                useStore: false,
+            },
+            {
+                name: 'empty currentEvents → returns all',
+                all: [evt(100), evt(200)],
+                current: [] as eventWithTime[],
+                useStore: false,
+            },
+            {
+                name: 'both empty → empty result',
+                all: [] as eventWithTime[],
+                current: [] as eventWithTime[],
+                useStore: false,
+            },
+            {
+                name: 'store path: empty allSnapshots → empty result',
+                all: [] as eventWithTime[],
+                current: [evt(100)],
+                useStore: true,
+            },
+            {
+                name: 'store path: empty currentEvents → returns all',
+                all: [evt(100), evt(200)],
+                current: [] as eventWithTime[],
+                useStore: true,
+            },
+        ])('$name', ({ all, current, useStore }) => {
+            const result = selectNewEvents(all, current, useStore)
+            if (all.length === 0) {
+                expect(result).toEqual([])
+            } else if (current.length === 0) {
+                expect(result.map((e) => e.timestamp)).toEqual(all.map((e) => e.timestamp))
+            }
+        })
+    })
+
     describe('legacy path breaks with out-of-order loading', () => {
         it('slice misses events prepended before existing ones', () => {
             // This is WHY the store path needs findNewEvents

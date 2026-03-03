@@ -140,6 +140,17 @@ describe('convertSegmentKinds', () => {
         expect(result.isLoading).toBe(true)
     })
 
+    it('processes multiple segments with mixed kinds independently', () => {
+        const store = storeWithSources(20, allLoaded(20))
+        const segments = [
+            makeSegment({ kind: 'buffer' }),
+            makeSegment({ kind: 'window', isActive: true, windowId: 1 }),
+            makeSegment({ kind: 'gap' }),
+        ]
+        const result = convertSegmentKinds(segments, store, false)
+        expect(result.map((s) => s.kind)).toEqual(['gap', 'window', 'gap'])
+    })
+
     it('isLoading propagates current loading state to buffer segments', () => {
         const notLoading = convertSegmentKinds([makeSegment({ kind: 'buffer' })], null, false)
         expect(notLoading[0].isLoading).toBe(false)
