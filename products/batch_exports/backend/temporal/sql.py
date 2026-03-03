@@ -978,30 +978,7 @@ SELECT
     persons._inserted_at AS _inserted_at,
     persons.is_deleted AS is_deleted
 FROM (
-    WITH new_persons AS (
-        SELECT
-            id
-        FROM
-            person
-        WHERE
-            team_id = {team_id}::Int64
-            AND id in (
-                SELECT
-                    id
-                FROM
-                    person
-                WHERE
-                    team_id = {team_id}::Int64
-                    AND _timestamp >= {interval_start}::DateTime64
-                    AND _timestamp < {interval_end}::DateTime64
-            )
-        GROUP BY
-            id
-        HAVING
-            argMax(_timestamp, person.version) >= {interval_start}::DateTime64
-            AND argMax(_timestamp, person.version) < {interval_end}::DateTime64
-    ),
-    distinct_ids AS (
+    WITH distinct_ids AS (
         SELECT
             distinct_id
         FROM
