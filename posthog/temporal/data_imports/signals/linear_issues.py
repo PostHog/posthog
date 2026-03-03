@@ -6,7 +6,7 @@ from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput, 
 
 logger = get_logger(__name__)
 
-LINEAR_IGNORED_STATE_TYPES = ("completed", "cancelled")
+LINEAR_IGNORED_STATE_TYPES = ("completed", "canceled")
 
 LINEAR_SUMMARIZATION_PROMPT = """Summarize this Linear issue into a concise description for semantic search.
 Capture the core problem or request, the product area affected, and key context like error messages or what the user was doing when the issue occurred.
@@ -88,7 +88,7 @@ LINEAR_ISSUES_CONFIG = SignalSourceTableConfig(
     partition_field="createdAt",
     partition_field_is_datetime_string=True,
     fields=REQUIRED_FIELDS + EXTRA_FIELDS,
-    where_clause=None,
+    where_clause=f"JSONExtractString(state, 'type') NOT IN ({', '.join(repr(s) for s in LINEAR_IGNORED_STATE_TYPES)})",
     max_records=100,
     first_sync_lookback_days=7,
     actionability_prompt=LINEAR_ACTIONABILITY_PROMPT,
