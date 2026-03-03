@@ -254,7 +254,7 @@ jobs:
                           body: errorBody,
                       });
             - name: Fail if Docker build failed
-              if: steps.wait-for-image.outputs.conclusion != 'success'
+              if: steps.wait-for-image.outputs.conclusion != 'success' && steps.wait-for-image.outputs.conclusion != 'skipped'
               run: |
                   echo "Docker image build failed with conclusion: ${{ steps.wait-for-image.outputs.conclusion }}"
                   exit 1
