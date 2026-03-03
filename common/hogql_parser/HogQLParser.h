@@ -67,16 +67,17 @@ public:
     RuleSettingExpr = 53, RuleWindowExpr = 54, RuleWinPartitionByClause = 55, 
     RuleWinOrderByClause = 56, RuleWinFrameClause = 57, RuleWinFrameExtend = 58, 
     RuleWinFrameBound = 59, RuleExpr = 60, RuleColumnTypeExpr = 61, RuleColumnExprList = 62, 
-    RuleColumnExpr = 63, RuleColumnLambdaExpr = 64, RuleHogqlxChildElement = 65, 
-    RuleHogqlxText = 66, RuleHogqlxTagElement = 67, RuleHogqlxTagAttribute = 68, 
-    RuleWithExprList = 69, RuleWithExpr = 70, RuleWithExprColumnNameList = 71, 
-    RuleColumnIdentifier = 72, RuleNestedIdentifier = 73, RuleTableExpr = 74, 
-    RuleTableAliasColumnNameList = 75, RuleTableFunctionExpr = 76, RuleTableIdentifier = 77, 
-    RuleTableArgList = 78, RuleDatabaseIdentifier = 79, RuleFloatingLiteral = 80, 
-    RuleNumberLiteral = 81, RuleLiteral = 82, RuleInterval = 83, RuleKeyword = 84, 
-    RuleKeywordForAlias = 85, RuleAlias = 86, RuleIdentifier = 87, RuleEnumValue = 88, 
-    RulePlaceholder = 89, RuleString = 90, RuleTemplateString = 91, RuleStringContents = 92, 
-    RuleFullTemplateString = 93, RuleStringContentsFull = 94
+    RuleSelectColumnExprList = 63, RuleSelectColumnExpr = 64, RuleColumnExpr = 65, 
+    RuleColumnLambdaExpr = 66, RuleHogqlxChildElement = 67, RuleHogqlxText = 68, 
+    RuleHogqlxTagElement = 69, RuleHogqlxTagAttribute = 70, RuleWithExprList = 71, 
+    RuleWithExpr = 72, RuleWithExprColumnNameList = 73, RuleColumnIdentifier = 74, 
+    RuleNestedIdentifier = 75, RuleTableExpr = 76, RuleTableAliasColumnNameList = 77, 
+    RuleTableFunctionExpr = 78, RuleTableIdentifier = 79, RuleTableArgList = 80, 
+    RuleDatabaseIdentifier = 81, RuleFloatingLiteral = 82, RuleNumberLiteral = 83, 
+    RuleLiteral = 84, RuleInterval = 85, RuleKeyword = 86, RuleKeywordForAlias = 87, 
+    RuleAlias = 88, RuleIdentifier = 89, RuleEnumValue = 90, RulePlaceholder = 91, 
+    RuleString = 92, RuleTemplateString = 93, RuleStringContents = 94, RuleFullTemplateString = 95, 
+    RuleStringContentsFull = 96
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -159,6 +160,8 @@ public:
   class ExprContext;
   class ColumnTypeExprContext;
   class ColumnExprListContext;
+  class SelectColumnExprListContext;
+  class SelectColumnExprContext;
   class ColumnExprContext;
   class ColumnLambdaExprContext;
   class HogqlxChildElementContext;
@@ -635,13 +638,13 @@ public:
   class  SelectStmtContext : public antlr4::ParserRuleContext {
   public:
     HogQLParser::WithClauseContext *with = nullptr;
-    HogQLParser::ColumnExprListContext *columns = nullptr;
+    HogQLParser::SelectColumnExprListContext *columns = nullptr;
     HogQLParser::FromClauseContext *from = nullptr;
     HogQLParser::WhereClauseContext *where = nullptr;
     SelectStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *SELECT();
-    ColumnExprListContext *columnExprList();
+    SelectColumnExprListContext *selectColumnExprList();
     antlr4::tree::TerminalNode *DISTINCT();
     TopClauseContext *topClause();
     ArrayJoinClauseContext *arrayJoinClause();
@@ -1435,6 +1438,57 @@ public:
   };
 
   ColumnExprListContext* columnExprList();
+
+  class  SelectColumnExprListContext : public antlr4::ParserRuleContext {
+  public:
+    SelectColumnExprListContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    std::vector<SelectColumnExprContext *> selectColumnExpr();
+    SelectColumnExprContext* selectColumnExpr(size_t i);
+    std::vector<antlr4::tree::TerminalNode *> COMMA();
+    antlr4::tree::TerminalNode* COMMA(size_t i);
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  SelectColumnExprListContext* selectColumnExprList();
+
+  class  SelectColumnExprContext : public antlr4::ParserRuleContext {
+  public:
+    SelectColumnExprContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+   
+    SelectColumnExprContext() = default;
+    void copyFrom(SelectColumnExprContext *context);
+    using antlr4::ParserRuleContext::copyFrom;
+
+    virtual size_t getRuleIndex() const override;
+
+   
+  };
+
+  class  ColumnExprAliasBeforeContext : public SelectColumnExprContext {
+  public:
+    ColumnExprAliasBeforeContext(SelectColumnExprContext *ctx);
+
+    IdentifierContext *identifier();
+    antlr4::tree::TerminalNode *COLON();
+    ColumnExprContext *columnExpr();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  class  ColumnExprSelectValueContext : public SelectColumnExprContext {
+  public:
+    ColumnExprSelectValueContext(SelectColumnExprContext *ctx);
+
+    ColumnExprContext *columnExpr();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  SelectColumnExprContext* selectColumnExpr();
 
   class  ColumnExprContext : public antlr4::ParserRuleContext {
   public:
