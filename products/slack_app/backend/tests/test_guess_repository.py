@@ -190,7 +190,7 @@ class TestSelectRepository:
         assert decision.mode == "auto"
         assert decision.repository == "posthog/posthog"
         assert decision.reason == "single_repo"
-        assert decision.llm_called is False
+        assert decision.llm_found_match is False
 
     def test_explicit_repo_auto(self):
         decision = select_repository(
@@ -203,7 +203,7 @@ class TestSelectRepository:
         assert decision.mode == "auto"
         assert decision.repository == "posthog/posthog-js"
         assert decision.reason == "explicit_mention"
-        assert decision.llm_called is False
+        assert decision.llm_found_match is False
 
     def test_explicit_repo_takes_precedence_over_rules(self):
         RepoRoutingRule.objects.create(
@@ -236,7 +236,7 @@ class TestSelectRepository:
         assert decision.mode == "auto"
         assert decision.repository == "posthog/posthog-js"
         assert decision.reason == "rule_match"
-        assert decision.llm_called is True
+        assert decision.llm_found_match is True
 
     @patch("products.slack_app.backend.api._match_repo_rule", return_value=None)
     def test_no_rule_match_picker(self, _mock_match):
@@ -250,7 +250,7 @@ class TestSelectRepository:
         assert decision.mode == "picker"
         assert decision.repository is None
         assert decision.reason == "no_rule_match"
-        assert decision.llm_called is False
+        assert decision.llm_found_match is False
 
     def test_no_repos_picker(self):
         decision = select_repository(
@@ -263,7 +263,7 @@ class TestSelectRepository:
         assert decision.mode == "picker"
         assert decision.repository is None
         assert decision.reason == "no_repos"
-        assert decision.llm_called is False
+        assert decision.llm_found_match is False
 
 
 class TestMatchRepoRule:

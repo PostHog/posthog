@@ -628,16 +628,14 @@ def create_twig_task_for_repo_activity(
             )
 
     # 3. Now start the workflow
-    if task:
-        task_run = task.latest_run
-        if task_run:
-            execute_task_processing_workflow(
-                task_id=str(task.id),
-                run_id=str(task_run.id),
-                team_id=task.team.id,
-                user_id=user_id,
-                slack_thread_context=slack_thread_context,
-            )
+    if task and task_run:
+        execute_task_processing_workflow(
+            task_id=str(task.id),
+            run_id=str(task_run.id),
+            team_id=task.team.id,
+            user_id=user_id,
+            slack_thread_context=slack_thread_context,
+        )
 
 
 @activity.defn

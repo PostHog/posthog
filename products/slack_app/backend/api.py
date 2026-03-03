@@ -70,7 +70,7 @@ class RepoDecision:
     mode: Literal["auto", "picker"]
     repository: str | None
     reason: str
-    llm_called: bool
+    llm_found_match: bool
 
 
 @dataclass
@@ -829,20 +829,20 @@ def select_repository(
     all_repos: list[str],
 ) -> RepoDecision:
     if not all_repos:
-        return RepoDecision(mode="picker", repository=None, reason="no_repos", llm_called=False)
+        return RepoDecision(mode="picker", repository=None, reason="no_repos", llm_found_match=False)
 
     if len(all_repos) == 1:
-        return RepoDecision(mode="auto", repository=all_repos[0], reason="single_repo", llm_called=False)
+        return RepoDecision(mode="auto", repository=all_repos[0], reason="single_repo", llm_found_match=False)
 
     explicit_repo = _extract_explicit_repo(event_text, all_repos)
     if explicit_repo:
-        return RepoDecision(mode="auto", repository=explicit_repo, reason="explicit_mention", llm_called=False)
+        return RepoDecision(mode="auto", repository=explicit_repo, reason="explicit_mention", llm_found_match=False)
 
     matched = _match_repo_rule(event_text, thread_messages, integration.team_id, all_repos)
     if matched:
-        return RepoDecision(mode="auto", repository=matched, reason="rule_match", llm_called=True)
+        return RepoDecision(mode="auto", repository=matched, reason="rule_match", llm_found_match=True)
 
-    return RepoDecision(mode="picker", repository=None, reason="no_rule_match", llm_called=False)
+    return RepoDecision(mode="picker", repository=None, reason="no_rule_match", llm_found_match=False)
 
 
 def _match_repo_rule(
