@@ -62,6 +62,7 @@ const RELEVANT_GROUP_NAME_MAP: Record<string, string> = {
     'us.posthog.com': 'US Cloud 🇺🇸',
     'eu.posthog.com': 'EU Cloud 🇪🇺',
     localhost: 'US Cloud 🇺🇸', // Default to US for local dev
+    '127.0.0.1': 'US Cloud 🇺🇸', // Storybook CI runs at 127.0.0.1:6006
 }
 
 function getRelevantGroupName(): string | null {
@@ -71,8 +72,8 @@ function getRelevantGroupName(): string | null {
 function hasRelevantComponents(affectedComponents: IncidentIoAffectedComponent[]): boolean {
     const relevantGroupName = getRelevantGroupName()
     if (!relevantGroupName) {
-        // If no mapping, show all incidents
-        return true
+        // Unknown hostname (self-hosted) — cloud incidents aren't relevant
+        return false
     }
     // If no affected components, show the incident (it's global)
     if (affectedComponents.length === 0) {
