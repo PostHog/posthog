@@ -96,7 +96,7 @@ export function DashboardItems(): JSX.Element {
                     width={gridWrapperWidth}
                     className={className}
                     draggableHandle=".CardMeta,.TextCard__body"
-                    isDraggable={dashboardMode === DashboardMode.Edit && !isMobileView}
+                    isDraggable={dashboardMode === DashboardMode.Edit}
                     isResizable={dashboardMode === DashboardMode.Edit && !isMobileView}
                     layouts={layouts}
                     rowHeight={80}
