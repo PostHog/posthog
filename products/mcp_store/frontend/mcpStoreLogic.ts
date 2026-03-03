@@ -54,12 +54,15 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 closeAddCustomServerModal: () => false,
             },
         ],
-        installations: {
-            toggleServerEnabled: (
-                state: MCPServerInstallationApi[],
-                { id, enabled }: { id: string; enabled: boolean }
-            ) => state.map((i) => (i.id === id ? { ...i, is_enabled: enabled } : i)),
-        },
+        installations: [
+            [] as MCPServerInstallationApi[],
+            {
+                toggleServerEnabled: (
+                    state: MCPServerInstallationApi[],
+                    { id, enabled }: { id: string; enabled: boolean }
+                ) => state.map((i) => (i.id === id ? { ...i, is_enabled: enabled } : i)),
+            },
+        ],
     }),
 
     forms(({ actions }) => ({
