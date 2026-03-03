@@ -2797,6 +2797,79 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
         self.assertFalse(restore_response.json()["deleted"])
 
+    def test_restore_rejects_when_linked_flag_is_deleted(self):
+        """Restoring an experiment whose linked feature flag has been soft-deleted
+        should fail, preventing orphan experiments that reference dead flags."""
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Orphan Prevention Test",
+                "feature_flag_key": "orphan-test-flag",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+            format="json",
+        )
+        experiment = create_response.json()
+        feature_flag_id = experiment["feature_flag"]["id"]
+
+        # Step 1: Soft-delete the experiment
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"deleted": True},
+            format="json",
+        )
+
+        # Step 2: Soft-delete the linked flag (succeeds because no active experiments)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}/",
+            {"deleted": True},
+            format="json",
+        )
+
+        # Step 3: Attempt to restore the experiment — should be rejected
+        restore_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"deleted": False, "name": experiment["name"]},
+            format="json",
+        )
+
+        self.assertEqual(restore_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("linked feature flag has been deleted", restore_response.json()["detail"])
+
+    def test_restore_succeeds_when_linked_flag_is_alive(self):
+        """Restoring an experiment whose linked feature flag is still active should succeed."""
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Restorable With Live Flag",
+                "feature_flag_key": "live-flag-restore",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+            format="json",
+        )
+        experiment = create_response.json()
+
+        # Soft-delete the experiment (flag remains alive)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"deleted": True},
+            format="json",
+        )
+
+        # Restore the experiment — should succeed
+        restore_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"deleted": False, "name": experiment["name"]},
+            format="json",
+        )
+
+        self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(restore_response.json()["deleted"])
+
     def test_create_experiment_with_missing_parameters(self):
         ff_key = "a-b-tests"
 
