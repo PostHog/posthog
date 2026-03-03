@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -16,6 +18,7 @@ export const InsightResultMetadata = ({
 }: InsightResultMetadataProps): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
     const { samplingFactor, trendsFilter } = useValues(insightVizDataLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
     return (
         <>
             {!disableLastComputation && <ComputationTimeWithRefresh disableRefresh={disableLastComputationRefresh} />}
@@ -25,7 +28,7 @@ export const InsightResultMetadata = ({
                     Results calculated from {samplingFactor * 100}% of users
                 </span>
             ) : null}
-            {trendsFilter?.hideWeekends ? (
+            {trendsFilter?.hideWeekends && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS] ? (
                 <span className="text-secondary">
                     <span className="mx-1">•</span>
                     Weekend data excluded
