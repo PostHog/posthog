@@ -1,0 +1,7 @@
+# Visual review baselines — managed by CI, do not edit manually
+version: 1
+config:
+    api: https://do-ci-hobby-pr-47485.posthog.cc
+    team: '1'
+    repo: '2070186e-8f42-4ea3-b4bf-b66ac78d47e8'
+snapshots: {}

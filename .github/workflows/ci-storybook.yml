@@ -475,9 +475,43 @@ jobs:
                     echo "Snapshot changes detected in patches"
                   fi
 
-            # UPDATE mode: commit the changes
+            # Visual Review: submit snapshots and auto-approve baseline
+            # Runs before commit-snapshots so the baseline update lands in the same commit
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version: 24.13.0
+
+            - name: Install VR CLI
+              run: npm install --global ./posthog-visual-review-cli-0.0.1.tgz
+
+            - name: Submit to Visual Review
+              continue-on-error: true
+              run: |
+                  vr submit \
+                    --dir frontend/__snapshots__/ \
+                    --type storybook \
+                    --baseline common/storybook/snapshots.yml \
+                    --auto-approve \
+                    --token ${{ secrets.VR_API_TOKEN }} \
+                    --branch ${{ github.event.pull_request.head.ref }} \
+                    --commit ${{ github.event.pull_request.head.sha }} \
+                    --pr ${{ github.event.pull_request.number }}
+
+            # Check if baseline was updated by VR submit
+            - name: Check baseline changes
+              id: check-baseline
+              run: |
+                  if git diff --quiet common/storybook/snapshots.yml; then
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
+                    git add common/storybook/snapshots.yml
+                  fi
+
+            # UPDATE mode: commit the changes (snapshots + baseline in one commit)
             - name: Commit snapshot changes
-              if: steps.check-snapshots.outputs.has-changes == 'true' && needs.detect-snapshot-mode.outputs.mode == 'update'
+              if: (steps.check-snapshots.outputs.has-changes == 'true' || steps.check-baseline.outputs.has-changes == 'true') && needs.detect-snapshot-mode.outputs.mode == 'update'
               uses: ./.github/actions/commit-snapshots
               with:
                   workflow-type: storybook
