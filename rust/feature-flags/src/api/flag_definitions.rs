@@ -125,7 +125,11 @@ pub async fn flags_definitions(
         }
     }
 
-    let etag_result = if client_etag.is_some() { "miss" } else { "none" };
+    let etag_result = if client_etag.is_some() {
+        "miss"
+    } else {
+        "none"
+    };
     inc(
         FLAG_DEFINITIONS_ETAG_COUNTER,
         &[("result".to_string(), etag_result.to_string())],
@@ -135,7 +139,10 @@ pub async fn flags_definitions(
     // Retrieve cached response from HyperCache (always with cohorts)
     let cached_response = get_from_cache(&state, &team).await?;
 
-    Ok(ok_response_with_etag(cached_response, current_etag.as_deref()))
+    Ok(ok_response_with_etag(
+        cached_response,
+        current_etag.as_deref(),
+    ))
 }
 
 /// Build a 304 Not Modified response with ETag and Cache-Control headers.
@@ -144,10 +151,7 @@ fn not_modified_response(etag: &str) -> Response {
         StatusCode::NOT_MODIFIED,
         [
             ("etag", format!("W/\"{}\"", etag)),
-            (
-                "cache-control",
-                "private, must-revalidate".to_string(),
-            ),
+            ("cache-control", "private, must-revalidate".to_string()),
         ],
     )
         .into_response()
@@ -161,10 +165,7 @@ fn ok_response_with_etag(data: Value, etag: Option<&str>) -> Response {
             [
                 ("content-type", "application/json".to_string()),
                 ("etag", format!("W/\"{}\"", etag_val)),
-                (
-                    "cache-control",
-                    "private, must-revalidate".to_string(),
-                ),
+                ("cache-control", "private, must-revalidate".to_string()),
             ],
             Json(data),
         )
@@ -210,25 +211,19 @@ async fn get_etag_from_redis(state: &AppState, team_key: &KeyType) -> Option<Str
     let cache_key = config.get_redis_cache_key(team_key);
     let etag_key = format!("{}:etag", cache_key);
 
-    match state
-        .redis_client
-        .get_raw_bytes(etag_key.clone())
-        .await
-    {
-        Ok(raw_bytes) => {
-            match serde_pickle::from_slice::<String>(&raw_bytes, Default::default()) {
-                Ok(etag) if !etag.is_empty() => Some(etag),
-                Ok(_) => None,
-                Err(e) => {
-                    warn!(
-                        etag_key = %etag_key,
-                        error = %e,
-                        "Failed to deserialize ETag from Redis"
-                    );
-                    None
-                }
+    match state.redis_client.get_raw_bytes(etag_key.clone()).await {
+        Ok(raw_bytes) => match serde_pickle::from_slice::<String>(&raw_bytes, Default::default()) {
+            Ok(etag) if !etag.is_empty() => Some(etag),
+            Ok(_) => None,
+            Err(e) => {
+                warn!(
+                    etag_key = %etag_key,
+                    error = %e,
+                    "Failed to deserialize ETag from Redis"
+                );
+                None
             }
-        }
+        },
         Err(_) => None, // Redis miss or error — degrade gracefully
     }
 }
