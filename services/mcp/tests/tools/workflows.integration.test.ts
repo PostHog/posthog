@@ -69,7 +69,7 @@ describe('Workflows', { concurrent: false }, () => {
             const workflow = parseToolResponse(result)
 
             expect(workflow.id).toBe(firstId)
-            expect(typeof workflow.name === 'string' || workflow.name === null).toBe(true)
+            expect(workflow.name == null || typeof workflow.name === 'string').toBe(true)
             expect(typeof workflow.version).toBe('number')
             expect(['draft', 'active', 'archived']).toContain(workflow.status)
             expect(Array.isArray(workflow.actions)).toBe(true)
