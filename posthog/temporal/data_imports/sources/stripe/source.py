@@ -153,7 +153,7 @@ class StripeSource(
                         defaultValue="oauth",
                         options=[
                             SourceFieldSelectConfigOption(
-                                label="Connect with Stripe",
+                                label="OAuth connection",
                                 value="oauth",
                                 fields=cast(
                                     list[FieldType],
