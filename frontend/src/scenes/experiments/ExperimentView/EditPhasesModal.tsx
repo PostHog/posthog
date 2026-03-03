@@ -88,16 +88,6 @@ export function EditPhasesModal(): JSX.Element | null {
                             },
                         },
                         {
-                            title: 'TRAFFIC',
-                            key: 'traffic',
-                            render: () => {
-                                const variants = experiment.feature_flag?.filters?.multivariate?.variants || []
-                                const rollout = experiment.parameters?.rollout_percentage ?? 100
-                                const split = variants.map((v) => `${v.rollout_percentage}`).join(' / ')
-                                return `${rollout}% traffic${split ? `, ${split} split` : ''}`
-                            },
-                        },
-                        {
                             title: '',
                             key: 'actions',
                             width: 60,
