@@ -34,8 +34,8 @@ fn build_celery_message_with_id(
         kwargs,
         {"callbacks": null, "errbacks": null, "chain": null, "chord": null}
     ]);
-    let body_b64 = base64::engine::general_purpose::STANDARD
-        .encode(body_json.to_string().as_bytes());
+    let body_b64 =
+        base64::engine::general_purpose::STANDARD.encode(body_json.to_string().as_bytes());
 
     let message = serde_json::json!({
         "body": body_b64,
@@ -181,7 +181,10 @@ mod tests {
         let p2: serde_json::Value = serde_json::from_str(&msg2).unwrap();
 
         assert_ne!(p1["headers"]["id"], p2["headers"]["id"]);
-        assert_ne!(p1["properties"]["delivery_tag"], p2["properties"]["delivery_tag"]);
+        assert_ne!(
+            p1["properties"]["delivery_tag"],
+            p2["properties"]["delivery_tag"]
+        );
     }
 
     #[test]
@@ -204,4 +207,5 @@ mod tests {
             assert_eq!(calls[0].key, "celery");
         });
     }
+
 }
