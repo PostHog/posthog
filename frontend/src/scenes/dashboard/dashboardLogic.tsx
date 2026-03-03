@@ -14,7 +14,6 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
 import uniqBy from 'lodash.uniqby'
 import posthog from 'posthog-js'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -1819,7 +1818,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         setDashboardMode: async ({ mode, source }) => {
             if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
-                // Note: handled in subscriptions
+                clearDOMTextSelection()
+                if (values.currentLayoutSize === 'xs') {
+                    lemonToast.warning(
+                        'Editing layout is disabled on smaller screens. Please zoom out or use a larger screen to move tiles.'
+                    )
+                } else {
+                    lemonToast.info('Now editing the dashboard – save to persist changes')
+                }
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
                 // cancel edit mode changesdashboardLogi
 
@@ -2076,15 +2082,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     lemonToast.success('Tile filters saved')
                 },
             })
-        },
-    })),
-
-    subscriptions(() => ({
-        dashboardMode: (dashboardMode, previousDashboardMode) => {
-            if (previousDashboardMode !== DashboardMode.Edit && dashboardMode === DashboardMode.Edit) {
-                clearDOMTextSelection()
-                lemonToast.info('Now editing the dashboard – save to persist changes')
-            }
         },
     })),
 
