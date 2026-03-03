@@ -211,7 +211,6 @@
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_featureflag"."deleted")
-         AND NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."key" = 'copied-flag-key'
          AND "posthog_team"."project_id" = 99999)
   LIMIT 1
@@ -229,8 +228,7 @@
                  WHERE U0."id" = 99999
                  LIMIT 1)
               OR ("posthog_team"."parent_team_id" IS NULL
-                  AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT "posthog_featureflag"."deleted")
+                  AND "posthog_featureflag"."team_id" = 99999)))
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.14
