@@ -52,6 +52,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     })),
     actions({
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
+        setSearch: (search: string) => ({ search }),
         setFilters: (filters: Partial<DashboardsFilters>) => ({
             filters,
         }),
@@ -83,6 +84,11 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     objectClean({
                         ...state,
                         ...filters,
+                    }),
+                setSearch: (state, { search }) =>
+                    objectClean({
+                        ...state,
+                        search,
                     }),
             },
         ],
@@ -184,11 +190,25 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
 
             router.actions.push(router.values.location.pathname, { ...router.values.searchParams, tab })
         },
+        setSearch: () => {
+            const searchParams: Record<string, any> = { ...router.values.searchParams }
+
+            if (values.filters.search) {
+                searchParams['search'] = values.filters.search
+            } else {
+                delete searchParams['search']
+            }
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
     })),
     tabAwareUrlToAction(({ actions }) => ({
         '/dashboard': (_, searchParams) => {
-            const tab = searchParams['tab'] || DashboardsTab.All
+            const tab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
             actions.setCurrentTab(tab)
+
+            const search = typeof searchParams['search'] === 'string' ? searchParams['search'] : ''
+            actions.setFilters({ search })
         },
     })),
 ])
