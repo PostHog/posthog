@@ -75,7 +75,7 @@ selectStmt:
     settingsClause?
     ;
 
-withClause: WITH withExprList;
+withClause: WITH RECURSIVE? withExprList;
 topClause: TOP DECIMAL_LITERAL (WITH TIES)?;
 fromClause: FROM joinExpr;
 arrayJoinClause: (LEFT | INNER)? ARRAY JOIN columnExprList;
@@ -244,10 +244,12 @@ hogqlxTagAttribute
 
 withExprList: withExpr (COMMA withExpr)* COMMA?;
 withExpr
-    : identifier AS LPAREN selectSetStmt RPAREN    # WithExprSubquery
+    : identifier withExprColumnNameList? (USING KEY withExprColumnNameList)? AS (NOT? MATERIALIZED)? LPAREN selectSetStmt RPAREN    # WithExprSubquery
     // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
-    | columnExpr AS identifier                       # WithExprColumn
+    | columnExpr AS identifier                                          # WithExprColumn
     ;
+
+withExprColumnNameList: LPAREN identifier (COMMA identifier)* RPAREN;
 
 
 // This is slightly different in HogQL compared to ClickHouse SQL
@@ -295,7 +297,7 @@ keyword
     | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
     | LAST | LEADING | LEFT | LIKE | LIMIT
     | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
-    | PRECEDING | PREWHERE | RANGE | RETURN | RIGHT | ROLLUP | ROW
+    | PRECEDING | PREWHERE | RANGE | RECURSIVE | RETURN | RIGHT | ROLLUP | ROW
     | ROWS | SAMPLE | SELECT | SEMI | SETTINGS | SUBSTRING
     | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
     | UNBOUNDED | UNION | USING | WHEN | WHERE | WINDOW | WITH

@@ -608,9 +608,26 @@
                 },
                 "status": {
                     "type": "string",
-                    "enum": ["active", "resolved", "all", "suppressed"]
+                    "enum": ["active", "resolved", "archived", "suppressed", "pending_release", "all"]
                 }
             },
+            "additionalProperties": false
+        },
+        "ErrorTrackingUpdateIssueStatusSchema": {
+            "type": "object",
+            "properties": {
+                "issueId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "The ID of the error tracking issue to update"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "resolved", "archived", "suppressed", "pending_release"],
+                    "description": "The new status for the issue: active, resolved, archived, suppressed, or pending_release"
+                }
+            },
+            "required": ["issueId", "status"],
             "additionalProperties": false
         },
         "EventDefinitionUpdateInputSchema": {
@@ -682,6 +699,11 @@
                     "type": "string",
                     "minLength": 1,
                     "description": "The final SQL query to be executed."
+                },
+                "truncate": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file)."
                 }
             },
             "required": ["query"],
@@ -702,12 +724,6 @@
                 "feature_flag_key": {
                     "type": "string",
                     "description": "Feature flag key (letters, numbers, hyphens, underscores only). IMPORTANT: First search for existing feature flags that might be suitable using the feature-flags-get-all tool, then suggest reusing existing ones or creating a new key based on the experiment name"
-                },
-                "type": {
-                    "type": "string",
-                    "enum": ["product", "web"],
-                    "default": "product",
-                    "description": "Experiment type: 'product' for backend/API changes, 'web' for frontend UI changes"
                 },
                 "primary_metrics": {
                     "type": "array",
@@ -1477,13 +1493,10 @@
                                                         "not_icontains",
                                                         "regex",
                                                         "not_regex",
-                                                        "is_cleaned_path_exact",
                                                         "gt",
                                                         "gte",
                                                         "lt",
-                                                        "lte",
-                                                        "min",
-                                                        "max"
+                                                        "lte"
                                                     ]
                                                 }
                                             },
@@ -1664,13 +1677,10 @@
                                                                 "not_icontains",
                                                                 "regex",
                                                                 "not_regex",
-                                                                "is_cleaned_path_exact",
                                                                 "gt",
                                                                 "gte",
                                                                 "lt",
-                                                                "lte",
-                                                                "min",
-                                                                "max"
+                                                                "lte"
                                                             ]
                                                         }
                                                     },
@@ -4127,13 +4137,10 @@
                                                         "not_icontains",
                                                         "regex",
                                                         "not_regex",
-                                                        "is_cleaned_path_exact",
                                                         "gt",
                                                         "gte",
                                                         "lt",
-                                                        "lte",
-                                                        "min",
-                                                        "max"
+                                                        "lte"
                                                     ]
                                                 }
                                             },
@@ -5014,13 +5021,10 @@
                                                         "not_icontains",
                                                         "regex",
                                                         "not_regex",
-                                                        "is_cleaned_path_exact",
                                                         "gt",
                                                         "gte",
                                                         "lt",
-                                                        "lte",
-                                                        "min",
-                                                        "max"
+                                                        "lte"
                                                     ]
                                                 }
                                             },

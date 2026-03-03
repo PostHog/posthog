@@ -32,6 +32,7 @@ interface VariantsPanelCreateFeatureFlagProps {
         }
     }) => void
     disabled?: boolean
+    layout?: 'horizontal' | 'vertical'
 }
 
 interface RolloutPercentageControlProps {
@@ -80,7 +81,11 @@ interface TrafficPreviewProps {
 }
 
 // Visualizes the bucketing logic performed by the backend
-const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }: TrafficPreviewProps): JSX.Element => {
+export const TrafficPreview = ({
+    variants,
+    rolloutPercentage,
+    areVariantRolloutsValid,
+}: TrafficPreviewProps): JSX.Element => {
     const excludedPercentage = Math.max(0, 100 - rolloutPercentage)
 
     let cumulativeStart = 0
@@ -103,18 +108,20 @@ const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }
         <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
                 <h4 className="m-0">Traffic preview</h4>
-                <div className="flex items-center gap-2 text-sm text-secondary">
-                    <span
-                        className="inline-block h-3 w-3 rounded-sm border border-primary"
-                        style={{
-                            backgroundImage:
-                                'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
-                        }}
-                    />
-                    <span>
-                        Not released to {formatPercentage(excludedPercentage, { precise: true, compact: true })}
-                    </span>
-                </div>
+                {excludedPercentage > 0 && (
+                    <div className="flex items-center gap-2 text-sm text-secondary">
+                        <span
+                            className="inline-block h-3 w-3 rounded-sm border border-primary"
+                            style={{
+                                backgroundImage:
+                                    'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
+                            }}
+                        />
+                        <span>
+                            Not released to {formatPercentage(excludedPercentage, { precise: true, compact: true })}
+                        </span>
+                    </div>
+                )}
             </div>
             <div className="h-10 rounded bg-fill-secondary border border-primary overflow-hidden flex relative">
                 {rolloutPercentage > 0 ? (
@@ -184,6 +191,7 @@ export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
     disabled = false,
+    layout = 'horizontal',
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
     const [isCustomSplit, setIsCustomSplit] = useState(false)
 
@@ -228,6 +236,10 @@ export const VariantsPanelCreateFeatureFlag = ({
     const updateVariant = (index: number, updates: Partial<MultivariateFlagVariant>): void => {
         const newVariants = [...variants]
         newVariants[index] = { ...newVariants[index], ...updates }
+        updateVariants(newVariants)
+    }
+
+    const updateVariants = (newVariants: MultivariateFlagVariant[]): void => {
         onChange({
             parameters: {
                 ...experiment.parameters,
@@ -236,6 +248,20 @@ export const VariantsPanelCreateFeatureFlag = ({
                 rollout_percentage: rolloutPercentage,
             },
         })
+    }
+
+    // In case of 2 variants we can improve the UX by automatically adjusting the other variant to ensure the total is always 100%
+    const updateVariantSplit = (index: number, value: number): void => {
+        const cappedValue = Math.min(100, Math.max(0, value))
+        if (variants.length === 2) {
+            const otherIndex = index === 0 ? 1 : 0
+            const newVariants = [...variants]
+            newVariants[index] = { ...newVariants[index], rollout_percentage: cappedValue }
+            newVariants[otherIndex] = { ...newVariants[otherIndex], rollout_percentage: 100 - cappedValue }
+            updateVariants(newVariants)
+        } else {
+            updateVariant(index, { rollout_percentage: cappedValue })
+        }
     }
 
     const addVariant = (): void => {
@@ -280,7 +306,7 @@ export const VariantsPanelCreateFeatureFlag = ({
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex gap-4">
+            <div className={`flex gap-4 ${layout === 'vertical' ? 'flex-col' : 'flex-row'}`}>
                 <div className="flex-1">
                     <LemonField.Pure label="Variants">
                         <div className="border border-primary rounded p-4">
@@ -363,9 +389,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                                     !Number.isNaN(changedValue)
                                                                         ? parseInt(changedValue.toString(), 10)
                                                                         : 0
-                                                                updateVariant(index, {
-                                                                    rollout_percentage: valueInt,
-                                                                })
+                                                                updateVariantSplit(index, valueInt)
                                                             }}
                                                             suffix={<span>%</span>}
                                                             data-attr="experiment-variant-rollout-percentage-input"
@@ -452,12 +476,13 @@ export const VariantsPanelCreateFeatureFlag = ({
                     }
                 />
                 <div className="text-secondary text-sm pl-6 mt-2">
-                    This is only relevant if your feature flag is shown to both logged out AND logged in users.{' '}
+                    This is only relevant if your feature flag is shown to both logged out AND logged in users. Note
+                    that this feature is not compatible with all setups,{' '}
                     <Link
                         to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                         target="_blank"
                     >
-                        Learn more
+                        learn more
                     </Link>
                 </div>
             </div>

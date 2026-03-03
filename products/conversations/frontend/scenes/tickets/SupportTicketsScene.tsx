@@ -7,6 +7,9 @@ import { LemonBadge, LemonButton, LemonCheckbox, LemonDropdown, LemonTable, Lemo
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
+import { newInternalTab } from 'lib/utils/newInternalTab'
+import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -24,8 +27,16 @@ import {
 } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
-import { type Ticket, priorityMultiselectOptions, statusMultiselectOptions } from '../../types'
-import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
+import { SlaDisplay } from '../../components/SlaDisplay'
+import {
+    type Ticket,
+    type TicketSlaState,
+    channelOptions,
+    priorityMultiselectOptions,
+    slaOptions,
+    statusMultiselectOptions,
+} from '../../types'
+import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
 export const scene: SceneExport = {
     component: SupportTicketsScene,
@@ -35,13 +46,33 @@ export const scene: SceneExport = {
 
 export function SupportTicketsScene(): JSX.Element {
     const logic = supportTicketsSceneLogic()
-    const { filteredTickets, statusFilter, priorityFilter, assigneeFilter, dateFrom, dateTo, ticketsLoading } =
-        useValues(logic)
-    const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, loadTickets } = useActions(logic)
+    const {
+        filteredTickets,
+        statusFilter,
+        priorityFilter,
+        channelFilter,
+        slaFilter,
+        assigneeFilter,
+        dateFrom,
+        dateTo,
+        ticketsLoading,
+        currentPage,
+        totalCount,
+    } = useValues(logic)
+    const {
+        setStatusFilter,
+        setPriorityFilter,
+        setChannelFilter,
+        setSlaFilter,
+        setAssigneeFilter,
+        setDateRange,
+        setCurrentPage,
+        loadTickets,
+    } = useActions(logic)
     const { push } = useActions(router)
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-4">
             <SceneTitleSection
                 name="Support"
                 description=""
@@ -131,6 +162,52 @@ export function SupportTicketsScene(): JSX.Element {
                                   : `${priorityFilter.length} priorities`}
                         </LemonButton>
                     </LemonDropdown>
+                    <LemonDropdown
+                        closeOnClickInside
+                        overlay={
+                            <div className="space-y-px p-1">
+                                {channelOptions.map((option) => (
+                                    <LemonButton
+                                        key={option.value}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        onClick={() => setChannelFilter(option.value)}
+                                        active={channelFilter === option.value}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {channelOptions.find((o) => o.value === channelFilter)?.label ?? 'All channels'}
+                        </LemonButton>
+                    </LemonDropdown>
+                    <LemonDropdown
+                        closeOnClickInside
+                        overlay={
+                            <div className="space-y-px p-1">
+                                {slaOptions.map((option) => (
+                                    <LemonButton
+                                        key={option.value}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        onClick={() => setSlaFilter(option.value as TicketSlaState | 'all')}
+                                        active={slaFilter === option.value}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {slaOptions.find((o) => o.value === slaFilter)?.label ?? 'All SLA states'}
+                        </LemonButton>
+                    </LemonDropdown>
                     <AssigneeSelect
                         assignee={assigneeFilter === 'all' || assigneeFilter === 'unassigned' ? null : assigneeFilter}
                         onChange={(assignee) => setAssigneeFilter(assignee ?? 'all')}
@@ -171,9 +248,38 @@ export function SupportTicketsScene(): JSX.Element {
                 dataSource={filteredTickets}
                 rowKey="id"
                 loading={ticketsLoading}
-                onRow={(ticket) => ({
-                    onClick: () => push(urls.supportTicketDetail(ticket.id)),
-                })}
+                pagination={{
+                    controlled: true,
+                    currentPage,
+                    pageSize: SUPPORT_TICKETS_PAGE_SIZE,
+                    entryCount: totalCount,
+                    onBackward: currentPage > 1 ? () => setCurrentPage(currentPage - 1) : undefined,
+                    onForward:
+                        currentPage * SUPPORT_TICKETS_PAGE_SIZE < totalCount
+                            ? () => setCurrentPage(currentPage + 1)
+                            : undefined,
+                }}
+                onRow={(ticket) => {
+                    const ticketUrl = urls.supportTicketDetail(ticket.id)
+                    return {
+                        onClick: (e: React.MouseEvent) => {
+                            if (e.metaKey || e.ctrlKey) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                newInternalTab(ticketUrl)
+                            } else {
+                                push(ticketUrl)
+                            }
+                        },
+                        onAuxClick: (e: React.MouseEvent) => {
+                            if (e.button === 1) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                newInternalTab(ticketUrl)
+                            }
+                        },
+                    }
+                }}
                 rowClassName={(ticket) =>
                     clsx({
                         'bg-primary-alt-highlight': ticket.unread_team_count > 0,
@@ -228,7 +334,7 @@ export function SupportTicketsScene(): JSX.Element {
                                             'font-medium': ticket.unread_team_count > 0,
                                         })}
                                     >
-                                        {ticket.last_message_text}
+                                        {stripMarkdown(ticket.last_message_text)}
                                     </span>
                                 ) : (
                                     <span className="text-muted-alt text-xs">—</span>
@@ -272,6 +378,28 @@ export function SupportTicketsScene(): JSX.Element {
                                 >
                                     {ticket.priority}
                                 </LemonTag>
+                            ) : (
+                                <span className="text-muted-alt text-xs">—</span>
+                            ),
+                    },
+                    {
+                        title: 'SLA',
+                        key: 'sla_due_at',
+                        sorter: (a, b) => {
+                            if (!a.sla_due_at && !b.sla_due_at) {
+                                return 0
+                            }
+                            if (!a.sla_due_at) {
+                                return 1
+                            }
+                            if (!b.sla_due_at) {
+                                return -1
+                            }
+                            return dayjs(a.sla_due_at).unix() - dayjs(b.sla_due_at).unix()
+                        },
+                        render: (_, ticket) =>
+                            ticket.sla_due_at ? (
+                                <SlaDisplay slaDueAt={ticket.sla_due_at} className="text-xs" />
                             ) : (
                                 <span className="text-muted-alt text-xs">—</span>
                             ),

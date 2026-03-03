@@ -277,7 +277,7 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
             elif f.get("key") == "snapshot_source" and f.get("value"):
                 having_predicates.append(f)
             else:
-                properties.append(f)
+                having_predicates.append(asRecordingPropertyFilter(f))
         else:
             # For any other property filter
             properties.append(f)

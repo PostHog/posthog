@@ -388,7 +388,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 hogql_type_str = clickhouse_type.partition("(")[0]
                 hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
             else:
-                hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
+                hogql_type = STR_TO_HOGQL_MAPPING.get(type["hogql"], STR_TO_HOGQL_MAPPING["UnknownDatabaseField"])
 
             fields[column] = hogql_type(name=column, nullable=is_nullable)
 

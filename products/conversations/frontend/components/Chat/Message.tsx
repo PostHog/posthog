@@ -35,7 +35,7 @@ export function Message({ message, isCustomer, deliveryStatus }: MessageProps): 
                                 <Tooltip title="Only visible to your team">
                                     <span className="inline-flex items-center gap-0.5 text-xs text-warning-dark bg-warning-highlight px-1.5 py-0.5 rounded">
                                         <IconLock className="text-xs" />
-                                        Private message
+                                        Private note
                                     </span>
                                 </Tooltip>
                             )}

@@ -35,6 +35,7 @@ from ee.hogai.videos.utils import get_video_duration_s
 logger = structlog.get_logger(__name__)
 
 
+# TODO: Comment to trigger the workers re-deployment.
 # Timeout: 5 minutes (activity timeout is 10 minutes, leaving buffer for other operations)
 MAX_PROCESSING_WAIT_SECONDS = 300
 
@@ -120,6 +121,7 @@ async def upload_video_to_gemini_activity(
 
             uploaded_video = UploadedVideo(
                 file_uri=uploaded_file.uri,
+                gemini_file_name=uploaded_file.name,
                 mime_type=uploaded_file.mime_type or MOMENT_VIDEO_EXPORT_FORMAT,
                 duration=duration,
             )

@@ -1,11 +1,13 @@
 import { actions, afterMount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
+import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from '~/lib/utils'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
@@ -20,6 +22,7 @@ import { EMPTY_JSON, coerceJsonToObject, isStringJsonObject, prettifyJson } from
 
 export interface DatasetLogicProps {
     datasetId: string | 'new'
+    tabId?: string
 }
 
 export enum DatasetTab {
@@ -56,7 +59,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
 
     props({ datasetId: 'new' } as DatasetLogicProps),
 
-    key(({ datasetId }) => `dataset-${datasetId}`),
+    key(({ datasetId, tabId }) => `dataset-${datasetId}::${tabId ?? 'default'}`),
 
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
@@ -200,8 +203,6 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                             description: formValues.description,
                             metadata: coerceJsonToObject(formValues.metadata),
                         })
-                        llmAnalyticsDatasetsLogic.findMounted()?.actions.loadDatasets(false)
-
                         lemonToast.success('Dataset created successfully')
                         router.actions.replace(urls.llmAnalyticsDataset(savedDataset.id))
 
@@ -216,6 +217,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                         })
                         lemonToast.success('Dataset updated successfully')
                     }
+                    llmAnalyticsDatasetsLogic.findMounted()?.actions.loadDatasets(false)
                     actions.setDataset(savedDataset)
                     actions.editDataset(false)
                     actions.setDatasetFormValues(getDatasetFormDefaults(savedDataset))
@@ -262,11 +264,11 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.dataset],
-            (dataset): Breadcrumb[] => [
+            (s) => [s.dataset, router.selectors.searchParams],
+            (dataset: Dataset | DatasetFormValues | null, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     name: 'Datasets',
-                    path: urls.llmAnalyticsDatasets(),
+                    path: combineUrl(urls.llmAnalyticsDatasets(), searchParams).url,
                     key: 'LLMAnalyticsDatasets',
                     iconType: 'llm_datasets',
                 },
@@ -293,7 +295,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                             },
                         },
                     })
-                    router.actions.replace(urls.llmAnalyticsDatasets())
+                    router.actions.replace(urls.llmAnalyticsDatasets(), router.values.searchParams)
                 } catch {
                     lemonToast.error('Failed to delete dataset')
                 }
@@ -376,7 +378,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.llmAnalyticsDataset(':id')]: (_, searchParams) => {
             if (
                 searchParams.tab &&
@@ -386,9 +388,8 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                 actions.setActiveTab(searchParams.tab as DatasetTab)
             }
 
-            // Set default filters if they're not set yet
             const newFilters = cleanFilters(searchParams)
-            if (values.rawFilters === null || !objectsEqual(values.filters, newFilters)) {
+            if (!objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)
             }
 
@@ -403,10 +404,9 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         closeModalAndRefetchDatasetItems: () => {
-            const searchParams = router.values.searchParams
-            const nextSearchParams = { ...searchParams, item: undefined }
+            const nextSearchParams = { ...router.values.searchParams, item: undefined }
             return [
                 urls.llmAnalyticsDataset(isDataset(values.dataset) ? values.dataset.id : 'new'),
                 nextSearchParams,

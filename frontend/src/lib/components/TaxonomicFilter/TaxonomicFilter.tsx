@@ -12,9 +12,9 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
+import { Icon123 } from 'lib/lemon-ui/icons'
 import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip'
-import { Icon123 } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'
@@ -47,6 +47,8 @@ export function TaxonomicFilter({
     maxContextOptions,
     useVerticalLayout,
     allowNonCapturedEvents = false,
+    hogQLGlobals,
+    definitionPopoverRenderer,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -80,6 +82,7 @@ export function TaxonomicFilter({
         autoSelectItem: true,
         allowNonCapturedEvents,
         maxContextOptions,
+        hogQLGlobals,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -128,6 +131,7 @@ export function TaxonomicFilter({
                         taxonomicFilterLogicProps={taxonomicFilterLogicProps}
                         popupAnchorElement={taxonomicFilterRef.current}
                         useVerticalLayout={useVerticalLayout}
+                        definitionPopoverRenderer={definitionPopoverRenderer}
                     />
                 )}
             </div>

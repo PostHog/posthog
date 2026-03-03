@@ -15,7 +15,7 @@ from posthog.api.github import (
     GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN,
     GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN,
     GITHUB_TYPE_FOR_PERSONAL_API_KEY,
-    GITHUB_TYPE_FOR_PROJECT_SECRET,
+    GITHUB_TYPE_FOR_SECURE_API_KEY,
     SignatureVerificationError,
     relay_to_eu,
     verify_github_signature,
@@ -53,7 +53,7 @@ UApLOdYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             ]
         }
 
-    @patch("posthog.api.github.requests.get")
+    @patch("posthog.api.github.external_requests.get")
     def test_caches_github_key_on_first_fetch(self, mock_get):
         """Test that the GitHub key is cached for 24 hours on first fetch."""
         mock_response = MagicMock()
@@ -81,7 +81,7 @@ UApLOdYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         # Verify GitHub API was called once
         mock_get.assert_called_once_with("https://api.github.com/meta/public_keys/secret_scanning", timeout=10)
 
-    @patch("posthog.api.github.requests.get")
+    @patch("posthog.api.github.external_requests.get")
     def test_uses_cached_key_on_subsequent_calls(self, mock_get):
         """Test that cached key is used and GitHub API is not called again."""
         kid = "test_kid_123"
@@ -98,7 +98,7 @@ UApLOdYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         # Verify GitHub API was NOT called
         mock_get.assert_not_called()
 
-    @patch("posthog.api.github.requests.get")
+    @patch("posthog.api.github.external_requests.get")
     def test_fetches_different_kids_independently(self, mock_get):
         """Test that different key identifiers are cached independently."""
         mock_response = MagicMock()
@@ -132,7 +132,7 @@ UApLOdYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         # GitHub API should be called twice (once for each kid)
         self.assertEqual(mock_get.call_count, 2)
 
-    @patch("posthog.api.github.requests.get")
+    @patch("posthog.api.github.external_requests.get")
     def test_handles_github_api_failure(self, mock_get):
         """Test that GitHub API failures are handled gracefully."""
         mock_get.side_effect = Exception("Network error")
@@ -147,7 +147,7 @@ UApLOdYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         # Verify nothing was cached
         self.assertIsNone(self.redis_client.get(f"github:public_key:{kid}"))
 
-    @patch("posthog.api.github.requests.get")
+    @patch("posthog.api.github.external_requests.get")
     def test_handles_missing_kid_in_response(self, mock_get):
         """Test that missing key identifier in response is handled."""
         mock_response = MagicMock()
@@ -164,7 +164,7 @@ UApLOdYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         # Verify nothing was cached for non-existent kid
         self.assertIsNone(self.redis_client.get(f"github:public_key:{kid}"))
 
-    @patch("posthog.api.github.requests.get")
+    @patch("posthog.api.github.external_requests.get")
     def test_handles_malformed_public_key(self, mock_get):
         """Test that malformed public key entries are handled."""
         mock_response = MagicMock()
@@ -201,7 +201,7 @@ class TestSecretAlertEndpoint(APIBaseTest):
         self.valid_payload = [
             {
                 "token": "phx_test_token_123",
-                "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                 "url": "https://github.com/posthog/posthog/blob/master/example.py",
                 "source": "github",
             }
@@ -241,7 +241,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         self.assertIn("token_hash", data[0])
         self.assertIn("token_type", data[0])
         self.assertIn("label", data[0])
-        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_PROJECT_SECRET)
+        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_SECURE_API_KEY)
 
     def test_secret_alert_missing_headers(self):
         """Test that missing headers are rejected."""
@@ -268,7 +268,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch("posthog.api.github.requests.get")
+    @patch("posthog.api.github.external_requests.get")
     def test_request_body_accessible_for_signature_verification(self, mock_get):
         """Test that request.body is accessible for signature verification."""
         # Set up mock GitHub response
@@ -482,7 +482,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -496,7 +496,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         data = response.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["label"], "true_positive")
-        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_PROJECT_SECRET)
+        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_SECURE_API_KEY)
 
         # Verify email task was called
         mock_send_email.assert_called_once()
@@ -524,7 +524,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/old_config.py",
                         "source": "github",
                     }
@@ -551,7 +551,7 @@ class TestRelayToEu(TestCase):
             self.assertIsNone(result)
 
     @override_settings(GITHUB_SECRET_ALERT_RELAY_URL="https://eu.posthog.com/api/github/secret_alert/")
-    @patch("posthog.api.github.requests.post")
+    @patch("posthog.api.github.external_requests.post")
     def test_relay_success(self, mock_post):
         """Test successful relay returns EU results."""
         expected = [{"token_hash": "abc123", "label": "true_positive", "token_type": "test"}]
@@ -574,7 +574,7 @@ class TestRelayToEu(TestCase):
         )
 
     @override_settings(GITHUB_SECRET_ALERT_RELAY_URL="https://eu.posthog.com/api/github/secret_alert/")
-    @patch("posthog.api.github.requests.post")
+    @patch("posthog.api.github.external_requests.post")
     def test_relay_failure_returns_none(self, mock_post):
         """Test that EU request failure returns None (graceful degradation)."""
         mock_post.side_effect = Exception("Network error")
@@ -611,7 +611,7 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -637,7 +637,7 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
         payload = [
             {
                 "token": token,
-                "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                 "url": "https://github.com/test/repo/blob/main/config.py",
                 "source": "github",
             }
@@ -668,7 +668,7 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
         token_hash = sha256(token.encode("utf-8")).hexdigest()
 
         mock_relay.return_value = [
-            {"token_hash": token_hash, "label": "true_positive", "token_type": GITHUB_TYPE_FOR_PROJECT_SECRET}
+            {"token_hash": token_hash, "label": "true_positive", "token_type": GITHUB_TYPE_FOR_SECURE_API_KEY}
         ]
 
         response = self.client.post(
@@ -677,7 +677,7 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -706,7 +706,7 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -735,7 +735,7 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -774,7 +774,7 @@ class TestSecretAlertRegionTracking(APIBaseTest):
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -804,7 +804,7 @@ class TestSecretAlertRegionTracking(APIBaseTest):
         token_hash = sha256(token.encode("utf-8")).hexdigest()
 
         mock_relay.return_value = [
-            {"token_hash": token_hash, "label": "true_positive", "token_type": GITHUB_TYPE_FOR_PROJECT_SECRET}
+            {"token_hash": token_hash, "label": "true_positive", "token_type": GITHUB_TYPE_FOR_SECURE_API_KEY}
         ]
 
         self.client.post(
@@ -813,7 +813,7 @@ class TestSecretAlertRegionTracking(APIBaseTest):
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -846,7 +846,7 @@ class TestSecretAlertRegionTracking(APIBaseTest):
                 [
                     {
                         "token": token,
-                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }

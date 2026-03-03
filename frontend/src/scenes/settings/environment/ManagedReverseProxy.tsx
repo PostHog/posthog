@@ -19,16 +19,12 @@ import {
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { DomainConnectBanner } from 'lib/components/DomainConnect'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { payGateMiniLogic } from 'lib/components/PayGateMini/payGateMiniLogic'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-
-import { AvailableFeature } from '~/types'
 
 import { ProxyRecord, proxyLogic } from './proxyLogic'
 
@@ -38,7 +34,8 @@ const statusText = {
 }
 
 export function ManagedReverseProxy(): JSX.Element {
-    const { cloudflareOptInAcknowledged, formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
+    const { cloudflareOptInAcknowledged, formState, proxyRecords, proxyRecordsLoading, maxProxyRecords } =
+        useValues(proxyLogic)
     const { acknowledgeCloudflareOptIn, deleteRecord, showForm } = useActions(proxyLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -49,9 +46,7 @@ export function ManagedReverseProxy(): JSX.Element {
         scope: RestrictionScope.Organization,
     })
 
-    const { featureAvailableOnOrg } = useValues(payGateMiniLogic({ feature: AvailableFeature.MANAGED_REVERSE_PROXY }))
-
-    const maxRecordsReached = proxyRecords.length >= (featureAvailableOnOrg?.limit || 0)
+    const maxRecordsReached = proxyRecords.length >= maxProxyRecords
 
     const recordsWithMessages = proxyRecords.filter((record) => !!record.message)
 
@@ -143,41 +138,39 @@ export function ManagedReverseProxy(): JSX.Element {
     }
 
     return (
-        <PayGateMini feature={AvailableFeature.MANAGED_REVERSE_PROXY}>
-            <div className="flex flex-col gap-2">
-                {recordsWithMessages.map((r) => (
-                    <LemonBanner type="warning" key={r.id}>
-                        <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
+        <div className="flex flex-col gap-2">
+            {recordsWithMessages.map((r) => (
+                <LemonBanner type="warning" key={r.id}>
+                    <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
+                </LemonBanner>
+            ))}
+            <LemonTable
+                loading={proxyRecords.length === 0 && proxyRecordsLoading}
+                columns={columns}
+                dataSource={proxyRecords}
+                expandable={{
+                    expandedRowRender: (record) => <ExpandedRow record={record} />,
+                }}
+            />
+
+            <WaitingRecords />
+
+            {formState === 'collapsed' ? (
+                maxRecordsReached ? (
+                    <LemonBanner type="info">
+                        There is a maximum of {maxProxyRecords} records allowed per organization.
                     </LemonBanner>
-                ))}
-                <LemonTable
-                    loading={proxyRecords.length === 0 && proxyRecordsLoading}
-                    columns={columns}
-                    dataSource={proxyRecords}
-                    expandable={{
-                        expandedRowRender: (record) => <ExpandedRow record={record} />,
-                    }}
-                />
-
-                <WaitingRecords />
-
-                {formState === 'collapsed' ? (
-                    maxRecordsReached ? (
-                        <LemonBanner type="info">
-                            There is a maximum of {featureAvailableOnOrg?.limit || 0} records allowed per organization.
-                        </LemonBanner>
-                    ) : (
-                        <div className="flex">
-                            <LemonButton onClick={showForm} type="primary" disabledReason={restrictionReason}>
-                                Add managed proxy
-                            </LemonButton>
-                        </div>
-                    )
                 ) : (
-                    <CreateRecordForm />
-                )}
-            </div>
-        </PayGateMini>
+                    <div className="flex">
+                        <LemonButton onClick={showForm} type="primary" disabledReason={restrictionReason}>
+                            Add managed proxy
+                        </LemonButton>
+                    </div>
+                )
+            ) : (
+                <CreateRecordForm />
+            )}
+        </div>
     )
 }
 
@@ -298,13 +291,13 @@ function CreateRecordForm(): JSX.Element {
                         <ul className="list-disc pl-5 space-y-0.5 mb-1">
                             <li>
                                 <strong>Do not use</strong> subdomains containing words related to tracking, analytics,
-                                or advertising (e.g. <code>analytics.mydomain.com</code>,{' '}
-                                <code>posthog.mydomain.com</code>). These are commonly blocked by ad-blockers and will
-                                cause data loss.
+                                advertising, or PostHog (e.g. <code>analytics.mydomain.com</code>,{' '}
+                                <code>posthog.mydomain.com</code>, or <code>ph.mydomain.com</code>). These are commonly
+                                blocked by ad-blockers and will cause data loss. The proxy will <strong>NOT</strong>{' '}
+                                achieve the intended effect if ad-blockers are blocking the domain.
                             </li>
                             <li>
-                                <strong>Use a generic subdomain</strong> such as <code>t.mydomain.com</code> or{' '}
-                                <code>app.mydomain.com</code> instead.
+                                <strong>Use a generic subdomain</strong> such as <code>t.mydomain.com</code> instead.
                             </li>
                         </ul>
                     </LemonBanner>
@@ -370,6 +363,11 @@ const WaitingRecords = (): JSX.Element | null => {
                         />
                     </div>
                 ))}
+            </div>
+            <div className="text-sm">
+                <strong>Important:</strong> If you are using a DNS provider like Cloudflare that offers proxy options
+                (orange cloud), make sure the proxy is <strong>disabled</strong> (gray cloud) for this domain. Enabling
+                the proxy at your DNS provider may interfere with the managed reverse proxy functionality.
             </div>
         </div>
     )

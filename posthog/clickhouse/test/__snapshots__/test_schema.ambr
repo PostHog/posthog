@@ -636,6 +636,25 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_tophog]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_tophog
+  (
+      timestamp DateTime64(6, 'UTC'),
+      metric LowCardinality(String),
+      type LowCardinality(String),
+      key Map(LowCardinality(String), String),
+      value Float64,
+      count UInt64,
+      pipeline LowCardinality(String),
+      lane LowCardinality(String),
+      labels Map(LowCardinality(String), String)
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_tophog_test', kafka_group_name = 'clickhouse_tophog', kafka_format = 'JSONEachRow')
+  SETTINGS date_time_input_format = 'best_effort', kafka_skip_broken_messages = 100
+  
+  '''
+# ---
 # name: test_create_table_query[app_metrics2]
   '''
   
@@ -827,7 +846,7 @@
 # name: test_create_table_query[distributed_events_recent]
   '''
   
-  CREATE TABLE IF NOT EXISTS distributed_events_recent ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS distributed_events_recent 
   (
       uuid UUID,
       event VARCHAR,
@@ -857,10 +876,9 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  , _partition UInt64
-  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64(), _timestamp_ms DateTime64
+  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
       
-  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'events_recent', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog_primary_replica', 'posthog_test', 'sharded_events_recent', sipHash64(distinct_id))
   
   '''
 # ---
@@ -1314,7 +1332,7 @@
 # name: test_create_table_query[events_recent]
   '''
   
-  CREATE TABLE IF NOT EXISTS events_recent ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS events_recent 
   (
       uuid UUID,
       event VARCHAR,
@@ -1344,14 +1362,9 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  , _partition UInt64
-  , inserted_at DateTime64(6, 'UTC') DEFAULT NOW64(), _timestamp_ms DateTime64
+  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
       
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.events_recent', '{replica}-{shard}', _timestamp)
-  PARTITION BY toStartOfHour(inserted_at)
-  ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
-  TTL toDateTime(inserted_at) + INTERVAL 7 DAY
-  
+  ) ENGINE = Distributed('posthog_primary_replica', 'posthog_test', 'sharded_events_recent', sipHash64(distinct_id))
   
   '''
 # ---
@@ -1390,6 +1403,40 @@
   '''
 # ---
 # name: test_create_table_query[events_recent_json_mv1]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv
+  TO posthog_test.writable_events_recent
+  AS SELECT
+  uuid,
+  event,
+  properties,
+  timestamp,
+  team_id,
+  distinct_id,
+  elements_chain,
+  created_at,
+  person_id,
+  person_created_at,
+  person_properties,
+  group0_properties,
+  group1_properties,
+  group2_properties,
+  group3_properties,
+  group4_properties,
+  group0_created_at,
+  group1_created_at,
+  group2_created_at,
+  group3_created_at,
+  group4_created_at,
+  person_mode,
+  _timestamp,
+  _offset
+  FROM posthog_test.sharded_events
+  
+  '''
+# ---
+# name: test_create_table_query[events_recent_json_mv]
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv
@@ -2152,6 +2199,25 @@
       retention_period_days Nullable(Int64),
       is_deleted UInt8,
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_tophog]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_tophog
+  (
+      timestamp DateTime64(6, 'UTC'),
+      metric LowCardinality(String),
+      type LowCardinality(String),
+      key Map(LowCardinality(String), String),
+      value Float64,
+      count UInt64,
+      pipeline LowCardinality(String),
+      lane LowCardinality(String),
+      labels Map(LowCardinality(String), String)
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_tophog_test', kafka_group_name = 'clickhouse_tophog', kafka_format = 'JSONEachRow')
+  SETTINGS date_time_input_format = 'best_effort', kafka_skip_broken_messages = 100
   
   '''
 # ---
@@ -5005,6 +5071,66 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_tophog]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_tophog
+  (
+      timestamp DateTime64(6, 'UTC'),
+      metric LowCardinality(String),
+      type LowCardinality(String) DEFAULT 'sum',
+      key Map(LowCardinality(String), String),
+      value Float64,
+      count UInt64 DEFAULT 0,
+      pipeline LowCardinality(String),
+      lane LowCardinality(String),
+      labels Map(LowCardinality(String), String)
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.tophog', '{replica}')
+  
+  PARTITION BY toYYYYMMDD(timestamp)
+  ORDER BY (pipeline, lane, metric, timestamp, key)
+  
+  SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[tophog]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS tophog
+  (
+      timestamp DateTime64(6, 'UTC'),
+      metric LowCardinality(String),
+      type LowCardinality(String) DEFAULT 'sum',
+      key Map(LowCardinality(String), String),
+      value Float64,
+      count UInt64 DEFAULT 0,
+      pipeline LowCardinality(String),
+      lane LowCardinality(String),
+      labels Map(LowCardinality(String), String)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_tophog', cityHash64(toString(key)))
+  
+  '''
+# ---
+# name: test_create_table_query[tophog_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS tophog_mv
+  TO writable_tophog
+  AS SELECT
+      timestamp,
+      metric,
+      type,
+      key,
+      value,
+      count,
+      pipeline,
+      lane,
+      labels
+  FROM kafka_tophog
+  
+  '''
+# ---
 # name: test_create_table_query[web_bounces_daily]
   '''
   
@@ -5715,6 +5841,45 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_events_recent]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_events_recent 
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_created_at DateTime64,
+      person_properties VARCHAR Codec(ZSTD(3)),
+      group0_properties VARCHAR Codec(ZSTD(3)),
+      group1_properties VARCHAR Codec(ZSTD(3)),
+      group2_properties VARCHAR Codec(ZSTD(3)),
+      group3_properties VARCHAR Codec(ZSTD(3)),
+      group4_properties VARCHAR Codec(ZSTD(3)),
+      group0_created_at DateTime64,
+      group1_created_at DateTime64,
+      group2_created_at DateTime64,
+      group3_created_at DateTime64,
+      group4_created_at DateTime64,
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+      
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+      
+  ) ENGINE = Distributed('posthog_writable', 'posthog_test', 'sharded_events_recent', sipHash64(distinct_id))
+  
+  '''
+# ---
 # name: test_create_table_query[writable_groups]
   '''
   
@@ -6280,6 +6445,24 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_tophog]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_tophog
+  (
+      timestamp DateTime64(6, 'UTC'),
+      metric LowCardinality(String),
+      type LowCardinality(String) DEFAULT 'sum',
+      key Map(LowCardinality(String), String),
+      value Float64,
+      count UInt64 DEFAULT 0,
+      pipeline LowCardinality(String),
+      lane LowCardinality(String),
+      labels Map(LowCardinality(String), String)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_tophog', cityHash64(toString(key)))
+  
+  '''
+# ---
 # name: test_create_table_query[writeable_performance_events]
   '''
   
@@ -6475,7 +6658,7 @@
 # name: test_create_table_query_replicated_and_storage[events_recent]
   '''
   
-  CREATE TABLE IF NOT EXISTS events_recent ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS events_recent 
   (
       uuid UUID,
       event VARCHAR,
@@ -6505,14 +6688,9 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  , _partition UInt64
-  , inserted_at DateTime64(6, 'UTC') DEFAULT NOW64(), _timestamp_ms DateTime64
+  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
       
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.events_recent', '{replica}-{shard}', _timestamp)
-  PARTITION BY toStartOfHour(inserted_at)
-  ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
-  TTL toDateTime(inserted_at) + INTERVAL 7 DAY
-  SETTINGS storage_policy = 'hot_to_cold'
+  ) ENGINE = Distributed('posthog_primary_replica', 'posthog_test', 'sharded_events_recent', sipHash64(distinct_id))
   
   '''
 # ---
@@ -8010,6 +8188,29 @@
       -- hopefully, this is a good balance between the two
       ORDER BY (toStartOfDay(min_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_tophog]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_tophog
+  (
+      timestamp DateTime64(6, 'UTC'),
+      metric LowCardinality(String),
+      type LowCardinality(String) DEFAULT 'sum',
+      key Map(LowCardinality(String), String),
+      value Float64,
+      count UInt64 DEFAULT 0,
+      pipeline LowCardinality(String),
+      lane LowCardinality(String),
+      labels Map(LowCardinality(String), String)
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.tophog', '{replica}')
+  
+  PARTITION BY toYYYYMMDD(timestamp)
+  ORDER BY (pipeline, lane, metric, timestamp, key)
+  
+  SETTINGS ttl_only_drop_parts = 1
   
   '''
 # ---

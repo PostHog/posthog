@@ -7,7 +7,7 @@ import { PostHog } from 'posthog-js'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import { elementToSelector } from 'lib/actionUtils'
-import { PaginatedResponse } from 'lib/api'
+import type { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { createVersionChecker } from 'lib/utils/semver'
 
@@ -89,7 +89,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'heatmapFilters',
                 'heatmapElements',
                 'heatmapTooltipLabel',
-                'heatmapScrollY',
                 'dateRange',
             ],
         ],
@@ -108,7 +107,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'loadHeatmap',
                 'loadHeatmapSuccess',
                 'loadHeatmapFailure',
-                'setHeatmapScrollY',
             ],
         ],
     })),
@@ -126,8 +124,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         maybeLoadClickmap: true,
         maybeLoadHeatmap: true,
         updateElementMetrics: (observedElements: [HTMLElement, boolean][]) => ({ observedElements }),
-        startScrollTracking: true,
-        stopScrollTracking: true,
         startElementObservation: true,
         stopElementObservation: true,
         processElements: true,
@@ -422,31 +418,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         enableHeatmap: () => {
             actions.setDataHref(values.href)
             actions.loadAllEnabled()
-            actions.startScrollTracking()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
 
         disableHeatmap: () => {
-            actions.stopScrollTracking()
             actions.resetElementStats()
             actions.resetHeatmapData()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
-        },
-
-        startScrollTracking: () => {
-            cache.disposables.add(() => {
-                const timerId = setInterval(() => {
-                    const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
-                    if (values.heatmapScrollY !== scrollY) {
-                        actions.setHeatmapScrollY(scrollY)
-                    }
-                }, 50)
-                return () => clearInterval(timerId)
-            }, 'scrollCheckTimer')
-        },
-
-        stopScrollTracking: () => {
-            cache.disposables.dispose('scrollCheckTimer')
         },
 
         startElementObservation: () => {
@@ -598,12 +576,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         cache.disposables.add(() => {
             const handleVisibilityChange = (): void => {
                 if (document.hidden) {
-                    actions.stopScrollTracking()
                     actions.stopElementObservation()
                 } else {
-                    if (values.heatmapEnabled) {
-                        actions.startScrollTracking()
-                    }
                     if (values.clickmapsEnabled) {
                         actions.startElementObservation()
                     }

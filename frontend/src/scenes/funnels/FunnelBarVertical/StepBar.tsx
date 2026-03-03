@@ -32,6 +32,7 @@ export function StepBar({ step, stepIndex, series, showPersonsModal }: StepBarPr
     return (
         <div
             className={clsx('StepBar', !showPersonsModal && 'StepBar__unclickable')}
+            data-attr="funnel-step-bar"
             /* eslint-disable-next-line react/forbid-dom-props */
             style={
                 {

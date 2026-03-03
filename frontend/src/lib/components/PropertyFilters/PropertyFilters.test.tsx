@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
@@ -29,7 +30,10 @@ describe('PropertyFilters', () => {
                     { id: 1, name: 'location', count: 1 },
                     { id: 2, name: 'role', count: 2 },
                 ],
-                '/api/environments/:team/events/values': [{ name: 'Chrome' }, { name: 'Firefox' }, { name: 'Safari' }],
+                '/api/environments/:team/events/values': {
+                    results: [{ name: 'Chrome' }, { name: 'Firefox' }, { name: 'Safari' }],
+                    refreshing: false,
+                },
             },
             post: {
                 '/api/environments/:team/query': { results: [] },

@@ -33,7 +33,7 @@ describe('alertUtils', () => {
                 notification: {
                     type: 'slack' as const,
                     slackWorkspaceId: 42,
-                    slackChannelId: 'C12345|#general',
+                    slackChannelId: 'C12345',
                     slackChannelName: 'general',
                 },
                 alertName: 'Daily revenue check',
@@ -83,14 +83,14 @@ describe('alertUtils', () => {
             const notification: PendingAlertNotification = {
                 type: 'slack',
                 slackWorkspaceId: 42,
-                slackChannelId: 'C12345|#general',
+                slackChannelId: 'C12345',
                 slackChannelName: 'general',
             }
 
             const result = buildHogFunctionPayload('alert-789', 'My alert', notification)
 
             expect(result.inputs?.slack_workspace).toEqual({ value: 42 })
-            expect(result.inputs?.channel).toEqual({ value: 'C12345|#general' })
+            expect(result.inputs?.channel).toEqual({ value: 'C12345' })
         })
 
         it('sets correct webhook input values', () => {

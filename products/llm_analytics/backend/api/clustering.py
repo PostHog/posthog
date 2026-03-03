@@ -92,7 +92,7 @@ class ClusteringRunRequestSerializer(serializers.Serializer):
         default=DEFAULT_MIN_CLUSTER_SIZE_FRACTION,
         min_value=MIN_CLUSTER_SIZE_FRACTION_MIN,
         max_value=MIN_CLUSTER_SIZE_FRACTION_MAX,
-        help_text="Minimum cluster size as fraction of total samples (e.g., 0.05 = 5%)",
+        help_text="Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)",
     )
     hdbscan_min_samples = serializers.IntegerField(
         required=False,

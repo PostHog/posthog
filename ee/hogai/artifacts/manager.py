@@ -74,7 +74,7 @@ class ArtifactManager(
         artifact = AgentArtifact(
             name=name[:400],
             type=db_type,
-            data=content.model_dump(exclude_none=True),
+            data=content.model_dump(mode="json", exclude_none=True),
             conversation=conversation,
             team=self._team,
         )
@@ -92,7 +92,7 @@ class ArtifactManager(
             artifact = await AgentArtifact.objects.aget(short_id=artifact_id, team=self._team)
         except AgentArtifact.DoesNotExist:
             raise ValueError(f"Artifact with short_id={artifact_id} not found")
-        artifact.data = content.model_dump(exclude_none=True)
+        artifact.data = content.model_dump(mode="json", exclude_none=True)
         await artifact.asave()
         return artifact
 

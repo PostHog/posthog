@@ -593,6 +593,10 @@ async fn test_personal_api_key_with_scoped_organizations_allowed() {
         .create_user(&user_email, &org_id, team.id)
         .await
         .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
 
     // Create personal API key with scoped_organizations restriction that includes our org
     let org_id_str = org_id.to_string();
@@ -687,6 +691,173 @@ async fn test_personal_api_key_with_scoped_organizations_denied() {
         response.status(),
         401,
         "Should deny access when organization is not in scoped_organizations"
+    );
+}
+
+#[tokio::test]
+async fn test_personal_api_key_with_scoped_organizations_removed_member() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+
+    let test_uuid = uuid::Uuid::new_v4().to_string()[..8].to_string();
+    let user_email = format!("test_org_removed_{test_uuid}@posthog.com");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+
+    let org_id_str = org_id.to_string();
+    let (_pak_id, api_key_value) = context
+        .create_personal_api_key(
+            user_id,
+            "Test PAK Org Removed",
+            vec!["feature_flag:read"],
+            None,
+            Some(vec![org_id_str]),
+        )
+        .await
+        .unwrap();
+
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    context
+        .populate_flag_definitions_cache(redis_client, team.id)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // Verify access works while user is a member
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {api_key_value}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        200,
+        "Should authenticate while user is an org member"
+    );
+
+    // Remove user from organization
+    context
+        .remove_user_from_organization(user_id, &org_id)
+        .await
+        .unwrap();
+
+    // Should now fail because the user is no longer an org member
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {api_key_value}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        401,
+        "Should deny access after user is removed from organization"
+    );
+}
+
+#[tokio::test]
+async fn test_personal_api_key_unscoped_removed_member() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+
+    let test_uuid = uuid::Uuid::new_v4().to_string()[..8].to_string();
+    let user_email = format!("test_unscoped_removed_{test_uuid}@posthog.com");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+
+    // Create PAK without scoped_organizations to confirm the mandatory membership
+    // check works for all PAK configurations, not just those with explicit org scoping.
+    let (_pak_id, api_key_value) = context
+        .create_personal_api_key(
+            user_id,
+            "Test PAK Unscoped",
+            vec!["feature_flag:read"],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    context
+        .populate_flag_definitions_cache(redis_client, team.id)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // Verify access works while user is a member
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {api_key_value}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        200,
+        "Should authenticate while user is an org member"
+    );
+
+    // Remove user from organization
+    context
+        .remove_user_from_organization(user_id, &org_id)
+        .await
+        .unwrap();
+
+    // Should fail because the user is no longer an org member, even without scoped_organizations
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {api_key_value}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        401,
+        "Should deny access after user is removed from organization, even without scoped_organizations"
     );
 }
 

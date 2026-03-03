@@ -1,16 +1,15 @@
-import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useActions } from 'kea'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
+import { LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryModifiers } from '~/queries/schema/schema-general'
 
-type PersonsJoinMode = NonNullable<HogQLQueryModifiers['personsJoinMode']>
+import { TeamSettingRadio } from '../components/TeamSettingRadio'
 
-const personsJoinOptions: LemonRadioOption<PersonsJoinMode>[] = [
+type PersonsJoinModeType = NonNullable<HogQLQueryModifiers['personsJoinMode']>
+
+const personsJoinOptions: LemonRadioOption<PersonsJoinModeType>[] = [
     {
         value: 'inner',
         label: (
@@ -34,34 +33,14 @@ const personsJoinOptions: LemonRadioOption<PersonsJoinMode>[] = [
 ]
 
 export function PersonsJoinMode(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
     const { reportPersonsJoinModeUpdated } = useActions(eventUsageLogic)
 
-    const savedPersonsJoinMode =
-        currentTeam?.modifiers?.personsJoinMode ?? currentTeam?.default_modifiers?.personsJoinMode ?? 'inner'
-    const [personsJoinMode, setPersonsJoinMode] = useState<PersonsJoinMode>(savedPersonsJoinMode)
-
-    const handleChange = (mode: PersonsJoinMode): void => {
-        updateCurrentTeam({ modifiers: { ...currentTeam?.modifiers, personsJoinMode: mode } })
-        reportPersonsJoinModeUpdated(mode)
-    }
-
     return (
-        <>
-            <p>
-                Choose how persons are joined to events. Do not change this setting unless you know what you are doing.
-            </p>
-            <LemonRadio value={personsJoinMode} onChange={setPersonsJoinMode} options={personsJoinOptions} />
-            <div className="mt-4">
-                <LemonButton
-                    type="primary"
-                    onClick={() => handleChange(personsJoinMode)}
-                    disabledReason={personsJoinMode === savedPersonsJoinMode ? 'No changes to save' : undefined}
-                >
-                    Save
-                </LemonButton>
-            </div>
-        </>
+        <TeamSettingRadio
+            field="modifiers.personsJoinMode"
+            options={personsJoinOptions}
+            defaultValue="inner"
+            onSave={reportPersonsJoinModeUpdated}
+        />
     )
 }
