@@ -173,9 +173,10 @@ if persons_db_writer_url:
     # Fail fast when the persons DB is unreachable instead of blocking for the
     # OS TCP timeout (~60s). Without this, a downed read replica stalls every
     # gunicorn worker and takes the entire app offline.
-    persons_db_connect_timeout = get_from_env("PERSONS_DB_CONNECT_TIMEOUT", 5, type_cast=int)
-    DATABASES["persons_db_reader"].setdefault("OPTIONS", {})
-    DATABASES["persons_db_reader"]["OPTIONS"]["connect_timeout"] = persons_db_connect_timeout
+    if not TEST:
+        persons_db_connect_timeout = get_from_env("PERSONS_DB_CONNECT_TIMEOUT", 5, type_cast=int)
+        DATABASES["persons_db_reader"].setdefault("OPTIONS", {})
+        DATABASES["persons_db_reader"]["OPTIONS"]["connect_timeout"] = persons_db_connect_timeout
 
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
