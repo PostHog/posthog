@@ -179,14 +179,22 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     })),
 
     afterMount(({ props, values, actions }) => {
-        // Handle authorization code from redirect fallback (URL hash)
-        const hash = window.location.hash
+        // Handle authorization code from redirect fallback (URL hash).
+        // Decode the hash: browsers and proxies may percent-encode the fragment
+        // delimiters (: and ,), so the regex must run against the decoded string.
+        let hash: string
+        try {
+            hash = decodeURIComponent(window.location.hash)
+        } catch {
+            hash = window.location.hash
+        }
         const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^&#]+)/)
         if (codeMatch) {
-            const code = decodeURIComponent(codeMatch[1])
-            const clientId = decodeURIComponent(codeMatch[2])
+            const code = codeMatch[1]
+            const clientId = codeMatch[2]
             const cleanHash = hash
                 .replace(/__posthog_toolbar=[^&#]*/, '')
+                .replace(/&$/, '')
                 .replace(/^#&/, '#')
                 .replace(/^#$/, '')
             history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
