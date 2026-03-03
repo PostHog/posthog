@@ -589,20 +589,100 @@ describe('ErrorTrackingPipeline', () => {
             expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
         })
 
-        it('propagates Cymbal errors so Kafka retries the batch', async () => {
+        it('retries Cymbal errors and propagates after exhausting retries', async () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
-            mockCymbalClient.processExceptions.mockRejectedValue(new Error('Cymbal unavailable'))
+
+            // Create retriable error (default errors are treated as retriable)
+            const retriableError = new Error('Cymbal unavailable')
+            ;(retriableError as any).isRetriable = true
+            mockCymbalClient.processExceptions.mockRejectedValue(retriableError)
 
             const message = createKafkaMessage({})
 
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
 
-            // Cymbal errors should propagate up so Kafka doesn't commit and retries the batch
+            // Cymbal errors are retried 3 times (pipeline default), then propagate
+            // so Kafka doesn't commit and retries the batch
             await expect(runErrorTrackingPipeline(pipeline, [message])).rejects.toThrow('Cymbal unavailable')
 
-            // Cymbal failed before Hog transformations could run
-            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(1)
+            // Cymbal was called 3 times (initial + 2 retries) before giving up
+            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(3)
             expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
+        })
+
+        it('retries Cymbal errors and succeeds on subsequent attempts', async () => {
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+
+            // First two calls fail with retriable error, third call succeeds
+            const retriableError = new Error('Cymbal temporarily unavailable')
+            ;(retriableError as any).isRetriable = true
+
+            mockCymbalClient.processExceptions
+                .mockRejectedValueOnce(retriableError)
+                .mockRejectedValueOnce(retriableError)
+                .mockResolvedValueOnce([createCymbalResponse()])
+
+            const message = createKafkaMessage({})
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            // Cymbal was called 3 times before succeeding
+            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(3)
+            // Processing continued after Cymbal succeeded
+            expect(mockHogTransformer.transformEventAndProduceMessages).toHaveBeenCalledTimes(1)
+            // Event was emitted
+            expect(getProducedEvents()).toHaveLength(1)
+        })
+
+        it('sends events to DLQ on non-retriable Cymbal errors', async () => {
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+
+            // Non-retriable error (e.g., 400 Bad Request from Cymbal)
+            const nonRetriableError = new Error('Bad request - invalid event format')
+            ;(nonRetriableError as any).isRetriable = false
+            mockCymbalClient.processExceptions.mockRejectedValue(nonRetriableError)
+
+            const message = createKafkaMessage({})
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            // Non-retriable errors should not be retried
+            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(1)
+            // Processing should not continue past Cymbal
+            expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
+            // Event should not be produced to output topic
+            expect(getProducedEvents()).toHaveLength(0)
+            // Event should be sent to DLQ
+            const dlqMessages = getDLQMessages()
+            expect(dlqMessages).toHaveLength(1)
+        })
+
+        it('sends all batch events to DLQ on non-retriable Cymbal error', async () => {
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+
+            // Non-retriable error affects the entire batch
+            const nonRetriableError = new Error('Bad request - invalid batch')
+            ;(nonRetriableError as any).isRetriable = false
+            mockCymbalClient.processExceptions.mockRejectedValue(nonRetriableError)
+
+            const messages = [
+                createKafkaMessage({ distinctId: 'user-1' }),
+                createKafkaMessage({ distinctId: 'user-2' }),
+                createKafkaMessage({ distinctId: 'user-3' }),
+            ]
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, messages)
+
+            // Non-retriable errors should not be retried
+            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(1)
+            // All events should be sent to DLQ
+            const dlqMessages = getDLQMessages()
+            expect(dlqMessages).toHaveLength(3)
+            // No events should be produced to output topic
+            expect(getProducedEvents()).toHaveLength(0)
         })
 
         it('runs Hog transformations on events', async () => {

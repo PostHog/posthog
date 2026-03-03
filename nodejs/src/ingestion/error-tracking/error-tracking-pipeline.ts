@@ -177,8 +177,12 @@ export function createErrorTrackingPipeline(
                                     // Refresh TTLs for overflow lane events (keeps Redis flags alive)
                                     .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
                                     // Process through Cymbal as a batch (before enrichment - Cymbal only
-                                    // needs raw exception data, not person/geoip/group data)
-                                    .pipeBatch(createCymbalProcessingStep(cymbalClient))
+                                    // needs raw exception data, not person/geoip/group data).
+                                    // Retry on transient failures (5xx, timeout, network errors).
+                                    .pipeBatchWithRetry(createCymbalProcessingStep(cymbalClient), {
+                                        tries: 3,
+                                        sleepMs: 100,
+                                    })
                                     // Enrich, prepare, create, and emit events
                                     .sequentially((b) =>
                                         b

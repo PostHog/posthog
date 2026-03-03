@@ -49,6 +49,8 @@
  */
 import { randomUUID } from 'crypto'
 
+import { ExceptionEntry, ExceptionFrame } from '../cymbal/types'
+
 const CAPTURE_URL = process.env.CAPTURE_URL || 'http://localhost:3307/e'
 // Default token for local dev (team_id=1)
 const TOKEN = process.env.POSTHOG_TOKEN || 'phc_placeholder'
@@ -67,26 +69,6 @@ const DISTINCT_IDS_WITH_PERSONS = [
     'e8c9fbc8-2ee0-93e5-e846-ed8d0d45dc1b',
     'xhZMaphskRWXPREp', // Tanja Hooper (same person as above)
 ]
-
-interface ExceptionFrame {
-    filename: string
-    lineno: number
-    colno: number
-    function: string
-    in_app: boolean
-}
-
-interface ExceptionEntry {
-    type: string
-    value: string
-    mechanism?: {
-        type: string
-        handled: boolean
-    }
-    stacktrace?: {
-        frames: ExceptionFrame[]
-    }
-}
 
 // Sample group types and IDs for testing group analytics
 // These group types must already exist in the DB for team_id=1.

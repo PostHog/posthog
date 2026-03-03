@@ -99,7 +99,7 @@ export class ErrorTrackingConsumer {
     protected overflowRedirectService?: OverflowRedirectService
     protected overflowLaneTTLRefreshService?: OverflowRedirectService
     protected topHog?: TopHog
-    isStopping = false
+    private isStopping = false
 
     constructor(
         private config: ErrorTrackingConsumerOptions,

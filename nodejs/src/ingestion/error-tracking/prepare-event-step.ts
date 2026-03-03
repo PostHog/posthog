@@ -7,6 +7,12 @@ import { uuidFromDistinctId } from '~/worker/ingestion/person-uuid'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
+/**
+ * Marker timestamp used for placeholder persons (when no person exists in DB).
+ * Using a distinctive value helps identify these cases when debugging.
+ */
+const PLACEHOLDER_PERSON_CREATED_AT = DateTime.utc(1970, 1, 1, 0, 0, 5)
+
 export interface ErrorTrackingPrepareEventInput {
     event: PluginEvent
     team: Team
@@ -81,7 +87,7 @@ export function createErrorTrackingPrepareEventStep<T extends ErrorTrackingPrepa
             team_id: team.id,
             uuid: uuidFromDistinctId(team.id, event.distinct_id),
             properties: {},
-            created_at: DateTime.utc(1970, 1, 1, 0, 0, 5), // Marker timestamp for debugging
+            created_at: PLACEHOLDER_PERSON_CREATED_AT,
         }
 
         // Error tracking always uses processPerson=true to:

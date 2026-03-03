@@ -3,6 +3,7 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { KafkaConsumer } from '~/kafka/consumer'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, PipelineEvent, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
@@ -11,6 +12,13 @@ import { UUIDT } from '~/utils/utils'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
+
+/** Creates a mock KafkaConsumer for tests that don't need actual Kafka connections */
+const createMockKafkaConsumer = (): jest.Mocked<Pick<KafkaConsumer, 'connect' | 'disconnect' | 'isHealthy'>> => ({
+    connect: jest.fn().mockResolvedValue(undefined),
+    disconnect: jest.fn().mockResolvedValue(undefined),
+    isHealthy: jest.fn().mockReturnValue({ status: 'ok' }),
+})
 
 jest.setTimeout(60000)
 
@@ -157,12 +165,8 @@ describe('ErrorTrackingConsumer', () => {
             personRepository: hub.personRepository,
         }
         const consumer = new ErrorTrackingConsumer(config, deps)
-        // Mock the Kafka consumer to avoid actual Kafka connections
-        consumer['kafkaConsumer'] = {
-            connect: jest.fn(),
-            disconnect: jest.fn(),
-            isHealthy: jest.fn(),
-        } as any
+        // Replace Kafka consumer with mock to avoid actual connections
+        consumer['kafkaConsumer'] = createMockKafkaConsumer() as unknown as KafkaConsumer
         await consumer.start()
         return consumer
     }
@@ -221,7 +225,7 @@ describe('ErrorTrackingConsumer', () => {
     describe('configuration', () => {
         it('should have correct config defaults', () => {
             expect(consumer['name']).toBe('error-tracking-consumer')
-            expect(consumer['config'].groupId).toBe('error-tracking-ingestion')
+            expect(consumer['config'].groupId).toBe('ingestion-error-tracking')
             expect(consumer['config'].topic).toBe('error_tracking_ingestion_test')
             expect(consumer['config'].dlqTopic).toBe('error_tracking_ingestion_dlq_test')
             expect(consumer['config'].outputTopic).toBe('clickhouse_events_json_test')

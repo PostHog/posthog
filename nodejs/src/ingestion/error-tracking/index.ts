@@ -1,5 +1,5 @@
 // Error tracking ingestion pipeline exports
-// This module processes $exception events from the exceptions_ingestion topic
+// This module processes $exception events from the error tracking ingestion topic
 
 export {
     ErrorTrackingConsumer,

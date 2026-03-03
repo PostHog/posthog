@@ -41,7 +41,6 @@ describe('CymbalClient', () => {
         return new CymbalClient({
             baseUrl: 'http://cymbal.example.com',
             timeoutMs: 5000,
-            maxAttempts: 3,
             fetch: fetchMock as FetchFunction,
         })
     }
@@ -103,51 +102,41 @@ describe('CymbalClient', () => {
             expect(results).toEqual([null])
         })
 
-        it('retries on 5xx errors', async () => {
+        it('throws retriable error on 5xx errors', async () => {
             const requests = [createRequest()]
-            const responses = [createResponse()]
 
-            mockFetch
-                .mockResolvedValueOnce({
-                    ok: false,
-                    status: 500,
-                    text: () => Promise.resolve('Internal Server Error'),
-                })
-                .mockResolvedValueOnce({
-                    ok: true,
-                    status: 200,
-                    json: () => Promise.resolve(responses),
-                })
+            mockFetch.mockResolvedValueOnce({
+                status: 500,
+                text: () => Promise.resolve('Internal Server Error'),
+            })
 
-            const results = await client.processExceptions(requests)
-
-            expect(results).toEqual(responses)
-            expect(mockFetch).toHaveBeenCalledTimes(2)
+            try {
+                await client.processExceptions(requests)
+                fail('Expected error to be thrown')
+            } catch (error: any) {
+                expect(error.message).toContain('Cymbal returned 500')
+                expect(error.isRetriable).toBe(true)
+            }
         })
 
-        it('retries on 429 rate limit errors', async () => {
+        it('throws retriable error on 429 rate limit errors', async () => {
             const requests = [createRequest()]
-            const responses = [createResponse()]
 
-            mockFetch
-                .mockResolvedValueOnce({
-                    ok: false,
-                    status: 429,
-                    text: () => Promise.resolve('Too Many Requests'),
-                })
-                .mockResolvedValueOnce({
-                    ok: true,
-                    status: 200,
-                    json: () => Promise.resolve(responses),
-                })
+            mockFetch.mockResolvedValueOnce({
+                status: 429,
+                text: () => Promise.resolve('Too Many Requests'),
+            })
 
-            const results = await client.processExceptions(requests)
-
-            expect(results).toEqual(responses)
-            expect(mockFetch).toHaveBeenCalledTimes(2)
+            try {
+                await client.processExceptions(requests)
+                fail('Expected error to be thrown')
+            } catch (error: any) {
+                expect(error.message).toContain('Cymbal returned 429')
+                expect(error.isRetriable).toBe(true)
+            }
         })
 
-        it('does not retry on 4xx errors (except 429)', async () => {
+        it('throws non-retriable error on 4xx errors (except 429)', async () => {
             const requests = [createRequest()]
 
             mockFetch.mockResolvedValueOnce({
@@ -155,8 +144,13 @@ describe('CymbalClient', () => {
                 text: () => Promise.resolve('Bad Request'),
             })
 
-            await expect(client.processExceptions(requests)).rejects.toThrow('Cymbal returned 400: Bad Request')
-            expect(mockFetch).toHaveBeenCalledTimes(1)
+            try {
+                await client.processExceptions(requests)
+                fail('Expected error to be thrown')
+            } catch (error: any) {
+                expect(error.message).toContain('Cymbal returned 400')
+                expect(error.isRetriable).toBe(false)
+            }
         })
 
         it('throws on response length mismatch', async () => {
@@ -173,12 +167,33 @@ describe('CymbalClient', () => {
             )
         })
 
-        it('retries on network errors', async () => {
+        it('throws when response is not an array', async () => {
             const requests = [createRequest()]
-            const responses = [createResponse()]
 
-            mockFetch.mockRejectedValueOnce(new Error('Network error')).mockResolvedValueOnce({
-                ok: true,
+            mockFetch.mockResolvedValueOnce({
+                status: 200,
+                json: () => Promise.resolve({ error: 'unexpected error format' }),
+            })
+
+            await expect(client.processExceptions(requests)).rejects.toThrow('Invalid Cymbal response')
+        })
+
+        it('throws when response element has invalid structure', async () => {
+            const requests = [createRequest()]
+
+            mockFetch.mockResolvedValueOnce({
+                status: 200,
+                json: () => Promise.resolve([{ invalid: 'no uuid field' }]),
+            })
+
+            await expect(client.processExceptions(requests)).rejects.toThrow('Invalid Cymbal response')
+        })
+
+        it('accepts null elements in response array', async () => {
+            const requests = [createRequest(), createRequest()]
+            const responses = [createResponse(), null] // Second event suppressed
+
+            mockFetch.mockResolvedValueOnce({
                 status: 200,
                 json: () => Promise.resolve(responses),
             })
@@ -186,38 +201,38 @@ describe('CymbalClient', () => {
             const results = await client.processExceptions(requests)
 
             expect(results).toEqual(responses)
-            expect(mockFetch).toHaveBeenCalledTimes(2)
+            expect(results[1]).toBeNull()
         })
 
-        it('retries on timeout (TimeoutError)', async () => {
+        it('throws retriable error on network errors', async () => {
             const requests = [createRequest()]
-            const responses = [createResponse()]
+
+            mockFetch.mockRejectedValueOnce(new Error('Network error'))
+
+            try {
+                await client.processExceptions(requests)
+                fail('Expected error to be thrown')
+            } catch (error: any) {
+                expect(error.message).toContain('Network error')
+                expect(error.isRetriable).toBe(true)
+            }
+        })
+
+        it('throws retriable error on timeout', async () => {
+            const requests = [createRequest()]
 
             const timeoutError = new Error('Timeout')
             timeoutError.name = 'TimeoutError'
 
-            mockFetch.mockRejectedValueOnce(timeoutError).mockResolvedValueOnce({
-                status: 200,
-                json: () => Promise.resolve(responses),
-            })
+            mockFetch.mockRejectedValueOnce(timeoutError)
 
-            const results = await client.processExceptions(requests)
-
-            expect(results).toEqual(responses)
-            expect(mockFetch).toHaveBeenCalledTimes(2)
-        })
-
-        it('exhausts retries and throws', async () => {
-            const requests = [createRequest()]
-
-            mockFetch.mockResolvedValue({
-                status: 500,
-                text: () => Promise.resolve('Internal Server Error'),
-            })
-
-            // maxAttempts is 3, meaning 3 total attempts
-            await expect(client.processExceptions(requests)).rejects.toThrow('Cymbal returned 500')
-            expect(mockFetch).toHaveBeenCalledTimes(3)
+            try {
+                await client.processExceptions(requests)
+                fail('Expected error to be thrown')
+            } catch (error: any) {
+                expect(error.message).toContain('Timeout')
+                expect(error.isRetriable).toBe(true)
+            }
         })
 
         it('removes trailing slash from baseUrl', async () => {

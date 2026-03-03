@@ -1,10 +1,21 @@
 import { Counter, Histogram } from 'prom-client'
+import { z } from 'zod'
 
 import { logger } from '~/utils/logger'
 import { FetchResponse, internalFetch } from '~/utils/request'
-import { retryIfRetriable } from '~/utils/retries'
 
 import { CymbalRequest, CymbalResponse } from './types'
+
+/** Zod schema for validating Cymbal API responses */
+const CymbalResponseSchema = z.object({
+    uuid: z.string(),
+    event: z.string(),
+    team_id: z.number(),
+    timestamp: z.string(),
+    properties: z.record(z.unknown()),
+})
+
+const CymbalResponseArraySchema = z.array(CymbalResponseSchema.nullable())
 
 const cymbalRequestDuration = new Histogram({
     name: 'error_tracking_cymbal_request_duration_ms',
@@ -25,12 +36,6 @@ const cymbalBatchSizeHistogram = new Histogram({
     buckets: [1, 5, 10, 25, 50, 100, 250, 500],
 })
 
-const cymbalRetryCounter = new Counter({
-    name: 'error_tracking_cymbal_retries_total',
-    help: 'Total Cymbal API request retries',
-    labelNames: ['reason'],
-})
-
 /** Function signature for fetch implementation */
 export type FetchFunction = (
     url: string,
@@ -40,8 +45,6 @@ export type FetchFunction = (
 export interface CymbalClientConfig {
     baseUrl: string
     timeoutMs: number
-    /** Maximum number of attempts (including the initial request). Defaults to 3. */
-    maxAttempts?: number
     /** Custom fetch implementation for testing. Defaults to internalFetch. */
     fetch?: FetchFunction
 }
@@ -66,17 +69,19 @@ class CymbalError extends Error {
  * - Stack trace symbolication (source maps, debug symbols)
  * - Issue fingerprinting and grouping
  * - Issue suppression based on status
+ *
+ * Note: This client does not implement retry logic. Retries are handled at
+ * the pipeline level using pipeBatchWithRetry(). The client throws CymbalError
+ * with isRetriable flag to indicate whether errors should be retried.
  */
 export class CymbalClient {
     private baseUrl: string
     private timeoutMs: number
-    private maxAttempts: number
     private fetch: FetchFunction
 
     constructor(config: CymbalClientConfig) {
         this.baseUrl = config.baseUrl.replace(/\/$/, '') // Remove trailing slash
         this.timeoutMs = config.timeoutMs
-        this.maxAttempts = config.maxAttempts ?? 3
         this.fetch = config.fetch ?? internalFetch
     }
 
@@ -87,6 +92,7 @@ export class CymbalClient {
      * @returns Array of processed events with symbolicated stack traces and fingerprints.
      *          Null entries indicate events that should be dropped (e.g., suppressed issues).
      *          Maintains 1:1 position correspondence with input array.
+     * @throws CymbalError with isRetriable flag indicating whether the error should be retried
      */
     async processExceptions(requests: CymbalRequest[]): Promise<(CymbalResponse | null)[]> {
         if (requests.length === 0) {
@@ -95,80 +101,76 @@ export class CymbalClient {
 
         cymbalBatchSizeHistogram.observe(requests.length)
 
-        return retryIfRetriable(
-            () => this.doProcessExceptions(requests),
-            this.maxAttempts,
-            100 // Start with 100ms backoff
-        )
+        const { response, durationMs } = await this.makeRequest(requests)
+
+        if (response.status >= 400) {
+            const errorBody = await response.text().catch(() => 'unknown')
+            this.recordMetrics(`error_${response.status}`, durationMs, requests.length)
+
+            logger.warn('⚠️', 'cymbal_error_response', {
+                status: response.status,
+                errorBody,
+                batchSize: requests.length,
+            })
+
+            // 5xx errors and 429 are retriable
+            const isRetriable = response.status >= 500 || response.status === 429
+            throw new CymbalError(`Cymbal returned ${response.status}: ${errorBody}`, isRetriable)
+        }
+
+        const rawResults = await response.json()
+
+        // Validate response structure using Zod schema
+        const parseResult = CymbalResponseArraySchema.safeParse(rawResults)
+        if (!parseResult.success) {
+            this.recordMetrics('error_invalid_response', durationMs, requests.length)
+            throw new CymbalError(`Invalid Cymbal response: ${parseResult.error.message}`, false)
+        }
+
+        const results = parseResult.data
+
+        // Validate response array length matches request
+        if (results.length !== requests.length) {
+            this.recordMetrics('error_length_mismatch', durationMs, requests.length)
+            throw new CymbalError(
+                `Cymbal response length mismatch: got ${results.length}, expected ${requests.length}`,
+                false
+            )
+        }
+
+        this.recordMetrics('success', durationMs, requests.length)
+        return results as (CymbalResponse | null)[]
     }
 
-    private async doProcessExceptions(requests: CymbalRequest[]): Promise<(CymbalResponse | null)[]> {
+    /**
+     * Make HTTP request to Cymbal, wrapping network errors as retriable CymbalErrors.
+     */
+    private async makeRequest(requests: CymbalRequest[]): Promise<{ response: FetchResponse; durationMs: number }> {
         const startTime = performance.now()
-        let status = 'success'
-
         try {
             const response = await this.fetch(`${this.baseUrl}/process`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requests),
                 timeoutMs: this.timeoutMs,
             })
-
-            if (response.status >= 400) {
-                status = `error_${response.status}`
-                const errorBody = await response.text().catch(() => 'unknown')
-
-                // Log the error for debugging - Cymbal returns {error, details} format
-                logger.warn('⚠️', 'cymbal_error_response', {
-                    status: response.status,
-                    errorBody,
-                    batchSize: requests.length,
-                })
-
-                // 5xx errors and 429 are retriable
-                const isRetriable = response.status >= 500 || response.status === 429
-                if (isRetriable) {
-                    cymbalRetryCounter.inc({ reason: response.status === 429 ? 'rate_limit' : 'server_error' })
-                }
-
-                throw new CymbalError(`Cymbal returned ${response.status}: ${errorBody}`, isRetriable)
-            }
-
-            const results: (CymbalResponse | null)[] = await response.json()
-
-            // Validate response array length matches request
-            if (results.length !== requests.length) {
-                throw new CymbalError(
-                    `Cymbal response length mismatch: got ${results.length}, expected ${requests.length}`,
-                    false // Not retriable - indicates a bug
-                )
-            }
-
-            // Return results as-is. Cymbal returns null for suppressed events.
-            return results
+            return { response, durationMs: performance.now() - startTime }
         } catch (error) {
-            if (error instanceof CymbalError) {
-                throw error
-            }
-
-            // All other errors (timeout, network) are retriable infrastructure issues
-            const isTimeout = error instanceof Error && error.name === 'TimeoutError'
-            status = 'error'
-            cymbalRetryCounter.inc({ reason: isTimeout ? 'timeout' : 'network_error' })
-            throw new CymbalError(error instanceof Error ? error.message : String(error), true)
-        } finally {
             const durationMs = performance.now() - startTime
-            cymbalRequestDuration.labels({ status }).observe(durationMs)
-            cymbalRequestCounter.labels({ status }).inc()
-
-            logger.debug('📊', 'cymbal_batch_request_complete', {
-                status,
-                durationMs: Math.round(durationMs),
-                batchSize: requests.length,
-            })
+            this.recordMetrics('error', durationMs, requests.length)
+            // Network/timeout errors are retriable
+            throw new CymbalError(error instanceof Error ? error.message : String(error), true)
         }
+    }
+
+    private recordMetrics(status: string, durationMs: number, batchSize: number): void {
+        cymbalRequestDuration.labels({ status }).observe(durationMs)
+        cymbalRequestCounter.labels({ status }).inc()
+        logger.debug('📊', 'cymbal_batch_request_complete', {
+            status,
+            durationMs: Math.round(durationMs),
+            batchSize,
+        })
     }
 
     /**

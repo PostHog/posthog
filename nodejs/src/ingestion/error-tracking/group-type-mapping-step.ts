@@ -24,12 +24,15 @@ export function createGroupTypeMappingStep<T extends GroupTypeMappingInput>(
         const { event, team } = input
 
         // Extract group identifiers from properties
-        const groups = event.properties?.$groups as Record<string, string> | undefined
+        const rawGroups = event.properties?.$groups
 
-        // If no groups, pass through without mapping
-        if (!groups || !team.project_id) {
+        // $groups should be an object mapping group type to group key.
+        // Skip if missing, not an object, or team has no project_id.
+        if (!rawGroups || typeof rawGroups !== 'object' || Array.isArray(rawGroups) || !team.project_id) {
             return ok(input)
         }
+
+        const groups = rawGroups as Record<string, string>
 
         // Resolve group type indexes and add $group_<index> properties
         const groupProperties: Record<string, string> = {}
