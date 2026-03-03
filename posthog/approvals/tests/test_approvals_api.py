@@ -467,6 +467,31 @@ class TestApprovalPolicyViewSet(APIBaseTest):
         policy = ApprovalPolicy.objects.get(id=response.json()["id"])
         assert policy.bypass_org_membership_levels == [8, 15]
 
+    def test_create_policy_with_quorum_zero_rejected(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/approval_policies/",
+            {
+                "action_key": "feature_flag.enable",
+                "approver_config": {"quorum": 0, "users": [self.user.id]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_policy_with_quorum_one_accepted(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/approval_policies/",
+            {
+                "action_key": "feature_flag.enable",
+                "approver_config": {"quorum": 1, "users": [self.user.id]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["approver_config"]["quorum"] == 1
+
     def test_create_policy_with_non_integer_bypass_levels_rejected(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/approval_policies/",
