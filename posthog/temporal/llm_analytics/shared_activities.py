@@ -2,11 +2,11 @@
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, cast
 
 from temporalio import activity
 
-from posthog.temporal.llm_analytics.trace_clustering.models import AnalysisLevel
+AnalysisLevel = Literal["trace", "generation"]
 
 
 @dataclass
@@ -70,7 +70,7 @@ async def fetch_all_clustering_jobs_activity(
                 JobConfig(
                     job_id=job.id,
                     name=job.name,
-                    analysis_level=job.analysis_level,
+                    analysis_level=cast(AnalysisLevel, job.analysis_level),
                     event_filters=job.event_filters,
                 )
             )

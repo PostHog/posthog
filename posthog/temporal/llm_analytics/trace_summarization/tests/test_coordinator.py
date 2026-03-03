@@ -2,7 +2,7 @@
 
 import pytest
 
-from posthog.temporal.llm_analytics.shared_activities import JobConfig
+from posthog.temporal.llm_analytics.shared_activities import JobConfig, resolve_level_jobs_for_team
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_ITEMS_PER_WINDOW,
@@ -14,7 +14,6 @@ from posthog.temporal.llm_analytics.trace_summarization.coordinator import (
     BatchTraceSummarizationCoordinatorInputs,
     BatchTraceSummarizationCoordinatorWorkflow,
     _empty_summarization_results,
-    _resolve_level_jobs_for_team,
 )
 
 from products.llm_analytics.backend.summarization.models import SummarizationMode
@@ -159,7 +158,7 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         ],
     )
     def test_resolve_level_jobs_for_team(self, team_jobs, analysis_level, legacy_event_filters, expected_job_ids):
-        result = _resolve_level_jobs_for_team(
+        result = resolve_level_jobs_for_team(
             team_jobs=team_jobs,
             analysis_level=analysis_level,
             legacy_event_filters=legacy_event_filters,
