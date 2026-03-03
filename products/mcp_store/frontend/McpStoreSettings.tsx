@@ -10,7 +10,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { teamLogic } from 'scenes/teamLogic'
 
 import IconPostHogService from 'public/posthog-icon.svg'
-import { default as IconConfluenceService, default as IconJiraService } from 'public/services/atlassian.svg'
+import IconAtlassianService from 'public/services/atlassian.svg'
 import IconAttioService from 'public/services/attio.png'
 import IconCanvaService from 'public/services/canva.svg'
 import IconGitHubService from 'public/services/github.svg'
@@ -29,8 +29,7 @@ const SERVER_ICONS: Record<string, string> = {
     Monday: IconMondayService,
     Canva: IconCanvaService,
     Attio: IconAttioService,
-    Jira: IconJiraService,
-    Confluence: IconConfluenceService,
+    Atlassian: IconAtlassianService,
 }
 
 function ConnectOAuthButton({

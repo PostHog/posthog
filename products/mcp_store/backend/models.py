@@ -36,15 +36,9 @@ RECOMMENDED_SERVERS = [
         "auth_type": "oauth",
     },
     {
-        "name": "Confluence",
+        "name": "Atlassian",
         "url": "https://mcp.atlassian.com/v1/mcp",
-        "description": "Search and manage Confluence pages, spaces, and knowledge base content.",
-        "auth_type": "oauth",
-    },
-    {
-        "name": "Jira",
-        "url": "https://mcp.atlassian.com/v1/mcp",
-        "description": "Manage Jira issues, projects, and sprints.",
+        "description": "Integrate with Atlassian products like Jira and Confluence.",
         "auth_type": "oauth",
     },
     {
