@@ -945,7 +945,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             {},
             async (ingester, hub, team) => {
                 const distinctId = new UUIDT().toString()
-                const groupKey = 'group_key'
                 const timestamp = DateTime.now().toMillis()
                 await ingester.handleKafkaBatch(
                     createKafkaMessages([
@@ -962,7 +961,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                             .withProperties({
                                 distinctId: distinctId,
                                 $process_person_profile: false,
-                                $groups: { organization: groupKey },
+                                $group_0: 'group_key',
                                 $set: {
                                     c: 3,
                                 },
@@ -996,8 +995,8 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
                     expect(events[1].event).toEqual('custom event')
                     expect(events[1].person_properties).toEqual({})
-                    // Group properties should be populated even with $process_person_profile=false
-                    expect(events[1].properties.$group_0).toEqual(groupKey)
+                    // Group properties should be preserved even with $process_person_profile=false
+                    expect(events[1].properties.$group_0).toEqual('group_key')
                     expect(events[2].event).toEqual('custom event')
                     expect(events[2].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
                 })
@@ -1016,7 +1015,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     createKafkaMessages([
                         new EventBuilder(team, distinctId)
                             .withEvent('$groupidentify')
-                            .withGroupProperties('organization', groupKey, { name: 'Acme Corp' })
                             .withProperties({
                                 $process_person_profile: false,
                                 $group_type: 'organization',
