@@ -8,6 +8,7 @@ import { EventIngestionRestrictionManager, RestrictionType } from '~/utils/event
 import { parseJSON } from '~/utils/json-parse'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
+import { UUIDT } from '~/utils/utils'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
@@ -88,7 +89,7 @@ describe('ErrorTrackingPipeline', () => {
         const {
             token = 'test-token-123',
             distinctId = 'user-123',
-            eventUuid = 'event-uuid-123',
+            eventUuid = new UUIDT().toString(),
             timestamp = '2024-01-01T00:00:00Z',
             ip = '1.2.3.4',
             event = '$exception',
@@ -357,21 +358,24 @@ describe('ErrorTrackingPipeline', () => {
         it('processes multiple events in a batch', async () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined) // No person
 
+            const uuid1 = new UUIDT().toString()
+            const uuid2 = new UUIDT().toString()
+
             const cymbalResponses = [
                 createCymbalResponse({
-                    uuid: 'event-1',
+                    uuid: uuid1,
                     properties: { $exception_fingerprint: 'fp-1', $exception_issue_id: 'issue-1' },
                 }),
                 createCymbalResponse({
-                    uuid: 'event-2',
+                    uuid: uuid2,
                     properties: { $exception_fingerprint: 'fp-2', $exception_issue_id: 'issue-2' },
                 }),
             ]
             mockCymbalClient.processExceptions.mockResolvedValue(cymbalResponses)
 
             const messages = [
-                createKafkaMessage({ distinctId: 'user-1', eventUuid: 'event-1' }),
-                createKafkaMessage({ distinctId: 'user-2', eventUuid: 'event-2' }),
+                createKafkaMessage({ distinctId: 'user-1', eventUuid: uuid1 }),
+                createKafkaMessage({ distinctId: 'user-2', eventUuid: uuid2 }),
             ]
 
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
@@ -691,9 +695,11 @@ describe('ErrorTrackingPipeline', () => {
         it('emits ingestion warning when Cymbal returns $cymbal_errors', async () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
 
+            const eventUuid = new UUIDT().toString()
+
             // Cymbal returns event with processing errors attached
             const cymbalResponse = createCymbalResponse({
-                uuid: 'event-with-errors',
+                uuid: eventUuid,
                 properties: {
                     $exception_list: [{ type: 'Error', value: 'Test error' }],
                     $exception_fingerprint: 'test-fingerprint',
@@ -706,7 +712,7 @@ describe('ErrorTrackingPipeline', () => {
             })
             mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
 
-            const message = createKafkaMessage({ eventUuid: 'event-with-errors' })
+            const message = createKafkaMessage({ eventUuid })
 
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
             await runErrorTrackingPipeline(pipeline, [message])
@@ -722,7 +728,7 @@ describe('ErrorTrackingPipeline', () => {
             expect(warnings[0].team_id).toBe(123)
 
             const details = parseJSON(warnings[0].details)
-            expect(details.eventUuid).toBe('event-with-errors')
+            expect(details.eventUuid).toBe(eventUuid)
             expect(details.errors).toEqual([
                 'No sourcemap found for source url: https://example.com/app.js',
                 'Token not found for frame: app.js:10:5',

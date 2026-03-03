@@ -18,6 +18,7 @@ import {
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
+import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '../pipelines/builders'
 import { TopHogRegistry, count, countOk, createTopHogWrapper, timer } from '../pipelines/extensions/tophog'
@@ -111,6 +112,14 @@ export function createErrorTrackingPipeline(
 
     const topHogWrapper = createTopHogWrapper(topHog)
 
+    // Create outputs configuration for the emit step
+    const outputs = new IngestionOutputs<EventOutput>({
+        [EVENTS_OUTPUT]: {
+            topic: outputTopic,
+            producer: kafkaProducer,
+        },
+    })
+
     const pipelineConfig: PipelineConfig = {
         kafkaProducer,
         dlqTopic,
@@ -188,21 +197,20 @@ export function createErrorTrackingPipeline(
                                             .pipe(createGroupTypeMappingStep(groupTypeManager))
                                             // Prepare event for emission
                                             .pipe(createErrorTrackingPrepareEventStep())
-                                            .pipe(createCreateEventStep())
+                                            .pipe(createCreateEventStep(EVENTS_OUTPUT))
                                             .pipe(
                                                 topHogWrapper(
                                                     createEmitEventStep({
-                                                        kafkaProducer,
-                                                        clickhouseJsonEventsTopic: outputTopic,
+                                                        outputs,
                                                         groupId,
                                                     }),
                                                     [
                                                         count('emitted_events', (input) => ({
-                                                            team_id: String(input.eventToEmit.team_id),
+                                                            team_id: String(input.teamId),
                                                         })),
                                                         count('emitted_events_per_distinct_id', (input) => ({
-                                                            team_id: String(input.eventToEmit.team_id),
-                                                            distinct_id: input.eventToEmit.distinct_id,
+                                                            team_id: String(input.teamId),
+                                                            distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
                                                         })),
                                                     ]
                                                 )
