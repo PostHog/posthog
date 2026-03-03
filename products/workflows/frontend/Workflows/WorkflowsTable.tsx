@@ -364,7 +364,13 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                                 <>
                                     <div className="flex items-center gap-2 mb-2">
                                         <LemonCheckbox
-                                            checked={allArchivedSelected}
+                                            checked={
+                                                allArchivedSelected
+                                                    ? true
+                                                    : selectedArchivedWorkflowIds.size > 0
+                                                      ? 'indeterminate'
+                                                      : false
+                                            }
                                             onChange={(checked) =>
                                                 checked
                                                     ? selectAllArchivedWorkflows(archivedWorkflows.map((w) => w.id))

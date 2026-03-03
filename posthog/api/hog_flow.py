@@ -1,4 +1,5 @@
 import json
+import uuid as uuid_mod
 from typing import Optional, cast
 
 from django.db.models import QuerySet
@@ -477,7 +478,12 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         if not ids or not isinstance(ids, list):
             return Response({"error": "A non-empty list of 'ids' is required"}, status=400)
 
-        queryset = self.get_queryset().filter(id__in=ids, status="archived")
+        try:
+            validated_ids = [uuid_mod.UUID(str(id)) for id in ids]
+        except ValueError:
+            return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
+
+        queryset = self.get_queryset().filter(id__in=validated_ids, status="archived")
         deleted_count, _ = queryset.delete()
 
         return Response({"deleted": deleted_count})

@@ -1362,6 +1362,13 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 400
 
+    def test_bulk_delete_rejects_invalid_uuids(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {"ids": ["not-a-uuid", "also-bad"]},
+        )
+        assert response.status_code == 400
+
     def test_bulk_delete_does_not_leak_between_teams(self):
         another_org = Organization.objects.create(name="other org")
         another_team = Team.objects.create(organization=another_org)
