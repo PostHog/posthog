@@ -80,7 +80,7 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
             lemonToast.success('Default release conditions saved')
         },
         saveDefaultReleaseConditionsFailure: ({ error }) => {
-            lemonToast.error(error?.error || error?.detail || 'Failed to save default release conditions')
+            lemonToast.error(error || 'Failed to save default release conditions')
         },
         discardChanges: () => {
             const saved = values.defaultReleaseConditions
