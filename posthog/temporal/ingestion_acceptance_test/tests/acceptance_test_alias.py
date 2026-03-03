@@ -41,4 +41,4 @@ class TestAlias(AcceptanceTest):
         # Query all events for this person - should have all 3 specific events
         expected_uuids = {first_event_uuid, second_event_uuid, alias_event_uuid}
         events = self.client.query_events_by_person_id(person.id, expected_event_uuids=expected_uuids)
-        assert events is not None, "Expected events not found for person after alias withing time budget"
+        assert events is not None, "Expected events not found for person after alias within time budget"
