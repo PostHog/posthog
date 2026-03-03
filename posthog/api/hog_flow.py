@@ -471,6 +471,17 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             }
         )
 
+    @action(methods=["POST"], detail=False)
+    def bulk_delete(self, request: Request, **kwargs):
+        ids = request.data.get("ids", [])
+        if not ids or not isinstance(ids, list):
+            return Response({"error": "A non-empty list of 'ids' is required"}, status=400)
+
+        queryset = self.get_queryset().filter(id__in=ids, status="archived")
+        deleted_count, _ = queryset.delete()
+
+        return Response({"deleted": deleted_count})
+
     @action(detail=True, methods=["GET", "POST"])
     def batch_jobs(self, request: Request, *args, **kwargs):
         try:
