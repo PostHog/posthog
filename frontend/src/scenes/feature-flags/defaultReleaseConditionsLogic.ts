@@ -24,6 +24,7 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
     actions({
         setLocalGroups: (groups: FeatureFlagGroupType[]) => ({ groups }),
         setLocalEnabled: (enabled: boolean) => ({ enabled }),
+        discardChanges: true,
     }),
 
     reducers({
@@ -65,23 +66,26 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
                         throw new Error('No team selected')
                     }
 
-                    try {
-                        return (await api.put(`/api/environments/${teamId}/default_release_conditions/`, {
-                            enabled: values.localEnabled,
-                            default_groups: values.localGroups ?? [],
-                        })) as DefaultReleaseConditionsResponse
-                    } catch (error: any) {
-                        lemonToast.error(error.error || error.detail || 'Failed to save default release conditions')
-                        throw error
-                    }
+                    return (await api.put(`/api/environments/${teamId}/default_release_conditions/`, {
+                        enabled: values.localEnabled,
+                        default_groups: values.localGroups ?? [],
+                    })) as DefaultReleaseConditionsResponse
                 },
             },
         ],
     })),
 
-    listeners(() => ({
+    listeners(({ actions, values }) => ({
         saveDefaultReleaseConditionsSuccess: () => {
             lemonToast.success('Default release conditions saved')
+        },
+        saveDefaultReleaseConditionsFailure: ({ error }) => {
+            lemonToast.error(error?.error || error?.detail || 'Failed to save default release conditions')
+        },
+        discardChanges: () => {
+            const saved = values.defaultReleaseConditions
+            actions.setLocalEnabled(saved?.enabled ?? false)
+            actions.setLocalGroups(saved?.default_groups ?? [])
         },
     })),
 

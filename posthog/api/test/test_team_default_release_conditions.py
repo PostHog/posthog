@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
@@ -11,6 +12,8 @@ from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 class TestTeamDefaultReleaseConditions(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.url = f"/api/environments/{self.team.id}/default_release_conditions/"
 
     def test_get_returns_empty_defaults_for_fresh_team(self):
@@ -109,6 +112,16 @@ class TestTeamDefaultReleaseConditions(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.json()["default_groups"][0]["rollout_percentage"])
+
+    def test_non_admin_can_read_but_not_write(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.put(self.url, {"enabled": True, "default_groups": []}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_get_returns_previously_saved_config(self):
         config = get_or_create_team_extension(self.team, TeamFeatureFlagDefaultsConfig)

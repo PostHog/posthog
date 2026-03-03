@@ -11,7 +11,7 @@ import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseCon
 export function DefaultReleaseConditions(): JSX.Element {
     const { isEnabled, filtersForEditor, hasChanges, defaultReleaseConditionsLoading } =
         useValues(defaultReleaseConditionsLogic)
-    const { setLocalEnabled, setLocalGroups, saveDefaultReleaseConditions, loadDefaultReleaseConditions } =
+    const { setLocalEnabled, setLocalGroups, saveDefaultReleaseConditions, discardChanges } =
         useActions(defaultReleaseConditionsLogic)
 
     return (
@@ -51,7 +51,7 @@ export function DefaultReleaseConditions(): JSX.Element {
                     >
                         Save changes
                     </LemonButton>
-                    <LemonButton type="secondary" onClick={loadDefaultReleaseConditions}>
+                    <LemonButton type="secondary" onClick={discardChanges}>
                         Discard changes
                     </LemonButton>
                 </div>
