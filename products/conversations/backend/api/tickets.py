@@ -1,8 +1,10 @@
 import uuid
 from collections.abc import Sequence
+from datetime import timedelta
 
 from django.db import transaction
 from django.db.models import Prefetch, Q, QuerySet, Sum
+from django.utils import timezone
 
 import structlog
 from loginas.utils import is_impersonated_session
@@ -88,6 +90,7 @@ class TicketSerializer(serializers.ModelSerializer):
             "unread_customer_count",
             "session_id",
             "session_context",
+            "sla_due_at",
             "slack_channel_id",
             "slack_thread_ts",
             "slack_team_id",
@@ -187,7 +190,22 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     Q(anonymous_traits__name__icontains=search) | Q(anonymous_traits__email__icontains=search)
                 )
 
-        return queryset.order_by("-updated_at")
+        sla_param = self.request.query_params.get("sla")
+        if sla_param:
+            now = timezone.now()
+            if sla_param == "breached":
+                queryset = queryset.filter(sla_due_at__lt=now)
+            elif sla_param == "at-risk":
+                queryset = queryset.filter(sla_due_at__gte=now, sla_due_at__lte=now + timedelta(hours=1))
+            elif sla_param == "on-track":
+                queryset = queryset.filter(sla_due_at__gt=now + timedelta(hours=1))
+
+        allowed_orderings = {"updated_at", "-updated_at", "sla_due_at", "-sla_due_at", "created_at", "-created_at"}
+        order_by = self.request.query_params.get("order_by", "-updated_at")
+        if order_by not in allowed_orderings:
+            order_by = "-updated_at"
+
+        return queryset.order_by(order_by)
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -288,6 +306,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance = self.get_object()
         old_status = instance.status
         old_priority = instance.priority
+        old_sla_due_at = instance.sla_due_at
 
         # Extract assignee without mutating request.data
         assignee = request.data.get("assignee", ...) if "assignee" in request.data else ...
@@ -318,8 +337,10 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Emit analytics events for workflow triggers
         new_priority = instance.priority
+        new_sla_due_at = instance.sla_due_at
         status_changed = old_status != new_status
         priority_changed = old_priority != new_priority
+        sla_changed = old_sla_due_at != new_sla_due_at
         assignee_changed = assignee is not ...
 
         try:
@@ -331,8 +352,34 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
 
+        if sla_changed:
+            try:
+                log_activity(
+                    organization_id=self.organization.id,
+                    team_id=self.team_id,
+                    user=request.user,
+                    was_impersonated=is_impersonated_session(request),
+                    item_id=str(instance.id),
+                    scope="Ticket",
+                    activity="updated",
+                    detail=Detail(
+                        name=f"Ticket #{instance.ticket_number}",
+                        changes=[
+                            Change(
+                                type="Ticket",
+                                field="sla_due_at",
+                                before=old_sla_due_at.isoformat() if old_sla_due_at else None,
+                                after=new_sla_due_at.isoformat() if new_sla_due_at else None,
+                                action="changed",
+                            )
+                        ],
+                    ),
+                )
+            except Exception as e:
+                capture_exception(e, {"ticket_id": str(instance.id)})
+
         # Track internal analytics
-        if status_changed or priority_changed or assignee_changed:
+        if status_changed or priority_changed or assignee_changed or sla_changed:
             try:
                 report_user_action(
                     request.user,
