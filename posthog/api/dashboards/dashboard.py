@@ -137,8 +137,22 @@ class CanEditDashboard(BasePermission):
         return view.user_permissions.dashboard(dashboard).can_edit
 
 
+class ClientResultItemSerializer(serializers.Serializer):
+    insight_name = serializers.CharField(required=True)
+    data = serializers.JSONField(required=True)
+
+    def validate_data(self, value):
+        if not value:
+            raise serializers.ValidationError("Data cannot be empty.")
+        return value
+
+
 class DashboardSnapshotSerializer(serializers.Serializer):
-    client_results = serializers.DictField(child=serializers.DictField(), required=False, allow_null=True)
+    client_results = serializers.DictField(
+        child=ClientResultItemSerializer(),
+        required=False,
+        allow_null=True,
+    )
 
 
 class TextSerializer(serializers.ModelSerializer):
@@ -842,13 +856,13 @@ class DashboardsViewSet(
         client_results = input_serializer.validated_data.get("client_results")
 
         if client_results:
-            before_results = {}
-            for tile_id, item in client_results.items():
-                if "data" in item:
-                    before_results[int(tile_id)] = {
-                        "insight_name": item.get("insight_name"),
-                        "data": summarize_insight_result(item["data"]),
-                    }
+            before_results = {
+                int(tile_id): {
+                    "insight_name": item["insight_name"],
+                    "data": summarize_insight_result(item["data"]),
+                }
+                for tile_id, item in client_results.items()
+            }
         else:
             before_results = self._get_cached_results_for_analysis(dashboard, request)
 
