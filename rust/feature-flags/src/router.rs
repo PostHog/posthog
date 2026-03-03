@@ -220,11 +220,17 @@ pub fn router(
         .layer(
             ServiceBuilder::new()
                 .layer(HandleErrorLayer::new(|err: tower::BoxError| async move {
-                    tracing::warn!(error = %err, "Request aborted by tower layer");
-                    if err.is::<tower::timeout::error::Elapsed>() {
+                    let is_timeout = err.is::<tower::timeout::error::Elapsed>();
+                    tracing::warn!(error = %err, timeout = is_timeout, "Request aborted by tower layer");
+                    if is_timeout {
                         inc(FLAG_REQUEST_TIMEOUT_COUNTER, &[], 1);
                     }
-                    (StatusCode::SERVICE_UNAVAILABLE, "Request timed out")
+                    let body = if is_timeout {
+                        "Request timed out"
+                    } else {
+                        "Service unavailable"
+                    };
+                    (StatusCode::SERVICE_UNAVAILABLE, body)
                 }))
                 .layer(TimeoutLayer::new(Duration::from_millis(
                     config.request_timeout_ms,

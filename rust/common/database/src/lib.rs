@@ -239,13 +239,6 @@ pub fn extract_timeout_type(error: &SqlxError) -> Option<&'static str> {
     }
 }
 
-/// Determines if a sqlx::Error represents pool exhaustion.
-/// Pool exhaustion is systemic (all connections busy), not transient.
-/// Retrying would just add more pool pressure and amplify the problem.
-pub fn is_pool_exhausted(error: &SqlxError) -> bool {
-    matches!(error, SqlxError::PoolTimedOut)
-}
-
 /// Determines if a sqlx::Error represents a transient failure that should be retried
 pub fn is_transient_error(error: &SqlxError) -> bool {
     match error {
@@ -328,13 +321,6 @@ mod tests {
         // Test TLS errors are considered transient
         let tls_error = SqlxError::Tls(Box::new(std::io::Error::other("TLS handshake failed")));
         assert!(is_transient_error(&tls_error));
-    }
-
-    #[test]
-    fn test_is_pool_exhausted() {
-        assert!(is_pool_exhausted(&SqlxError::PoolTimedOut));
-        assert!(!is_pool_exhausted(&SqlxError::PoolClosed));
-        assert!(!is_pool_exhausted(&SqlxError::RowNotFound));
     }
 
     #[test]

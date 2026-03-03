@@ -2250,9 +2250,13 @@ mod tests {
     async fn test_should_retry_on_error() {
         use sqlx::Error as SqlxError;
 
-        // PoolTimedOut is NOT retried — pool exhaustion is systemic, retrying amplifies load
-        let pool_timeout_error = FlagError::DatabaseError(SqlxError::PoolTimedOut, None);
-        assert!(!should_retry_on_error(&pool_timeout_error));
+        // PoolTimedOut goes through From<sqlx::Error> → is_timeout_error() → TimeoutError,
+        // so it never arrives as DatabaseError in production. Verify the real conversion path.
+        let pool_timeout: FlagError = SqlxError::PoolTimedOut.into();
+        assert!(
+            matches!(pool_timeout, FlagError::TimeoutError(Some(ref t)) if t == "pool_timeout")
+        );
+        assert!(!should_retry_on_error(&pool_timeout));
 
         let pool_closed_error = FlagError::DatabaseError(SqlxError::PoolClosed, None);
         assert!(should_retry_on_error(&pool_closed_error));
