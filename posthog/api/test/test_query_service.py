@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -103,9 +104,12 @@ class TestQueryService(APIBaseTest):
             type="data_warehouse", source=SimpleNamespace(id=selected_source.source_id)
         )
 
-        response = process_query_model(
-            self.team,
-            DatabaseSchemaQuery(connectionId="selected-connection"),
+        response = cast(
+            DatabaseSchemaQueryResponse,
+            process_query_model(
+                self.team,
+                DatabaseSchemaQuery(connectionId="selected-connection"),
+            ),
         )
 
         self.assertIsInstance(response, DatabaseSchemaQueryResponse)

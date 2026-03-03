@@ -5,6 +5,7 @@ from parameterized import parameterized
 
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, StringDatabaseField
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
@@ -264,8 +265,10 @@ class TestTable(BaseTest):
             credential=credential,
         )
 
-        assert list(table.hogql_definition().fields.keys()) == ["id", "timestamp-dash"]
-        assert table.hogql_definition().structure == "`id` String, `timestamp-dash` DateTime64(3, 'UTC')"
+        definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
+        assert list(definition.fields.keys()) == ["id", "timestamp-dash"]
+        assert definition.structure == "`id` String, `timestamp-dash` DateTime64(3, 'UTC')"
 
     def test_complex_type_with_array_nested_datetime_fields(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
@@ -286,6 +289,7 @@ class TestTable(BaseTest):
         )
 
         definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
         assert len(definition.fields) == 2
         assert (
             definition.structure
@@ -309,12 +313,14 @@ class TestTable(BaseTest):
             },
             credential=credential,
         )
+        definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
         self.assertEqual(
-            list(table.hogql_definition().fields.keys()),
+            list(definition.fields.keys()),
             ["id", "timestamp", "mrr", "complex_field", "tuple_field", "offset"],
         )
         self.assertEqual(
-            table.hogql_definition().structure,
+            definition.structure,
             "`id` String, `timestamp` DateTime64(3, 'UTC'), `mrr` Nullable(Int64), `complex_field` Array(Tuple( Nullable(String),  Nullable(String),  Map(String, Nullable(String)))), `tuple_field` Tuple(type Nullable(String), value Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), `offset` UInt32",
         )
 
@@ -331,13 +337,15 @@ class TestTable(BaseTest):
             },
             credential=credential,
         )
+        definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
         self.assertEqual(
-            list(table.hogql_definition().fields.keys()),
+            list(definition.fields.keys()),
             ["id", "mrr"],
         )
 
         self.assertEqual(
-            list(table.hogql_definition().fields.values()),
+            list(definition.fields.values()),
             [
                 StringDatabaseField(name="id", nullable=False),
                 IntegerDatabaseField(name="mrr", nullable=True),
@@ -345,7 +353,7 @@ class TestTable(BaseTest):
         )
 
         self.assertEqual(
-            table.hogql_definition().structure,
+            definition.structure,
             "`id` String, `mrr` Nullable(Int64)",
         )
 
@@ -387,6 +395,7 @@ class TestTable(BaseTest):
         )
 
         definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
         assert len(definition.fields) == len(columns)
         assert (
             definition.structure == "`int64` Int64, `float64` Float64, `decimal` Decimal(10, 2), "
