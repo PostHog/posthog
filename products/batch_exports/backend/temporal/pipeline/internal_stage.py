@@ -58,6 +58,7 @@ from products.batch_exports.backend.temporal.sql import (
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
     EXPORT_TO_S3_FROM_PERSONS,
     EXPORT_TO_S3_FROM_PERSONS_BACKFILL,
+    EXPORT_TO_S3_FROM_PERSONS_LIMITED,
     get_s3_function_call,
 )
 from products.batch_exports.backend.temporal.utils import set_status_to_running_task
@@ -334,23 +335,11 @@ async def _get_query(
             query_template = EXPORT_TO_S3_FROM_PERSONS_BACKFILL
             query = query_template.safe_substitute(s3_function=s3_function)
         else:
-            query_template = EXPORT_TO_S3_FROM_PERSONS
             if str(team_id) in settings.BATCH_EXPORTS_PERSONS_LIMITED_EXPORT_TEAM_IDS:
-                filter_distinct_ids = """
-                HAVING
-                    (
-                        _timestamp >= {interval_start}::DateTime64
-                    )
-                    AND (
-                        _timestamp < {interval_end}::DateTime64
-                    )
-                """
+                query_template = EXPORT_TO_S3_FROM_PERSONS_LIMITED
             else:
-                filter_distinct_ids = ""
-            query = query_template.safe_substitute(
-                s3_function=s3_function,
-                filter_distinct_ids=filter_distinct_ids,
-            )
+                query_template = EXPORT_TO_S3_FROM_PERSONS
+            query = query_template.safe_substitute(s3_function=s3_function)
     else:
         if parameters.get("exclude_events", None):
             parameters["exclude_events"] = list(parameters["exclude_events"])
