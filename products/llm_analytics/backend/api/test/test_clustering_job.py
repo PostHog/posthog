@@ -1,3 +1,5 @@
+import uuid
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
@@ -247,7 +249,7 @@ class TestClusteringRunWithJobId(APIBaseTest):
     def test_invalid_clustering_job_id_returns_404(self, mock_connect, _mock_flag):
         response = self.client.post(
             self._run_url(),
-            self._minimal_run_payload(clustering_job_id=99999),
+            self._minimal_run_payload(clustering_job_id=str(uuid.uuid4())),
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

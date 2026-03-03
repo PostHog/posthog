@@ -1,7 +1,9 @@
 from django.db import models
 
+from posthog.models.utils import UUIDModel
 
-class ClusteringJob(models.Model):
+
+class ClusteringJob(UUIDModel):
     """A named clustering configuration for a team.
 
     Each job defines one analysis level (trace or generation) and one set of

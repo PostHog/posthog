@@ -1,21 +1,7 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
-
-def migrate_clustering_configs_to_jobs(apps, schema_editor):
-    """Convert each existing ClusteringConfig into two ClusteringJob rows."""
-    ClusteringConfig = apps.get_model("llm_analytics", "ClusteringConfig")
-    ClusteringJob = apps.get_model("llm_analytics", "ClusteringJob")
-
-    for config in ClusteringConfig.objects.all():
-        for level, suffix in [("trace", "traces"), ("generation", "generations")]:
-            ClusteringJob.objects.create(
-                team_id=config.team_id,
-                name=f"Default ({suffix})",
-                analysis_level=level,
-                event_filters=config.event_filters,
-                enabled=True,
-            )
+import posthog.models.utils
 
 
 class Migration(migrations.Migration):
@@ -28,7 +14,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="ClusteringJob",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
                 ("name", models.CharField(max_length=100)),
                 (
                     "analysis_level",
@@ -60,9 +54,5 @@ class Migration(migrations.Migration):
                 fields=("team", "name"),
                 name="unique_clustering_job_name_per_team",
             ),
-        ),
-        migrations.RunPython(
-            migrate_clustering_configs_to_jobs,
-            reverse_code=migrations.RunPython.noop,
         ),
     ]

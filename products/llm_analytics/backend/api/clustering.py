@@ -145,7 +145,7 @@ class ClusteringRunRequestSerializer(serializers.Serializer):
     )
 
     # Optional: run using a saved clustering job's configuration
-    clustering_job_id = serializers.IntegerField(
+    clustering_job_id = serializers.UUIDField(
         required=False,
         default=None,
         allow_null=True,
