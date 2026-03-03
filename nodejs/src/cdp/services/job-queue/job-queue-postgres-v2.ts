@@ -6,13 +6,7 @@ import { parseJSON } from '~/utils/json-parse'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
-import {
-    CyclotronV2DequeuedJob,
-    CyclotronV2Janitor,
-    CyclotronV2JobInit,
-    CyclotronV2Manager,
-    CyclotronV2Worker,
-} from '../cyclotron-v2'
+import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
 
 /**
  * State blob stored in the single `state` BYTEA column.
@@ -27,7 +21,6 @@ type SerializedJobState = {
 export class CyclotronJobQueuePostgresV2 {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
-    private janitor?: CyclotronV2Janitor
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
 
     constructor(
@@ -62,17 +55,11 @@ export class CyclotronJobQueuePostgresV2 {
             includeEmptyBatches: true,
         })
 
-        this.janitor = new CyclotronV2Janitor({
-            pool: { dbUrl: this.config.CYCLOTRON_V2_DATABASE_URL },
-        })
-
         await this.worker.connect((jobs) => this.consumeV2Jobs(jobs))
-        await this.janitor.start()
     }
 
     public async stopConsumer(): Promise<void> {
         await this.worker?.disconnect()
-        await this.janitor?.stop()
     }
 
     public async stopProducer(): Promise<void> {

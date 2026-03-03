@@ -19,6 +19,7 @@ import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consum
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { createHogTransformerService } from './cdp/hog-transformations/hog-transformer.service'
+import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -265,6 +266,20 @@ export class PluginServer {
                         '⏭️',
                         'Skipping CdpCyclotronShadowWorker - CYCLOTRON_SHADOW_DATABASE_URL not configured'
                     )
+                }
+            }
+
+            if (capabilities.cdpCyclotronV2Janitor) {
+                if (this.config.CYCLOTRON_V2_DATABASE_URL) {
+                    serviceLoaders.push(async () => {
+                        const janitor = new CyclotronV2JanitorService({
+                            pool: { dbUrl: this.config.CYCLOTRON_V2_DATABASE_URL },
+                        })
+                        await janitor.start()
+                        return janitor.service
+                    })
+                } else {
+                    logger.info('⏭️', 'Skipping CyclotronV2JanitorService - CYCLOTRON_V2_DATABASE_URL not configured')
                 }
             }
 

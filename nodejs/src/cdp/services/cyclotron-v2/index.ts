@@ -1,6 +1,7 @@
 export { CyclotronV2Manager } from './manager'
 export { CyclotronV2Worker } from './worker'
 export { CyclotronV2Janitor } from './janitor'
+export { CyclotronV2JanitorService } from './janitor-service'
 export type {
     CyclotronV2JobStatus,
     CyclotronV2PoolConfig,
