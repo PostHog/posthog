@@ -218,7 +218,7 @@ function PlayerWrapper({
                               }
                             : undefined
                     }
-                    playNextRecording={onPlayNextRecording}
+                    playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
                 />
             ) : (
                 <div className="mt-20">
