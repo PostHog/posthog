@@ -127,7 +127,7 @@ export function ConversationsMenu({ isCollapsed }: { isCollapsed: boolean }): JS
         intent: 'Open all chats menu',
         interaction: 'function',
         callback: () => {
-            setOpen(!open)
+            setOpen((open) => !open)
         },
     })
 
@@ -150,7 +150,6 @@ export function ConversationsMenu({ isCollapsed }: { isCollapsed: boolean }): JS
                             </>
                         }
                         tooltipPlacement="right"
-                        onClick={() => setOpen(!open)}
                         menuItem={!isCollapsed}
                         className="hidden lg:flex"
                     >

@@ -28,6 +28,8 @@ export class HogFlowFunctionsService {
             throw new Error(`Template '${configuration.template_id}' not found`)
         }
 
+        const { inputs, mappings, ...config } = configuration
+
         const hogFunction: HogFunctionType = {
             id: hogFlow.id,
             team_id: hogFlow.team_id,
@@ -37,12 +39,13 @@ export class HogFlowFunctionsService {
             deleted: false,
             hog: '<<TEMPLATE>>',
             bytecode: template.bytecode,
-            inputs: configuration.inputs,
+            inputs,
             inputs_schema: template.inputs_schema,
             template_id: template.template_id,
-            mappings: configuration.mappings,
+            mappings,
             created_at: '',
             updated_at: '',
+            metadata: config,
         }
 
         return hogFunction

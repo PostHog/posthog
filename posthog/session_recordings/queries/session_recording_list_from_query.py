@@ -8,7 +8,9 @@ from posthog.schema import (
     FilterLogicalOperator,
     HogQLQueryModifiers,
     PropertyGroupFilterValue,
+    PropertyOperator,
     RecordingOrder,
+    RecordingPropertyFilter,
     RecordingsQuery,
 )
 
@@ -117,6 +119,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         query: RecordingsQuery,
         hogql_query_modifiers: HogQLQueryModifiers | None = None,
         allow_event_property_expansion: bool = False,
+        max_execution_time: int | None = None,
         **_,
     ):
         # TRICKY: we need to make sure we init test account filters only once,
@@ -124,6 +127,24 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         expanded_query = query.model_copy(deep=True)
         if expanded_query.filter_test_accounts:
             expanded_query.properties = expand_test_account_filters(team) + (expanded_query.properties or [])
+
+        # Convert $lib event property filters to snapshot_library recording filters
+        # This avoids expensive events table scans by using the pre-aggregated column
+        if expanded_query.properties:
+            remaining_properties = []
+            for prop in expanded_query.properties:
+                if getattr(prop, "type", None) == "event" and getattr(prop, "key", None) == "$lib":
+                    # Convert to recording property filter and add to having_predicates
+                    recording_filter = RecordingPropertyFilter(
+                        type="recording",
+                        key="snapshot_library",
+                        value=getattr(prop, "value", None),
+                        operator=getattr(prop, "operator", PropertyOperator.EXACT),
+                    )
+                    expanded_query.having_predicates = (expanded_query.having_predicates or []) + [recording_filter]
+                else:
+                    remaining_properties.append(prop)
+            expanded_query.properties = remaining_properties if remaining_properties else None
 
         super().__init__(team, expanded_query)
 
@@ -153,6 +174,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             )
         self._hogql_query_modifiers = hogql_query_modifiers
         self._allow_event_property_expansion = allow_event_property_expansion
+        self._max_execution_time = max_execution_time
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
@@ -165,7 +187,12 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 team=self._team,
                 query_type="SessionRecordingListQuery",
                 modifiers=self._hogql_query_modifiers,
-                settings=HogQLGlobalSettings(allow_experimental_analyzer=None),  # Using global ClickHouse setting
+                settings=HogQLGlobalSettings(
+                    allow_experimental_analyzer=None,
+                    **(
+                        {"max_execution_time": self._max_execution_time} if self._max_execution_time is not None else {}
+                    ),
+                ),
             )
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery._data_to_return"):
@@ -353,6 +380,12 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["expiry_time"]),
                 right=ast.Constant(value=datetime.now(UTC)),
+            ),
+            # Exclude deleted recordings (crypto shredding)
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Call(name="max", args=[ast.Field(chain=["s", "is_deleted"])]),
+                right=ast.Constant(value=0),
             ),
         ]
 

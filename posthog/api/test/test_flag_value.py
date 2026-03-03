@@ -20,7 +20,7 @@ class TestFlagValueViewSet(APIBaseTest):
 
         data = response.json()
         expected_values = [{"name": True}, {"name": False}]
-        self.assertEqual(data, expected_values)
+        self.assertEqual(data["results"], expected_values)
 
     def test_flag_values_multivariate_flag(self):
         """Test that multivariate flags return true/false plus variant keys."""
@@ -49,7 +49,7 @@ class TestFlagValueViewSet(APIBaseTest):
             {"name": "variant1"},
             {"name": "variant2"},
         ]
-        self.assertEqual(data, expected_values)
+        self.assertEqual(data["results"], expected_values)
 
     def test_flag_values_missing_key_parameter(self):
         """Test that missing key parameter returns 400."""
@@ -128,7 +128,7 @@ class TestFlagValueViewSet(APIBaseTest):
 
         data = response.json()
         expected_values = [{"name": True}, {"name": False}]
-        self.assertEqual(data, expected_values)
+        self.assertEqual(data["results"], expected_values)
 
     def test_flag_values_multivariate_with_empty_variant_key(self):
         """Test multivariate flag with empty variant key ignores that variant."""
@@ -157,4 +157,4 @@ class TestFlagValueViewSet(APIBaseTest):
             {"name": False},
             {"name": "valid_variant"},
         ]
-        self.assertEqual(data, expected_values)
+        self.assertEqual(data["results"], expected_values)

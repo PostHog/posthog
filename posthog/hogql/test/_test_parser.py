@@ -1,7 +1,6 @@
 import math
 from typing import Optional, cast
 
-import unittest
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
 from posthog.hogql import ast
@@ -1059,6 +1058,39 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_from_table_function_join(self):
+            # Regression: TableFunctionExpr produced a JoinExpr without next_join,
+            # causing chainJoinExprs to throw "JoinExpr is missing 'next_join' field"
+            self.assertEqual(
+                self._select("select 1 from numbers(10) JOIN events ON 1"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["numbers"]),
+                        table_args=[ast.Constant(value=10)],
+                        next_join=ast.JoinExpr(
+                            join_type="JOIN",
+                            table=ast.Field(chain=["events"]),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
+                        ),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from numbers(10) CROSS JOIN events"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["numbers"]),
+                        table_args=[ast.Constant(value=10)],
+                        next_join=ast.JoinExpr(
+                            join_type="CROSS JOIN",
+                            table=ast.Field(chain=["events"]),
+                        ),
+                    ),
+                ),
+            )
+
         def test_select_from_join_multiple(self):
             node = self._select(
                 """
@@ -1636,6 +1668,19 @@ def parser_test_factory(backend: HogQLParserBackend):
                     select_from=ast.JoinExpr(table=ast.Field(chain=["happy"])),
                 ),
             )
+
+        def test_ctes_preserve_declaration_order(self):
+            node = cast(
+                ast.SelectQuery,
+                self._select(
+                    "with zz_first as (select 1 from events), "
+                    "mm_middle as (select * from zz_first), "
+                    "aa_last as (select * from mm_middle) "
+                    "select * from aa_last"
+                ),
+            )
+            assert isinstance(node.ctes, dict)
+            self.assertEqual(list(node.ctes.keys()), ["zz_first", "mm_middle", "aa_last"])
 
         def test_ctes_subquery_recursion(self):
             query = "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
@@ -2944,7 +2989,6 @@ def parser_test_factory(backend: HogQLParserBackend):
 
             self.assertEqual(self._select("SELECT 1 UNION ALL SELECT 2;"), self._select("SELECT 1 UNION ALL SELECT 2"))
 
-        @unittest.skipIf(backend == "cpp", "Postgres-style casts are not supported in the legacy C++ backend")
         def test_postgres_style_cast(self):
             self.assertEqual(
                 self._expr("x::int"),
@@ -2969,5 +3013,88 @@ def parser_test_factory(backend: HogQLParserBackend):
                     right=ast.Constant(value=1),
                 ),
             )
+
+        def test_with_clause_column_name_list(self):
+            node = self._select("WITH cte (a, b) AS (SELECT 1, 2) SELECT * FROM cte")
+            assert isinstance(node, ast.SelectQuery)
+            assert node.ctes is not None and node.ctes.get("cte") is not None
+            cte = node.ctes["cte"]
+            assert cte.name == "cte"
+            assert cte.columns == ["a", "b"]
+
+        def test_with_recursive(self):
+            parsed = self._select("WITH RECURSIVE events AS (SELECT * FROM posthog_event) SELECT * FROM events;")
+
+            expected = SelectQuery(
+                ctes={
+                    "events": ast.CTE(
+                        name="events",
+                        expr=SelectQuery(
+                            select=[Field(chain=["*"], from_asterisk=False)],
+                            select_from=JoinExpr(
+                                table=Field(chain=["posthog_event"], from_asterisk=False),
+                            ),
+                        ),
+                        cte_type="subquery",
+                        recursive=True,
+                    )
+                },
+                select=[Field(chain=["*"], from_asterisk=False)],
+                select_from=JoinExpr(table=Field(chain=["events"])),
+            )
+
+            self.assertEqual(parsed, expected)
+
+        def test_cte_materialization_hint_is_none_when_omitted(self):
+            parsed = self._select("WITH x AS (SELECT 1) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.materialized is None
+
+        def test_cte_materialization_hint_materialized(self):
+            parsed = self._select("WITH x AS MATERIALIZED (SELECT 1) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.materialized is True
+
+        def test_cte_materialization_hint_not_materialized(self):
+            parsed = self._select("WITH x AS NOT MATERIALIZED (SELECT 1) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.materialized is False
+
+        def test_cte_using_key_is_none_when_omitted(self):
+            parsed = self._select("WITH RECURSIVE x(a, b) AS (SELECT 1, 2) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.using_key is None
+
+        def test_cte_using_key_single_column(self):
+            parsed = self._select("WITH RECURSIVE x(a, b) USING KEY (a) AS (SELECT 1, 2) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.using_key == ["a"]
+            assert cte.columns == ["a", "b"]
+
+        def test_cte_using_key_multiple_columns(self):
+            parsed = self._select("WITH RECURSIVE x(a, b, c) USING KEY (a, b) AS (SELECT 1, 2, 3) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.using_key == ["a", "b"]
+            assert cte.columns == ["a", "b", "c"]
+
+        def test_cte_using_key_without_column_name_list(self):
+            parsed = self._select("WITH RECURSIVE x USING KEY (a) AS (SELECT 1) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.using_key == ["a"]
+            assert cte.columns is None
 
     return TestParser

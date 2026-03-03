@@ -8,5 +8,8 @@ set -e
 # In particular, DEBUG=1 enables a lot of Tailwind logging we don't need, so let's set 0 instead
 export DEBUG=0
 
+# Auto-accept corepack download prompts (hangs in non-interactive contexts)
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+
 pnpm --filter=@posthog/frontend... install
 bin/turbo --filter=@posthog/frontend start-vite

@@ -1,75 +1,79 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
+from posthog.hogql.errors import QueryError
+
 from posthog.models import DataWarehouseTable
 
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource, ExternalDataSourceType
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.modeling import (
     DataWarehouseModelPath,
-    ModelPathCycleError,
     NodeType,
     get_parents_from_model_query,
 )
 
-
-@pytest.mark.parametrize(
-    "query,parents",
-    [
-        ("select * from events, persons", {"events", "persons"}),
-        ("select * from some_random_view", {"some_random_view"}),
-        (
-            "with cte as (select * from events), cte2 as (select * from cte), cte3 as (select 1) select * from cte2",
-            {"events"},
-        ),
-        ("select 1", set()),
-        (
-            """
-            select *
-            from (
-              select 1 as id, *
-              from events
-              inner join (
-                select * from
-                (
-                  select number
-                  from numbers(10)
-                )
-              ) num on events.id = num.number
-            )
-            """,
-            {"events", "numbers"},
-        ),
-        ("select * from (select * from (select * from (select * from events)))", {"events"}),
-        (
-            """
-            select *
-            from (
-              select number from numbers(5)
-              union all
-              select event from events
-            )
-            """,
-            {"numbers", "events"},
-        ),
-        # CTE with UNION ALL at top level - the CTE should not be treated as a parent
-        (
-            """
+GET_PARENTS_TEST_CASES = [
+    ("select events.*, persons.* from events, persons", {"events", "persons"}),
+    (
+        "with cte as (select * from events), cte2 as (select * from cte), cte3 as (select 1) select * from cte2",
+        {"events"},
+    ),
+    ("select 1", set()),
+    (
+        """
+        select *
+        from (
+          select events.*, num.*
+          from events
+          inner join (
+            select number
+            from numbers(10)
+          ) num on 1 = 1
+        )
+        """,
+        {"events"},
+    ),
+    ("select * from (select * from (select * from (select * from events)))", {"events"}),
+    (
+        """
+        select *
+        from (
+          select number from numbers(5)
+          union all
+          select event from events
+        )
+        """,
+        {"events"},
+    ),
+    # Table function as the only source
+    ("select number from numbers(10)", set()),
+    # CTE with UNION ALL at top level - the CTE should not be treated as a parent
+    (
+        """
             WITH cte AS (SELECT * FROM events)
             SELECT * FROM cte
             UNION ALL
             SELECT * FROM cte
             """,
-            {"events"},
-        ),
-    ],
-)
-def test_get_parents_from_model_query(query: str, parents: set[str]):
-    """Test parents are correctly parsed from sample queries."""
-    assert parents == get_parents_from_model_query(query)
+        {"events"},
+    ),
+]
 
 
 class TestModelPath(BaseTest):
+    @parameterized.expand(GET_PARENTS_TEST_CASES)
+    def test_get_parents_from_model_query(self, model_query: str, parents: set[str]):
+        model_name = "test_model"
+        assert parents == get_parents_from_model_query(self.team, model_name, model_query)
+
+    def test_get_parents_from_model_query_unknown_table_raises(self):
+        """Test that referencing a non-existent table raises QueryError."""
+        with pytest.raises(QueryError, match="Unknown table"):
+            get_parents_from_model_query(self.team, "test_model", "select * from some_random_view")
+
     def test_create_from_static_query(self):
         """Test creation of a model path from a query that returns a static set of rows."""
         query = "SELECT 1 AS a, 2 AS b, NOW() AS c"
@@ -155,6 +159,7 @@ class TestModelPath(BaseTest):
         self.assertIn([table.id.hex, saved_query.id.hex], paths)
 
     def test_create_from_table_functions_root_nodes_query(self):
+        """Table functions like numbers() are not real parents — they produce root nodes."""
         query = "select * from numbers(10)"
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -166,7 +171,7 @@ class TestModelPath(BaseTest):
         paths = [model_path.path for model_path in model_paths]
 
         self.assertEqual(len(paths), 1)
-        self.assertIn(["numbers", saved_query.id.hex], paths)
+        self.assertIn([saved_query.id.hex], paths)
 
     def test_create_from_existing_path(self):
         """Test creation of a model path from a query that reads from another query."""
@@ -377,5 +382,5 @@ class TestModelPath(BaseTest):
         child_saved_query.query = {"query": "select * from my_model union all select * from my_model_grand_child"}
         child_saved_query.save()
 
-        with pytest.raises(ModelPathCycleError):
+        with pytest.raises(QueryError, match="[Cc]ircular dependency"):
             DataWarehouseModelPath.objects.update_from_saved_query(child_saved_query)

@@ -4,6 +4,7 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { type AvailableOnboardingProducts } from '~/types'
 
+// This is the order we'll use to display the products in the onboarding
 export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.PRODUCT_ANALYTICS]: {
         name: 'Product Analytics',
@@ -21,15 +22,6 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         url: urls.webAnalytics(),
         scene: Scene.WebAnalytics,
     },
-    [ProductKey.DATA_WAREHOUSE]: {
-        name: 'Data Warehouse',
-        description: 'Query external data alongside your PostHog data',
-        icon: 'IconDatabase',
-        iconColor: 'rgb(133 103 255)',
-        breadcrumbsName: 'Data Warehouse',
-        url: urls.dataPipelines('sources'),
-        scene: Scene.DataPipelines,
-    },
     [ProductKey.SESSION_REPLAY]: {
         name: 'Session Replay',
         description: 'Watch recordings of user sessions to debug issues faster',
@@ -37,6 +29,23 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         iconColor: 'rgb(247 165 1)',
         url: urls.replay(),
         scene: Scene.Replay,
+    },
+    [ProductKey.LLM_ANALYTICS]: {
+        name: 'LLM Analytics',
+        description: 'Monitor LLM usage, costs, and quality',
+        icon: 'IconLlmAnalytics',
+        iconColor: 'rgb(182 42 217)',
+        url: urls.llmAnalyticsDashboard(),
+        scene: Scene.LLMAnalytics,
+    },
+    [ProductKey.DATA_WAREHOUSE]: {
+        name: 'Data Warehouse',
+        description: 'Query external data alongside your PostHog data',
+        icon: 'IconDatabase',
+        iconColor: 'rgb(133 103 255)',
+        breadcrumbsName: 'Data Warehouse',
+        url: urls.sources(),
+        scene: Scene.Sources,
     },
     [ProductKey.FEATURE_FLAGS]: {
         name: 'Feature Flags',
@@ -56,14 +65,6 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         url: urls.experiments(),
         scene: Scene.Experiments,
     },
-    [ProductKey.SURVEYS]: {
-        name: 'Surveys',
-        description: 'Ask users why they did what they did',
-        icon: 'IconMessage',
-        iconColor: 'rgb(243 84 84)',
-        url: urls.surveys(),
-        scene: Scene.Surveys,
-    },
     [ProductKey.ERROR_TRACKING]: {
         name: 'Error Tracking',
         description: 'Catch and fix bugs before users complain',
@@ -72,12 +73,20 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         url: urls.errorTracking(),
         scene: Scene.ErrorTracking,
     },
-    [ProductKey.LLM_ANALYTICS]: {
-        name: 'LLM Analytics',
-        description: 'Monitor LLM usage, costs, and quality',
-        icon: 'IconLlmAnalytics',
-        iconColor: 'rgb(182 42 217)',
-        url: urls.llmAnalyticsDashboard(),
-        scene: Scene.LLMAnalytics,
+    [ProductKey.SURVEYS]: {
+        name: 'Surveys',
+        description: 'Ask users why they did what they did',
+        icon: 'IconMessage',
+        iconColor: 'rgb(243 84 84)',
+        url: urls.surveys(),
+        scene: Scene.Surveys,
+    },
+    [ProductKey.WORKFLOWS]: {
+        name: 'Workflows',
+        description: 'Automate user communication and internal processes',
+        icon: 'IconGear',
+        iconColor: 'var(--color-product-workflows-light)',
+        url: urls.workflows(),
+        scene: Scene.Workflows,
     },
 }

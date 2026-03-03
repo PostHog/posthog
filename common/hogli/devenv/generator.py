@@ -117,6 +117,9 @@ class MprocsGenerator(ConfigGenerator):
         """
         procs: dict[str, dict[str, Any]] = {}
 
+        # Info process is always first
+        procs["info"] = self._build_info_process(resolved)
+
         # Iterate in original mprocs.yaml order to preserve ordering
         for name in self.registry.get_processes():
             proc_config = self.registry.get_process_config(name)
@@ -173,6 +176,49 @@ class MprocsGenerator(ConfigGenerator):
             scrollback=global_settings.get("scrollback", 10000),
             posthog_config=source_config,
         )
+
+    def _build_info_process(self, resolved: ResolvedEnvironment) -> dict[str, Any]:
+        """Build the info process shell command with environment summary and news.
+
+        News is read at runtime from devenv/news.txt so developers always see the
+        latest items without re-running hogli dev:generate.
+        """
+        process_count = len(resolved.units)
+        products = sorted(resolved.intents) if resolved.intents else ["(none)"]
+
+        # ANSI color codes matching PostHog brand
+        orange = r"\033[38;2;245;78;0m"  # #F54E00
+        blue = r"\033[38;2;29;74;255m"  # #1D4AFF
+        gray = r"\033[38;5;245m"
+        bold = r"\033[1m"
+        reset = r"\033[0m"
+
+        # news.txt sits next to intent-map.yaml in the devenv/ directory, which
+        # is at the repo root — the same cwd mprocs launches from.
+        news_path = "devenv/news.txt"
+
+        shell = f"""\
+echo ''
+printf '{orange}{bold}  PostHog Dev Environment{reset}\\n'
+printf '{gray}  ─────────────────────────────────────{reset}\\n'
+echo ''
+if [ -f {news_path} ]; then
+    printf '  {orange}{bold}News:{reset}\\n'
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -z "$line" ] && continue
+        printf '    {gray}·{reset} %s\\n' "$line"
+    done < {news_path}
+    echo ''
+fi
+printf '  {bold}Commands:{reset}\\n'
+printf '    {blue}hogli dev:setup{reset}    Configure which services run\\n'
+printf '    {blue}hogli dev:explain{reset}  Show why each service is running\\n'
+echo ''
+printf '{gray}  ─────────────────────────────────────{reset}\\n'
+printf '  {bold}Products:{reset}  {blue}{", ".join(products)}{reset}\\n'
+printf '  {bold}Processes:{reset} {process_count} active\\n'
+printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'"""
+        return {"shell": shell}
 
     def _add_startup_message(self, proc_config: dict[str, Any], process_name: str, reason: str) -> dict[str, Any]:
         """Add a startup message to a process config.
@@ -296,15 +342,58 @@ def load_devenv_config(mprocs_path: Path) -> DevenvConfig | None:
     return DevenvConfig.model_validate(posthog_data)
 
 
+def get_main_repo_from_worktree() -> Path | None:
+    """If in a worktree, return the main repo root. Otherwise None."""
+    current = Path.cwd().resolve()
+    for parent in [current, *current.parents]:
+        git_path = parent / ".git"
+        if git_path.is_file():
+            # Worktree: .git file contains "gitdir: /path/to/main/.git/worktrees/<name>"
+            try:
+                content = git_path.read_text().strip()
+            except OSError:
+                return None
+            if content.startswith("gitdir: ") and "worktrees" in content:
+                gitdir = Path(content.removeprefix("gitdir: ").strip())
+                # Resolve relative paths against .git file's directory
+                if not gitdir.is_absolute():
+                    gitdir = (git_path.parent / gitdir).resolve()
+                return gitdir.parent.parent.parent
+        elif git_path.is_dir():
+            break  # Regular repo, not a worktree
+    return None
+
+
 def get_generated_mprocs_path() -> Path:
-    """Get the default path for generated mprocs config."""
-    # check global shell env override first
+    """Get the default path for generated mprocs config.
+
+    Checks local path first, then main repo if in a worktree.
+    """
     override_path = os.getenv("HOGLI_MPROCS_PATH")
     if override_path:
         return Path(override_path)
-    # Walk up from cwd to find repo root
+
     current = Path.cwd().resolve()
+    local_path = current / ".posthog" / ".generated" / "mprocs.yaml"
     for parent in [current, *current.parents]:
         if (parent / ".git").exists():
-            return parent / ".posthog" / ".generated" / "mprocs.yaml"
-    return current / ".posthog" / ".generated" / "mprocs.yaml"
+            local_path = parent / ".posthog" / ".generated" / "mprocs.yaml"
+            break
+
+    # If local config exists (or is symlink), use it
+    if local_path.exists():
+        return local_path
+
+    # Check main repo if in a worktree
+    main_repo = get_main_repo_from_worktree()
+    if main_repo:
+        main_path = main_repo / ".posthog" / ".generated" / "mprocs.yaml"
+        if main_path.exists():
+            # Create local symlink so bin/start (which uses $REPOSITORY_ROOT) finds it
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            if local_path.is_symlink():
+                local_path.unlink()
+            local_path.symlink_to(main_path)
+            return main_path
+
+    return local_path

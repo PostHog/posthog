@@ -16,8 +16,8 @@ import { IntegrationKind, SessionRecordingSidebarStacking, SessionRecordingSideb
 
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
-import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
+import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
 
 export function PlayerSidebar(): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
@@ -113,7 +113,7 @@ export function PlayerSidebar(): JSX.Element {
                             })}
                             barClassName="!mb-0"
                             size="small"
-                            className="overflow-x-auto"
+                            className="overflow-x-auto hide-scrollbar"
                         />
                         <div className="flex flex-1 border-b shrink-0" />
                         <div className="flex gap-1 border-b end">

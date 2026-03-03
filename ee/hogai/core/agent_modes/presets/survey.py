@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
@@ -110,4 +111,21 @@ survey_agent = AgentModeDefinition(
     mode=AgentMode.SURVEY,
     mode_description="Specialized mode for creating and analyzing surveys. Create surveys with natural language including targeting by URL, user properties, and feature flags. Analyze survey responses to extract themes, sentiment, and actionable insights.",
     toolkit_class=SurveyAgentToolkit,
+)
+
+
+class SubagentSurveyAgentToolkit(AgentToolkit):
+    """Survey toolkit for subagents — only includes SurveyAnalysisTool (read-only)."""
+
+    @property
+    def tools(self) -> list[type["MaxTool"]]:
+        from products.surveys.backend.max_tools import SurveyAnalysisTool
+
+        return [SurveyAnalysisTool]
+
+
+SUBAGENT_MODE_DESCRIPTION = "Specialized mode for analyzing surveys. Analyze survey responses to extract themes, sentiment, and actionable insights."
+
+subagent_survey_agent = replace(
+    survey_agent, toolkit_class=SubagentSurveyAgentToolkit, mode_description=SUBAGENT_MODE_DESCRIPTION
 )

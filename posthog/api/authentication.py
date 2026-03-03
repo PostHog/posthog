@@ -65,6 +65,7 @@ from posthog.tasks.email import (
     send_two_factor_auth_backup_code_used_email,
 )
 from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
+from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
 
@@ -229,8 +230,22 @@ class LoginSerializer(serializers.Serializer):
             )
 
         request = self.context["request"]
+
+        existing_user = User.objects.filter(email__iexact=validated_data["email"]).first()
+        evaluate_auth_attempt(
+            request=request._request,
+            email=validated_data["email"],
+            action=RadarAction.SIGNIN,
+            auth_method=RadarAuthMethod.PASSWORD,
+            user_id=str(existing_user.distinct_id) if existing_user else None,
+        )
+
         axes_request = getattr(request, "_request", request)
-        was_authenticated_before_login_attempt = bool(getattr(request, "user", None) and request.user.is_authenticated)
+        was_authenticated_before_login_attempt = bool(
+            getattr(request, "user", None)
+            and request.user.is_authenticated
+            and request.user.email.lower() == validated_data["email"].lower()
+        )
 
         # Initialize axes handler via proxy so request metadata is populated consistently
         from axes.exceptions import AxesBackendPermissionDenied
@@ -931,7 +946,7 @@ class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
         # Due to type differences between the user model and the token generator, we need to
         # re-fetch the user from the database to get the correct type.
         usable_user: User = User.objects.get(pk=user.pk)
-        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}"
+        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}{usable_user.password}"
 
 
 password_reset_token_generator = PasswordResetTokenGenerator()

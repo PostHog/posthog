@@ -3,6 +3,7 @@ use crate::log_record::KafkaLogRow;
 use anyhow::anyhow;
 use apache_avro::{Codec, Schema, Writer, ZstandardSettings};
 use capture::config::KafkaConfig;
+use chrono::Utc;
 use health::HealthHandle;
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
@@ -194,6 +195,10 @@ impl KafkaSink {
         rows: Vec<KafkaLogRow>,
         uncompressed_bytes: u64,
     ) -> Result<(), anyhow::Error> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
         let schema = Schema::parse_str(AVRO_SCHEMA)?;
         let mut writer = Writer::with_codec(
             &schema,
@@ -213,7 +218,8 @@ impl KafkaSink {
             partition: None,
             key: None::<Vec<u8>>.as_ref(),
             timestamp: None,
-            headers: Some(
+            headers: Some({
+                let created_at = Utc::now().to_rfc3339();
                 OwnedHeaders::new()
                     .insert(Header {
                         key: "token",
@@ -230,8 +236,16 @@ impl KafkaSink {
                     .insert(Header {
                         key: "record_count",
                         value: Some(&rows.len().to_string()),
-                    }),
-            ),
+                    })
+                    .insert(Header {
+                        key: "created_at",
+                        value: Some(&created_at),
+                    })
+                    .insert(Header {
+                        key: "batch_uuid",
+                        value: Some(&uuid::Uuid::new_v4().to_string()),
+                    })
+            }),
         }) {
             Err((err, _)) => Err(anyhow!(format!("kafka error: {err}"))),
             Ok(delivery_future) => Ok(delivery_future),

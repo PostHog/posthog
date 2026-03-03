@@ -47,6 +47,9 @@ static SHARED_WRITE_BUFFER_MANAGER: Lazy<Arc<WriteBufferManager>> = Lazy::new(||
     ))
 });
 
+const WRITE_BUFFER_SIZE: usize = 64 * 1024 * 1024; // 64MB
+const TARGET_FILE_SIZE_BASE: u64 = 256 * 1024 * 1024; // 256MB
+
 pub fn block_based_table_factory() -> BlockBasedOptions {
     // Optimize for point lookups (dedup check)
     let mut block_opts = BlockBasedOptions::default();
@@ -108,13 +111,13 @@ fn rocksdb_options() -> Options {
     // Write buffer tuning for batch workloads:
     // - Larger buffers = fewer flushes = less I/O pressure on PVC storage
     // - With 64 partitions and shared write buffer manager (2GB), each partition
-    //   effectively gets ~32MB of write buffer space on average
-    opts.set_write_buffer_size(32 * 1024 * 1024); // 32MB per memtable (up from 8MB)
+    //   can use up to 64MB per memtable, but the shared manager limits total usage
+    opts.set_write_buffer_size(WRITE_BUFFER_SIZE); // 64MB per memtable (up from 32MB)
     opts.set_max_write_buffer_number(2); // 2 buffers to allow writes during flush
     opts.set_min_write_buffer_number_to_merge(1); // Merge 1 buffer before flush (faster)
 
     // SST file size should be proportional to write buffer for efficient compaction
-    opts.set_target_file_size_base(256 * 1024 * 1024); // 256MB SST files
+    opts.set_target_file_size_base(TARGET_FILE_SIZE_BASE); // 256MB SST files
 
     // L0 tuning to reduce write stalls:
     // - Higher trigger = batch more L0 files before compaction
@@ -308,12 +311,13 @@ impl RocksDbStore {
                 entry_count = entry_count,
                 batch_size_bytes = batch_size_bytes,
                 db_path = %self.path_location.display(),
-                rocksdb_error = %e,
+                rocksdb_error = ?e,
                 "RocksDB write_opt failed"
             );
-            anyhow::anyhow!(
-                "Failed to put batch ({entry_count} entries, {batch_size_bytes} bytes): {e}"
-            )
+            anyhow::Error::from(e).context(format!(
+                "Failed to put batch ({} entries, {} bytes)",
+                entry_count, batch_size_bytes
+            ))
         })
     }
 
@@ -419,7 +423,7 @@ impl RocksDbStore {
             Ok(_) => Ok(()),
             Err(e) => {
                 self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
-                Err(anyhow::anyhow!("Failed to flush: {e}"))
+                Err(anyhow::Error::from(e).context("Failed to flush"))
             }
         }
     }
@@ -438,7 +442,7 @@ impl RocksDbStore {
     pub fn flush_wal(&self, sync: bool) -> Result<()> {
         self.db
             .flush_wal(sync)
-            .map_err(|e| anyhow::anyhow!("Failed to flush WAL (sync={sync}): {e}"))
+            .with_context(|| format!("Failed to flush WAL (sync={sync})"))
     }
 
     /// Get the latest sequence number from the database

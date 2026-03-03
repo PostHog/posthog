@@ -4,14 +4,15 @@
  * This module coordinates all AI event enrichment:
  * - Trace property normalization (for all AI events)
  * - Error normalization (for AI events with errors)
- * - Cost calculation (for generation/embedding events)
- * - Model parameter extraction (for generation/embedding events)
+ * - Cost calculation (for generation/embedding/evaluation events)
+ * - Model parameter extraction (for generation/embedding/evaluation events)
  */
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
 import { EventWithProperties, extractCoreModelParams, processCost } from './costs'
 import { processAiErrorNormalization } from './errors'
+import { processAiToolCallExtraction } from './tools'
 
 export { EventWithProperties } from './costs'
 
@@ -22,6 +23,7 @@ const isEventWithProperties = (event: PluginEvent): event is EventWithProperties
 export const AI_EVENT_TYPES = new Set([
     '$ai_generation',
     '$ai_embedding',
+    '$ai_evaluation',
     '$ai_span',
     '$ai_trace',
     '$ai_metric',
@@ -36,6 +38,7 @@ export const AI_EVENT_TYPES = new Set([
  * 2. Normalize error messages (events with $ai_is_error=true)
  * 3. Calculate costs (generation/embedding events only)
  * 4. Extract model parameters (generation/embedding events only)
+ * 5. Extract tool calls (generation events only)
  */
 export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithProperties => {
     // If the event doesn't carry properties, there's nothing to do.
@@ -49,9 +52,11 @@ export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithPrope
     // Normalize error messages for all AI events with errors.
     const withErrorNormalization = processAiErrorNormalization(normalized)
 
-    // Only generation/embedding events get cost processing and model param extraction.
+    // Only generation/embedding/evaluation events get cost processing and model param extraction.
     const isCosted =
-        withErrorNormalization.event === '$ai_generation' || withErrorNormalization.event === '$ai_embedding'
+        withErrorNormalization.event === '$ai_generation' ||
+        withErrorNormalization.event === '$ai_embedding' ||
+        withErrorNormalization.event === '$ai_evaluation'
 
     if (!isCosted) {
         return withErrorNormalization
@@ -59,7 +64,9 @@ export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithPrope
 
     const eventWithCosts = processCost(withErrorNormalization)
 
-    return extractCoreModelParams(eventWithCosts)
+    const withModelParams = extractCoreModelParams(eventWithCosts)
+
+    return processAiToolCallExtraction(withModelParams)
 }
 
 /**

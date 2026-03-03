@@ -1,19 +1,59 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { llmProviderKeysLogicType } from './llmProviderKeysLogicType'
 
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
-export type LLMProvider = 'openai' | 'anthropic' | 'gemini'
+export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'fireworks'
 
 export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openai: 'OpenAI',
     anthropic: 'Anthropic',
     gemini: 'Google Gemini',
+    openrouter: 'OpenRouter',
+    fireworks: 'Fireworks',
+}
+
+const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
+
+export function isLLMProvider(value: string): value is LLMProvider {
+    return LLM_PROVIDERS.has(value)
+}
+
+/** Normalize a raw provider string to an LLMProvider, or null if unrecognized. */
+export function toLLMProvider(raw: string): LLMProvider | null {
+    const normalized = raw.toLowerCase()
+    if (isLLMProvider(normalized)) {
+        return normalized
+    }
+    console.error(`[LLM Analytics] Unknown LLM provider: "${raw}"`)
+    return null
+}
+
+const PROVIDER_ORDER = Object.keys(LLM_PROVIDER_LABELS) as LLMProvider[]
+
+/** Sort index for a provider string. Unknown providers sort last. */
+export function providerSortIndex(provider: string): number {
+    const normalized = toLLMProvider(provider)
+    return normalized ? PROVIDER_ORDER.indexOf(normalized) : PROVIDER_ORDER.length
+}
+
+/** Normalize provider aliases from traces/config into canonical LLMProvider keys. */
+export function normalizeLLMProvider(provider: string | undefined): LLMProvider | null {
+    if (!provider) {
+        return null
+    }
+
+    const normalized = provider.trim().toLowerCase()
+    if (normalized === 'google' || normalized === 'google-ai-studio') {
+        return 'gemini'
+    }
+
+    return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null
 }
 
 export interface LLMProviderKey {
@@ -35,6 +75,43 @@ export interface LLMProviderKey {
     last_used_at: string | null
 }
 
+/** Canonical provider key ordering: provider order, then key name, then id. */
+export function sortProviderKeys(keys: LLMProviderKey[]): LLMProviderKey[] {
+    return [...keys].sort((a, b) => {
+        const providerDiff = providerSortIndex(a.provider) - providerSortIndex(b.provider)
+        if (providerDiff !== 0) {
+            return providerDiff
+        }
+
+        const nameDiff = (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' })
+        if (nameDiff !== 0) {
+            return nameDiff
+        }
+
+        return a.id.localeCompare(b.id)
+    })
+}
+
+export function sortedUsableProviderKeyIds(keys: LLMProviderKey[]): string[] {
+    return sortProviderKeys(keys)
+        .filter((key) => key.state !== 'invalid')
+        .map((key) => key.id)
+}
+
+export function firstUsableProviderKeyIdForProvider(
+    provider: string | undefined,
+    keys: LLMProviderKey[]
+): string | null {
+    const normalizedProvider = normalizeLLMProvider(provider)
+    if (!normalizedProvider) {
+        return null
+    }
+
+    return (
+        sortProviderKeys(keys).find((key) => key.state !== 'invalid' && key.provider === normalizedProvider)?.id ?? null
+    )
+}
+
 export interface EvaluationConfig {
     trial_eval_limit: number
     trial_evals_used: number
@@ -48,6 +125,7 @@ export interface CreateLLMProviderKeyPayload {
     provider: LLMProvider
     name: string
     api_key: string
+    set_as_active?: boolean
 }
 
 export interface UpdateLLMProviderKeyPayload {
@@ -60,6 +138,23 @@ export interface KeyValidationResult {
     error_message: string | null
 }
 
+export interface DependentEvaluation {
+    id: string
+    name: string
+    model_configuration_id: string
+}
+
+export interface AlternativeKey {
+    id: string
+    name: string
+    provider: LLMProvider
+}
+
+export interface DependentConfigsResponse {
+    evaluations: DependentEvaluation[]
+    alternative_keys: AlternativeKey[]
+}
+
 export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
     path(['products', 'llm_analytics', 'settings', 'llmProviderKeysLogic']),
 
@@ -67,6 +162,8 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         clearPreValidation: true,
         setNewKeyModalOpen: (open: boolean) => ({ open }),
         setEditingKey: (key: LLMProviderKey | null) => ({ key }),
+        setKeyToDelete: (key: LLMProviderKey | null) => ({ key }),
+        confirmDelete: (replacementKeyId?: string) => ({ replacementKeyId }),
     }),
 
     reducers({
@@ -94,15 +191,39 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
             null as KeyValidationResult | null,
             {
                 preValidateKeySuccess: (_, { preValidationResult }) => preValidationResult,
-                preValidateKeyFailure: () => ({ state: 'error' as const, error_message: 'Validation request failed' }),
                 clearPreValidation: () => null,
                 setNewKeyModalOpen: () => null,
                 setEditingKey: () => null,
             },
         ],
+        keyToDelete: [
+            null as LLMProviderKey | null,
+            {
+                setKeyToDelete: (_, { key }) => key,
+                deleteProviderKeySuccess: () => null,
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
+        dependentConfigs: [
+            null as DependentConfigsResponse | null,
+            {
+                loadDependentConfigs: async ({
+                    keyId,
+                }: {
+                    keyId: string
+                }): Promise<DependentConfigsResponse | null> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    return await api.get(
+                        `/api/environments/${teamId}/llm_analytics/provider_keys/${keyId}/dependent_configs/`
+                    )
+                },
+            },
+        ],
         preValidationResult: [
             null as KeyValidationResult | null,
             {
@@ -117,11 +238,24 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return { state: 'error', error_message: 'No team selected' }
                     }
-                    const response = await api.create(
-                        `/api/environments/${teamId}/llm_analytics/provider_key_validations/`,
-                        { api_key: apiKey, provider }
-                    )
-                    return response
+                    try {
+                        const response = await api.create(
+                            `/api/environments/${teamId}/llm_analytics/provider_key_validations/`,
+                            { api_key: apiKey, provider }
+                        )
+                        return response
+                    } catch (error) {
+                        if (error instanceof ApiError) {
+                            return {
+                                state: 'error',
+                                error_message: error.detail || error.data?.error || error.message,
+                            }
+                        }
+                        if (error instanceof Error) {
+                            return { state: 'error', error_message: error.message }
+                        }
+                        return { state: 'error', error_message: 'Validation request failed' }
+                    }
                 },
             },
         ],
@@ -162,6 +296,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         payload
                     )
                     actions.setNewKeyModalOpen(false)
+                    actions.loadEvaluationConfig()
                     return [...values.providerKeys, response]
                 },
                 updateProviderKey: async ({
@@ -182,12 +317,21 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     actions.setEditingKey(null)
                     return values.providerKeys.map((key: LLMProviderKey) => (key.id === id ? response : key))
                 },
-                deleteProviderKey: async ({ id }: { id: string }): Promise<LLMProviderKey[]> => {
+                deleteProviderKey: async ({
+                    id,
+                    replacementKeyId,
+                }: {
+                    id: string
+                    replacementKeyId?: string
+                }): Promise<LLMProviderKey[]> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return values.providerKeys
                     }
-                    await api.delete(`/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`)
+                    const url = replacementKeyId
+                        ? `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/?replacement_key_id=${encodeURIComponent(replacementKeyId)}`
+                        : `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`
+                    await api.delete(url)
                     // If deleted key was active, reload config to reflect change
                     if (values.evaluationConfig?.active_provider_key?.id === id) {
                         actions.loadEvaluationConfig()
@@ -234,7 +378,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         ],
     }),
 
-    listeners(() => ({
+    listeners(({ actions, values }) => ({
         loadProviderKeysFailure: ({ error }) => {
             lemonToast.error(`Failed to load API keys: ${error || 'Unknown error'}`)
         },
@@ -249,6 +393,16 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         },
         deleteProviderKeyFailure: ({ error }) => {
             lemonToast.error(`Failed to delete API key: ${error || 'Unknown error'}`)
+        },
+        setKeyToDelete: ({ key }) => {
+            if (key) {
+                actions.loadDependentConfigs({ keyId: key.id })
+            }
+        },
+        confirmDelete: ({ replacementKeyId }) => {
+            if (values.keyToDelete) {
+                actions.deleteProviderKey({ id: values.keyToDelete.id, replacementKeyId })
+            }
         },
     })),
 

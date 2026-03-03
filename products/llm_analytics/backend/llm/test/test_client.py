@@ -41,6 +41,8 @@ class TestProviderRouting(SimpleTestCase):
             ("openai",),
             ("anthropic",),
             ("gemini",),
+            ("openrouter",),
+            ("fireworks",),
         ]
     )
     def test_get_provider_returns_correct_adapter(self, provider_name):
@@ -66,7 +68,7 @@ class TestProviderMismatchValidation(SimpleTestCase):
         client = Client(provider_key=mock_key)
 
         request = CompletionRequest(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-5",
             messages=[{"role": "user", "content": "hi"}],
             provider="anthropic",
         )
@@ -90,6 +92,8 @@ class TestProviderMismatchValidation(SimpleTestCase):
         client._validate_provider("openai")
         client._validate_provider("anthropic")
         client._validate_provider("gemini")
+        client._validate_provider("openrouter")
+        client._validate_provider("fireworks")
 
 
 class TestApiKeyExtraction(SimpleTestCase):

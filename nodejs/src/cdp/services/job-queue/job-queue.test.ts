@@ -168,6 +168,187 @@ describe('CyclotronJobQueue', () => {
             expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith(invocations)
         })
     })
+
+    describe('shadow write', () => {
+        const buildQueue = (shadowEnabled: boolean) => {
+            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:kafka'
+            config.CDP_CYCLOTRON_SHADOW_WRITE_ENABLED = shadowEnabled
+            config.CYCLOTRON_SHADOW_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
+            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
+            queue['jobQueuePostgres'].startAsProducer = jest.fn()
+            queue['jobQueueKafka'].startAsProducer = jest.fn()
+            queue['jobQueuePostgres'].queueInvocations = jest.fn()
+            queue['jobQueueKafka'].queueInvocations = jest.fn()
+            if (queue['shadowPostgres']) {
+                queue['shadowPostgres'].startAsProducer = jest.fn().mockResolvedValue(undefined)
+                queue['shadowPostgres'].queueInvocations = jest.fn().mockResolvedValue(undefined)
+                queue['shadowPostgres'].stopProducer = jest.fn().mockResolvedValue(undefined)
+            }
+            return queue
+        }
+
+        it('should start shadow producer when enabled', async () => {
+            const queue = buildQueue(true)
+            await queue.startAsProducer()
+            expect(queue['shadowPostgres']).not.toBeNull()
+            expect(queue['shadowPostgres']!.startAsProducer).toHaveBeenCalled()
+        })
+
+        it('should not create shadow producer when disabled', () => {
+            const queue = buildQueue(false)
+            expect(queue['shadowPostgres']).toBeNull()
+        })
+
+        it('should fire-and-forget shadow write on queueInvocations', async () => {
+            const queue = buildQueue(true)
+            await queue.startAsProducer()
+
+            const invocations = [
+                createInvocation(
+                    {
+                        ...createHogExecutionGlobals(),
+                        inputs: {},
+                    },
+                    exampleHogFunction
+                ),
+            ]
+            await queue.queueInvocations(invocations)
+
+            expect(queue['shadowPostgres']!.queueInvocations).toHaveBeenCalledWith(invocations)
+        })
+
+        it('should not shadow write hogflow invocations', async () => {
+            const queue = buildQueue(true)
+            await queue.startAsProducer()
+
+            const invocations = [
+                {
+                    ...createInvocation(
+                        {
+                            ...createHogExecutionGlobals(),
+                            inputs: {},
+                        },
+                        exampleHogFunction
+                    ),
+                    queue: 'hogflow' as const,
+                },
+            ]
+            await queue.queueInvocations(invocations)
+
+            expect(queue['shadowPostgres']!.queueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('should not block on shadow write failure', async () => {
+            const queue = buildQueue(true)
+            await queue.startAsProducer()
+            ;(queue['shadowPostgres']!.queueInvocations as jest.Mock).mockRejectedValue(
+                new Error('shadow write failed')
+            )
+
+            const invocations = [
+                createInvocation(
+                    {
+                        ...createHogExecutionGlobals(),
+                        inputs: {},
+                    },
+                    exampleHogFunction
+                ),
+            ]
+
+            // Should not throw despite shadow failure
+            await expect(queue.queueInvocations(invocations)).resolves.toBeUndefined()
+
+            // Main path should still have been called
+            expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith(invocations)
+        })
+
+        describe('circuit breaker', () => {
+            const flushPromises = () => new Promise((resolve) => process.nextTick(resolve))
+
+            const invocations = [
+                createInvocation(
+                    {
+                        ...createHogExecutionGlobals(),
+                        inputs: {},
+                    },
+                    exampleHogFunction
+                ),
+            ]
+
+            it('should open circuit after 5 consecutive failures and skip writes', async () => {
+                const queue = buildQueue(true)
+                await queue.startAsProducer()
+                const shadowMock = queue['shadowPostgres']!.queueInvocations as jest.Mock
+                shadowMock.mockRejectedValue(new Error('fail'))
+
+                for (let i = 0; i < 5; i++) {
+                    await queue.queueInvocations(invocations)
+                    await flushPromises()
+                }
+
+                shadowMock.mockClear()
+                await queue.queueInvocations(invocations)
+                await flushPromises()
+
+                expect(shadowMock).not.toHaveBeenCalled()
+            })
+
+            it('should resume writes after cooldown and reset on success', async () => {
+                const now = Date.now()
+                jest.spyOn(Date, 'now').mockReturnValue(now)
+
+                const queue = buildQueue(true)
+                await queue.startAsProducer()
+                const shadowMock = queue['shadowPostgres']!.queueInvocations as jest.Mock
+                shadowMock.mockRejectedValue(new Error('fail'))
+
+                for (let i = 0; i < 5; i++) {
+                    await queue.queueInvocations(invocations)
+                    await flushPromises()
+                }
+
+                // Advance past the 60s cooldown
+                ;(Date.now as jest.Mock).mockReturnValue(now + 61_000)
+                shadowMock.mockResolvedValue(undefined)
+                shadowMock.mockClear()
+
+                await queue.queueInvocations(invocations)
+                await flushPromises()
+
+                expect(shadowMock).toHaveBeenCalledTimes(1)
+                expect(queue['shadowFailures']).toBe(0)
+
+                jest.restoreAllMocks()
+            })
+
+            it('should not resume writes before cooldown expires', async () => {
+                const now = Date.now()
+                jest.spyOn(Date, 'now').mockReturnValue(now)
+
+                const queue = buildQueue(true)
+                await queue.startAsProducer()
+                const shadowMock = queue['shadowPostgres']!.queueInvocations as jest.Mock
+                shadowMock.mockRejectedValue(new Error('fail'))
+
+                for (let i = 0; i < 5; i++) {
+                    await queue.queueInvocations(invocations)
+                    await flushPromises()
+                }
+
+                // Advance only 30s — still within cooldown
+                ;(Date.now as jest.Mock).mockReturnValue(now + 30_000)
+                shadowMock.mockClear()
+
+                await queue.queueInvocations(invocations)
+                await flushPromises()
+
+                expect(shadowMock).not.toHaveBeenCalled()
+
+                jest.restoreAllMocks()
+            })
+        })
+    })
 })
 
 describe('getProducerMapping', () => {

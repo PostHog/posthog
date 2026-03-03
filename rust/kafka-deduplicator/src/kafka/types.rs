@@ -57,6 +57,10 @@ impl PartitionOffset {
         self.partition.partition_number()
     }
 
+    pub fn partition(&self) -> &Partition {
+        &self.partition
+    }
+
     pub fn offset(&self) -> i64 {
         self.offset
     }

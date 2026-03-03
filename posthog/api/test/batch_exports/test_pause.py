@@ -20,6 +20,7 @@ from posthog.temporal.common.schedule import describe_schedule
 
 pytestmark = [
     pytest.mark.django_db,
+    pytest.mark.usefixtures("temporal_worker", "cleanup"),
 ]
 
 

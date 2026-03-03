@@ -5,10 +5,10 @@ use batch_ingestion::process_batch;
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use config::Config;
 use metrics_consts::{
-    BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, DUPLICATES_IN_BATCH, EMPTY_EVENTS,
-    EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, RECV_DEQUEUED,
-    SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN,
-    UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
+    BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CACHE_HITS, CACHE_LEN, CACHE_MISSES, COMPACTED_UPDATES,
+    DUPLICATES_IN_BATCH, EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH,
+    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT,
+    UPDATES_SEEN, UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use types::{Event, Update};
 
@@ -37,6 +37,9 @@ pub async fn update_consumer_loop(
     context: Arc<AppContext>,
     mut channel: MeasuringReceiver<Update>,
 ) {
+    let mut prev_hits = [0u64; 3];
+    let mut prev_misses = [0u64; 3];
+
     loop {
         let mut batch = Vec::with_capacity(config.update_batch_size);
 
@@ -83,10 +86,43 @@ pub async fn update_consumer_loop(
 
         metrics::counter!(DUPLICATES_IN_BATCH).increment((start_len - batch.len()) as u64);
 
-        // this should only be performed here, per *update batch* as it's
-        // more expensive now that this is 3 per-def-type caches in a trenchcoat
-        let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
-        metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
+        // Per-cache metrics once per batch (before DB write path)
+        let caps = [
+            (config.eventdefs_cache_capacity, "eventdefs"),
+            (config.eventprops_cache_capacity, "eventprops"),
+            (config.propdefs_cache_capacity, "propdefs"),
+        ];
+        let lens = [
+            cache.eventdefs_len(),
+            cache.eventprops_len(),
+            cache.propdefs_len(),
+        ];
+        let hits = [
+            cache.eventdefs_hits(),
+            cache.eventprops_hits(),
+            cache.propdefs_hits(),
+        ];
+        let misses = [
+            cache.eventdefs_misses(),
+            cache.eventprops_misses(),
+            cache.propdefs_misses(),
+        ];
+        for (i, (cap, label)) in caps.iter().enumerate() {
+            let len = lens[i];
+            let cap_f = *cap as f64;
+            metrics::gauge!(CACHE_CONSUMED, &[("cache", *label)]).set(if cap_f > 0.0 {
+                len as f64 / cap_f
+            } else {
+                0.0
+            });
+            metrics::gauge!(CACHE_LEN, &[("cache", *label)]).set(len as f64);
+            let delta_hits = hits[i].saturating_sub(prev_hits[i]);
+            let delta_misses = misses[i].saturating_sub(prev_misses[i]);
+            metrics::counter!(CACHE_HITS, &[("cache", *label)]).increment(delta_hits);
+            metrics::counter!(CACHE_MISSES, &[("cache", *label)]).increment(delta_misses);
+            prev_hits[i] = hits[i];
+            prev_misses[i] = misses[i];
+        }
 
         // enrich batch group events with resolved group_type_indices
         // before passing along to process_batch

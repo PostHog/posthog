@@ -1,10 +1,8 @@
 """Tests for batch trace summarization coordinator workflow."""
 
 import pytest
-from unittest.mock import patch
 
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
-    ALLOWED_TEAM_IDS,
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
@@ -14,29 +12,10 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
 from posthog.temporal.llm_analytics.trace_summarization.coordinator import (
     BatchTraceSummarizationCoordinatorInputs,
     BatchTraceSummarizationCoordinatorWorkflow,
-    get_allowed_team_ids,
+    _empty_summarization_results,
 )
 
 from products.llm_analytics.backend.summarization.models import SummarizationMode
-
-
-class TestGetAllowedTeamIds:
-    """Tests for get_allowed_team_ids function."""
-
-    def test_returns_copy_of_allowed_team_ids(self):
-        """Test that function returns a copy of ALLOWED_TEAM_IDS."""
-        result = get_allowed_team_ids()
-        assert result == ALLOWED_TEAM_IDS
-        assert result is not ALLOWED_TEAM_IDS
-
-    def test_returns_empty_list_when_no_teams_configured(self):
-        """Test that function returns empty list when ALLOWED_TEAM_IDS is empty."""
-        with patch(
-            "posthog.temporal.llm_analytics.trace_summarization.coordinator.ALLOWED_TEAM_IDS",
-            [],
-        ):
-            result = get_allowed_team_ids()
-            assert result == []
 
 
 class TestBatchTraceSummarizationCoordinatorWorkflow:
@@ -96,7 +75,6 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         ],
     )
     def test_parse_inputs(self, inputs, expected):
-        """Test parsing of workflow inputs."""
         result = BatchTraceSummarizationCoordinatorWorkflow.parse_inputs(inputs)
 
         assert result.analysis_level == expected.analysis_level
@@ -105,3 +83,46 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         assert result.mode == expected.mode
         assert result.window_minutes == expected.window_minutes
         assert result.model == expected.model
+
+    def test_continuation_fields_default_to_none(self):
+        inputs = BatchTraceSummarizationCoordinatorInputs()
+
+        assert inputs.remaining_team_ids is None
+        assert inputs.per_team_filters is None
+        assert inputs.results_so_far is None
+
+    def test_continuation_fields_can_be_set(self):
+        inputs = BatchTraceSummarizationCoordinatorInputs(
+            remaining_team_ids=[100, 200, 300],
+            per_team_filters={"100": [{"event": "$ai_generation"}]},
+            results_so_far={
+                "teams_succeeded": 5,
+                "teams_failed": 1,
+                "failed_team_ids": [99],
+                "total_items": 50,
+                "total_summaries": 40,
+            },
+        )
+
+        assert inputs.remaining_team_ids == [100, 200, 300]
+        assert inputs.per_team_filters == {"100": [{"event": "$ai_generation"}]}
+        assert inputs.results_so_far is not None
+        assert inputs.results_so_far["teams_succeeded"] == 5
+
+    def test_empty_summarization_results(self):
+        results = _empty_summarization_results()
+
+        assert results == {
+            "teams_succeeded": 0,
+            "teams_failed": 0,
+            "failed_team_ids": [],
+            "total_items": 0,
+            "total_summaries": 0,
+        }
+
+    def test_empty_results_returns_independent_instances(self):
+        r1 = _empty_summarization_results()
+        r2 = _empty_summarization_results()
+        r1["failed_team_ids"].append(123)
+
+        assert r2["failed_team_ids"] == []

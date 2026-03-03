@@ -8,15 +8,19 @@ from .dashboard_admin import DashboardAdmin
 from .dashboard_template_admin import DashboardTemplateAdmin
 from .data_color_theme_admin import DataColorThemeAdmin
 from .data_warehouse_table_admin import DataWarehouseTableAdmin
+from .duckgres_server_admin import DuckgresServerAdmin
 from .ducklake_catalog_admin import DuckLakeCatalogAdmin
 from .event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
 from .experiment_admin import ExperimentAdmin
 from .experiment_saved_metric_admin import ExperimentSavedMetricAdmin
+from .external_data_schema_admin import ExternalDataSchemaAdmin
 from .feature_flag_admin import FeatureFlagAdmin
 from .group_type_mapping_admin import GroupTypeMappingAdmin
+from .hog_flow_admin import HogFlowAdmin
 from .hog_function_admin import HogFunctionAdmin
 from .insight_admin import InsightAdmin
 from .instance_setting_admin import InstanceSettingAdmin
+from .integration_admin import IntegrationAdmin, OrganizationIntegrationAdmin
 from .oauth_admin import OAuthApplicationAdmin
 from .organization_admin import OrganizationAdmin
 from .organization_domain_admin import OrganizationDomainAdmin
@@ -41,15 +45,20 @@ __all__ = [
     "DashboardTemplateAdmin",
     "DataColorThemeAdmin",
     "DataWarehouseTableAdmin",
+    "DuckgresServerAdmin",
     "DuckLakeCatalogAdmin",
     "EventIngestionRestrictionConfigAdmin",
+    "ExternalDataSchemaAdmin",
     "ExperimentAdmin",
     "ExperimentSavedMetricAdmin",
     "FeatureFlagAdmin",
     "GroupTypeMappingAdmin",
+    "HogFlowAdmin",
     "HogFunctionAdmin",
     "InsightAdmin",
     "InstanceSettingAdmin",
+    "IntegrationAdmin",
+    "OrganizationIntegrationAdmin",
     "LinkAdmin",
     "OAuthApplicationAdmin",
     "OrganizationAdmin",

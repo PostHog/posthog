@@ -54,7 +54,7 @@ pub fn process_single_event(
     };
 
     let data = serde_json::to_string(&event).map_err(|e| {
-        error!("failed to encode data field: {}", e);
+        error!("failed to encode data field: {e:#}");
         CaptureError::NonRetryableSinkError
     })?;
 

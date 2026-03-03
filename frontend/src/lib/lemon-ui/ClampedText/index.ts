@@ -1,1 +1,0 @@
-export { ClampedText } from './ClampedText'

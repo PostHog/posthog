@@ -6,10 +6,12 @@ from collections import defaultdict
 import temporalio.common
 import temporalio.workflow
 import temporalio.exceptions
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.data_modeling.activities import GetDAGStructureInputs, get_dag_structure_activity
+from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
@@ -125,17 +127,29 @@ def _dag_execution_levels(
     edge_lookup: dict,
 ) -> list[list[str]]:
     """Compute execution levels using kahn's topological sort."""
-    # Initialize in_degree for all nodes, defaulting to 0 for nodes with no dependencies
-    in_degree = {node_id: len(edge_lookup.get(node_id, set())) for node_id in nodes}
-    # inverse of the edge_lookup
+    node_set = set(nodes)
+    in_degree = {}
+    for node_id in node_set:
+        # the intersection filters out nodes which may not be in the user requested node set
+        in_degree[node_id] = len(edge_lookup.get(node_id, set()) & node_set)
     dependents = _get_dependent_lookup(edge_lookup)
     levels: list[list[str]] = []
     remaining = nodes.copy()
     while remaining:
         current_level = [node_id for node_id in remaining if in_degree[node_id] == 0]
         if not current_level:
-            # the only cases where this is possible are an empty DAG or a cycle in the DAG
-            raise EmptyDAGOrCycleError(f"DAG is either empty or contains a cycle: team={team_id} dag={dag_id}")
+            # we have extensive checks for cycles in DAGs. this is precautionary and shouldn't happen
+            problem_nodes = {
+                node_id: {
+                    "in_degree": in_degree[node_id],
+                    "dependencies": list(edge_lookup.get(node_id, set())),
+                    "unfulfilled_dependencies": list(edge_lookup.get(node_id, set()) & set(remaining)),
+                }
+                for node_id in remaining
+            }
+            raise EmptyDAGOrCycleError(
+                f"DAG is empty or contains a cycle: team={team_id} dag={dag_id} problem_nodes={problem_nodes}"
+            )
         levels.append(current_level)
         for node_id in current_level:
             remaining.remove(node_id)
@@ -212,6 +226,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         )
 
         node_results: list[NodeResult] = []
+        ephemeral_node_set = set(dag_structure.ephemeral_nodes)
         failed_node_set: set[str] = set()
         downstreams = _get_downstream_lookup(edge_lookup)
         for i, level in enumerate(levels):
@@ -221,6 +236,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             )
             execute_nodes = []
             skip_nodes = []
+            ephemeral_nodes = []
             for node_id in level:
                 should_skip = False
                 skip_reason = None
@@ -231,6 +247,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         break
                 if should_skip:
                     skip_nodes.append((node_id, skip_reason))
+                elif node_id in ephemeral_node_set:
+                    ephemeral_nodes.append(node_id)
                 else:
                     execute_nodes.append(node_id)
 
@@ -242,6 +260,17 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         skipped=True,
                         skip_reason=skip_reason,
                     )
+                )
+            for node_id in ephemeral_nodes:
+                node_results.append(
+                    NodeResult(
+                        node_id=node_id,
+                        success=True,
+                    )
+                )
+                temporalio.workflow.logger.info(
+                    f"Node {node_id} is ephemeral, skipping materialization",
+                    extra=inputs.properties_to_log,
                 )
 
             if not execute_nodes:
@@ -257,7 +286,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         dag_id=inputs.dag_id,
                         node_id=node_id,
                     ),
-                    id=f"materialize-{inputs.dag_id}-{node_id}-{temporalio.workflow.now().isoformat()}",
+                    id=f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}",
+                    parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
                     retry_policy=temporalio.common.RetryPolicy(
                         maximum_attempts=1,  # retries handled within child workflow
                     ),
@@ -287,9 +317,10 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         NodeResult(
                             node_id=node_id,
                             success=False,
-                            error=error_message,
+                            error=strip_hostname_from_error(error_message),
                         )
                     )
+                    # log original error with hostname for internal debugging
                     temporalio.workflow.logger.error(
                         f"Node {node_id} failed to materialize: {error_message}",
                         extra=inputs.properties_to_log,
@@ -297,15 +328,17 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 except Exception as e:
                     capture_exception(e)
                     failed_node_set.add(node_id)
+                    error_str = str(e)
                     node_results.append(
                         NodeResult(
                             node_id=node_id,
                             success=False,
-                            error=str(e),
+                            error=strip_hostname_from_error(error_str),
                         )
                     )
+                    # log original error with hostname for internal debugging
                     temporalio.workflow.logger.error(
-                        f"Node {node_id} failed with unexpected error: {str(e)}",
+                        f"Node {node_id} failed with unexpected error: {error_str}",
                         extra=inputs.properties_to_log,
                     )
 
@@ -313,7 +346,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         end_time = temporalio.workflow.now()
         duration_seconds = (end_time - start_time).total_seconds()
 
-        successful_nodes = sum(1 for r in node_results if r.success)
+        successful_nodes = sum(1 for r in node_results if r.success and not r.skipped)
         failed_nodes = sum(1 for r in node_results if not r.success and not r.skipped)
         skipped_nodes = sum(1 for r in node_results if r.skipped)
 

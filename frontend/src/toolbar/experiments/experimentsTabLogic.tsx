@@ -3,17 +3,16 @@ import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
-import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { percentageDistribution } from '~/scenes/experiments/utils'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { WebExperiment, WebExperimentDraftType, WebExperimentForm } from '~/toolbar/types'
-import { elementToQuery } from '~/toolbar/utils'
+import { elementToQuery, joinWithUiHost } from '~/toolbar/utils'
 import { Experiment, ExperimentIdType } from '~/types'
 
 import type { experimentsTabLogicType } from './experimentsTabLogicType'
@@ -101,16 +100,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     connect(() => ({
         values: [
             toolbarConfigLogic,
-            [
-                'dataAttributes',
-                'apiHost',
-                'uiHost',
-                'temporaryToken',
-                'buttonVisible',
-                'userIntent',
-                'dataAttributes',
-                'experimentId',
-            ],
+            ['dataAttributes', 'uiHost', 'buttonVisible', 'userIntent', 'dataAttributes', 'experimentId'],
             experimentsLogic,
             ['allExperiments'],
         ],
@@ -192,22 +182,28 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 // This property is only used in the editor to undo transforms
                 delete experimentToSave.original_html_state
 
-                const { apiHost, uiHost, temporaryToken } = values
+                const { uiHost } = values
                 const { selectedExperimentId } = values
 
                 let response: WebExperiment
                 try {
+                    let res: Response
                     if (selectedExperimentId && selectedExperimentId !== 'new') {
-                        response = await api.update(
-                            `${apiHost}/api/projects/@current/web_experiments/${selectedExperimentId}/?temporary_token=${temporaryToken}`,
+                        res = await toolbarFetch(
+                            `/api/projects/@current/web_experiments/${selectedExperimentId}/`,
+                            'PATCH',
                             experimentToSave
                         )
                     } else {
-                        response = await api.create(
-                            `${apiHost}/api/projects/@current/web_experiments/?temporary_token=${temporaryToken}`,
-                            experimentToSave
-                        )
+                        res = await toolbarFetch(`/api/projects/@current/web_experiments/`, 'POST', experimentToSave)
                     }
+
+                    if (!res.ok) {
+                        const errorData = await res.json().catch(() => ({}))
+                        throw new Error(errorData.detail || `Request failed: ${res.status}`)
+                    }
+
+                    response = await res.json()
 
                     experimentsLogic.actions.updateExperiment({ experiment: response })
                     actions.selectExperiment(null)
@@ -215,14 +211,13 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     lemonToast.success('Experiment saved', {
                         button: {
                             label: 'Open in PostHog',
-                            action: () => window.open(`${uiHost}${urls.experiment(response.id)}`, '_blank'),
+                            action: () => window.open(joinWithUiHost(uiHost, urls.experiment(response.id)), '_blank'),
                         },
                     })
                     breakpoint()
                 } catch (e) {
-                    const apiError = e as ApiError
-                    if (apiError) {
-                        lemonToast.error(`Experiment save failed: ${apiError.data.detail}`)
+                    if (e instanceof Error) {
+                        lemonToast.error(`Experiment save failed: ${e.message}`)
                     }
                 }
             },

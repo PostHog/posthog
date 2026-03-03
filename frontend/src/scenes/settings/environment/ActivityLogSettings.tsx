@@ -88,7 +88,13 @@ export function ActivityLogNotifications(): JSX.Element {
                     </Tooltip>
                 </p>
 
-                <LinkedHogFunctions type="internal_destination" subTemplateIds={['activity-log']} />
+                <LinkedHogFunctions
+                    type="internal_destination"
+                    subTemplateIds={['activity-log']}
+                    queryParams={{
+                        returnTo: urls.settings('environment-activity-logs', 'activity-log-notifications'),
+                    }}
+                />
             </div>
         </PayGateMini>
     )

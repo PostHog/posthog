@@ -8,6 +8,7 @@ from posthog.models import Team, User
 
 from ee.hogai.chat_agent.prompts import (
     AGENT_CORE_MEMORY_PROMPT,
+    PRODUCT_ADVOCACY_PROMPT,
     TONE_AND_STYLE_PROMPT,
     TOOL_USAGE_POLICY_PROMPT,
     WRITING_STYLE_PROMPT,
@@ -16,13 +17,18 @@ from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes import AgentToolkit
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
-from ee.hogai.core.agent_modes.presets.error_tracking import ErrorTrackingAgentToolkit
-from ee.hogai.core.agent_modes.presets.product_analytics import ProductAnalyticsAgentToolkit
-from ee.hogai.core.agent_modes.presets.session_replay import SessionReplayAgentToolkit
-from ee.hogai.core.agent_modes.presets.sql import SQLAgentToolkit
+from ee.hogai.core.agent_modes.presets.error_tracking import ERROR_TRACKING_MODE_DESCRIPTION, ErrorTrackingAgentToolkit
+from ee.hogai.core.agent_modes.presets.flags import READ_ONLY_FLAGS_MODE_DESCRIPTION, ReadOnlyFlagsAgentToolkit
+from ee.hogai.core.agent_modes.presets.llm_analytics import LLM_ANALYTICS_MODE_DESCRIPTION, LLMAnalyticsAgentToolkit
+from ee.hogai.core.agent_modes.presets.product_analytics import (
+    PRODUCT_ANALYTICS_MODE_DESCRIPTION,
+    ReadOnlyProductAnalyticsAgentToolkit,
+)
+from ee.hogai.core.agent_modes.presets.session_replay import SESSION_REPLAY_MODE_DESCRIPTION, SessionReplayAgentToolkit
+from ee.hogai.core.agent_modes.presets.sql import SQL_MODE_DESCRIPTION, SQLAgentToolkit
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder, AgentPromptBuilderBase
 from ee.hogai.core.agent_modes.toolkit import AgentToolkitManager
-from ee.hogai.core.plan_mode import ONBOARDING_TASK_PROMPT, PLANNING_TASK_PROMPT
+from ee.hogai.core.plan_mode import PLANNING_TASK_PROMPT
 from ee.hogai.research_agent.executables import ResearchAgentExecutable, ResearchAgentToolsExecutable
 from ee.hogai.research_agent.prompts import (
     BASIC_FUNCTIONALITY_PROMPT,
@@ -37,6 +43,7 @@ from ee.hogai.research_agent.prompts import (
     SWITCHING_TO_RESEARCH_MODE_PROMPT,
     TASK_MANAGEMENT_PROMPT,
 )
+from ee.hogai.research_agent.prompts.plan import ONBOARDING_TASK_PROMPT
 from ee.hogai.tool import MaxTool
 from ee.hogai.tools import (
     CreateFormTool,
@@ -72,15 +79,15 @@ research_agent = AgentModeDefinition(
 
 research_agent_product_analytics_agent = AgentModeDefinition(
     mode=AgentMode.PRODUCT_ANALYTICS,
-    mode_description="General-purpose mode for product analytics tasks.",
-    toolkit_class=ProductAnalyticsAgentToolkit,
+    mode_description=PRODUCT_ANALYTICS_MODE_DESCRIPTION,
+    toolkit_class=ReadOnlyProductAnalyticsAgentToolkit,
     node_class=ResearchAgentExecutable,
     tools_node_class=ResearchAgentToolsExecutable,
 )
 
 research_agent_sql_agent = AgentModeDefinition(
     mode=AgentMode.SQL,
-    mode_description="SQL mode for researching data.",
+    mode_description=SQL_MODE_DESCRIPTION,
     toolkit_class=SQLAgentToolkit,
     node_class=ResearchAgentExecutable,
     tools_node_class=ResearchAgentToolsExecutable,
@@ -88,7 +95,7 @@ research_agent_sql_agent = AgentModeDefinition(
 
 research_agent_session_replay_agent = AgentModeDefinition(
     mode=AgentMode.SESSION_REPLAY,
-    mode_description="Session replay mode for researching data.",
+    mode_description=SESSION_REPLAY_MODE_DESCRIPTION,
     toolkit_class=SessionReplayAgentToolkit,
     node_class=ResearchAgentExecutable,
     tools_node_class=ResearchAgentToolsExecutable,
@@ -96,8 +103,24 @@ research_agent_session_replay_agent = AgentModeDefinition(
 
 research_agent_error_tracking_agent = AgentModeDefinition(
     mode=AgentMode.ERROR_TRACKING,
-    mode_description="Error tracking mode for researching data.",
+    mode_description=ERROR_TRACKING_MODE_DESCRIPTION,
     toolkit_class=ErrorTrackingAgentToolkit,
+    node_class=ResearchAgentExecutable,
+    tools_node_class=ResearchAgentToolsExecutable,
+)
+
+research_agent_flags_agent = AgentModeDefinition(
+    mode=AgentMode.FLAGS,
+    mode_description=READ_ONLY_FLAGS_MODE_DESCRIPTION,
+    toolkit_class=ReadOnlyFlagsAgentToolkit,
+    node_class=ResearchAgentExecutable,
+    tools_node_class=ResearchAgentToolsExecutable,
+)
+
+research_agent_llm_analytics_agent = AgentModeDefinition(
+    mode=AgentMode.LLM_ANALYTICS,
+    mode_description=LLM_ANALYTICS_MODE_DESCRIPTION,
+    toolkit_class=LLMAnalyticsAgentToolkit,
     node_class=ResearchAgentExecutable,
     tools_node_class=ResearchAgentToolsExecutable,
 )
@@ -158,6 +181,7 @@ class PlanAgentPromptBuilder(ResearchAgentPromptBuilderBase):
             task_management=TASK_MANAGEMENT_PROMPT,
             onboarding_task=ONBOARDING_TASK_PROMPT,
             planning_task=PLANNING_TASK_PROMPT,
+            product_advocacy=PRODUCT_ADVOCACY_PROMPT,
             switch_to_research_mode=SWITCHING_TO_RESEARCH_MODE_PROMPT,
             tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
         )
@@ -176,6 +200,7 @@ class ResearchAgentPromptBuilder(ResearchAgentPromptBuilderBase):
             task_management=TASK_MANAGEMENT_PROMPT,
             research_task=RESEARCH_TASK_PROMPT,
             report=REPORT_PROMPT,
+            product_advocacy=PRODUCT_ADVOCACY_PROMPT,
             tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
         )
 
@@ -195,27 +220,33 @@ class ResearchAgentModeManager(AgentModeManager):
         supermode = state.supermode
         if not supermode:
             supermode = AgentMode.PLAN
-        default_mode = AgentMode.SQL if supermode == AgentMode.PLAN else AgentMode.PRODUCT_ANALYTICS
-        self._mode = state.agent_mode or default_mode
         if supermode not in self.supermode_registries.keys():
             raise ValueError(f"Invalid supermode: {supermode}")
         self._supermode = cast(AgentMode, supermode)
         self._mode_registry = self.supermode_registries[self._supermode]
+        self._mode = (
+            state.agent_mode
+            if state.agent_mode and state.agent_mode in self.mode_registry
+            else AgentMode.PRODUCT_ANALYTICS
+        )
         super().__init__(team=team, user=user, node_path=node_path, context_manager=context_manager, state=state)
 
     @property
     def supermode_registries(self):
         default_mode_registry = {
             AgentMode.SQL: research_agent_sql_agent,
+            AgentMode.LLM_ANALYTICS: research_agent_llm_analytics_agent,
             AgentMode.SESSION_REPLAY: research_agent_session_replay_agent,
             AgentMode.ERROR_TRACKING: research_agent_error_tracking_agent,
+            AgentMode.PRODUCT_ANALYTICS: research_agent_product_analytics_agent,
+            AgentMode.FLAGS: research_agent_flags_agent,
         }
         return {
-            AgentMode.PLAN: {**default_mode_registry, AgentMode.RESEARCH: research_agent},
-            AgentMode.RESEARCH: {
+            AgentMode.PLAN: {
                 **default_mode_registry,
-                AgentMode.PRODUCT_ANALYTICS: research_agent_product_analytics_agent,
+                AgentMode.RESEARCH: research_agent,
             },
+            AgentMode.RESEARCH: default_mode_registry,
         }
 
     @property

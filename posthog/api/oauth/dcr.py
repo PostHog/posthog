@@ -4,9 +4,10 @@ OAuth 2.0 Dynamic Client Registration (RFC 7591)
 Allows MCP clients to register themselves without prior authentication.
 This is required by the MCP OAuth specification for seamless client onboarding.
 
-Note: We only support PUBLIC clients (token_endpoint_auth_method: "none").
-MCP clients run on user devices and cannot securely store a client_secret.
-Security is provided by PKCE (required for all OAuth flows).
+Supports both public clients (token_endpoint_auth_method: "none") and
+confidential clients (token_endpoint_auth_method: "client_secret_post").
+Public clients rely on PKCE for security. Confidential clients (e.g. claude.ai)
+can securely store a client_secret server-side.
 """
 
 from typing import Any
@@ -16,6 +17,7 @@ from django.core.validators import RegexValidator
 from django.utils import timezone
 
 import structlog
+from oauth2_provider.generators import generate_client_secret
 from oauth2_provider.models import AbstractApplication
 from rest_framework import serializers, status
 from rest_framework.request import Request
@@ -94,10 +96,10 @@ class DCRRequestSerializer(serializers.Serializer):
         help_text="OAuth response types the client will use",
     )
     token_endpoint_auth_method = serializers.ChoiceField(
-        choices=["none"],
+        choices=["none", "client_secret_post"],
         required=False,
         default="none",
-        help_text="How the client authenticates at the token endpoint (only 'none' supported for public clients)",
+        help_text="How the client authenticates at the token endpoint: 'none' for public clients, 'client_secret_post' for confidential clients",
     )
 
 
@@ -128,20 +130,27 @@ class DynamicClientRegistrationView(APIView):
         data = serializer.validated_data
         now = timezone.now()
 
-        # Create the OAuth application
-        # Model's clean() validates redirect URIs (HTTPS, loopback, custom schemes)
+        is_confidential = data.get("token_endpoint_auth_method") == "client_secret_post"
+        client_type = AbstractApplication.CLIENT_CONFIDENTIAL if is_confidential else AbstractApplication.CLIENT_PUBLIC
+
+        # Generate the secret before create() so we can return the plaintext
+        # for confidential clients. The model's ClientSecretField.pre_save()
+        # hashes it automatically on save. Public clients also get a secret
+        # (via the model default) but we generate it explicitly here to keep
+        # the create() call simple -- we just don't return it in the response.
+        plaintext_secret = generate_client_secret()
+
         try:
             app = OAuthApplication.objects.create(
                 name=data.get("client_name", "MCP Client"),
                 redirect_uris=" ".join(data["redirect_uris"]),
-                client_type=AbstractApplication.CLIENT_PUBLIC,
+                client_type=client_type,
+                client_secret=plaintext_secret,
                 authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
                 algorithm="RS256",
                 skip_authorization=False,
-                # DCR-specific fields
                 is_dcr_client=True,
                 dcr_client_id_issued_at=now,
-                # No organization or user - DCR clients are anonymous
                 organization=None,
                 user=None,
             )
@@ -178,15 +187,21 @@ class DynamicClientRegistrationView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        # Build response
+        auth_method = data.get("token_endpoint_auth_method", "none")
+
+        # Build response per RFC 7591 Section 3.2
         response_data: dict[str, Any] = {
             "client_id": str(app.client_id),
             "redirect_uris": data["redirect_uris"],
             "grant_types": data.get("grant_types", ["authorization_code"]),
             "response_types": data.get("response_types", ["code"]),
-            "token_endpoint_auth_method": "none",
+            "token_endpoint_auth_method": auth_method,
             "client_id_issued_at": int(now.timestamp()),
         }
+
+        if is_confidential:
+            response_data["client_secret"] = plaintext_secret
+            response_data["client_secret_expires_at"] = 0  # 0 = never expires per RFC 7591
 
         if data.get("client_name"):
             response_data["client_name"] = data["client_name"]

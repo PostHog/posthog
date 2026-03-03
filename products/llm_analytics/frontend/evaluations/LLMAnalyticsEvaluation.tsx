@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconArrowLeft, IconInfo } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDivider,
     LemonInput,
-    LemonSelect,
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
@@ -17,15 +17,20 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { urls } from '~/scenes/urls'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { LLMProvider, LLM_PROVIDER_LABELS } from '../settings/llmProviderKeysLogic'
+import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
+import { modelPickerLogic } from '../modelPickerLogic'
+import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
@@ -40,15 +45,12 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         formValid,
         isNewEvaluation,
         runsSummary,
-        selectedProvider,
-        selectedKeyId,
-        selectedModel,
-        keysForSelectedProvider,
-        availableModels,
-        availableModelsLoading,
-        providerKeysLoading,
+        evaluationProviderKeyIssue,
+        signalEmissionEnabled,
     } = useValues(llmEvaluationLogic)
+    const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { searchParams } = useValues(router)
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -56,12 +58,11 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         setAllowsNA,
         saveEvaluation,
         resetEvaluation,
-        setSelectedProvider,
-        setSelectedKeyId,
-        setSelectedModel,
+        setSignalEmission,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
+    const settingsUrl = combineUrl(urls.llmAnalyticsEvaluations(), { ...searchParams, tab: 'settings' }).url
 
     if (evaluationLoading) {
         return <LemonSkeleton className="w-full h-96" />
@@ -92,7 +93,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         if (hasUnsavedChanges) {
             resetEvaluation()
         }
-        push(urls.llmAnalyticsEvaluations())
+        push(combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url)
     }
 
     return (
@@ -119,16 +120,36 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
                         {hasUnsavedChanges ? 'Cancel' : 'Back'}
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={handleSave}
-                        disabled={saveButtonDisabled}
-                        loading={evaluationFormSubmitting}
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        {isNewEvaluation ? 'Create Evaluation' : 'Save Changes'}
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={handleSave}
+                            disabled={saveButtonDisabled}
+                            loading={evaluationFormSubmitting}
+                        >
+                            {isNewEvaluation ? 'Create Evaluation' : 'Save Changes'}
+                        </LemonButton>
+                    </AccessControlAction>
                 </div>
             </div>
+
+            {evaluationProviderKeyIssue && (
+                <LemonBanner type="warning">
+                    <div className="space-y-2">
+                        <p>
+                            This evaluation uses API key{' '}
+                            <span className="font-semibold">{evaluationProviderKeyIssue.name}</span> (
+                            {providerLabel(evaluationProviderKeyIssue.provider)}){' '}
+                            {providerKeyStateIssueDescription(evaluationProviderKeyIssue.state)}.
+                        </p>
+                        <p>Error: {evaluationProviderKeyIssue.error_message || 'Unknown error'}</p>
+                        <Link to={settingsUrl}>Go to settings to fix this key.</Link>
+                    </div>
+                </LemonBanner>
+            )}
 
             {/* Configuration Form */}
             <div className="max-w-4xl">
@@ -157,17 +178,18 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                 />
                             </Field>
 
-                            <Field name="enabled" label="Status">
-                                <div className="flex items-center gap-2">
-                                    <LemonSwitch checked={evaluation.enabled} onChange={setEvaluationEnabled} />
-                                    <span>{evaluation.enabled ? 'Enabled' : 'Disabled'}</span>
-                                    <span className="text-muted text-sm">
-                                        {evaluation.enabled
-                                            ? 'This evaluation will run automatically based on triggers'
-                                            : 'This evaluation is paused and will not run'}
-                                    </span>
-                                </div>
-                            </Field>
+                            <div className="flex items-center gap-2">
+                                <LemonSwitch
+                                    checked={evaluation.enabled}
+                                    onChange={setEvaluationEnabled}
+                                    label="Enable evaluation"
+                                />
+                                <span className="text-muted text-sm">
+                                    {evaluation.enabled
+                                        ? 'This evaluation will run automatically based on triggers'
+                                        : 'This evaluation is paused and will not run'}
+                                </span>
+                            </div>
 
                             <Field
                                 name="allows_na"
@@ -192,6 +214,15 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                     </span>
                                 </div>
                             </Field>
+                            {!isNewEvaluation && user?.is_staff && (
+                                <div className="flex items-center gap-2">
+                                    <LemonSwitch checked={signalEmissionEnabled} onChange={setSignalEmission} />
+                                    <span>Emit signals</span>
+                                    <Tooltip title="When enabled, true verdicts from this evaluation will be emitted as signals for clustering and investigation.">
+                                        <IconInfo className="text-muted text-base" />
+                                    </Tooltip>
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -202,84 +233,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     </div>
 
                     {/* Judge Model Configuration */}
-                    {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
-                        <div className="bg-bg-light border rounded p-6">
-                            <h3 className="text-lg font-semibold mb-2">Judge model</h3>
-                            <p className="text-muted text-sm mb-4">
-                                Select which LLM provider and model to use for running this evaluation.
-                            </p>
-
-                            <div className="space-y-4">
-                                <Field name="provider" label="Provider">
-                                    <LemonSelect
-                                        value={selectedProvider}
-                                        onChange={(value) => setSelectedProvider(value as LLMProvider)}
-                                        options={[
-                                            { value: 'openai', label: LLM_PROVIDER_LABELS.openai },
-                                            { value: 'anthropic', label: LLM_PROVIDER_LABELS.anthropic },
-                                            { value: 'gemini', label: LLM_PROVIDER_LABELS.gemini },
-                                        ]}
-                                        fullWidth
-                                    />
-                                </Field>
-
-                                <Field
-                                    name="provider_key"
-                                    label={
-                                        <div className="flex items-center gap-1">
-                                            <span>API key</span>
-                                            <span className="text-muted">-</span>
-                                            <Link to={urls.llmAnalyticsSettings()}>Manage</Link>
-                                        </div>
-                                    }
-                                >
-                                    <LemonSelect
-                                        value={selectedKeyId || 'posthog_default'}
-                                        onChange={(value) =>
-                                            setSelectedKeyId(value === 'posthog_default' ? null : value)
-                                        }
-                                        options={[
-                                            ...(keysForSelectedProvider.length === 0
-                                                ? [{ value: 'posthog_default', label: 'PostHog default' }]
-                                                : []),
-                                            ...keysForSelectedProvider.map((key) => ({
-                                                value: key.id,
-                                                label: key.name,
-                                            })),
-                                        ]}
-                                        loading={providerKeysLoading}
-                                        fullWidth
-                                    />
-                                </Field>
-
-                                <Field name="model" label="Model">
-                                    <>
-                                        <LemonSelect
-                                            value={selectedModel || undefined}
-                                            onChange={(value) => setSelectedModel(value || '')}
-                                            options={availableModels.map((model) => ({
-                                                value: model.id,
-                                                label: model.id,
-                                                disabledReason:
-                                                    !selectedKeyId && !model.posthog_available
-                                                        ? 'Requires API key'
-                                                        : undefined,
-                                            }))}
-                                            loading={availableModelsLoading}
-                                            placeholder="Select a model"
-                                            fullWidth
-                                            disabled={!selectedKeyId}
-                                        />
-                                        {!selectedKeyId && (
-                                            <p className="text-xs text-muted mt-1">
-                                                Add your own API key for model selection
-                                            </p>
-                                        )}
-                                    </>
-                                </Field>
-                            </div>
-                        </div>
-                    )}
+                    {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && <EvaluationModelPicker />}
 
                     {/* Trigger Configuration */}
                     <div ref={triggersRef} className="bg-bg-light border rounded p-6">
@@ -333,6 +287,52 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     </div>
                 </>
             )}
+        </div>
+    )
+}
+
+function EvaluationModelPicker(): JSX.Element {
+    const {
+        hasByokKeys,
+        byokModels,
+        trialModels,
+        providerModelGroups,
+        trialProviderModelGroups,
+        byokModelsLoading,
+        trialModelsLoading,
+        providerKeysLoading,
+    } = useValues(modelPickerLogic)
+    const { selectedModel, selectedPickerProviderKeyId } = useValues(llmEvaluationLogic)
+    const { selectModelFromPicker } = useActions(llmEvaluationLogic)
+
+    const allModels = hasByokKeys ? byokModels : trialModels
+    const selectedModelName = allModels.find((m) => m.id === selectedModel)?.name
+    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
+    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
+
+    const footerLink = getModelPickerFooterLink(hasByokKeys)
+
+    return (
+        <div className="bg-bg-light border rounded p-6">
+            <h3 className="text-lg font-semibold mb-2">Judge model</h3>
+            <p className="text-muted text-sm mb-4">
+                Select which LLM provider and model to use for running this evaluation.
+            </p>
+
+            <div className="space-y-4">
+                <Field name="model" label="Model">
+                    <ModelPicker
+                        model={selectedModel}
+                        selectedProviderKeyId={selectedPickerProviderKeyId}
+                        onSelect={selectModelFromPicker}
+                        groups={groups}
+                        loading={loading}
+                        footerLink={footerLink}
+                        selectedModelName={selectedModelName}
+                        data-attr="evaluation-model-selector"
+                    />
+                </Field>
+            </div>
         </div>
     )
 }

@@ -51,8 +51,8 @@ test.describe('Signup', () => {
             }
             await route.fulfill({ json: response })
         })
-        await page.locator('[data-attr=menu-item-me]').click()
-        await page.locator('[data-attr=top-menu-item-logout]').click()
+        await page.locator('[data-attr=new-account-menu-button]').click()
+        await page.locator('[data-attr=new-account-menu-logout-button]').click()
         await expect(page).toHaveURL(/.*\/login/)
         await page.goto('/signup')
     })
@@ -116,7 +116,7 @@ test.describe('Signup', () => {
 
     test('Can submit the signup form multiple times if there is a generic email set', async ({ page }) => {
         let signupRequestBody: string | null = null
-        const email = `new_user+generic_error_test@posthog.com`
+        const email = `new_user+generic_error_test_${Math.floor(Math.random() * 10000)}@posthog.com`
 
         await page.route('/api/signup/', async (route) => {
             signupRequestBody = route.request().postData()
@@ -140,6 +140,10 @@ test.describe('Signup', () => {
         expect(parsedBody.first_name).toEqual('Alice')
         expect(parsedBody.last_name).toEqual('Bob')
 
+        // Wait for the first signup navigation to complete before navigating away,
+        // otherwise page.goto('/signup') races with the in-progress navigation to
+        // /verify_email/ and causes net::ERR_ABORTED
+        await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
         await page.goto('/signup')
 
         // Try to recreate account with same email- should fail
@@ -155,7 +159,9 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-role-at-organization]').click()
         await page.locator('.Popover li:first-child').click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
+        const retrySignupPromise = page.waitForResponse('/api/signup/')
         await page.locator('[data-attr=signup-submit]').click()
+        await retrySignupPromise
 
         await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
     })

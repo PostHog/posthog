@@ -12,13 +12,79 @@
  */
 import { APIRequestContext, Page } from '@playwright/test'
 
-import type {
-    PlaywrightWorkspaceSetupData,
-    PlaywrightWorkspaceSetupResult,
-    TestSetupResponse,
-} from '~/queries/schema/schema-general'
+import { LOGIN_PASSWORD } from './playwright-test-core'
 
-import { LOGIN_PASSWORD } from './playwright-test-base'
+export interface TestSetupResponse {
+    success: boolean
+    test_name: string
+    result?: any
+    error?: string
+    available_tests?: string[]
+}
+
+export interface PlaywrightSetupVariable {
+    name: string
+    type: 'String' | 'Number' | 'Boolean' | 'List' | 'Date'
+    default_value?: any
+}
+
+export interface PlaywrightSetupInsight {
+    name: string
+    query: Record<string, any>
+    variable_indexes?: number[]
+}
+
+export interface PlaywrightSetupDashboard {
+    name: string
+    insight_indexes?: number[]
+    filters?: Record<string, any>
+    variable_overrides?: Record<string, any>
+}
+
+export interface PlaywrightSetupEvent {
+    event: string
+    distinct_id: string
+    timestamp: string // ISO 8601 timestamp
+    properties?: Record<string, any>
+}
+
+export interface PlaywrightWorkspaceSetupData {
+    organization_name?: string
+    use_current_time?: boolean
+    skip_onboarding?: boolean
+    no_demo_data?: boolean
+    insight_variables?: PlaywrightSetupVariable[]
+    insights?: PlaywrightSetupInsight[]
+    dashboards?: PlaywrightSetupDashboard[]
+    events?: PlaywrightSetupEvent[]
+}
+
+export interface PlaywrightSetupCreatedVariable {
+    id: string
+    code_name: string
+}
+
+export interface PlaywrightSetupCreatedInsight {
+    id: number
+    short_id: string
+}
+
+export interface PlaywrightSetupCreatedDashboard {
+    id: number
+}
+
+export interface PlaywrightWorkspaceSetupResult {
+    organization_id: string
+    team_id: string
+    organization_name: string
+    team_name: string
+    user_id: string
+    user_email: string
+    personal_api_key: string
+    created_variables?: PlaywrightSetupCreatedVariable[]
+    created_insights?: PlaywrightSetupCreatedInsight[]
+    created_dashboards?: PlaywrightSetupCreatedDashboard[]
+}
 
 export interface PlaywrightSetupOptions {
     /** Custom data to pass to the setup function */
@@ -90,11 +156,12 @@ export class PlaywrightSetup {
      * This is the main setup method - creates everything you need for most tests.
      * The test user will be a member of the organization.
      */
-    async createWorkspace(organizationName?: string): Promise<PlaywrightWorkspaceSetupResult> {
+    async createWorkspace(
+        dataOrName?: string | Partial<PlaywrightWorkspaceSetupData>
+    ): Promise<PlaywrightWorkspaceSetupResult> {
+        const data = typeof dataOrName === 'string' ? { organization_name: dataOrName } : (dataOrName ?? {})
         const result = await this.callSetupEndpoint('organization_with_team', {
-            data: {
-                organization_name: organizationName,
-            } as PlaywrightWorkspaceSetupData,
+            data: data as PlaywrightWorkspaceSetupData,
         })
 
         if (!result.success) {
@@ -117,13 +184,7 @@ export class PlaywrightSetup {
         return workspace
     }
 
-    /**
-     * Login using workspace credentials and navigate to the team's project page
-     *
-     * Call this after creating a workspace to automatically login and navigate.
-     * The user will end up on /project/{teamId} ready to test.
-     */
-    async loginAndNavigateToTeam(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
+    async login(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
         // Use page.request to share cookies/session with the browser context
         await page.request.post(`${this.baseURL}/api/login/`, {
             data: {
@@ -131,6 +192,16 @@ export class PlaywrightSetup {
                 password: LOGIN_PASSWORD,
             },
         })
+    }
+
+    /**
+     * Login using workspace credentials and navigate to the team's project page
+     *
+     * Call this after creating a workspace to automatically login and navigate.
+     * The user will end up on /project/{teamId} ready to test.
+     */
+    async loginAndNavigateToTeam(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
+        await this.login(page, workspace)
 
         await page.goto(`${this.baseURL}/project/${workspace.team_id}`)
     }
@@ -154,6 +225,3 @@ export async function createTestWorkspace(
     const playwrightSetup = createPlaywrightSetup(request)
     return playwrightSetup.callSetupEndpoint(setupType, { data })
 }
-
-// Re-export types for convenience
-export type { TestSetupResponse, PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult }

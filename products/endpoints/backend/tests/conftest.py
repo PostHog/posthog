@@ -24,7 +24,7 @@ def create_endpoint_with_version(
     )
     EndpointVersion.objects.create(
         endpoint=endpoint,
-        version=1,
+        version=current_version,
         query=query,
         description=description,
         cache_age_seconds=cache_age_seconds,
@@ -47,4 +47,4 @@ async def endpoint(ateam, auser):  # noqa: F811
         is_active=True,
     )
     yield endpoint
-    await sync_to_async(endpoint.delete)()
+    await sync_to_async(Endpoint.objects.filter(pk=endpoint.pk).delete)()

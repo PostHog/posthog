@@ -26,6 +26,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
     LLMAnalyticsSummarizationBurstThrottle,
     LLMAnalyticsSummarizationDailyThrottle,
@@ -35,6 +36,7 @@ from posthog.rate_limit import (
 from products.llm_analytics.backend.api.metrics import llma_track_latency
 from products.llm_analytics.backend.summarization.llm import summarize
 from products.llm_analytics.backend.summarization.models import SummarizationMode
+from products.llm_analytics.backend.summarization.utils import get_summary_cache_key
 from products.llm_analytics.backend.text_repr.formatters import (
     FormatterOptions,
     format_event_text_repr,
@@ -141,7 +143,8 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
     Provides AI-powered summarization using line-numbered text representations.
     """
 
-    scope_object = "llm_analytics"  # type: ignore[assignment]
+    scope_object = "llm_analytics"
+    permission_classes = [AccessControlPermission]
 
     def get_throttles(self):
         """Apply rate limiting to prevent abuse of summarization endpoint."""
@@ -176,8 +179,7 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
             mode: Summary detail level ('minimal' or 'detailed')
             model: LLM model
         """
-        model_key = model or "default"
-        return f"llm_summary:{self.team_id}:{summarize_type}:{entity_id}:{mode}:{model_key}"
+        return get_summary_cache_key(self.team_id, summarize_type, entity_id, mode, model)
 
     def _extract_entity_id(self, summarize_type: str, data: dict) -> tuple[str, dict]:
         """Extract entity ID and validated entity data based on summarize type.

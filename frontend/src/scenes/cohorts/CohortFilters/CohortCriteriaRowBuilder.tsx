@@ -9,9 +9,9 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { ROWS, renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
-import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
 
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
@@ -69,7 +69,7 @@ export function CohortCriteriaRowBuilder({
                                     error && `CohortCriteriaRow__Criteria--error`
                                 )}
                             >
-                                {kids}
+                                {kids as React.ReactNode}
                                 {error && (
                                     <LemonBanner className="my-2" type="error">
                                         {error}
@@ -93,7 +93,7 @@ export function CohortCriteriaRowBuilder({
                                                 error && `CohortCriteriaRow__Criteria__Field--error`
                                             )}
                                         >
-                                            {kids}
+                                            {kids as React.ReactNode}
                                         </div>
                                     </>
                                 )
@@ -137,7 +137,7 @@ export function CohortCriteriaRowBuilder({
                                                                 error && `CohortCriteriaRow__Criteria__Field--error`
                                                             )}
                                                         >
-                                                            {kids}
+                                                            {kids as React.ReactNode}
                                                         </div>
                                                     </>
                                                 )

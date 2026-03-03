@@ -2746,15 +2746,6 @@ export const billingJson: BillingType = {
                             note: null,
                         },
                         {
-                            key: 'environments',
-                            name: 'Environments',
-                            description:
-                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                            unit: 'environment',
-                            limit: 1,
-                            note: null,
-                        },
-                        {
                             key: 'api_access',
                             name: 'API access',
                             description: 'Access your data via our developer-friendly API.',
@@ -2827,15 +2818,6 @@ export const billingJson: BillingType = {
                             description:
                                 'Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.',
                             unit: 'projects',
-                            limit: 2,
-                            note: null,
-                        },
-                        {
-                            key: 'environments',
-                            name: 'Environments',
-                            description:
-                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                            unit: 'environment',
                             limit: 2,
                             note: null,
                         },
@@ -2921,15 +2903,6 @@ export const billingJson: BillingType = {
                             name: 'Projects',
                             description:
                                 'Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.',
-                            unit: null,
-                            limit: null,
-                            note: 'Unlimited',
-                        },
-                        {
-                            key: 'environments',
-                            name: 'Environments',
-                            description:
-                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
                             unit: null,
                             limit: null,
                             note: 'Unlimited',
@@ -3196,15 +3169,6 @@ export const billingJson: BillingType = {
                                     note: 'Unlimited',
                                 },
                                 {
-                                    key: 'environments',
-                                    name: 'Environments',
-                                    description:
-                                        'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                                    unit: null,
-                                    limit: null,
-                                    note: 'Unlimited',
-                                },
-                                {
                                     key: 'sso_enforcement',
                                     name: 'Enforce SSO login',
                                     description:
@@ -3445,15 +3409,6 @@ export const billingJson: BillingType = {
                             type: null,
                         },
                         {
-                            key: 'environments',
-                            name: 'Environments',
-                            description:
-                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                            unit: null,
-                            limit: null,
-                            note: 'Unlimited',
-                        },
-                        {
                             key: 'support_response_time',
                             name: 'Support response time',
                             description: 'Get help from our team!',
@@ -3519,15 +3474,6 @@ export const billingJson: BillingType = {
                     images: null,
                     icon_key: null,
                     type: null,
-                },
-                {
-                    key: 'environments',
-                    name: 'Environments',
-                    description:
-                        'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                    unit: null,
-                    limit: null,
-                    note: 'Unlimited',
                 },
                 {
                     key: 'social_sso',

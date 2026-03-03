@@ -4,11 +4,12 @@ import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
-import { setupCommonRoutes, setupExpressApp } from './api/router'
+import { initializePrometheusLabels, setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
+import { CdpCyclotronShadowWorker } from './cdp/consumers/cdp-cyclotron-shadow-worker.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
@@ -17,6 +18,7 @@ import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.co
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
+import { createHogTransformerService } from './cdp/hog-transformations/hog-transformer.service'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -25,9 +27,11 @@ import {
 } from './config/kafka-topics'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
+import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { SessionRecordingIngester } from './session-recording/consumer'
+import { RecordingApi } from './session-replay/recording-api/recording-api'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
@@ -65,7 +69,7 @@ export class PluginServer {
             ...config,
         }
 
-        this.expressApp = setupExpressApp()
+        this.expressApp = setupExpressApp({ internalApiSecret: this.config.INTERNAL_API_SECRET })
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
         this.setupContinuousProfiling()
     }
@@ -91,6 +95,7 @@ export class PluginServer {
         const startupTimer = new Date()
         this.setupListeners()
         this.nodeInstrumentation.setupThreadPerformanceInterval()
+        initializePrometheusLabels(this.config)
 
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config))
@@ -117,33 +122,50 @@ export class PluginServer {
 
                 for (const consumerOption of consumersOptions) {
                     serviceLoaders.push(async () => {
-                        const consumer = new IngestionConsumer(hub, {
-                            INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
-                            INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
-                        })
+                        const consumer = new IngestionConsumer(
+                            hub,
+                            { ...hub, hogTransformer: createHogTransformerService(hub, hub) },
+                            {
+                                INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
+                                INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
+                            }
+                        )
                         await consumer.start()
                         return consumer.service
                     })
                 }
             } else if (capabilities.ingestionV2) {
                 serviceLoaders.push(async () => {
-                    const consumer = new IngestionConsumer(hub)
+                    const consumer = new IngestionConsumer(hub, {
+                        ...hub,
+                        hogTransformer: createHogTransformerService(hub, hub),
+                    })
                     await consumer.start()
                     return consumer.service
                 })
             }
 
             if (capabilities.evaluationScheduler) {
-                serviceLoaders.push(() => startEvaluationScheduler(hub))
+                serviceLoaders.push(() => startEvaluationScheduler(hub, hub))
             }
 
             if (capabilities.sessionRecordingBlobIngestionV2) {
                 serviceLoaders.push(async () => {
                     const actualHub = hub ?? (await createHub(this.config))
                     const postgres = actualHub.postgres
-                    const producer = actualHub.kafkaProducer
+                    const kafkaMetadataProducer = actualHub.kafkaProducer
+                    const kafkaMessageProducer = await KafkaProducerWrapper.create(
+                        actualHub.KAFKA_CLIENT_RACK,
+                        'WARPSTREAM_PRODUCER'
+                    )
 
-                    const ingester = new SessionRecordingIngester(actualHub, false, postgres, producer)
+                    const ingester = new SessionRecordingIngester(
+                        actualHub,
+                        false,
+                        postgres,
+                        kafkaMetadataProducer,
+                        kafkaMessageProducer
+                    )
                     await ingester.start()
                     return ingester.service
                 })
@@ -153,9 +175,19 @@ export class PluginServer {
                 serviceLoaders.push(async () => {
                     const actualHub = hub ?? (await createHub(this.config))
                     const postgres = actualHub.postgres
-                    const producer = actualHub.kafkaProducer
+                    const kafkaMetadataProducer = actualHub.kafkaProducer
+                    const kafkaMessageProducer = await KafkaProducerWrapper.create(
+                        actualHub.KAFKA_CLIENT_RACK,
+                        'WARPSTREAM_PRODUCER'
+                    )
 
-                    const ingester = new SessionRecordingIngester(actualHub, true, postgres, producer)
+                    const ingester = new SessionRecordingIngester(
+                        actualHub,
+                        true,
+                        postgres,
+                        kafkaMetadataProducer,
+                        kafkaMessageProducer
+                    )
                     await ingester.start()
                     return ingester.service
                 })
@@ -163,7 +195,7 @@ export class PluginServer {
 
             if (capabilities.cdpProcessedEvents) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpEventsConsumer(hub)
+                    const consumer = new CdpEventsConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -171,7 +203,7 @@ export class PluginServer {
 
             if (capabilities.cdpDataWarehouseEvents) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpDatawarehouseEventsConsumer(hub)
+                    const consumer = new CdpDatawarehouseEventsConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -179,7 +211,7 @@ export class PluginServer {
 
             if (capabilities.cdpInternalEvents) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpInternalEventsConsumer(hub)
+                    const consumer = new CdpInternalEventsConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -187,7 +219,7 @@ export class PluginServer {
 
             if (capabilities.cdpPersonUpdates) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpPersonUpdatesConsumer(hub)
+                    const consumer = new CdpPersonUpdatesConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -195,7 +227,7 @@ export class PluginServer {
 
             if (capabilities.cdpLegacyOnEvent) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpLegacyEventsConsumer(hub)
+                    const consumer = new CdpLegacyEventsConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -203,7 +235,7 @@ export class PluginServer {
 
             if (capabilities.cdpApi) {
                 serviceLoaders.push(async () => {
-                    const api = new CdpApi(hub)
+                    const api = new CdpApi(hub, hub)
                     this.expressApp.use('/', api.router())
                     await api.start()
                     return api.service
@@ -212,15 +244,33 @@ export class PluginServer {
 
             if (capabilities.cdpCyclotronWorker) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorker(hub)
+                    const worker = new CdpCyclotronWorker(hub, hub)
                     await worker.start()
                     return worker.service
                 })
             }
 
+            if (capabilities.cdpCyclotronShadowWorker) {
+                // Only start the shadow worker if CYCLOTRON_SHADOW_DATABASE_URL is explicitly configured
+                // (not just using the default value). This prevents crashes in hobby/dev deployments
+                // that don't have the shadow database set up.
+                if (process.env.CYCLOTRON_SHADOW_DATABASE_URL) {
+                    serviceLoaders.push(async () => {
+                        const worker = new CdpCyclotronShadowWorker(hub, hub)
+                        await worker.start()
+                        return worker.service
+                    })
+                } else {
+                    logger.info(
+                        '⏭️',
+                        'Skipping CdpCyclotronShadowWorker - CYCLOTRON_SHADOW_DATABASE_URL not configured'
+                    )
+                }
+            }
+
             if (capabilities.cdpCyclotronWorkerHogFlow) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorkerHogFlow(hub)
+                    const worker = new CdpCyclotronWorkerHogFlow(hub, hub)
                     await worker.start()
                     return worker.service
                 })
@@ -228,14 +278,14 @@ export class PluginServer {
 
             // The service commands is always created
             serviceLoaders.push(() => {
-                const serverCommands = new ServerCommands(hub)
+                const serverCommands = new ServerCommands(hub.pubSub)
                 this.expressApp.use('/', serverCommands.router())
                 return Promise.resolve(serverCommands.service)
             })
 
             if (capabilities.cdpPrecalculatedFilters) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpPrecalculatedFiltersConsumer(hub)
+                    const worker = new CdpPrecalculatedFiltersConsumer(hub, hub)
                     await worker.start()
                     return worker.service
                 })
@@ -243,7 +293,7 @@ export class PluginServer {
 
             if (capabilities.cdpCohortMembership) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpCohortMembershipConsumer(hub)
+                    const consumer = new CdpCohortMembershipConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -251,7 +301,7 @@ export class PluginServer {
 
             if (capabilities.logsIngestion) {
                 serviceLoaders.push(async () => {
-                    const consumer = new LogsIngestionConsumer(hub)
+                    const consumer = new LogsIngestionConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -259,9 +309,18 @@ export class PluginServer {
 
             if (capabilities.cdpBatchHogFlow) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpBatchHogFlowRequestsConsumer(hub)
+                    const consumer = new CdpBatchHogFlowRequestsConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
+                })
+            }
+
+            if (capabilities.recordingApi) {
+                serviceLoaders.push(async () => {
+                    const api = new RecordingApi(hub, hub.postgres)
+                    this.expressApp.use('/', api.router())
+                    await api.start()
+                    return api.service
                 })
             }
 

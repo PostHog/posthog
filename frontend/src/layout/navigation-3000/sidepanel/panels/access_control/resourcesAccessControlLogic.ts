@@ -278,7 +278,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
 
         resources: [
             (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature): AccessControlType['resource'][] => {
+            (hasAvailableFeature): APIScopeObject[] => {
                 const allResources = [
                     AccessControlResourceType.Action,
                     AccessControlResourceType.ActivityLog,
@@ -287,6 +287,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.ExternalDataSource,
                     AccessControlResourceType.FeatureFlag,
                     AccessControlResourceType.Insight,
+                    AccessControlResourceType.LlmAnalytics,
                     AccessControlResourceType.Notebook,
                     AccessControlResourceType.RevenueAnalytics,
                     AccessControlResourceType.SessionRecording,

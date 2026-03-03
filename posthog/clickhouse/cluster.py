@@ -148,11 +148,9 @@ class ClickhouseCluster:
         self.__retry_policy = retry_policy
 
     def __get_cluster_hosts(self, client: Client, cluster: str, retry_policy: RetryPolicy | None = None):
-        # In E2E tests and debug mode, use host_name that is resolved through /etc/hosts
-        host_column = "host_name" if not settings.CLOUD_DEPLOYMENT else "host_address"
         get_cluster_hosts_fn = lambda client: client.execute(
             f"""
-            SELECT {host_column} as host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
             FROM clusterAllReplicas(%(name)s, system.clusters)
             WHERE name = %(name)s and is_local
             ORDER BY shard_num, replica_num

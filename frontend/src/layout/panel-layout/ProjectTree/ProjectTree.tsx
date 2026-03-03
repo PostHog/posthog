@@ -29,18 +29,18 @@ import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { MenuItems } from './menus/MenuItems'
+import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
-import { MenuItems } from './menus/MenuItems'
-import { projectTreeLogic } from './projectTreeLogic'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
@@ -58,6 +58,7 @@ let counter = 0
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
 const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal'
 const SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY = 'seen-custom-products'
+const DATA_PIPELINES_CLICKED_LOCAL_STORAGE_KEY = 'data-pipelines-clicked'
 
 const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: string } = {
     [UserProductListReason.USED_BY_COLLEAGUES]:
@@ -167,12 +168,24 @@ export function ProjectTree({
         `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
         []
     )
+    const [dataPipelinesClicked, setDataPipelinesClicked] = useLocalStorage<boolean>(
+        `${currentTeamId ?? '*'}-${DATA_PIPELINES_CLICKED_LOCAL_STORAGE_KEY}`,
+        false
+    )
 
     const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
-    const treeData: TreeDataItem[] = [...fullFileSystemFiltered]
+    const isAIFirst = useFeatureFlag('AI_FIRST')
+
+    let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
+
+    // Filter out Data pipelines item if it's been clicked
+    if (dataPipelinesClicked) {
+        treeData = treeData.filter((item) => item.record?.path !== 'Data pipelines')
+    }
+
     if (fullFileSystemFiltered.length <= 5) {
         if (root === 'shortcuts://' && (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)) {
             treeData.push({
@@ -207,7 +220,7 @@ export function ProjectTree({
                     item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
             )
 
-            if (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) {
+            if ((fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) && !isAIFirst) {
                 const CustomIcon = isCustomProductsExperiment ? IconGear : IconPencil
                 treeData.push({
                     id: 'products/custom-products-helper-category',
@@ -292,6 +305,12 @@ export function ProjectTree({
                 if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
                     return
                 }
+
+                // Track when Data pipelines button is clicked
+                if (item?.record?.path === 'Data pipelines' && !dataPipelinesClicked) {
+                    setDataPipelinesClicked(true)
+                }
+
                 if (item?.record?.href) {
                     router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
@@ -467,6 +486,11 @@ export function ProjectTree({
 
                     return (
                         <>
+                            {root === 'products://' && treeSize === 'narrow' && (
+                                <>
+                                    <p className="mb-1 font-semibold">{item.displayName}</p>
+                                </>
+                            )}
                             {tooltipText}
                             {sceneConfigurations[key]?.description || item.name}
 

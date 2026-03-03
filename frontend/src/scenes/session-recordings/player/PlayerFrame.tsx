@@ -35,10 +35,13 @@ export const PlayerFrame = (): JSX.Element => {
 
             const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
 
+            // Cap at 0.999 instead of 1 to avoid a Chrome GPU compositing bug where
+            // an identity transform (scale(1)) causes the iframe layer to paint outside
+            // its clipping bounds, overlapping the rest of the UI.
             const scale = Math.min(
                 parentDimensions.width / replayDimensions.width,
                 parentDimensions.height / replayDimensions.height,
-                1
+                0.999
             )
 
             player.replayer.wrapper.style.transform = `scale(${scale})`

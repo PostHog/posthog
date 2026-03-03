@@ -186,7 +186,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         feature_flag = None
         if feature_flag_id:
             try:
-                feature_flag = FeatureFlag.objects.get(pk=feature_flag_id)
+                feature_flag = FeatureFlag.objects.get(pk=feature_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
@@ -231,7 +231,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
         if feature_flag_id:
             # Modifying an existing feature flag
-            feature_flag = FeatureFlag.objects.get(pk=feature_flag_id)
+            feature_flag = FeatureFlag.objects.get(pk=feature_flag_id, team_id=self.context["team_id"])
             feature_flag_key = feature_flag.key
 
             if validated_data.get("stage") in EarlyAccessFeature.ReleaseStage:
@@ -311,7 +311,7 @@ def early_access_features(request: Request):
             request,
             generate_exception_response(
                 "early_access_features",
-                "API key not provided. You can find your project API key in PostHog project settings.",
+                "Project token not provided. You can find your project token in PostHog project settings.",
                 type="authentication_error",
                 code="missing_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -324,7 +324,7 @@ def early_access_features(request: Request):
             request,
             generate_exception_response(
                 "decide",
-                "Project API key invalid. You can find your project API key in PostHog project settings.",
+                "Project token invalid. You can find your project token in PostHog project settings.",
                 type="authentication_error",
                 code="invalid_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,

@@ -263,7 +263,9 @@ export const genericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
+    gte: '≥ greater than or equal',
     lt: '< less than',
+    lte: '≤ less than or equal',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -303,7 +305,9 @@ export const numericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
+    gte: '≥ greater than or equal',
     lt: '< less than',
+    lte: '≤ less than or equal',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -412,7 +416,12 @@ export function chooseOperatorMap(propertyType: PropertyType | undefined): Recor
 }
 
 export function isOperatorMulti(operator: PropertyOperator): boolean {
-    return [PropertyOperator.Exact, PropertyOperator.IsNot].includes(operator)
+    return [
+        PropertyOperator.Exact,
+        PropertyOperator.IsNot,
+        PropertyOperator.IContainsMulti,
+        PropertyOperator.NotIContainsMulti,
+    ].includes(operator)
 }
 
 export function isOperatorFlag(operator: PropertyOperator): boolean {
@@ -678,12 +687,18 @@ export function clearDOMTextSelection(): void {
     }
 }
 
-export function slugify(text: string): string {
-    return text
-        .toString() // Cast to string
-        .toLowerCase() // Convert the string to lowercase letters
+// trimBothEnds=false is useful when the input is slugified as the user is typing to allow them hitting space and continue typing
+export function slugify(
+    text: string,
+    { trimBothEnds = true, lowercase = true }: { trimBothEnds?: boolean; lowercase?: boolean } = {}
+): string {
+    let result = text.toString()
+    if (lowercase) {
+        result = result.toLowerCase()
+    }
+    return result
         .normalize('NFD') // The normalize() method returns the Unicode Normalization Form of a given string.
-        .trim() // Remove whitespace from both sides of a string
+        [trimBothEnds ? 'trim' : 'trimStart']()
         .replace(/\s+/g, '-') // Replace spaces with -
         .replace(/[^\w-]+/g, '') // Remove all non-word chars
         .replace(/--+/g, '-')
@@ -1124,10 +1139,10 @@ export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs):
             fromComponents = fromComponents.filter((x) => x !== YEAR)
         }
 
-        if (dateFrom.date() === dateTo.date()) {
+        if (dateFrom.isSame(dateTo, 'day')) {
             toComponents = toComponents.filter((x) => x !== MONTHDAY)
             toComponents = toComponents.filter((x) => x !== COMMA)
-            if (dateTo.date() === dayjs().date()) {
+            if (dateFrom.isSame(dayjs(), 'day')) {
                 fromComponents = fromComponents.filter((x) => x !== MONTHDAY)
                 fromComponents = fromComponents.filter((x) => x !== COMMA)
             }
@@ -1152,6 +1167,12 @@ export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs):
         }
     }
     return `${dateFrom.format(fromComponents.join(''))} - ${dateTo.format(toComponents.join(''))}`
+}
+
+/** Returns the start of the current week, respecting the team's week start day (0=Sunday, 1=Monday). */
+function startOfWeek(date: dayjs.Dayjs, weekStartDay?: number | null): dayjs.Dayjs {
+    const start = weekStartDay === 1 ? 1 : 0
+    return date.subtract((date.day() - start + 7) % 7, 'day').startOf('day')
 }
 
 export const dateMapping: DateMappingOption[] = [
@@ -1217,9 +1238,14 @@ export const dateMapping: DateMappingOption[] = [
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(180, 'd'), date.endOf('d')),
         defaultInterval: 'month',
     },
+
     {
         key: 'Last week',
         values: ['-1wStart', '-1wEnd'],
+        getFormattedDate: (date: dayjs.Dayjs, _format?: string, weekStartDay?: number): string => {
+            const lastWeekStart = startOfWeek(date, weekStartDay).subtract(7, 'day')
+            return formatDateRange(lastWeekStart, lastWeekStart.add(6, 'day').endOf('d'))
+        },
         defaultInterval: 'day',
     },
     {
@@ -1227,6 +1253,13 @@ export const dateMapping: DateMappingOption[] = [
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'This week',
+        values: ['wStart'],
+        getFormattedDate: (date: dayjs.Dayjs, _format?: string, weekStartDay?: number): string =>
+            formatDateRange(startOfWeek(date, weekStartDay), date.endOf('d')),
         defaultInterval: 'day',
     },
     {
@@ -1272,7 +1305,8 @@ export function dateFilterToText(
     dateOptions: DateMappingOption[] = dateMapping,
     isDateFormatted: boolean = false,
     dateFormat: string = DATE_FORMAT,
-    startOfRange: boolean = false
+    startOfRange: boolean = false,
+    weekStartDay?: number
 ): string | null {
     if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
         return formatDateRange(dateFrom, dateTo, dateFormat)
@@ -1285,7 +1319,11 @@ export function dateFilterToText(
             return formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
         }
         if (dateFrom?.includes('T') || dateTo?.includes('T')) {
-            return formatDateTimeRange(dayjs(dateFrom, 'YYYY-MM-DD HH:mm'), dayjs(dateTo, 'YYYY-MM-DD HH:mm'))
+            // Parse each date individually - ISO 8601 datetimes (with T) use native parsing
+            // to correctly handle seconds/milliseconds, plain dates use 'YYYY-MM-DD'
+            const parsedFrom = dateFrom?.includes('T') ? dayjs(dateFrom) : dayjs(dateFrom, 'YYYY-MM-DD')
+            const parsedTo = dateTo?.includes('T') ? dayjs(dateTo) : dayjs(dateTo, 'YYYY-MM-DD')
+            return formatDateTimeRange(parsedFrom, parsedTo)
         }
         return `${dateFrom} - ${dateTo}`
     }
@@ -1305,7 +1343,7 @@ export function dateFilterToText(
 
     for (const { key, values, getFormattedDate } of dateOptions) {
         if (values[0] === dateFrom && values[1] === dateTo && key !== CUSTOM_OPTION_KEY) {
-            return isDateFormatted && getFormattedDate ? getFormattedDate(dayjs(), dateFormat) : key
+            return isDateFormatted && getFormattedDate ? getFormattedDate(dayjs(), dateFormat, weekStartDay) : key
         }
     }
 
@@ -1471,7 +1509,12 @@ export const getDefaultInterval = (dateFrom: string | null, dateTo: string | nul
         return 'hour'
     }
 
-    if (parsedDateFrom?.unit === 'day' || parsedDateTo?.unit === 'day' || dateFrom === 'mStart') {
+    if (
+        parsedDateFrom?.unit === 'day' ||
+        parsedDateTo?.unit === 'day' ||
+        dateFrom === 'mStart' ||
+        dateFrom === 'wStart'
+    ) {
         return 'day'
     }
 
@@ -2442,13 +2485,19 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
     }
 }
 
-export const formatPercentage = (x: number, options?: { precise?: boolean }): string => {
+export const formatPercentage = (x: number, options?: { precise?: boolean; compact?: boolean }): string => {
+    let result: string
     if (options?.precise) {
-        return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
+        result = (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
     } else if (x >= 1000) {
-        return humanFriendlyLargeNumber(x) + '%'
+        result = humanFriendlyLargeNumber(x) + '%'
+    } else {
+        result = (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
     }
-    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
+    if (options?.compact) {
+        result = result.replace(/\s+%/, '%')
+    }
+    return result
 }
 
 /**

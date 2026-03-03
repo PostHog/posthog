@@ -2,7 +2,6 @@ import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs, inStorybookTestRunner, sampleOne, uuid } from 'lib/utils'
 import { deterministicRandom } from 'lib/utils/random'
@@ -218,7 +217,7 @@ const queryMock: MockSignature = async (req, res, ctx) => {
 
     const results = logs.slice(offset, offset + limit)
 
-    return res(ctx.json({ results: results }))
+    return res(ctx.json({ results: results, maxExportableLogs: 5000 }))
 }
 
 const sparklineMock: MockSignature = async (req, res, ctx) => {
@@ -345,6 +344,7 @@ export default {
             waitForSelector: '[data-attr="logs-viewer"]',
         },
     }, // scene mode
+    tags: ['test-skip'],
 } as Meta
 
 export function LogsScene(): JSX.Element {
@@ -354,5 +354,5 @@ export function LogsScene(): JSX.Element {
     return <App />
 }
 LogsScene.parameters = {
-    featureFlags: [FEATURE_FLAGS.NEW_LOGS_FILTER_BAR],
+    featureFlags: [],
 }

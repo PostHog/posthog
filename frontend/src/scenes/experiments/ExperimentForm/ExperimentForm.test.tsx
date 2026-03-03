@@ -110,7 +110,7 @@ describe('ExperimentForm Integration', () => {
     })
 
     describe('full submission flow', () => {
-        it('successfully submits valid experiment and navigates', async () => {
+        it('successfully submits valid experiment and navigates to view page', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...NEW_EXPERIMENT,

@@ -12,7 +12,15 @@ from django.conf import settings
 
 import pyarrow as pa
 import requests
-from google.api_core.exceptions import Forbidden, GoogleAPICallError, NotFound, TooManyRequests
+from google.api_core.exceptions import (
+    Forbidden,
+    GatewayTimeout,
+    GoogleAPICallError,
+    InternalServerError,
+    NotFound,
+    ServiceUnavailable,
+    TooManyRequests,
+)
 from google.cloud import bigquery
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
 from google.oauth2 import service_account
@@ -702,17 +710,6 @@ class BigQueryClient:
 
         self.logger.info("Waiting for BigQuery load job", format=format, table_id=table.name)
 
-        result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
-
-        return result
-
-    def _run_load_job(self, file, bq_table, job_config):
-        """Run a BigQuery LoadJob and return its result.
-
-        This method blocks and should only be run on an executor.
-
-        Ensures we retry on transient ``TooManyRequests`` errors.
-        """
         initial_retry = 1
         backoff_factor = 2
         max_retry = 32
@@ -720,25 +717,49 @@ class BigQueryClient:
 
         while True:
             try:
-                load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
-                result = load_job.result()
-            except Forbidden as err:
-                if err.reason == "quotaExceeded":
-                    self.external_logger.exception(
-                        "BigQuery quota long-term limit exceeded. We will attempt to retry the batch export with an exponential back-off, but it may take several minutes or longer until the quota is restored."
-                    )
-                    raise BigQueryQuotaExceededError(err.message) from err
-
-                raise
-            except TooManyRequests:
+                result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
+            except (TooManyRequests, ServiceUnavailable, GatewayTimeout, InternalServerError) as err:
+                backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
                 self.logger.exception(
-                    "LoadJob rate limit exceeded",
-                    attempt=attempt,
+                    "LoadJob transient error encountered", attempt=attempt, backoff=backoff, error_code=err.code
                 )
-                time.sleep(min(max_retry, initial_retry * (backoff_factor**attempt)))
+                self.external_logger.error(  # noqa: TRY400
+                    "Encountered a service-side issue that will be retried in %d seconds, this is attempt number %d."
+                    " These type of errors indicate BigQuery may be under too much load from all sources. You may have"
+                    " to check with BigQuery if it keeps happening consistently."
+                    " Error: %s",
+                    backoff,
+                    attempt,
+                    err,
+                    attempt=attempt,
+                    backoff=backoff,
+                    error_code=err.code,
+                )
+
+                await asyncio.sleep(backoff)
                 attempt += 1
+
             else:
                 return result
+
+    def _run_load_job(self, file, bq_table, job_config):
+        """Run a BigQuery LoadJob and return its result.
+
+        This method blocks and should only be run on an executor.
+        """
+        try:
+            load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
+            result = load_job.result()
+        except Forbidden as err:
+            if err.reason == "quotaExceeded":
+                self.external_logger.exception(
+                    "BigQuery quota long-term limit exceeded. We will attempt to retry the batch export with an exponential back-off, but it may take several minutes or longer until the quota is restored."
+                )
+                raise BigQueryQuotaExceededError(err.message) from err
+
+            raise
+        else:
+            return result
 
 
 class MissingRequiredPermissionsError(Exception):
@@ -775,8 +796,9 @@ class BigQueryConsumer(Consumer):
         client: BigQueryClient,
         table: BigQueryTable,
         file_format: FileFormat,
+        model: str = "events",
     ):
-        super().__init__()
+        super().__init__(model=model)
 
         self.client = client
         self.table = table
@@ -833,6 +855,7 @@ async def run_consumers(
     queue: RecordBatchQueue,
     can_perform_merge: bool,
     max_consumers: int,
+    model: str = "events",
 ) -> BatchExportResult:
     tasks = []
     max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES // max_consumers
@@ -843,6 +866,7 @@ async def run_consumers(
                 client=client,
                 table=table,
                 file_format=file_format,
+                model=model,
             )
 
             if can_perform_merge:
@@ -1056,6 +1080,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         client=bq_client,
                         table=bigquery_consumer_table,
                         file_format=file_format,
+                        model=model.name if isinstance(model, BatchExportModel) else "events",
                     )
 
                     if can_perform_merge:
@@ -1099,6 +1124,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         queue=queue,
                         can_perform_merge=can_perform_merge,
                         max_consumers=settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS,
+                        model=model.name if isinstance(model, BatchExportModel) else "events",
                     )
 
                 if can_perform_merge:

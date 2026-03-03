@@ -16,6 +16,7 @@ export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
 export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
+export const OAUTH_LOCALSTORAGE_KEY = '_postHogToolbarOAuth'
 
 export function getSafeText(el: HTMLElement): string {
     if (!el.childNodes || !el.childNodes.length) {
@@ -554,4 +555,23 @@ export function makeNavigateWrapper(onNavigate: () => void, patchKey: string): (
             unwrapReplaceState?.()
         }
     }
+}
+
+export function joinWithUiHost(uiHost: string, path: string): string {
+    const trimmedHost = (uiHost || '').replace(/\/+$/, '')
+    const trimmedPath = (path || '').trim()
+
+    if (!trimmedHost) {
+        return trimmedPath
+    }
+    if (!trimmedPath) {
+        return trimmedHost
+    }
+
+    // If a full URL is passed, don't try to join it.
+    if (/^https?:\/\//i.test(trimmedPath) || /^\/\/[^/]/.test(trimmedPath)) {
+        return trimmedPath
+    }
+
+    return `${trimmedHost}/${trimmedPath.replace(/^\/+/, '')}`
 }

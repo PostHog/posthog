@@ -18,6 +18,64 @@ import type { featureFlagsLogicType } from './featureFlagsLogicType'
 
 export const FLAGS_PER_PAGE = 100
 
+export function flagMatchesSearch(flag: FeatureFlagType, search?: string): boolean {
+    if (!search) {
+        return true
+    }
+    const s = search.toLowerCase()
+    return flag.key.toLowerCase().includes(s) || !!flag.name?.toLowerCase().includes(s)
+}
+
+export function flagMatchesStatus(flag: FeatureFlagType, active?: string): boolean {
+    if (!active) {
+        return true
+    }
+    if (active === 'true') {
+        return flag.active
+    }
+    if (active === 'false') {
+        return !flag.active
+    }
+    if (active === 'STALE') {
+        return flag.status === 'STALE'
+    }
+    return true
+}
+
+export function flagMatchesType(flag: FeatureFlagType, type?: string): boolean {
+    if (!type) {
+        return true
+    }
+
+    const isMultivariate = !!flag.filters.multivariate?.variants?.length
+
+    if (type === 'boolean') {
+        return !isMultivariate
+    }
+    if (type === 'multivariant') {
+        return isMultivariate
+    }
+    if (type === 'experiment') {
+        return !!flag.experiment_set?.length
+    }
+    if (type === 'remote_config') {
+        return flag.is_remote_configuration
+    }
+
+    return true
+}
+
+export function flagMatchesFilters(flag: FeatureFlagType, filters: FeatureFlagsFilters): boolean {
+    return (
+        flagMatchesSearch(flag, filters.search) &&
+        flagMatchesStatus(flag, filters.active) &&
+        flagMatchesType(flag, filters.type) &&
+        (!filters.created_by_id || flag.created_by?.id === filters.created_by_id) &&
+        (!filters.tags?.length || filters.tags.some((tag) => flag.tags?.includes(tag))) &&
+        (!filters.evaluation_runtime || flag.evaluation_runtime === filters.evaluation_runtime)
+    )
+}
+
 export enum FeatureFlagsTab {
     OVERVIEW = 'overview',
     HISTORY = 'history',
@@ -34,6 +92,7 @@ export enum FeatureFlagsTab {
 export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlagType> {
     /* not in the API response */
     filters?: FeatureFlagsFilters | null
+    lastUpdatedFlagId?: number | null
 }
 
 export interface FeatureFlagsFilters {
@@ -75,6 +134,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
         setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
         closeEnrichAnalyticsNotice: true,
+        setFeatureFlagUpdating: (id: number, updating: boolean) => ({ id, updating }),
     }),
     loaders(({ values }) => ({
         featureFlags: [
@@ -88,6 +148,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     return {
                         ...response,
                         offset: values.paramsFromFilters.offset,
+                        filters: values.filters,
                     }
                 },
                 updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
@@ -98,7 +159,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     const updatedFlags = [...values.featureFlags.results].map((flag) =>
                         flag.id === response.id ? response : flag
                     )
-                    return { ...values.featureFlags, results: updatedFlags }
+                    return { ...values.featureFlags, results: updatedFlags, lastUpdatedFlagId: id }
                 },
             },
         ],
@@ -115,6 +176,19 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 results: state.results.filter((flag) => flag.id !== id),
             }),
         },
+        localFlagsCache: [
+            [] as FeatureFlagType[],
+            {
+                loadFeatureFlagsSuccess: (_, { featureFlags }) => {
+                    return featureFlags.results
+                },
+                updateFeatureFlagSuccess: (_, { featureFlags }) => {
+                    return featureFlags.results
+                },
+                updateFlag: (state, { flag }) => state.map((f) => (f.id === flag.id ? flag : f)),
+                deleteFlag: (state, { id }) => state.filter((f) => f.id !== id),
+            },
+        ],
         activeTab: [
             FeatureFlagsTab.OVERVIEW as FeatureFlagsTab,
             {
@@ -140,9 +214,39 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 closeEnrichAnalyticsNotice: () => true,
             },
         ],
+        featureFlagsUpdating: [
+            {} as Record<number, boolean>,
+            {
+                setFeatureFlagUpdating: (state, { id, updating }) => {
+                    if (updating) {
+                        return { ...state, [id]: true }
+                    }
+                    const { [id]: _, ...rest } = state
+                    return rest
+                },
+                updateFeatureFlag: (state, { id }) => ({ ...state, [id]: true }),
+                updateFeatureFlagSuccess: (state, { featureFlags }) => {
+                    if (featureFlags.lastUpdatedFlagId) {
+                        const { [featureFlags.lastUpdatedFlagId]: _, ...rest } = state
+                        return rest
+                    }
+                    return state
+                },
+                updateFeatureFlagFailure: () => ({}),
+            },
+        ],
     }),
     selectors({
         count: [(selectors) => [selectors.featureFlags], (featureFlags) => featureFlags.count],
+        filtersChanged: [
+            (s) => [s.filters, s.featureFlags],
+            (filters, featureFlags): boolean => {
+                if (!featureFlags.filters) {
+                    return false
+                }
+                return !objectsEqual({ ...featureFlags.filters, page: undefined }, { ...filters, page: undefined })
+            },
+        ],
         paramsFromFilters: [
             (s) => [s.filters],
             (filters: FeatureFlagsFilters) => ({
@@ -172,13 +276,13 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             },
         ],
         pagination: [
-            (s) => [s.filters, s.count],
-            (filters, count): PaginationManual => {
+            (s) => [s.filters, s.displayedFlags, s.featureFlags, s.filtersChanged],
+            (filters, displayedFlags, featureFlags, filtersChanged): PaginationManual => {
                 return {
                     controlled: true,
                     pageSize: FLAGS_PER_PAGE,
                     currentPage: filters.page || 1,
-                    entryCount: count,
+                    entryCount: filtersChanged ? displayedFlags.length : featureFlags.count,
                 }
             },
         ],
@@ -187,6 +291,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             (): SidePanelSceneContext => ({
                 activity_scope: ActivityScope.FEATURE_FLAG,
             }),
+        ],
+        displayedFlags: [
+            (s) => [s.localFlagsCache, s.filters],
+            (cache: FeatureFlagType[], filters: FeatureFlagsFilters): FeatureFlagType[] => {
+                return cache.filter((flag) => flagMatchesFilters(flag, filters))
+            },
         ],
     }),
     listeners(({ actions, values }) => ({
@@ -255,7 +365,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
                 created_by_id,
                 type,
-                search,
                 order,
                 evaluation_runtime,
                 tags: parseTagsFilter(tags),
@@ -263,6 +372,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
 
             pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined
             pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : undefined
+            pageFiltersFromUrl.search = search !== undefined ? String(search) : undefined
 
             actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
         },

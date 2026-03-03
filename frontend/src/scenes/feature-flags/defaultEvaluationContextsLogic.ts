@@ -20,10 +20,10 @@ export interface DefaultEvaluationContextsResponse {
 export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogicType>([
     path(['scenes', 'feature-flags', 'defaultEvaluationContextsLogic']),
 
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
         actions: [teamLogic, ['updateCurrentTeam']],
-    }),
+    })),
 
     actions({
         loadDefaultEvaluationContexts: true,
