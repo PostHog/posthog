@@ -12,4 +12,19 @@ class Migration(migrations.Migration):
             name="validation_rules",
             field=models.JSONField(blank=True, default=None, null=True),
         ),
+        migrations.AlterField(
+            model_name="schemapropertygroupproperty",
+            name="property_type",
+            field=models.CharField(
+                choices=[
+                    ("DateTime", "DateTime"),
+                    ("String", "String"),
+                    ("Numeric", "Numeric"),
+                    ("Boolean", "Boolean"),
+                    ("Object", "Object"),
+                    ("Any", "Any"),
+                ],
+                max_length=50,
+            ),
+        ),
     ]
