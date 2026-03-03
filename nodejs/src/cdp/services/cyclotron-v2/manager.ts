@@ -1,10 +1,15 @@
 import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
+import { logger } from '../../../utils/logger'
 import { CyclotronV2JobInit, CyclotronV2ManagerConfig } from './types'
 
 export class CyclotronV2Manager {
     private pool: Pool
+    private readonly depthLimit: number
+    private readonly depthCheckIntervalMs: number
+    private depthCheckPromise: Promise<boolean> | null = null
+    private depthCheckExpiresAt = 0
 
     constructor(config: CyclotronV2ManagerConfig) {
         this.pool = new Pool({
@@ -12,15 +17,18 @@ export class CyclotronV2Manager {
             max: config.pool.maxConnections ?? 10,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
         })
+        this.depthLimit = config.depthLimit ?? 1_000_000
+        this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000
     }
 
     async connect(): Promise<void> {
-        // Verify connectivity
         const client = await this.pool.connect()
         client.release()
     }
 
     async createJob(job: CyclotronV2JobInit): Promise<string> {
+        await this.insertGuard()
+
         const id = job.id ?? uuidv7()
         const now = new Date()
         await this.pool.query(
@@ -50,6 +58,8 @@ export class CyclotronV2Manager {
         if (jobs.length === 0) {
             return []
         }
+
+        await this.insertGuard()
 
         const ids: string[] = []
         const teamIds: number[] = []
@@ -103,5 +113,41 @@ export class CyclotronV2Manager {
 
     async disconnect(): Promise<void> {
         await this.pool.end()
+    }
+
+    private async insertGuard(): Promise<void> {
+        if (await this.isFull()) {
+            throw new Error(`Cyclotron V2 queue is full (depth limit: ${this.depthLimit})`)
+        }
+    }
+
+    private isFull(): Promise<boolean> {
+        if (this.depthCheckPromise && Date.now() < this.depthCheckExpiresAt) {
+            return this.depthCheckPromise
+        }
+
+        this.depthCheckPromise = this.queryDepth()
+        this.depthCheckExpiresAt = Date.now() + this.depthCheckIntervalMs
+        return this.depthCheckPromise
+    }
+
+    private async queryDepth(): Promise<boolean> {
+        try {
+            const result = await this.pool.query(
+                `SELECT COUNT(*) AS count FROM cyclotron_v2_jobs
+                 WHERE status = 'available' AND scheduled <= NOW()`
+            )
+            const count = parseInt(result.rows[0].count, 10)
+            const full = count >= this.depthLimit
+
+            if (full) {
+                logger.warn('Cyclotron V2 queue at capacity', { count, depthLimit: this.depthLimit })
+            }
+
+            return full
+        } catch (e) {
+            logger.error('Cyclotron V2 depth check failed', { error: String(e) })
+            return false
+        }
     }
 }

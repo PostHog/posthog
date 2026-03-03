@@ -38,6 +38,8 @@ export interface CyclotronV2DequeuedJob {
 
 export type CyclotronV2ManagerConfig = {
     pool: CyclotronV2PoolConfig
+    depthLimit?: number
+    depthCheckIntervalMs?: number
 }
 
 export type CyclotronV2WorkerConfig = {

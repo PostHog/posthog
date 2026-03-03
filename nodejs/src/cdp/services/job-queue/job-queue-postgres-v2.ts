@@ -36,6 +36,7 @@ export class CyclotronJobQueuePostgresV2 {
 
         this.manager = new CyclotronV2Manager({
             pool: { dbUrl: this.config.CYCLOTRON_V2_DATABASE_URL },
+            depthLimit: this.config.CYCLOTRON_SHARD_DEPTH_LIMIT,
         })
         await this.manager.connect()
     }
