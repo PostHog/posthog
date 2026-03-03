@@ -997,7 +997,9 @@ def toolbar_oauth_callback(request):
     # Handle errors first regardless of flow type
     if is_redirect_flow and error:
         description = escape(request.GET.get("error_description", error))
-        return HttpResponse(description, status=400, content_type="text/plain")
+        return HttpResponse(
+            description, status=400, content_type="text/plain"
+        )  # nosemgrep: reflected-data-httpresponse
 
     if error:
         payload = {
