@@ -1,5 +1,6 @@
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
@@ -265,12 +266,18 @@ export function captureFeedback(
 }
 
 /** Maps a scene ID to the agent mode that should be activated for that scene */
-export function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
+export function getAgentModeForScene(
+    sceneId: Scene | null,
+    featureFlags: Record<string, boolean | string>
+): AgentMode | null {
     if (!sceneId) {
         return null
     }
     for (const [mode, def] of Object.entries(MODE_DEFINITIONS)) {
         if (def.scenes?.has(sceneId)) {
+            if (def.flag && !featureFlags[FEATURE_FLAGS[def.flag]]) {
+                return null
+            }
             return mode as AgentMode
         }
     }

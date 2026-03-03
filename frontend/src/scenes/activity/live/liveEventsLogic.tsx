@@ -37,11 +37,17 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             [] as LiveEvent[],
             {
                 addEvents: (state, { events }) => {
-                    const newState = [...events, ...state]
-                    if (newState.length > 100) {
-                        return newState.slice(0, 100)
+                    const seen = new Set(state.map((e) => e.uuid).filter(Boolean))
+                    const dedupedIncoming: LiveEvent[] = []
+
+                    for (const event of events) {
+                        if (!seen.has(event.uuid)) {
+                            dedupedIncoming.push(event)
+                            seen.add(event.uuid)
+                        }
                     }
-                    return newState
+
+                    return [...dedupedIncoming, ...state].slice(0, 100)
                 },
                 clearEvents: () => [],
             },

@@ -3066,4 +3066,35 @@ def parser_test_factory(backend: HogQLParserBackend):
             assert cte is not None
             assert cte.materialized is False
 
+        def test_cte_using_key_is_none_when_omitted(self):
+            parsed = self._select("WITH RECURSIVE x(a, b) AS (SELECT 1, 2) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.using_key is None
+
+        def test_cte_using_key_single_column(self):
+            parsed = self._select("WITH RECURSIVE x(a, b) USING KEY (a) AS (SELECT 1, 2) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.using_key == ["a"]
+            assert cte.columns == ["a", "b"]
+
+        def test_cte_using_key_multiple_columns(self):
+            parsed = self._select("WITH RECURSIVE x(a, b, c) USING KEY (a, b) AS (SELECT 1, 2, 3) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.using_key == ["a", "b"]
+            assert cte.columns == ["a", "b", "c"]
+
+        def test_cte_using_key_without_column_name_list(self):
+            parsed = self._select("WITH RECURSIVE x USING KEY (a) AS (SELECT 1) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.using_key == ["a"]
+            assert cte.columns is None
+
     return TestParser

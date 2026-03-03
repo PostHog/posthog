@@ -208,7 +208,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             elif key == "issue_description":
                 issue_values = queryset.filter(description__icontains=value).values_list("description", flat=True)
 
-        return Response([{"name": value} for value in issue_values])
+        return Response({"results": [{"name": value} for value in issue_values], "refreshing": False})
 
     @action(methods=["POST"], detail=False)
     def bulk(self, request, **kwargs):
