@@ -480,7 +480,7 @@ class EventViewSet(
         else:
             # Check if this property is hidden (enterprise feature)
             if self._is_property_hidden(key, team):
-                return self._return_with_short_cache([])
+                return self._return_with_short_cache([], refreshing=False)
 
             return self._event_property_values(query_params)
 
@@ -527,8 +527,16 @@ class EventViewSet(
             )
             result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
+            is_refreshing = (
+                isinstance(result, CachedPropertyValuesQueryResponse)
+                and result.query_status is not None
+                and not result.query_status.complete
+            )
             span.set_attribute("result_count", len(result.results))
-            return self._return_with_short_cache([item.model_dump(exclude_none=True) for item in result.results])
+            span.set_attribute("is_refreshing", is_refreshing)
+            return self._return_with_short_cache(
+                [item.model_dump(exclude_none=True) for item in result.results], refreshing=is_refreshing
+            )
 
     def _event_property_values_filtered(
         self,
@@ -540,7 +548,7 @@ class EventViewSet(
         # in the future.
         chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
         date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
-        date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
+        date_to = timezone.now().astimezone(query_params.team.timezone_info).strftime("%Y-%m-%d 23:59:59")
 
         conditions: list[ast.Expr] = [
             ast.CompareOperation(
@@ -580,11 +588,12 @@ class EventViewSet(
             conditions.append(ast.Or(exprs=event_conditions) if len(event_conditions) > 1 else event_conditions[0])
 
         if query_params.value:
+            escaped = query_params.value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.ILike,
                     left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
-                    right=ast.Constant(value=f"%{query_params.value}%"),
+                    right=ast.Constant(value=f"%{escaped}%"),
                 )
             )
 
@@ -620,11 +629,13 @@ class EventViewSet(
                 except json.JSONDecodeError:
                     values.append(row[0])
 
-        return self._return_with_short_cache([{"name": convert_property_value(v)} for v in flatten(values)])
+        return self._return_with_short_cache(
+            [{"name": convert_property_value(v)} for v in flatten(values)], refreshing=False
+        )
 
     @staticmethod
-    def _return_with_short_cache(values) -> response.Response:
-        resp = response.Response(values)
+    def _return_with_short_cache(values: builtins.list, refreshing: bool = False) -> response.Response:
+        resp = response.Response({"results": values, "refreshing": refreshing})
         resp["Cache-Control"] = "max-age=10"
         return resp
 
@@ -667,7 +678,7 @@ class EventViewSet(
 
         result = execute_hogql_query(query, team=query_params.team)
 
-        return self._return_with_short_cache([{"name": event[0]} for event in result.results])
+        return self._return_with_short_cache([{"name": event[0]} for event in result.results], refreshing=False)
 
 
 class LegacyEventViewSet(EventViewSet):

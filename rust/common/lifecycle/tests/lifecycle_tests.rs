@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use lifecycle::{ComponentOptions, LifecycleError, Manager};
+use tokio_util::sync::CancellationToken;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -839,4 +840,349 @@ async fn mixed_component_timeout_outcomes() {
         .await
         .expect("timed out");
     assert!(result.is_ok());
+}
+
+/// Test shutdown trigger initiates shutdown. Uses Manager::builder with with_shutdown_token
+/// so the test can trigger shutdown by calling token.cancel().
+#[tokio::test]
+async fn test_shutdown_trigger_initiates_shutdown() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let handle = manager.register("worker", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    let comp = ComponentA {
+        handle: handle.clone(),
+    };
+    tokio::spawn(async move {
+        comp.process().await;
+    });
+    drop(handle);
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    shutdown_token.cancel();
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// Section 7: Observability handle lifecycle
+//
+// Observability handles (is_observability=true) run on a separate shutdown
+// tier: they stay alive during the standard component drain (Phase 2) so
+// that metrics/health endpoints remain available, and are only cancelled
+// after all standard components finish (Phase 3). No metrics are emitted
+// for observability components during shutdown — only tracing logs.
+// ---------------------------------------------------------------------------
+
+fn obs_opts() -> ComponentOptions {
+    ComponentOptions::new().is_observability(true)
+}
+
+/// Observability handle's is_shutting_down() returns false while standard
+/// components drain; returns true only after they finish and the manager
+/// cancels the observability shutdown token.
+#[tokio::test]
+async fn observability_handle_runs_during_standard_shutdown() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let obs_handle = manager.register("metrics", obs_opts());
+    let guard = manager.monitor_background();
+
+    let obs_clone = obs_handle.clone();
+    let obs_saw_shutdown = Arc::new(AtomicBool::new(false));
+    let obs_saw_shutdown_clone = obs_saw_shutdown.clone();
+
+    tokio::spawn(async move {
+        let _guard = std_handle.process_scope();
+        std_handle.shutdown_recv().await;
+        // Standard handle is shutting down; observability should NOT be yet
+        assert!(!obs_clone.is_shutting_down());
+        obs_saw_shutdown_clone.store(obs_clone.is_shutting_down(), Ordering::SeqCst);
+    });
+
+    tokio::spawn(async move {
+        let _guard = obs_handle.process_scope();
+        obs_handle.shutdown_recv().await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    shutdown_token.cancel();
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+    assert!(!obs_saw_shutdown.load(Ordering::SeqCst));
+}
+
+/// Register standard + observability handles, trigger shutdown, verify the
+/// observability handle sees its shutdown only after the standard handle
+/// completes. Observability shutdown is strictly ordered after standard drain.
+#[tokio::test]
+async fn observability_handle_shuts_down_after_standard_handles() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let obs_handle = manager.register("metrics", obs_opts());
+    let guard = manager.monitor_background();
+
+    let std_exited = Arc::new(AtomicBool::new(false));
+    let std_exited_clone = std_exited.clone();
+    let std_exited_check = std_exited.clone();
+
+    tokio::spawn(async move {
+        let _guard = std_handle.process_scope();
+        std_handle.shutdown_recv().await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        std_exited_clone.store(true, Ordering::SeqCst);
+    });
+
+    tokio::spawn(async move {
+        let _guard = obs_handle.process_scope();
+        obs_handle.shutdown_recv().await;
+        // By the time observability sees shutdown, standard must have exited
+        assert!(std_exited_check.load(Ordering::SeqCst));
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    shutdown_token.cancel();
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+}
+
+/// Observability handle with no explicit graceful_shutdown gets the 1s default
+/// timeout. If it hangs past that, the manager marks it TimedOut and moves on.
+#[tokio::test]
+async fn observability_default_timeout_1s() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let obs_handle = manager.register("metrics", obs_opts());
+    let guard = manager.monitor_background();
+
+    tokio::spawn(async move {
+        obs_handle.shutdown_recv().await;
+        // Hang past the 1s default observability timeout
+        std::future::pending::<()>().await;
+    });
+
+    shutdown_token.cancel();
+
+    let start = std::time::Instant::now();
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    let elapsed = start.elapsed();
+
+    // Should resolve around 1s (the default obs timeout), not 5s (global)
+    assert!(result.is_ok());
+    assert!(
+        elapsed < Duration::from_secs(3),
+        "took {elapsed:?}, expected ~1s default timeout"
+    );
+}
+
+/// Observability handle with explicit graceful_shutdown(2s) uses that instead
+/// of the 1s default.
+#[tokio::test]
+async fn observability_custom_timeout() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(10))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let obs_handle = manager.register(
+        "metrics",
+        ComponentOptions::new()
+            .is_observability(true)
+            .with_graceful_shutdown(Duration::from_millis(200)),
+    );
+    let guard = manager.monitor_background();
+
+    tokio::spawn(async move {
+        obs_handle.shutdown_recv().await;
+        // Hang past the 200ms custom timeout
+        std::future::pending::<()>().await;
+    });
+
+    shutdown_token.cancel();
+
+    let start = std::time::Instant::now();
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    let elapsed = start.elapsed();
+
+    assert!(result.is_ok());
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "took {elapsed:?}, expected ~200ms custom timeout"
+    );
+}
+
+/// Observability handle calling signal_failure() during normal operation
+/// triggers global shutdown for all components (standard and observability).
+#[tokio::test]
+async fn observability_failure_during_normal_operation_triggers_shutdown() {
+    let mut manager = test_manager();
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let obs_handle = manager.register("metrics", obs_opts());
+    let guard = manager.monitor_background();
+
+    tokio::spawn(async move {
+        let _guard = std_handle.process_scope();
+        std_handle.shutdown_recv().await;
+    });
+
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        obs_handle.signal_failure("metrics bind failed");
+    });
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(matches!(
+        result,
+        Err(LifecycleError::ComponentFailure { tag, reason })
+            if tag == "metrics" && reason == "metrics bind failed"
+    ));
+}
+
+/// Combining is_observability(true) with with_liveness_deadline panics at
+/// registration. Observability handles don't participate in health monitoring.
+#[tokio::test]
+#[should_panic(expected = "observability handles cannot use liveness_deadline")]
+async fn observability_with_liveness_panics() {
+    let mut manager = test_manager();
+    manager.register(
+        "bad",
+        ComponentOptions::new()
+            .is_observability(true)
+            .with_liveness_deadline(Duration::from_secs(5)),
+    );
+}
+
+/// Multi-component test with both standard and observability handles, all
+/// completing cleanly. Verifies the full two-phase shutdown flow end-to-end.
+#[tokio::test]
+async fn mixed_standard_and_observability_clean_shutdown() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let ha = manager.register("worker_a", ComponentOptions::new());
+    let hb = manager.register("worker_b", liveness_opts());
+    let obs = manager.register("metrics", obs_opts());
+    let guard = manager.monitor_background();
+
+    let comp_a = ComponentA { handle: ha.clone() };
+    let comp_b = ComponentB::new(hb.clone());
+
+    tokio::spawn(async move { comp_a.process().await });
+    tokio::spawn(async move { comp_b.process().await });
+    tokio::spawn(async move {
+        let _guard = obs.process_scope();
+        obs.shutdown_recv().await;
+    });
+
+    drop(ha);
+    drop(hb);
+
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    shutdown_token.cancel();
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+}
+
+/// Handle::shutdown_signal() returns a working owned 'static future for both
+/// standard and observability handle types. This is the API used by
+/// axum::serve(...).with_graceful_shutdown(handle.shutdown_signal()).
+#[tokio::test]
+async fn handle_shutdown_signal_method() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let obs_handle = manager.register("metrics", obs_opts());
+    let guard = manager.monitor_background();
+
+    let std_signal = std_handle.shutdown_signal();
+    let obs_signal = obs_handle.shutdown_signal();
+
+    let std_signalled = Arc::new(AtomicBool::new(false));
+    let obs_signalled = Arc::new(AtomicBool::new(false));
+    let std_signalled_clone = std_signalled.clone();
+    let obs_signalled_clone = obs_signalled.clone();
+
+    tokio::spawn(async move {
+        std_signal.await;
+        std_signalled_clone.store(true, Ordering::SeqCst);
+        std_handle.work_completed();
+    });
+
+    tokio::spawn(async move {
+        obs_signal.await;
+        obs_signalled_clone.store(true, Ordering::SeqCst);
+        obs_handle.work_completed();
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(!std_signalled.load(Ordering::SeqCst));
+    assert!(!obs_signalled.load(Ordering::SeqCst));
+
+    shutdown_token.cancel();
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+    assert!(std_signalled.load(Ordering::SeqCst));
+    assert!(obs_signalled.load(Ordering::SeqCst));
 }

@@ -201,6 +201,16 @@ impl HealthHandle {
     }
 }
 
+impl common_liveness::SyncLivenessReporter for HealthHandle {
+    fn report_healthy(&self) {
+        self.report_healthy_blocking();
+    }
+
+    fn report_unhealthy(&self) {
+        self.report_status_blocking(ComponentStatus::Unhealthy);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum HealthStrategy {
     /// All components must be healthy for the registry to be healthy
