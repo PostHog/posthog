@@ -96,7 +96,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "analysis_level": instance.analysis_level,
                 "defaults_disabled": disabled_count,
             },
-            self.team,
+            team=self.team,
         )
 
     @llma_track_latency("llma_clustering_job_update")
@@ -116,7 +116,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             cast(User, self.request.user),
             "llma clustering job updated",
             {"job_id": instance.id, "name": instance.name},
-            self.team,
+            team=self.team,
         )
 
     @llma_track_latency("llma_clustering_job_destroy")
@@ -127,6 +127,6 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             cast(User, self.request.user),
             "llma clustering job deleted",
             {"job_id": instance.id, "name": instance.name},
-            self.team,
+            team=self.team,
         )
         return super().destroy(request, *args, **kwargs)
