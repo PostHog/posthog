@@ -565,6 +565,137 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(log_entries[1]["type"], "progress")
         self.assertEqual(log_entries[1]["message"], "Step 1 complete")
 
+    @patch("products.tasks.backend.temporal.process_task.activities.post_slack_update.post_slack_update")
+    def test_set_output_with_pr_url_posts_slack_update_when_mapping_exists(self, mock_post_slack_update):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        integration = Integration.objects.create(team=self.team, kind="slack-twig", integration_id="T_SLACK", config={})
+
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"pr_url": "https://github.com/org/repo/pull/1"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_post_slack_update.assert_called_once()
+        input_arg = mock_post_slack_update.call_args[0][0]
+        self.assertEqual(input_arg.run_id, str(run.id))
+        self.assertEqual(input_arg.slack_thread_context["integration_id"], integration.pk)
+        self.assertEqual(input_arg.slack_thread_context["channel"], "C123")
+        self.assertEqual(input_arg.slack_thread_context["thread_ts"], "1234.5678")
+
+    @patch("products.tasks.backend.temporal.process_task.activities.post_slack_update.post_slack_update")
+    def test_partial_update_with_pr_url_posts_slack_update_when_mapping_exists(self, mock_post_slack_update):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        integration = Integration.objects.create(team=self.team, kind="slack-twig", integration_id="T_SLACK", config={})
+
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"output": {"pr_url": "https://github.com/org/repo/pull/2"}, "status": "in_progress"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_post_slack_update.assert_called_once()
+        input_arg = mock_post_slack_update.call_args[0][0]
+        self.assertEqual(input_arg.run_id, str(run.id))
+        self.assertEqual(input_arg.slack_thread_context["integration_id"], integration.pk)
+
+    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
+    def test_relay_message_enqueues_slack_relay_workflow(self, mock_execute_relay):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        mock_execute_relay.return_value = "relay-1"
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Which license should I use?"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "accepted", "relay_id": "relay-1"})
+        mock_execute_relay.assert_called_once_with(
+            run_id=str(run.id),
+            text="Which license should I use?",
+            delete_progress=True,
+        )
+
+    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
+    def test_relay_message_skips_for_terminal_run(self, mock_execute_relay):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Done"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "skipped"})
+        mock_execute_relay.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
+    def test_relay_message_rejects_blank_text(self, mock_execute_relay):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "   "},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_execute_relay.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow", side_effect=Exception("temporal down"))
+    def test_relay_message_returns_503_on_enqueue_failure(self, mock_execute_relay):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "hello"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertIn("error", response.json())
+
     def test_append_log_to_existing_entries(self):
         task = self.create_task()
         run = TaskRun.objects.create(
@@ -1067,6 +1198,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/", "POST"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/command/", "POST"),
         ]
 

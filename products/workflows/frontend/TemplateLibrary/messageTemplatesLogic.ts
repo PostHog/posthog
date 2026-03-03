@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+// eslint-disable-next-line import/no-cycle
 import { EmailTemplate } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
 import { UserBasicType } from '~/types'
