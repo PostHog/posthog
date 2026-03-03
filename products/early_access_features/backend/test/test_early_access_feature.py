@@ -652,11 +652,9 @@ class TestEarlyAccessFeature(APIBaseTest):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "early_access_features",
-                "source": "web",
-                "$current_url": None,
-                "$session_id": None,
-                "was_impersonated": False,
             },
+            team=ANY,
+            request=ANY,
         )
 
     @patch("posthog.tasks.early_access_feature.send_events_for_early_access_feature_stage_change.delay")

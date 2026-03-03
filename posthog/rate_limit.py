@@ -370,7 +370,7 @@ class _AIThrottleBase(UserRateThrottle):
     def allow_request(self, request, view):
         request_allowed = super().allow_request(request, view)
         if not request_allowed and request.user.is_authenticated:
-            report_user_action(request.user, self.action_name)
+            report_user_action(request.user, self.action_name, request=request)
         return request_allowed
 
 
@@ -696,6 +696,16 @@ class MCPOAuthBurstThrottle(UserRateThrottle):
 class MCPOAuthSustainedThrottle(UserRateThrottle):
     scope = "mcp_oauth_sustained"
     rate = "50/hour"
+
+
+class MCPProxyBurstThrottle(UserRateThrottle):
+    scope = "mcp_proxy_burst"
+    rate = "60/minute"
+
+
+class MCPProxySustainedThrottle(UserRateThrottle):
+    scope = "mcp_proxy_sustained"
+    rate = "600/hour"
 
 
 class RestoreRequestThrottle(SimpleRateThrottle):
