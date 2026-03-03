@@ -488,23 +488,22 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         hasFunnelResults: [
-            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource],
-            (insightData, funnelsFilter, steps, histogramGraphData, querySource) => {
+            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource, s.stepNames],
+            (insightData, funnelsFilter, steps, histogramGraphData, querySource, stepNames) => {
                 if (!isFunnelsQueryOrLegacyFilter(insightData, querySource)) {
                     return false
                 }
 
-                if (
-                    funnelsFilter?.funnelVizType === FunnelVizType.Steps ||
-                    funnelsFilter?.funnelVizType === FunnelVizType.Flow ||
-                    !funnelsFilter?.funnelVizType
-                ) {
+                if (funnelsFilter?.funnelVizType === FunnelVizType.Steps || !funnelsFilter?.funnelVizType) {
                     return !!(steps && steps[0] && steps[0].count > -1)
                 } else if (funnelsFilter.funnelVizType === FunnelVizType.TimeToConvert) {
                     return (histogramGraphData?.length ?? 0) > 0
                 } else if (funnelsFilter.funnelVizType === FunnelVizType.Trends) {
                     return (steps?.length ?? 0) > 0 && !!steps?.[0]?.labels
+                } else if (funnelsFilter.funnelVizType === FunnelVizType.Flow && stepNames.length > 0) {
+                    return true
                 }
+
                 return false
             },
         ],
