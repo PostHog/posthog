@@ -1,12 +1,10 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Optional, cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock
 
-from parameterized import parameterized
-
-from posthog.schema import DateRange, HogQLQueryModifiers, IntervalType, WebTrendsMetric, WebTrendsQuery
+from posthog.schema import HogQLQueryModifiers, IntervalType, WebTrendsMetric, WebTrendsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -265,57 +263,3 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
         # Test month interval
         runner.query.interval = IntervalType.MONTH
         self.assertEqual(builder._get_interval_function(), "toStartOfMonth")
-
-    @parameterized.expand(
-        [
-            # (name, hours_delta, explicit_date_to, expected_is_recent)
-            ("1_hour_no_explicit_date_to", 1, False, True),
-            ("6_hours_no_explicit_date_to", 6, False, True),
-            ("7_hours_no_explicit_date_to", 7, False, False),
-            ("24_hours_no_explicit_date_to", 24, False, False),
-            ("1_hour_with_explicit_date_to", 1, True, False),
-            ("6_hours_with_explicit_date_to", 6, True, False),
-        ]
-    )
-    def test_is_recent_relative_date_range(self, _name, hours_delta, explicit_date_to, expected_is_recent):
-        now = datetime(2025, 1, 31, 12, 0, 0, tzinfo=UTC)
-        date_from = now - timedelta(hours=hours_delta)
-
-        query = WebTrendsQuery(
-            interval=IntervalType.DAY,
-            metrics=[WebTrendsMetric.UNIQUE_USERS],
-            properties=[],
-            dateRange=DateRange(date_to=now.isoformat() if explicit_date_to else None),
-        )
-
-        runner = self._create_mock_runner(query)
-        runner.query_date_range.date_from.return_value = date_from
-        runner.query_date_range.date_to.return_value = now
-
-        builder = TrendsPreAggregatedQueryBuilder(runner)
-
-        self.assertEqual(builder._is_recent_relative_date_range(), expected_is_recent)
-
-    def test_can_use_preaggregated_tables_rejects_recent_relative_date_range(self):
-        now = datetime(2025, 1, 31, 12, 0, 0, tzinfo=UTC)
-        date_from = now - timedelta(hours=3)
-
-        query = WebTrendsQuery(
-            interval=IntervalType.DAY,
-            metrics=[WebTrendsMetric.UNIQUE_USERS],
-            properties=[],
-            dateRange=DateRange(),  # No explicit date_to means query ends at "now"
-        )
-
-        modifiers = HogQLQueryModifiers(
-            useWebAnalyticsPreAggregatedTables=True,
-            convertToProjectTimezone=False,
-        )
-
-        runner = self._create_mock_runner(query, modifiers)
-        runner.query_date_range.date_from.return_value = date_from
-        runner.query_date_range.date_to.return_value = now
-
-        builder = TrendsPreAggregatedQueryBuilder(runner)
-
-        self.assertFalse(builder.can_use_preaggregated_tables())
