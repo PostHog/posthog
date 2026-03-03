@@ -9,6 +9,7 @@ from posthog.approvals.actions.registry import get_action
 from posthog.approvals.exceptions import (
     AlreadyVotedError,
     ApplyFailed,
+    InvalidIntent,
     InvalidStateError,
     PreconditionFailed,
     ReasonRequiredError,
@@ -77,7 +78,7 @@ def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
         change_request.state = ChangeRequestState.FAILED
         change_request.apply_error = f"Validation failed: {errors}"
         change_request.save()
-        raise ApplyFailed(f"Intent no longer valid: {errors}")
+        raise InvalidIntent(f"Intent no longer valid: {errors}")
 
     try:
         with transaction.atomic():
