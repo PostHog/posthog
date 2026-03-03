@@ -27,6 +27,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
 
     connect({
         values: [signalSourcesLogic, ['hasNoSources', 'isClusteringRunning']],
+        actions: [signalSourcesLogic, ['loadSourceConfigs']],
     }),
 
     actions({

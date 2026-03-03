@@ -13,7 +13,6 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import iconZendesk from 'public/services/zendesk.svg'
 
 import { signalSourcesLogic } from './signalSourcesLogic'
-import { inboxSceneLogic } from './inboxSceneLogic'
 import { SignalSourceConfigStatus } from './types'
 
 type SourceProps =
