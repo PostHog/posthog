@@ -28,6 +28,7 @@ import { processAllSnapshots } from './snapshot-processing/process-all-snapshots
 import { keyForSource } from './snapshot-processing/source-key'
 import { SnapshotStore } from './snapshot-store/SnapshotStore'
 import { snapshotDataLogic } from './snapshotDataLogic'
+import { convertSegmentKinds } from './utils/segment-kind-conversion'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 export interface SessionRecordingDataCoordinatorLogicProps {
@@ -298,27 +299,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 snapshotStore: SnapshotStore | null
             ): RecordingSegment[] => {
                 const segments = createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
-
-                return segments.map((segment) => {
-                    if (segment.kind === 'buffer') {
-                        // Store path: if all sources covering this buffer range are already
-                        // loaded, the data isn't pending — it's a gap with no events.
-                        // Guard on sourceCount > 0: an empty store has no entries, so
-                        // getUnloadedIndicesInRange returns [] which would falsely convert.
-                        if (snapshotStore && snapshotStore.sourceCount > 0) {
-                            const startIdx = snapshotStore.getSourceIndexForTimestamp(segment.startTimestamp)
-                            const endIdx = snapshotStore.getSourceIndexForTimestamp(segment.endTimestamp)
-                            if (snapshotStore.getUnloadedIndicesInRange(startIdx, endIdx).length === 0) {
-                                return { ...segment, kind: 'gap' as const }
-                            }
-                        }
-                        return {
-                            ...segment,
-                            isLoading: isLoadingSnapshots,
-                        }
-                    }
-                    return segment
-                })
+                return convertSegmentKinds(segments, snapshotStore, isLoadingSnapshots)
             },
         ],
 
