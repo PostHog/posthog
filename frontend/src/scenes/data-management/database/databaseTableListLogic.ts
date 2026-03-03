@@ -126,12 +126,9 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         dataWarehouseTables: [
-            (s) => [s.allTables, s.connectionId],
-            (allTables: DatabaseSchemaTable[], connectionId: string | null): DatabaseSchemaDataWarehouseTable[] => {
-                return allTables.filter(
-                    (n): n is DatabaseSchemaDataWarehouseTable =>
-                        n.type === 'data_warehouse' && (!connectionId || n.source?.id === connectionId)
-                )
+            (s) => [s.allTables],
+            (allTables: DatabaseSchemaTable[]): DatabaseSchemaDataWarehouseTable[] => {
+                return allTables.filter((n): n is DatabaseSchemaDataWarehouseTable => n.type === 'data_warehouse')
             },
             { resultEqualityCheck: objectsEqual },
         ],
