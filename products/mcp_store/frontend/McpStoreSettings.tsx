@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCheck, IconPlus, IconServer, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -71,7 +71,7 @@ function ConnectOAuthButton({
 export function McpStoreSettings(): JSX.Element {
     const { installations, installationsLoading, installedServerUrls, recommendedServers, serversLoading } =
         useValues(mcpStoreLogic)
-    const { uninstallServer, openAddCustomServerModal, openAddCustomServerModalWithDefaults } =
+    const { uninstallServer, toggleServerEnabled, openAddCustomServerModal, openAddCustomServerModalWithDefaults } =
         useActions(mcpStoreLogic)
     const { currentTeamId } = useValues(teamLogic)
     const [searchTerm, setSearchTerm] = useState('')
@@ -136,9 +136,13 @@ export function McpStoreSettings(): JSX.Element {
                                         Reconnect
                                     </LemonButton>
                                 ) : (
-                                    <LemonTag type="success" icon={<IconCheck />}>
-                                        Active
-                                    </LemonTag>
+                                    <LemonSwitch
+                                        checked={installation.is_enabled !== false}
+                                        onChange={(checked) =>
+                                            toggleServerEnabled({ id: installation.id, enabled: checked })
+                                        }
+                                        size="small"
+                                    />
                                 )}
                             </div>
                         ),

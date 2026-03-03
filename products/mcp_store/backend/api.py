@@ -97,6 +97,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "url",
             "description",
             "auth_type",
+            "is_enabled",
             "needs_reauth",
             "pending_oauth",
             "proxy_url",
@@ -161,6 +162,7 @@ class OAuthCallbackRequestSerializer(serializers.Serializer):
 class MCPServerInstallationUpdateSerializer(serializers.Serializer):
     display_name = serializers.CharField(required=False, allow_blank=True)
     description = serializers.CharField(required=False, allow_blank=True)
+    is_enabled = serializers.BooleanField(required=False)
 
 
 class OAuthRedirectResponseSerializer(serializers.Serializer):
@@ -188,7 +190,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     # Installations are user-scoped (safely_get_queryset filters by user), so
     # write actions like install/uninstall don't need project admin access.
     # Return project:read so AccessControlPermission requires "member" not "admin".
-    _USER_SCOPED_ACTIONS = {"destroy", "install_custom", "oauth_callback"}
+    _USER_SCOPED_ACTIONS = {"destroy", "partial_update", "install_custom", "oauth_callback"}
 
     def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
         if self.action in self._USER_SCOPED_ACTIONS:

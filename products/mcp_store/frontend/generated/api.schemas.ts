@@ -30,6 +30,7 @@ export interface MCPServerInstallationApi {
     url?: string
     description?: string
     auth_type?: MCPServerInstallationAuthTypeEnumApi
+    is_enabled?: boolean
     readonly needs_reauth: boolean
     readonly pending_oauth: boolean
     readonly proxy_url: string
@@ -50,6 +51,7 @@ export interface PaginatedMCPServerInstallationListApi {
 export interface PatchedMCPServerInstallationUpdateApi {
     display_name?: string
     description?: string
+    is_enabled?: boolean
 }
 
 /**

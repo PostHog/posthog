@@ -34,6 +34,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         openAddCustomServerModal: true,
         openAddCustomServerModalWithDefaults: (defaults: Partial<CustomServerFormValues>) => ({ defaults }),
         closeAddCustomServerModal: true,
+        toggleServerEnabled: ({ id, enabled }: { id: string; enabled: boolean }) => ({ id, enabled }),
     }),
 
     reducers({
@@ -53,6 +54,12 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 closeAddCustomServerModal: () => false,
             },
         ],
+        installations: {
+            toggleServerEnabled: (
+                state: MCPServerInstallationApi[],
+                { id, enabled }: { id: string; enabled: boolean }
+            ) => state.map((i) => (i.id === id ? { ...i, is_enabled: enabled } : i)),
+        },
     }),
 
     forms(({ actions }) => ({
@@ -168,6 +175,19 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        toggleServerEnabled: async ({ id, enabled }) => {
+            try {
+                await api.mcpServerInstallations.update(id, { is_enabled: enabled })
+            } catch (e: any) {
+                lemonToast.error(e.detail || 'Failed to update server')
+                // Revert by setting installations directly (doesn't trigger loading)
+                actions.loadInstallationsSuccess(
+                    values.installations.map((i: MCPServerInstallationApi) =>
+                        i.id === id ? { ...i, is_enabled: !enabled } : i
+                    )
+                )
+            }
+        },
         openAddCustomServerModalWithDefaults: ({ defaults }) => {
             actions.resetCustomServerForm()
             for (const [key, value] of Object.entries(defaults)) {
