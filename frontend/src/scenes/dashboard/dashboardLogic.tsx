@@ -1660,6 +1660,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const tilesStaleCount = sortedTilesToRefresh.length
             let tilesRefreshedCount = 0
+            let tilesRefreshedCachedCount = 0
             let tilesErroredCount = 0
             let tilesAbortedCount = 0
 
@@ -1720,6 +1721,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
                             actions.setRefreshStatus(insight.short_id)
                             tilesRefreshedCount++
+                            if (refreshedInsight.is_cached) {
+                                tilesRefreshedCachedCount++
+                            }
 
                             eventUsageLogic.actions.reportDashboardTileRefreshed(
                                 dashboardId,
@@ -1770,10 +1774,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         time_to_see_data_ms: Math.floor(performance.now() - startTime),
                         api_response_bytes: responseBytes,
                         insights_fetched: sortedTilesToRefresh.length,
-                        insights_fetched_cached: dashboard?.tiles.reduce(
-                            (acc, curr) => acc + (curr.is_cached ? 1 : 0),
-                            0
-                        ),
+                        insights_fetched_cached: tilesRefreshedCachedCount,
                         ...getJSHeapMemory(),
                     })
                 }
