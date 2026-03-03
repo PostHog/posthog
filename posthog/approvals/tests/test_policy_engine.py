@@ -1,9 +1,11 @@
 from collections.abc import Sequence
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.approvals.exceptions import PolicyEvaluationError
 from posthog.approvals.models import ApprovalPolicy
 from posthog.approvals.policies import PolicyEngine
 from posthog.models.organization import OrganizationMembership
@@ -277,6 +279,44 @@ class TestPolicySnapshotBypassFields(APIBaseTest):
 
         assert decision.policy_snapshot["bypass_org_membership_levels"] == []
         assert decision.policy_snapshot["bypass_roles"] == []
+
+
+class TestPolicyEvaluationErrorWrapping(APIBaseTest):
+    def test_evaluate_wraps_unexpected_errors_in_policy_evaluation_error(self):
+        policy = ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        engine = PolicyEngine()
+        context = {"organization": self.organization}
+        intent = {"gated_changes": {"rollout_percentage": [{"path": "groups[0]", "value": 80}]}}
+
+        with patch.object(engine, "_evaluate_policy", side_effect=RuntimeError("boom")):
+            with self.assertRaises(PolicyEvaluationError):
+                engine.evaluate(policy, self.user, intent, context)
+
+    def test_evaluate_does_not_double_wrap_policy_evaluation_error(self):
+        policy = ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        engine = PolicyEngine()
+        context = {"organization": self.organization}
+        intent = {"gated_changes": {"rollout_percentage": [{"path": "groups[0]", "value": 80}]}}
+
+        original_error = PolicyEvaluationError("already wrapped")
+        with patch.object(engine, "_evaluate_policy", side_effect=original_error):
+            with self.assertRaises(PolicyEvaluationError) as ctx:
+                engine.evaluate(policy, self.user, intent, context)
+            assert ctx.exception is original_error
 
 
 class TestBypassRolesValidation(APIBaseTest):
