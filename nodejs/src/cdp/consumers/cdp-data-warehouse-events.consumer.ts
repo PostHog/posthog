@@ -1,12 +1,12 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 
-import { convertDataWarehouseEventToHogFunctionInvocationGlobals } from '../../cdp/utils'
-import { PluginsServerConfig } from '../../types'
+import { PluginsServerConfig, Team } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { CdpDataWarehouseEventSchema } from '../schema'
+import { CdpDataWarehouseEvent, CdpDataWarehouseEventSchema } from '../schema'
 import { HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpEventsConsumer } from './cdp-events.consumer'
@@ -69,4 +69,32 @@ export class CdpDatawarehouseEventsConsumer extends CdpEventsConsumer {
             return events
         })
     }
+}
+
+function convertDataWarehouseEventToHogFunctionInvocationGlobals(
+    event: CdpDataWarehouseEvent,
+    team: Team,
+    siteUrl: string
+): HogFunctionInvocationGlobals {
+    const data = event.properties
+    const projectUrl = `${siteUrl}/project/${team.id}`
+
+    const context: HogFunctionInvocationGlobals = {
+        project: {
+            id: team.id,
+            name: team.name,
+            url: projectUrl,
+        },
+        event: {
+            uuid: 'data-warehouse-table-uuid-do-not-use',
+            event: 'data-warehouse-table-event-do-not-use',
+            elements_chain: '', // Not applicable but left here for compatibility
+            distinct_id: 'data-warehouse-table-distinct-id-do-not-use',
+            properties: data,
+            timestamp: DateTime.now().toISO(),
+            url: '',
+        },
+    }
+
+    return context
 }
