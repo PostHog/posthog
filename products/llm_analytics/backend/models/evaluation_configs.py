@@ -7,6 +7,7 @@ class EvaluationType(models.TextChoices):
     """How the evaluation is performed"""
 
     LLM_JUDGE = "llm_judge", "LLM as a judge"
+    HOG = "hog", "Hog"
 
 
 class OutputType(models.TextChoices):

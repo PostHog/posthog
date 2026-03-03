@@ -1,14 +1,11 @@
-import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { Properties } from '~/plugin-scaffold'
 
-import { Element, Person, PersonMode, PreIngestionEvent, RawKafkaEvent, TimestampFormat } from '../../types'
-import { safeClickhouseString } from '../../utils/db/utils'
+import { Element, Person, PersonMode, PreIngestionEvent, ProcessedEvent } from '../../types'
 import { elementsToString, extractElements } from '../../utils/elements-chain'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { castTimestampOrNow, castTimestampToClickhouseFormat } from '../../utils/utils'
 import { MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 
 const elementsOrElementsChainCounter = new Counter({
@@ -49,7 +46,7 @@ export function createEvent(
     processPerson: boolean,
     historicalMigration: boolean,
     capturedAt: Date | null
-): RawKafkaEvent {
+): ProcessedEvent {
     const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
     let elementsChain = ''
@@ -65,14 +62,14 @@ export function createEvent(
         })
     }
 
-    let eventPersonProperties = '{}'
+    let eventPersonProperties: Record<string, unknown> = {}
     if (processPerson) {
-        eventPersonProperties = JSON.stringify({
+        eventPersonProperties = {
             ...person.properties,
             // For consistency, we'd like events to contain the properties that they set, even if those were changed
             // before the event is ingested.
             ...(properties.$set || {}),
-        })
+        }
     } else {
         // TODO: Move this into `normalizeEventStep` where it belongs, but the code structure
         // and tests demand this for now.
@@ -89,27 +86,24 @@ export function createEvent(
         personMode = 'propertyless'
     }
 
-    const rawEvent: RawKafkaEvent = {
+    const processedEvent: ProcessedEvent = {
         uuid,
-        event: safeClickhouseString(event),
-        properties: JSON.stringify(properties ?? {}),
-        timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
+        event,
+        properties: properties ?? {},
+        timestamp,
         team_id: teamId,
         project_id: projectId,
-        distinct_id: safeClickhouseString(distinctId),
-        elements_chain: safeClickhouseString(elementsChain),
-        created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-        captured_at:
-            capturedAt !== null
-                ? castTimestampToClickhouseFormat(DateTime.fromJSDate(capturedAt), TimestampFormat.ClickHouse)
-                : null,
+        distinct_id: distinctId,
+        elements_chain: elementsChain,
+        created_at: null,
+        captured_at: capturedAt,
         person_id: person.uuid,
         person_properties: eventPersonProperties,
-        person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
+        person_created_at: person.created_at,
         person_mode: personMode,
         // Only include historical_migration when true to avoid bloating messages
         ...(historicalMigration ? { historical_migration: true } : {}),
     }
 
-    return rawEvent
+    return processedEvent
 }

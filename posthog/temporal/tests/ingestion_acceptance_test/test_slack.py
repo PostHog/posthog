@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.temporal.ingestion_acceptance_test.config import Config
 from posthog.temporal.ingestion_acceptance_test.results import TestResult, TestSuiteResult
-from posthog.temporal.ingestion_acceptance_test.slack import send_slack_notification
+from posthog.temporal.ingestion_acceptance_test.slack import send_slack_notification, send_slack_timeout_notification
 
 
 @pytest.fixture
@@ -181,4 +181,54 @@ class TestSendSlackNotification:
 
         send_slack_notification(config_no_webhook, failing_result)
 
+        mock_post.assert_not_called()
+
+
+class TestSendSlackTimeoutNotification:
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.external_requests.post")
+    def test_posts_timeout_message_to_webhook(self, mock_post: MagicMock, config: Config) -> None:
+        mock_post.return_value.raise_for_status = MagicMock()
+
+        result = send_slack_timeout_notification(config)
+
+        assert result is True
+        mock_post.assert_called_once()
+        url = mock_post.call_args[0][0]
+        assert url == "https://hooks.slack.com/services/T00/B00/XXX"
+
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.external_requests.post")
+    def test_payload_contains_timeout_header(self, mock_post: MagicMock, config: Config) -> None:
+        mock_post.return_value.raise_for_status = MagicMock()
+
+        send_slack_timeout_notification(config)
+
+        payload = mock_post.call_args[1]["json"]
+        header_text = payload["blocks"][0]["text"]["text"]
+        assert "Timed Out" in header_text
+
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.external_requests.post")
+    def test_payload_contains_environment_and_timeout_info(self, mock_post: MagicMock, config: Config) -> None:
+        mock_post.return_value.raise_for_status = MagicMock()
+
+        send_slack_timeout_notification(config)
+
+        payload = mock_post.call_args[1]["json"]
+        context_text = payload["blocks"][1]["elements"][0]["text"]
+        assert "test.posthog.com" in context_text
+        assert "12345" in context_text
+        assert "600s" in context_text
+
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.external_requests.post")
+    def test_does_nothing_when_no_webhook_url(self, mock_post: MagicMock) -> None:
+        config_no_webhook = Config(
+            api_host="https://test.posthog.com",
+            project_api_key="phc_test_key",
+            project_id="12345",
+            personal_api_key="phx_personal_key",
+            slack_webhook_url=None,
+        )
+
+        result = send_slack_timeout_notification(config_no_webhook)
+
+        assert result is True
         mock_post.assert_not_called()
