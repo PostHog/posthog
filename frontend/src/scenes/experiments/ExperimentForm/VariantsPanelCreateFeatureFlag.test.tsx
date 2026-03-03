@@ -301,7 +301,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             renderComponent(unevenExperiment)
 
-            const balanceButton = screen.getByRole('button', { name: /normalize variant rollout/i })
+            const balanceButton = screen.getByTestId('distribute-variants-equally')
             await userEvent.click(balanceButton)
 
             expect(mockOnChange).toHaveBeenCalledWith({
