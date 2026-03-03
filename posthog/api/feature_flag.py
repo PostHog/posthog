@@ -146,7 +146,7 @@ def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     """Find all active flags that depend on the given flag via flag-type filter properties."""
     return list(
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-        FeatureFlag.objects.filter(team=flag_to_check.team, deleted=False, active=True)
+        FeatureFlag.objects.filter(team=flag_to_check.team, active=True)
         .exclude(id=flag_to_check.id)
         .extra(
             where=[
@@ -186,7 +186,7 @@ def find_dependent_flags_batch(
 
     dependent_flags = list(
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-        FeatureFlag.objects.filter(team=team, deleted=False, active=True)
+        FeatureFlag.objects.filter(team=team, active=True)
         .exclude(id__in=flag_ids)
         .extra(
             where=[
@@ -272,7 +272,7 @@ def check_flag_limits_for_team(
         return
 
     count_limit = settings.MAX_FEATURE_FLAGS_PER_TEAM
-    flag_count = FeatureFlag.objects.filter(team_id=team_id, deleted=False).count()
+    flag_count = FeatureFlag.objects.filter(team_id=team_id).count()
 
     if flag_count >= count_limit:
         raise serializers.ValidationError(
@@ -732,7 +732,7 @@ class FeatureFlagSerializer(
             exclude_kwargs = {"pk": cast(FeatureFlag, self.instance).pk}
 
         if (
-            FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"], deleted=False)
+            FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"])
             .exclude(**exclude_kwargs)
             .exists()
         ):
@@ -1015,7 +1015,7 @@ class FeatureFlagSerializer(
             )
 
         try:
-            flag = FeatureFlag.objects.get(id=flag_id, team__project_id=self.context["project_id"], deleted=False)
+            flag = FeatureFlag.objects.get(id=flag_id, team__project_id=self.context["project_id"])
 
             # Check if the referenced flag is active
             if not flag.active:
@@ -1962,7 +1962,7 @@ class FeatureFlagViewSet(
         ).values_list("internal_targeting_flag_id", flat=True)
 
         feature_flags = list(
-            FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False)
+            FeatureFlag.objects.filter(team__project_id=self.project_id)
             .exclude(Q(id__in=survey_flag_ids))
             .exclude(Q(id__in=product_tour_internal_targeting_flags))
             .order_by("-created_at")
