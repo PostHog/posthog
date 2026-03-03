@@ -37,9 +37,6 @@ export const cohortsListResponseResultsItemNameMax = 400
 
 export const cohortsListResponseResultsItemDescriptionMax = 1000
 
-export const cohortsListResponseResultsItemFiltersOnePropertiesValuesItemOneNegationDefault = false
-export const cohortsListResponseResultsItemFiltersOnePropertiesValuesItemTwoNegationDefault = false
-export const cohortsListResponseResultsItemFiltersOnePropertiesValuesItemThreeNegationDefault = false
 export const cohortsListResponseResultsItemCreatedByOneDistinctIdMax = 200
 
 export const cohortsListResponseResultsItemCreatedByOneFirstNameMax = 150
@@ -47,8 +44,6 @@ export const cohortsListResponseResultsItemCreatedByOneFirstNameMax = 150
 export const cohortsListResponseResultsItemCreatedByOneLastNameMax = 150
 
 export const cohortsListResponseResultsItemCreatedByOneEmailMax = 254
-
-export const cohortsListResponseResultsItemCreateStaticPersonIdsDefault = []
 
 export const CohortsListResponse = zod.object({
     count: zod.number(),
@@ -62,90 +57,11 @@ export const CohortsListResponse = zod.object({
             groups: zod.unknown().optional(),
             deleted: zod.boolean().optional(),
             filters: zod
-                .object({
-                    properties: zod
-                        .object({
-                            type: zod.enum(['AND', 'OR']),
-                            values: zod.array(
-                                zod.union([
-                                    zod.object({
-                                        bytecode: zod.array(zod.unknown()).nullish(),
-                                        bytecode_error: zod.string().nullish(),
-                                        conditionHash: zod.string().nullish(),
-                                        type: zod.enum(['behavioral']),
-                                        key: zod.union([zod.string(), zod.number()]),
-                                        value: zod.string(),
-                                        event_type: zod.string(),
-                                        time_value: zod.number().nullish(),
-                                        time_interval: zod.string().nullish(),
-                                        negation: zod
-                                            .boolean()
-                                            .default(
-                                                cohortsListResponseResultsItemFiltersOnePropertiesValuesItemOneNegationDefault
-                                            ),
-                                        operator: zod.string().nullish(),
-                                        operator_value: zod.number().nullish(),
-                                        seq_time_interval: zod.string().nullish(),
-                                        seq_time_value: zod.number().nullish(),
-                                        seq_event: zod.union([zod.string(), zod.number()]).nullish(),
-                                        seq_event_type: zod.string().nullish(),
-                                        total_periods: zod.number().nullish(),
-                                        min_periods: zod.number().nullish(),
-                                        event_filters: zod
-                                            .array(
-                                                zod.union([
-                                                    zod.object({
-                                                        type: zod.enum(['event', 'element']),
-                                                        key: zod.string(),
-                                                        value: zod.unknown(),
-                                                        operator: zod.string().nullish(),
-                                                    }),
-                                                    zod.object({
-                                                        type: zod.enum(['hogql']),
-                                                        key: zod.string(),
-                                                        value: zod.unknown().nullish(),
-                                                    }),
-                                                ])
-                                            )
-                                            .nullish(),
-                                        explicit_datetime: zod.string().nullish(),
-                                    }),
-                                    zod.object({
-                                        bytecode: zod.array(zod.unknown()).nullish(),
-                                        bytecode_error: zod.string().nullish(),
-                                        conditionHash: zod.string().nullish(),
-                                        type: zod.enum(['cohort']),
-                                        key: zod.enum(['id']),
-                                        value: zod.number(),
-                                        negation: zod
-                                            .boolean()
-                                            .default(
-                                                cohortsListResponseResultsItemFiltersOnePropertiesValuesItemTwoNegationDefault
-                                            ),
-                                    }),
-                                    zod.object({
-                                        bytecode: zod.array(zod.unknown()).nullish(),
-                                        bytecode_error: zod.string().nullish(),
-                                        conditionHash: zod.string().nullish(),
-                                        type: zod.enum(['person']),
-                                        key: zod.string(),
-                                        operator: zod.string().nullish(),
-                                        value: zod.unknown().nullish(),
-                                        negation: zod
-                                            .boolean()
-                                            .default(
-                                                cohortsListResponseResultsItemFiltersOnePropertiesValuesItemThreeNegationDefault
-                                            ),
-                                    }),
-                                    zod.unknown(),
-                                ])
-                            ),
-                        })
-                        .describe(
-                            'AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
-                        ),
-                })
-                .nullish(),
+                .unknown()
+                .nullish()
+                .describe(
+                    'Filters for the cohort. Examples:\n\n        # Behavioral filter (performed event)\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "OR",\n                    "values": [{\n                        "key": "address page viewed",\n                        "type": "behavioral",\n                        "value": "performed_event",\n                        "negation": false,\n                        "event_type": "events",\n                        "time_value": "30",\n                        "time_interval": "day"\n                    }]\n                }]\n            }\n        }\n\n        # Person property filter\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "AND",\n                    "values": [{\n                        "key": "promoCodes",\n                        "type": "person",\n                        "value": ["1234567890"],\n                        "negation": false,\n                        "operator": "exact"\n                    }]\n                }]\n            }\n        }\n\n        # Cohort filter\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "AND",\n                    "values": [{\n                        "key": "id",\n                        "type": "cohort",\n                        "value": 8814,\n                        "negation": false\n                    }]\n                }]\n            }\n        }'
+                ),
             query: zod.unknown().nullish(),
             version: zod.number().nullable(),
             pending_version: zod.number().nullable(),
@@ -202,9 +118,7 @@ export const CohortsListResponse = zod.object({
                 ),
             experiment_set: zod.array(zod.number()),
             _create_in_folder: zod.string().optional(),
-            _create_static_person_ids: zod
-                .array(zod.string())
-                .default(cohortsListResponseResultsItemCreateStaticPersonIdsDefault),
+            _create_static_person_ids: zod.array(zod.string()).optional(),
         })
     ),
 })
@@ -221,95 +135,17 @@ export const cohortsCreateBodyNameMax = 400
 
 export const cohortsCreateBodyDescriptionMax = 1000
 
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
-export const cohortsCreateBodyCreateStaticPersonIdsDefault = []
-
 export const CohortsCreateBody = zod.object({
     name: zod.string().max(cohortsCreateBodyNameMax).nullish(),
     description: zod.string().max(cohortsCreateBodyDescriptionMax).optional(),
     groups: zod.unknown().optional(),
     deleted: zod.boolean().optional(),
     filters: zod
-        .object({
-            properties: zod
-                .object({
-                    type: zod.enum(['AND', 'OR']),
-                    values: zod.array(
-                        zod.union([
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['behavioral']),
-                                key: zod.union([zod.string(), zod.number()]),
-                                value: zod.string(),
-                                event_type: zod.string(),
-                                time_value: zod.number().nullish(),
-                                time_interval: zod.string().nullish(),
-                                negation: zod
-                                    .boolean()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneNegationDefault),
-                                operator: zod.string().nullish(),
-                                operator_value: zod.number().nullish(),
-                                seq_time_interval: zod.string().nullish(),
-                                seq_time_value: zod.number().nullish(),
-                                seq_event: zod.union([zod.string(), zod.number()]).nullish(),
-                                seq_event_type: zod.string().nullish(),
-                                total_periods: zod.number().nullish(),
-                                min_periods: zod.number().nullish(),
-                                event_filters: zod
-                                    .array(
-                                        zod.union([
-                                            zod.object({
-                                                type: zod.enum(['event', 'element']),
-                                                key: zod.string(),
-                                                value: zod.unknown(),
-                                                operator: zod.string().nullish(),
-                                            }),
-                                            zod.object({
-                                                type: zod.enum(['hogql']),
-                                                key: zod.string(),
-                                                value: zod.unknown().nullish(),
-                                            }),
-                                        ])
-                                    )
-                                    .nullish(),
-                                explicit_datetime: zod.string().nullish(),
-                            }),
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['cohort']),
-                                key: zod.enum(['id']),
-                                value: zod.number(),
-                                negation: zod
-                                    .boolean()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemTwoNegationDefault),
-                            }),
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['person']),
-                                key: zod.string(),
-                                operator: zod.string().nullish(),
-                                value: zod.unknown().nullish(),
-                                negation: zod
-                                    .boolean()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemThreeNegationDefault),
-                            }),
-                            zod.unknown(),
-                        ])
-                    ),
-                })
-                .describe(
-                    'AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
-                ),
-        })
-        .nullish(),
+        .unknown()
+        .nullish()
+        .describe(
+            'Filters for the cohort. Examples:\n\n        # Behavioral filter (performed event)\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "OR",\n                    "values": [{\n                        "key": "address page viewed",\n                        "type": "behavioral",\n                        "value": "performed_event",\n                        "negation": false,\n                        "event_type": "events",\n                        "time_value": "30",\n                        "time_interval": "day"\n                    }]\n                }]\n            }\n        }\n\n        # Person property filter\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "AND",\n                    "values": [{\n                        "key": "promoCodes",\n                        "type": "person",\n                        "value": ["1234567890"],\n                        "negation": false,\n                        "operator": "exact"\n                    }]\n                }]\n            }\n        }\n\n        # Cohort filter\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "AND",\n                    "values": [{\n                        "key": "id",\n                        "type": "cohort",\n                        "value": 8814,\n                        "negation": false\n                    }]\n                }]\n            }\n        }'
+        ),
     query: zod.unknown().nullish(),
     is_static: zod.boolean().optional(),
     cohort_type: zod
@@ -327,7 +163,7 @@ export const CohortsCreateBody = zod.object({
             'Type of cohort based on filter complexity\n\n* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical'
         ),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).default(cohortsCreateBodyCreateStaticPersonIdsDefault),
+    _create_static_person_ids: zod.array(zod.string()).optional(),
 })
 
 export const CohortsRetrieveParams = zod.object({
@@ -343,9 +179,6 @@ export const cohortsRetrieveResponseNameMax = 400
 
 export const cohortsRetrieveResponseDescriptionMax = 1000
 
-export const cohortsRetrieveResponseFiltersOnePropertiesValuesItemOneNegationDefault = false
-export const cohortsRetrieveResponseFiltersOnePropertiesValuesItemTwoNegationDefault = false
-export const cohortsRetrieveResponseFiltersOnePropertiesValuesItemThreeNegationDefault = false
 export const cohortsRetrieveResponseCreatedByOneDistinctIdMax = 200
 
 export const cohortsRetrieveResponseCreatedByOneFirstNameMax = 150
@@ -354,8 +187,6 @@ export const cohortsRetrieveResponseCreatedByOneLastNameMax = 150
 
 export const cohortsRetrieveResponseCreatedByOneEmailMax = 254
 
-export const cohortsRetrieveResponseCreateStaticPersonIdsDefault = []
-
 export const CohortsRetrieveResponse = zod.object({
     id: zod.number(),
     name: zod.string().max(cohortsRetrieveResponseNameMax).nullish(),
@@ -363,84 +194,11 @@ export const CohortsRetrieveResponse = zod.object({
     groups: zod.unknown().optional(),
     deleted: zod.boolean().optional(),
     filters: zod
-        .object({
-            properties: zod
-                .object({
-                    type: zod.enum(['AND', 'OR']),
-                    values: zod.array(
-                        zod.union([
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['behavioral']),
-                                key: zod.union([zod.string(), zod.number()]),
-                                value: zod.string(),
-                                event_type: zod.string(),
-                                time_value: zod.number().nullish(),
-                                time_interval: zod.string().nullish(),
-                                negation: zod
-                                    .boolean()
-                                    .default(cohortsRetrieveResponseFiltersOnePropertiesValuesItemOneNegationDefault),
-                                operator: zod.string().nullish(),
-                                operator_value: zod.number().nullish(),
-                                seq_time_interval: zod.string().nullish(),
-                                seq_time_value: zod.number().nullish(),
-                                seq_event: zod.union([zod.string(), zod.number()]).nullish(),
-                                seq_event_type: zod.string().nullish(),
-                                total_periods: zod.number().nullish(),
-                                min_periods: zod.number().nullish(),
-                                event_filters: zod
-                                    .array(
-                                        zod.union([
-                                            zod.object({
-                                                type: zod.enum(['event', 'element']),
-                                                key: zod.string(),
-                                                value: zod.unknown(),
-                                                operator: zod.string().nullish(),
-                                            }),
-                                            zod.object({
-                                                type: zod.enum(['hogql']),
-                                                key: zod.string(),
-                                                value: zod.unknown().nullish(),
-                                            }),
-                                        ])
-                                    )
-                                    .nullish(),
-                                explicit_datetime: zod.string().nullish(),
-                            }),
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['cohort']),
-                                key: zod.enum(['id']),
-                                value: zod.number(),
-                                negation: zod
-                                    .boolean()
-                                    .default(cohortsRetrieveResponseFiltersOnePropertiesValuesItemTwoNegationDefault),
-                            }),
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['person']),
-                                key: zod.string(),
-                                operator: zod.string().nullish(),
-                                value: zod.unknown().nullish(),
-                                negation: zod
-                                    .boolean()
-                                    .default(cohortsRetrieveResponseFiltersOnePropertiesValuesItemThreeNegationDefault),
-                            }),
-                            zod.unknown(),
-                        ])
-                    ),
-                })
-                .describe(
-                    'AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
-                ),
-        })
-        .nullish(),
+        .unknown()
+        .nullish()
+        .describe(
+            'Filters for the cohort. Examples:\n\n        # Behavioral filter (performed event)\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "OR",\n                    "values": [{\n                        "key": "address page viewed",\n                        "type": "behavioral",\n                        "value": "performed_event",\n                        "negation": false,\n                        "event_type": "events",\n                        "time_value": "30",\n                        "time_interval": "day"\n                    }]\n                }]\n            }\n        }\n\n        # Person property filter\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "AND",\n                    "values": [{\n                        "key": "promoCodes",\n                        "type": "person",\n                        "value": ["1234567890"],\n                        "negation": false,\n                        "operator": "exact"\n                    }]\n                }]\n            }\n        }\n\n        # Cohort filter\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "AND",\n                    "values": [{\n                        "key": "id",\n                        "type": "cohort",\n                        "value": 8814,\n                        "negation": false\n                    }]\n                }]\n            }\n        }'
+        ),
     query: zod.unknown().nullish(),
     version: zod.number().nullable(),
     pending_version: zod.number().nullable(),
@@ -488,7 +246,7 @@ export const CohortsRetrieveResponse = zod.object({
         ),
     experiment_set: zod.array(zod.number()),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).default(cohortsRetrieveResponseCreateStaticPersonIdsDefault),
+    _create_static_person_ids: zod.array(zod.string()).optional(),
 })
 
 export const CohortsUpdateParams = zod.object({
@@ -504,95 +262,17 @@ export const cohortsUpdateBodyNameMax = 400
 
 export const cohortsUpdateBodyDescriptionMax = 1000
 
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
-export const cohortsUpdateBodyCreateStaticPersonIdsDefault = []
-
 export const CohortsUpdateBody = zod.object({
     name: zod.string().max(cohortsUpdateBodyNameMax).nullish(),
     description: zod.string().max(cohortsUpdateBodyDescriptionMax).optional(),
     groups: zod.unknown().optional(),
     deleted: zod.boolean().optional(),
     filters: zod
-        .object({
-            properties: zod
-                .object({
-                    type: zod.enum(['AND', 'OR']),
-                    values: zod.array(
-                        zod.union([
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['behavioral']),
-                                key: zod.union([zod.string(), zod.number()]),
-                                value: zod.string(),
-                                event_type: zod.string(),
-                                time_value: zod.number().nullish(),
-                                time_interval: zod.string().nullish(),
-                                negation: zod
-                                    .boolean()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault),
-                                operator: zod.string().nullish(),
-                                operator_value: zod.number().nullish(),
-                                seq_time_interval: zod.string().nullish(),
-                                seq_time_value: zod.number().nullish(),
-                                seq_event: zod.union([zod.string(), zod.number()]).nullish(),
-                                seq_event_type: zod.string().nullish(),
-                                total_periods: zod.number().nullish(),
-                                min_periods: zod.number().nullish(),
-                                event_filters: zod
-                                    .array(
-                                        zod.union([
-                                            zod.object({
-                                                type: zod.enum(['event', 'element']),
-                                                key: zod.string(),
-                                                value: zod.unknown(),
-                                                operator: zod.string().nullish(),
-                                            }),
-                                            zod.object({
-                                                type: zod.enum(['hogql']),
-                                                key: zod.string(),
-                                                value: zod.unknown().nullish(),
-                                            }),
-                                        ])
-                                    )
-                                    .nullish(),
-                                explicit_datetime: zod.string().nullish(),
-                            }),
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['cohort']),
-                                key: zod.enum(['id']),
-                                value: zod.number(),
-                                negation: zod
-                                    .boolean()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault),
-                            }),
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['person']),
-                                key: zod.string(),
-                                operator: zod.string().nullish(),
-                                value: zod.unknown().nullish(),
-                                negation: zod
-                                    .boolean()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault),
-                            }),
-                            zod.unknown(),
-                        ])
-                    ),
-                })
-                .describe(
-                    'AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
-                ),
-        })
-        .nullish(),
+        .unknown()
+        .nullish()
+        .describe(
+            'Filters for the cohort. Examples:\n\n        # Behavioral filter (performed event)\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "OR",\n                    "values": [{\n                        "key": "address page viewed",\n                        "type": "behavioral",\n                        "value": "performed_event",\n                        "negation": false,\n                        "event_type": "events",\n                        "time_value": "30",\n                        "time_interval": "day"\n                    }]\n                }]\n            }\n        }\n\n        # Person property filter\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "AND",\n                    "values": [{\n                        "key": "promoCodes",\n                        "type": "person",\n                        "value": ["1234567890"],\n                        "negation": false,\n                        "operator": "exact"\n                    }]\n                }]\n            }\n        }\n\n        # Cohort filter\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "AND",\n                    "values": [{\n                        "key": "id",\n                        "type": "cohort",\n                        "value": 8814,\n                        "negation": false\n                    }]\n                }]\n            }\n        }'
+        ),
     query: zod.unknown().nullish(),
     is_static: zod.boolean().optional(),
     cohort_type: zod
@@ -610,16 +290,13 @@ export const CohortsUpdateBody = zod.object({
             'Type of cohort based on filter complexity\n\n* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical'
         ),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).default(cohortsUpdateBodyCreateStaticPersonIdsDefault),
+    _create_static_person_ids: zod.array(zod.string()).optional(),
 })
 
 export const cohortsUpdateResponseNameMax = 400
 
 export const cohortsUpdateResponseDescriptionMax = 1000
 
-export const cohortsUpdateResponseFiltersOnePropertiesValuesItemOneNegationDefault = false
-export const cohortsUpdateResponseFiltersOnePropertiesValuesItemTwoNegationDefault = false
-export const cohortsUpdateResponseFiltersOnePropertiesValuesItemThreeNegationDefault = false
 export const cohortsUpdateResponseCreatedByOneDistinctIdMax = 200
 
 export const cohortsUpdateResponseCreatedByOneFirstNameMax = 150
@@ -628,8 +305,6 @@ export const cohortsUpdateResponseCreatedByOneLastNameMax = 150
 
 export const cohortsUpdateResponseCreatedByOneEmailMax = 254
 
-export const cohortsUpdateResponseCreateStaticPersonIdsDefault = []
-
 export const CohortsUpdateResponse = zod.object({
     id: zod.number(),
     name: zod.string().max(cohortsUpdateResponseNameMax).nullish(),
@@ -637,84 +312,11 @@ export const CohortsUpdateResponse = zod.object({
     groups: zod.unknown().optional(),
     deleted: zod.boolean().optional(),
     filters: zod
-        .object({
-            properties: zod
-                .object({
-                    type: zod.enum(['AND', 'OR']),
-                    values: zod.array(
-                        zod.union([
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['behavioral']),
-                                key: zod.union([zod.string(), zod.number()]),
-                                value: zod.string(),
-                                event_type: zod.string(),
-                                time_value: zod.number().nullish(),
-                                time_interval: zod.string().nullish(),
-                                negation: zod
-                                    .boolean()
-                                    .default(cohortsUpdateResponseFiltersOnePropertiesValuesItemOneNegationDefault),
-                                operator: zod.string().nullish(),
-                                operator_value: zod.number().nullish(),
-                                seq_time_interval: zod.string().nullish(),
-                                seq_time_value: zod.number().nullish(),
-                                seq_event: zod.union([zod.string(), zod.number()]).nullish(),
-                                seq_event_type: zod.string().nullish(),
-                                total_periods: zod.number().nullish(),
-                                min_periods: zod.number().nullish(),
-                                event_filters: zod
-                                    .array(
-                                        zod.union([
-                                            zod.object({
-                                                type: zod.enum(['event', 'element']),
-                                                key: zod.string(),
-                                                value: zod.unknown(),
-                                                operator: zod.string().nullish(),
-                                            }),
-                                            zod.object({
-                                                type: zod.enum(['hogql']),
-                                                key: zod.string(),
-                                                value: zod.unknown().nullish(),
-                                            }),
-                                        ])
-                                    )
-                                    .nullish(),
-                                explicit_datetime: zod.string().nullish(),
-                            }),
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['cohort']),
-                                key: zod.enum(['id']),
-                                value: zod.number(),
-                                negation: zod
-                                    .boolean()
-                                    .default(cohortsUpdateResponseFiltersOnePropertiesValuesItemTwoNegationDefault),
-                            }),
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['person']),
-                                key: zod.string(),
-                                operator: zod.string().nullish(),
-                                value: zod.unknown().nullish(),
-                                negation: zod
-                                    .boolean()
-                                    .default(cohortsUpdateResponseFiltersOnePropertiesValuesItemThreeNegationDefault),
-                            }),
-                            zod.unknown(),
-                        ])
-                    ),
-                })
-                .describe(
-                    'AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
-                ),
-        })
-        .nullish(),
+        .unknown()
+        .nullish()
+        .describe(
+            'Filters for the cohort. Examples:\n\n        # Behavioral filter (performed event)\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "OR",\n                    "values": [{\n                        "key": "address page viewed",\n                        "type": "behavioral",\n                        "value": "performed_event",\n                        "negation": false,\n                        "event_type": "events",\n                        "time_value": "30",\n                        "time_interval": "day"\n                    }]\n                }]\n            }\n        }\n\n        # Person property filter\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "AND",\n                    "values": [{\n                        "key": "promoCodes",\n                        "type": "person",\n                        "value": ["1234567890"],\n                        "negation": false,\n                        "operator": "exact"\n                    }]\n                }]\n            }\n        }\n\n        # Cohort filter\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "AND",\n                    "values": [{\n                        "key": "id",\n                        "type": "cohort",\n                        "value": 8814,\n                        "negation": false\n                    }]\n                }]\n            }\n        }'
+        ),
     query: zod.unknown().nullish(),
     version: zod.number().nullable(),
     pending_version: zod.number().nullable(),
@@ -762,7 +364,7 @@ export const CohortsUpdateResponse = zod.object({
         ),
     experiment_set: zod.array(zod.number()),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).default(cohortsUpdateResponseCreateStaticPersonIdsDefault),
+    _create_static_person_ids: zod.array(zod.string()).optional(),
 })
 
 export const CohortsPartialUpdateParams = zod.object({
@@ -778,97 +380,17 @@ export const cohortsPartialUpdateBodyNameMax = 400
 
 export const cohortsPartialUpdateBodyDescriptionMax = 1000
 
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
-export const cohortsPartialUpdateBodyCreateStaticPersonIdsDefault = []
-
 export const CohortsPartialUpdateBody = zod.object({
     name: zod.string().max(cohortsPartialUpdateBodyNameMax).nullish(),
     description: zod.string().max(cohortsPartialUpdateBodyDescriptionMax).optional(),
     groups: zod.unknown().optional(),
     deleted: zod.boolean().optional(),
     filters: zod
-        .object({
-            properties: zod
-                .object({
-                    type: zod.enum(['AND', 'OR']),
-                    values: zod.array(
-                        zod.union([
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['behavioral']),
-                                key: zod.union([zod.string(), zod.number()]),
-                                value: zod.string(),
-                                event_type: zod.string(),
-                                time_value: zod.number().nullish(),
-                                time_interval: zod.string().nullish(),
-                                negation: zod
-                                    .boolean()
-                                    .default(cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault),
-                                operator: zod.string().nullish(),
-                                operator_value: zod.number().nullish(),
-                                seq_time_interval: zod.string().nullish(),
-                                seq_time_value: zod.number().nullish(),
-                                seq_event: zod.union([zod.string(), zod.number()]).nullish(),
-                                seq_event_type: zod.string().nullish(),
-                                total_periods: zod.number().nullish(),
-                                min_periods: zod.number().nullish(),
-                                event_filters: zod
-                                    .array(
-                                        zod.union([
-                                            zod.object({
-                                                type: zod.enum(['event', 'element']),
-                                                key: zod.string(),
-                                                value: zod.unknown(),
-                                                operator: zod.string().nullish(),
-                                            }),
-                                            zod.object({
-                                                type: zod.enum(['hogql']),
-                                                key: zod.string(),
-                                                value: zod.unknown().nullish(),
-                                            }),
-                                        ])
-                                    )
-                                    .nullish(),
-                                explicit_datetime: zod.string().nullish(),
-                            }),
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['cohort']),
-                                key: zod.enum(['id']),
-                                value: zod.number(),
-                                negation: zod
-                                    .boolean()
-                                    .default(cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault),
-                            }),
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['person']),
-                                key: zod.string(),
-                                operator: zod.string().nullish(),
-                                value: zod.unknown().nullish(),
-                                negation: zod
-                                    .boolean()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault
-                                    ),
-                            }),
-                            zod.unknown(),
-                        ])
-                    ),
-                })
-                .describe(
-                    'AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
-                ),
-        })
-        .nullish(),
+        .unknown()
+        .nullish()
+        .describe(
+            'Filters for the cohort. Examples:\n\n        # Behavioral filter (performed event)\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "OR",\n                    "values": [{\n                        "key": "address page viewed",\n                        "type": "behavioral",\n                        "value": "performed_event",\n                        "negation": false,\n                        "event_type": "events",\n                        "time_value": "30",\n                        "time_interval": "day"\n                    }]\n                }]\n            }\n        }\n\n        # Person property filter\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "AND",\n                    "values": [{\n                        "key": "promoCodes",\n                        "type": "person",\n                        "value": ["1234567890"],\n                        "negation": false,\n                        "operator": "exact"\n                    }]\n                }]\n            }\n        }\n\n        # Cohort filter\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "AND",\n                    "values": [{\n                        "key": "id",\n                        "type": "cohort",\n                        "value": 8814,\n                        "negation": false\n                    }]\n                }]\n            }\n        }'
+        ),
     query: zod.unknown().nullish(),
     is_static: zod.boolean().optional(),
     cohort_type: zod
@@ -886,16 +408,13 @@ export const CohortsPartialUpdateBody = zod.object({
             'Type of cohort based on filter complexity\n\n* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical'
         ),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).default(cohortsPartialUpdateBodyCreateStaticPersonIdsDefault),
+    _create_static_person_ids: zod.array(zod.string()).optional(),
 })
 
 export const cohortsPartialUpdateResponseNameMax = 400
 
 export const cohortsPartialUpdateResponseDescriptionMax = 1000
 
-export const cohortsPartialUpdateResponseFiltersOnePropertiesValuesItemOneNegationDefault = false
-export const cohortsPartialUpdateResponseFiltersOnePropertiesValuesItemTwoNegationDefault = false
-export const cohortsPartialUpdateResponseFiltersOnePropertiesValuesItemThreeNegationDefault = false
 export const cohortsPartialUpdateResponseCreatedByOneDistinctIdMax = 200
 
 export const cohortsPartialUpdateResponseCreatedByOneFirstNameMax = 150
@@ -904,8 +423,6 @@ export const cohortsPartialUpdateResponseCreatedByOneLastNameMax = 150
 
 export const cohortsPartialUpdateResponseCreatedByOneEmailMax = 254
 
-export const cohortsPartialUpdateResponseCreateStaticPersonIdsDefault = []
-
 export const CohortsPartialUpdateResponse = zod.object({
     id: zod.number(),
     name: zod.string().max(cohortsPartialUpdateResponseNameMax).nullish(),
@@ -913,90 +430,11 @@ export const CohortsPartialUpdateResponse = zod.object({
     groups: zod.unknown().optional(),
     deleted: zod.boolean().optional(),
     filters: zod
-        .object({
-            properties: zod
-                .object({
-                    type: zod.enum(['AND', 'OR']),
-                    values: zod.array(
-                        zod.union([
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['behavioral']),
-                                key: zod.union([zod.string(), zod.number()]),
-                                value: zod.string(),
-                                event_type: zod.string(),
-                                time_value: zod.number().nullish(),
-                                time_interval: zod.string().nullish(),
-                                negation: zod
-                                    .boolean()
-                                    .default(
-                                        cohortsPartialUpdateResponseFiltersOnePropertiesValuesItemOneNegationDefault
-                                    ),
-                                operator: zod.string().nullish(),
-                                operator_value: zod.number().nullish(),
-                                seq_time_interval: zod.string().nullish(),
-                                seq_time_value: zod.number().nullish(),
-                                seq_event: zod.union([zod.string(), zod.number()]).nullish(),
-                                seq_event_type: zod.string().nullish(),
-                                total_periods: zod.number().nullish(),
-                                min_periods: zod.number().nullish(),
-                                event_filters: zod
-                                    .array(
-                                        zod.union([
-                                            zod.object({
-                                                type: zod.enum(['event', 'element']),
-                                                key: zod.string(),
-                                                value: zod.unknown(),
-                                                operator: zod.string().nullish(),
-                                            }),
-                                            zod.object({
-                                                type: zod.enum(['hogql']),
-                                                key: zod.string(),
-                                                value: zod.unknown().nullish(),
-                                            }),
-                                        ])
-                                    )
-                                    .nullish(),
-                                explicit_datetime: zod.string().nullish(),
-                            }),
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['cohort']),
-                                key: zod.enum(['id']),
-                                value: zod.number(),
-                                negation: zod
-                                    .boolean()
-                                    .default(
-                                        cohortsPartialUpdateResponseFiltersOnePropertiesValuesItemTwoNegationDefault
-                                    ),
-                            }),
-                            zod.object({
-                                bytecode: zod.array(zod.unknown()).nullish(),
-                                bytecode_error: zod.string().nullish(),
-                                conditionHash: zod.string().nullish(),
-                                type: zod.enum(['person']),
-                                key: zod.string(),
-                                operator: zod.string().nullish(),
-                                value: zod.unknown().nullish(),
-                                negation: zod
-                                    .boolean()
-                                    .default(
-                                        cohortsPartialUpdateResponseFiltersOnePropertiesValuesItemThreeNegationDefault
-                                    ),
-                            }),
-                            zod.unknown(),
-                        ])
-                    ),
-                })
-                .describe(
-                    'AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
-                ),
-        })
-        .nullish(),
+        .unknown()
+        .nullish()
+        .describe(
+            'Filters for the cohort. Examples:\n\n        # Behavioral filter (performed event)\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "OR",\n                    "values": [{\n                        "key": "address page viewed",\n                        "type": "behavioral",\n                        "value": "performed_event",\n                        "negation": false,\n                        "event_type": "events",\n                        "time_value": "30",\n                        "time_interval": "day"\n                    }]\n                }]\n            }\n        }\n\n        # Person property filter\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "AND",\n                    "values": [{\n                        "key": "promoCodes",\n                        "type": "person",\n                        "value": ["1234567890"],\n                        "negation": false,\n                        "operator": "exact"\n                    }]\n                }]\n            }\n        }\n\n        # Cohort filter\n        {\n            "properties": {\n                "type": "OR",\n                "values": [{\n                    "type": "AND",\n                    "values": [{\n                        "key": "id",\n                        "type": "cohort",\n                        "value": 8814,\n                        "negation": false\n                    }]\n                }]\n            }\n        }'
+        ),
     query: zod.unknown().nullish(),
     version: zod.number().nullable(),
     pending_version: zod.number().nullable(),
@@ -1044,9 +482,7 @@ export const CohortsPartialUpdateResponse = zod.object({
         ),
     experiment_set: zod.array(zod.number()),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod
-        .array(zod.string())
-        .default(cohortsPartialUpdateResponseCreateStaticPersonIdsDefault),
+    _create_static_person_ids: zod.array(zod.string()).optional(),
 })
 
 /**
