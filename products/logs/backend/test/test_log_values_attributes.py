@@ -53,7 +53,7 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
 
             response = self.client.get(f"/api/projects/{self.team.id}/logs/values", query_params)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            values_results_by_timezone[tz] = response.json()
+            values_results_by_timezone[tz] = response.json()["results"]
 
             response = self.client.get(f"/api/projects/{self.team.id}/logs/attributes", query_params)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -89,7 +89,7 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        results = response.json()
+        results = response.json()["results"]
 
         for result in results:
             self.assertIn("or", result["name"].lower(), f"Value '{result['name']}' should contain 'or'")
@@ -112,7 +112,7 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        results = response.json()
+        results = response.json()["results"]
 
         for result in results:
             self.assertIn("de", result["name"].lower(), f"Value '{result['name']}' should contain 'de'")
@@ -131,7 +131,7 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        results = response.json()
+        results = response.json()["results"]
         self.assertEqual(len(results), 0, "Should return no results for non-existent value filter")
 
     def test_log_values_query_with_empty_value_filter(self):
@@ -146,7 +146,7 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
 
         response_all = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params_all)
         self.assertEqual(response_all.status_code, status.HTTP_200_OK)
-        all_results = response_all.json()
+        all_results = response_all.json()["results"]
 
         query_params_empty = {
             **query_params_all,
@@ -155,7 +155,7 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
 
         response_empty = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params_empty)
         self.assertEqual(response_empty.status_code, status.HTTP_200_OK)
-        empty_results = response_empty.json()
+        empty_results = response_empty.json()["results"]
 
         self.assertEqual(len(all_results), len(empty_results), "Empty value filter should return all values")
 

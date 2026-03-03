@@ -35,7 +35,7 @@ class TestCheckProxyIsLive(TestCase):
     @pytest.mark.asyncio
     @freeze_time("2024-01-16 10:00:00")  # Frozen at Jan 16, cert expires Feb 15 (30 days later)
     @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.external_requests.post")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_success_mocked(self, mock_get_record, mock_post, mock_ssl_context):
         """Test successful proxy check with mocked dependencies"""
@@ -71,7 +71,7 @@ class TestCheckProxyIsLive(TestCase):
         self.assertEqual(result.warnings, [])
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.external_requests.post")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_ssl_error(self, mock_get_record, mock_post):
         """Test SSL error handling"""
@@ -84,7 +84,7 @@ class TestCheckProxyIsLive(TestCase):
         self.assertEqual(result.warnings, [])
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.external_requests.post")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_connection_error(self, mock_get_record, mock_post):
         """Test connection error handling"""
@@ -97,7 +97,7 @@ class TestCheckProxyIsLive(TestCase):
         self.assertEqual(result.warnings, [])
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.external_requests.post")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_http_error(self, mock_get_record, mock_post):
         """Test HTTP error handling"""
@@ -115,7 +115,7 @@ class TestCheckProxyIsLive(TestCase):
     @pytest.mark.asyncio
     @freeze_time("2024-01-16 10:00:00")  # Frozen at Jan 16, cert expires Jan 25 (9 days later, < 14 day threshold)
     @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.external_requests.post")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_cert_expiring_soon(self, mock_get_record, mock_post, mock_ssl_context):
         """Test certificate expiring soon warning"""

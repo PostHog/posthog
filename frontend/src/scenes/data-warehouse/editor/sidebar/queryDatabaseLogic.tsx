@@ -112,7 +112,7 @@ type TableLookupEntry = {
 
 type TableLookup = Record<string, TableLookupEntry>
 
-const MAX_FIELD_TRAVERSAL_DEPTH = 25
+const MAX_FIELD_TRAVERSAL_DEPTH = 10
 
 type FieldTraversalOptions = {
     expandedLazyNodeIds?: Set<string>

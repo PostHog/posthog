@@ -19,6 +19,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
+import { SlaDisplay } from '../../components/SlaDisplay'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
@@ -281,6 +282,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     )}
                                 </AssigneeSelect>
                             </div>
+                            {ticket?.sla_due_at && (
+                                <div className="flex justify-between items-center">
+                                    <span className="text-muted-alt">SLA</span>
+                                    <SlaDisplay slaDueAt={ticket.sla_due_at} />
+                                </div>
+                            )}
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">
                             <LemonButton
@@ -294,28 +301,35 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         </div>
                     </LemonCard>
 
-                    {/* Session Recording Panel */}
-                    <SessionRecordingPanel sessionContext={ticket?.session_context} distinctId={ticket?.distinct_id} />
+                    {ticket?.channel_source === 'widget' && (
+                        <>
+                            {/* Session Recording Panel */}
+                            <SessionRecordingPanel
+                                sessionContext={ticket?.session_context}
+                                distinctId={ticket?.distinct_id}
+                            />
 
-                    {/* Recent Events Panel */}
-                    <RecentEventsPanel
-                        eventsQuery={eventsQuery}
-                        distinctId={ticket?.distinct_id}
-                        sessionId={ticket?.session_id}
-                    />
+                            {/* Recent Events Panel */}
+                            <RecentEventsPanel
+                                eventsQuery={eventsQuery}
+                                distinctId={ticket?.distinct_id}
+                                sessionId={ticket?.session_id}
+                            />
 
-                    {/* Exceptions Panel */}
-                    <ExceptionsPanel
-                        exceptionsQuery={exceptionsQuery}
-                        sessionId={ticket?.session_id}
-                        distinctId={ticket?.distinct_id}
-                    />
+                            {/* Exceptions Panel */}
+                            <ExceptionsPanel
+                                exceptionsQuery={exceptionsQuery}
+                                sessionId={ticket?.session_id}
+                                distinctId={ticket?.distinct_id}
+                            />
 
-                    {/* Previous Tickets Panel */}
-                    <PreviousTicketsPanel
-                        previousTickets={previousTickets}
-                        previousTicketsLoading={previousTicketsLoading}
-                    />
+                            {/* Previous Tickets Panel */}
+                            <PreviousTicketsPanel
+                                previousTickets={previousTickets}
+                                previousTicketsLoading={previousTicketsLoading}
+                            />
+                        </>
+                    )}
                 </div>
             </div>
         </SceneContent>

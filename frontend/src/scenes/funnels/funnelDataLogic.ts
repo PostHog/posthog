@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
@@ -143,7 +144,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             router,
             ['searchParams'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource'], router, ['push']],
+        actions: [
+            insightVizDataLogic(props),
+            ['updateInsightFilter', 'updateQuerySource'],
+            insightDataLogic(props),
+            ['cancelChanges'],
+            router,
+            ['push'],
+        ],
     })),
 
     actions({
@@ -169,12 +177,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             null as number | null,
             {
                 setConversionWindowInterval: (_, { funnelWindowInterval }) => funnelWindowInterval,
+                cancelChanges: () => null,
             },
         ],
         conversionWindowUnit: [
             null as FunnelConversionWindowTimeUnit | null,
             {
                 setConversionWindowUnit: (_, { funnelWindowIntervalUnit }) => funnelWindowIntervalUnit,
+                cancelChanges: () => null,
             },
         ],
     }),

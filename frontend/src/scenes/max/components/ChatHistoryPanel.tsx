@@ -1,32 +1,22 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { memo, useRef } from 'react'
 
-import { IconEllipsis, IconPlusSmall, IconSearch, IconShare, IconSidebarClose } from '@posthog/icons'
-import { LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
+import { IconPlusSmall, IconSearch, IconSidebarClose } from '@posthog/icons'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { Link } from 'lib/lemon-ui/Link'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { urls } from 'scenes/urls'
 
-import { ConversationDetail, ConversationStatus } from '~/types'
+import { ConversationDetail } from '~/types'
 
 import { maxLogic } from '../maxLogic'
 import { CHAT_HISTORY_COLLAPSE_THRESHOLD, maxPanelSizingLogic } from '../maxPanelSizingLogic'
-import { formatConversationDate } from '../utils'
+import { AiChatListItem } from './List/AiChatListItem'
 
 interface ChatHistoryPanelProps {
     tabId: string
@@ -140,8 +130,8 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                                         <Autocomplete.Group items={conversationHistory}>
                                             <Autocomplete.Collection>
                                                 {(conversation: ConversationDetail) => (
-                                                    <DropdownMenu>
-                                                        <ButtonGroupPrimitive fullWidth className="group">
+                                                    <AiChatListItem.Root>
+                                                        <AiChatListItem.Group>
                                                             <Autocomplete.Item
                                                                 key={conversation.id}
                                                                 value={conversation}
@@ -151,11 +141,7 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                                                                 }}
                                                                 render={
                                                                     <Link
-                                                                        to={
-                                                                            combineUrl(urls.ai(conversation.id), {
-                                                                                from: 'history',
-                                                                            }).url
-                                                                        }
+                                                                        to={AiChatListItem.getHref(conversation.id)}
                                                                         buttonProps={{
                                                                             active: conversation.id === conversationId,
                                                                             fullWidth: true,
@@ -166,82 +152,24 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                                                                         }
                                                                         tooltipPlacement="right"
                                                                         extraContextMenuItems={
-                                                                            <ContextMenuItem asChild>
-                                                                                <ButtonPrimitive
-                                                                                    menuItem
-                                                                                    onClick={() => {
-                                                                                        copyToClipboard(
-                                                                                            urls.absolute(
-                                                                                                urls.currentProject(
-                                                                                                    urls.ai(
-                                                                                                        conversation.id
-                                                                                                    )
-                                                                                                )
-                                                                                            ),
-                                                                                            'conversation sharing link'
-                                                                                        )
-                                                                                    }}
-                                                                                >
-                                                                                    <IconShare className="size-4 text-tertiary" />
-                                                                                    Copy link to chat
-                                                                                </ButtonPrimitive>
-                                                                            </ContextMenuItem>
+                                                                            <AiChatListItem.ContextMenuAction
+                                                                                conversationId={conversation.id}
+                                                                            />
                                                                         }
                                                                     >
-                                                                        <span className="flex-1 line-clamp-1 text-primary">
-                                                                            {conversation.title}
-                                                                        </span>
-                                                                        {conversation.status ===
-                                                                            ConversationStatus.InProgress && (
-                                                                            <Spinner className="h-3 w-3" />
-                                                                        )}
-                                                                        <span className="opacity-30 text-xs pr-1.5 group-hover:opacity-0 group-has-[[data-state=open]]:opacity-0 transition-opacity duration-100">
-                                                                            {formatConversationDate(
-                                                                                conversation.updated_at
-                                                                            )}
-                                                                        </span>
+                                                                        <AiChatListItem.Content
+                                                                            showIcon
+                                                                            title={conversation.title}
+                                                                            status={conversation.status}
+                                                                            updatedAt={conversation.updated_at}
+                                                                        />
                                                                     </Link>
                                                                 }
                                                             />
-                                                            <DropdownMenuTrigger asChild>
-                                                                <ButtonPrimitive
-                                                                    iconOnly
-                                                                    className="
-                                                                        absolute right-0
-                                                                        translate-x-full opacity-0
-                                                                        group-hover:translate-x-0 group-hover:opacity-100
-                                                                        data-[state=open]:translate-x-0
-                                                                        data-[state=open]:opacity-100
-                                                                        transition-[opacity] duration-100 ease-initial
-                                                                    "
-                                                                >
-                                                                    <IconEllipsis className="text-tertiary size-3 group-hover:text-primary z-10" />
-                                                                </ButtonPrimitive>
-                                                            </DropdownMenuTrigger>
-                                                        </ButtonGroupPrimitive>
-                                                        <DropdownMenuContent>
-                                                            <DropdownMenuGroup>
-                                                                <DropdownMenuItem asChild>
-                                                                    <ButtonPrimitive
-                                                                        menuItem
-                                                                        onClick={() => {
-                                                                            copyToClipboard(
-                                                                                urls.absolute(
-                                                                                    urls.currentProject(
-                                                                                        urls.ai(conversation.id)
-                                                                                    )
-                                                                                ),
-                                                                                'conversation sharing link'
-                                                                            )
-                                                                        }}
-                                                                    >
-                                                                        <IconShare className="size-4 text-tertiary" />
-                                                                        Copy link to chat
-                                                                    </ButtonPrimitive>
-                                                                </DropdownMenuItem>
-                                                            </DropdownMenuGroup>
-                                                        </DropdownMenuContent>
-                                                    </DropdownMenu>
+                                                            <AiChatListItem.Trigger />
+                                                        </AiChatListItem.Group>
+                                                        <AiChatListItem.Actions conversationId={conversation.id} />
+                                                    </AiChatListItem.Root>
                                                 )}
                                             </Autocomplete.Collection>
                                         </Autocomplete.Group>

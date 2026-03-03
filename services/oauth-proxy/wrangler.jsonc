@@ -1,0 +1,32 @@
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "auth-proxy",
+    "main": "src/index.ts",
+    "compatibility_date": "2025-03-10",
+    "compatibility_flags": [
+        "nodejs_compat"
+    ],
+    "observability": {
+        "enabled": true,
+        "logs": {
+            "enabled": true,
+            "head_sampling_rate": 1.0,
+            "persist": true
+        }
+    },
+    "rules": [
+        {
+            "type": "Text",
+            "globs": [
+                "src/static/**/*.html"
+            ],
+            "fallthrough": true
+        }
+    ],
+    "kv_namespaces": [
+        {
+            "binding": "AUTH_KV",
+            "id": "3ac9a85816994f3ea94f98364de4732a"
+        }
+    ]
+}

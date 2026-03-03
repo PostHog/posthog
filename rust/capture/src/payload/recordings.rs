@@ -16,8 +16,10 @@ use crate::{
     debug_or_info,
     events::recordings::RawRecording,
     extractors::extract_body_with_timeout,
+    global_rate_limiter::GlobalRateLimitKey,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
+    token::validate_token,
     v0_request::ProcessingContext,
 };
 
@@ -108,6 +110,7 @@ pub async fn handle_recording_payload(
     let token = events[0]
         .extract_token()
         .ok_or(CaptureError::NoTokenError)?;
+    validate_token(&token)?;
     Span::current().record("token", &token);
 
     counter!("capture_events_received_total").increment(events.len() as u64);
@@ -129,17 +132,29 @@ pub async fn handle_recording_payload(
         chatty_debug_enabled,
     };
 
-    // Apply global rate limit per team (API token) if enabled
+    // Apply global rate limit per (token, distinct_id) if enabled
     if let Some(global_rate_limiter) = &state.global_rate_limiter {
-        if let Some(limited) = global_rate_limiter
-            .is_limited(&context.token, events.len() as u64)
-            .await
-        {
-            debug_or_info!(chatty_debug_enabled,
-                context=?context,
-                event_count=?events.len(),
-                details=?limited,
-                "global rate limit applied");
+        let mut is_rate_limited = false;
+        for event in &events {
+            let maybe_distinct_id = event
+                .distinct_id
+                .as_ref()
+                .or(event.properties.distinct_id.as_ref())
+                .and_then(|v| v.as_str());
+            if let Some(distinct_id) = maybe_distinct_id {
+                let cache_key =
+                    GlobalRateLimitKey::TokenDistinctId(&context.token, distinct_id).to_cache_key();
+                if let Some(limited) = global_rate_limiter.is_limited(&cache_key, 1).await {
+                    debug_or_info!(chatty_debug_enabled,
+                        context=?context,
+                        distinct_id,
+                        details=?limited,
+                        "global rate limit applied");
+                    is_rate_limited = true;
+                }
+            }
+        }
+        if is_rate_limited {
             return Err(CaptureError::GlobalRateLimitExceeded());
         }
     }

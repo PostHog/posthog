@@ -25,8 +25,9 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     ClusterLabel,
     EmitSignalsActivityInputs,
     EmitSignalsResult,
-    VideoSegmentMetadata,
+    VideoSegment,
 )
+from posthog.temporal.ai.video_segment_clustering.object_storage import load_fetch_result
 from posthog.temporal.ai.video_segment_clustering.priority import (
     calculate_task_metrics,
     parse_datetime_as_utc,
@@ -89,12 +90,11 @@ Determine if this cluster is actionable and generate task details if so."""
 async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs) -> EmitSignalsResult:
     """Label clusters via LLM, calculate weights, and emit each as a signal."""
     team = await Team.objects.aget(id=inputs.team_id)
-    segment_lookup = {s.document_id: s for s in inputs.segments}
-    genai_client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
+    segments, distinct_ids = await load_fetch_result(inputs.storage_key)
+    active_users_in_period = await sync_to_async(count_distinct_persons)(team, distinct_ids)
 
-    # Count total active users across all segments in the lookback window (for team-relative impact)
-    all_distinct_ids = list({s.distinct_id for s in inputs.segments if s.distinct_id})
-    active_users_in_period = await sync_to_async(count_distinct_persons)(team, all_distinct_ids)
+    segment_lookup: dict[str, VideoSegment] = {s.document_id: s for s in segments}
+    genai_client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
 
     # 1. Label all clusters concurrently
     label_tasks = []
@@ -196,7 +196,7 @@ async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs)
 
 
 async def _generate_label_for_cluster(
-    *, team: Team, cluster_id: int, cluster_segments: list[VideoSegmentMetadata], genai_client
+    *, team: Team, cluster_id: int, cluster_segments: list[VideoSegment], genai_client
 ) -> tuple[int, ClusterLabel]:
     if not cluster_segments:
         raise ValueError("Cluster segments cannot be empty")

@@ -18,6 +18,8 @@ import { cn } from 'lib/utils/css-classes'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { FixErrorButton } from './components/FixErrorButton'
@@ -41,6 +43,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
 
     const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading } = useActions(sqlEditorLogic)
 
+    const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
@@ -97,6 +100,32 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
                             />
                         </LemonMenu>
                     ) : null}
+                    {mode === SQLEditorMode.Embedded && (
+                        <SceneTitlePanelButton
+                            buttonClassName="size-[26px]"
+                            maxToolProps={{
+                                identifier: 'execute_sql',
+                                context: {
+                                    current_query: queryInput,
+                                },
+                                contextDescription: {
+                                    text: 'Current query',
+                                    icon: iconForType('sql_editor'),
+                                },
+                                callback: (toolOutput: string) => {
+                                    setSuggestedQueryInput(toolOutput, 'max_ai')
+                                },
+                                suggestions: [],
+                                onMaxOpen: () => {
+                                    reportAIQueryPromptOpen()
+                                },
+                                introOverride: {
+                                    headline: 'What data do you want to analyze?',
+                                    description: 'Let me help you quickly write SQL, and tweak it.',
+                                },
+                            }}
+                        />
+                    )}
                 </div>
             </div>
 

@@ -318,8 +318,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             client = sync_connect()
-            workflow_id = f"task-processing-{task_run.task_id}-{task_run.id}"
-            handle = client.get_workflow_handle(workflow_id)
+            handle = client.get_workflow_handle(task_run.workflow_id)
 
             import asyncio
 
@@ -395,6 +394,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         entries = request.validated_data["entries"]
         with timer("s3_append"):
             task_run.append_log(entries)
+
+        task_run.heartbeat_workflow()
 
         response = Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
         response["Server-Timing"] = timer.to_header_string()
@@ -672,6 +673,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         - http://localhost:{port} (Docker sandboxes)
         - http://127.0.0.1:{port} (Docker sandboxes)
         - https://*.modal.run (Modal sandboxes)
+        - https://*.modal.host (Modal connect token sandboxes)
         """
         from urllib.parse import urlparse
 
@@ -683,7 +685,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1"):
             return True
 
-        if parsed.scheme == "https" and parsed.hostname and parsed.hostname.endswith(".modal.run"):
+        if (
+            parsed.scheme == "https"
+            and parsed.hostname
+            and (parsed.hostname.endswith(".modal.run") or parsed.hostname.endswith(".modal.host"))
+        ):
             return True
 
         return False

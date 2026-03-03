@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     DashboardApi,
     DashboardCollaboratorApi,
+    DashboardsAnalyzeRefreshResultCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
     DashboardsCreateParams,
     DashboardsCreateUnlistedDashboardCreateParams,
@@ -19,6 +20,7 @@ import type {
     DashboardsMoveTilePartialUpdateParams,
     DashboardsPartialUpdateParams,
     DashboardsRetrieveParams,
+    DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
     DataColorThemeApi,
@@ -400,6 +402,45 @@ export const dashboardsDestroy = async (
     })
 }
 
+/**
+ * Generate AI analysis comparing before/after dashboard refresh.
+Expects cache_key in request body pointing to the stored 'before' state.
+ */
+export const getDashboardsAnalyzeRefreshResultCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsAnalyzeRefreshResultCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/analyze_refresh_result/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/analyze_refresh_result/`
+}
+
+export const dashboardsAnalyzeRefreshResultCreate = async (
+    projectId: string,
+    id: number,
+    dashboardApi: NonReadonly<DashboardApi>,
+    params?: DashboardsAnalyzeRefreshResultCreateParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDashboardsAnalyzeRefreshResultCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dashboardApi),
+    })
+}
+
 export const getDashboardsMoveTilePartialUpdateUrl = (
     projectId: string,
     id: number,
@@ -432,6 +473,45 @@ export const dashboardsMoveTilePartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedDashboardApi),
+    })
+}
+
+/**
+ * Snapshot the current dashboard state (from cache) for AI analysis.
+Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
+ */
+export const getDashboardsSnapshotCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsSnapshotCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/snapshot/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/snapshot/`
+}
+
+export const dashboardsSnapshotCreate = async (
+    projectId: string,
+    id: number,
+    dashboardApi: NonReadonly<DashboardApi>,
+    params?: DashboardsSnapshotCreateParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDashboardsSnapshotCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dashboardApi),
     })
 }
 

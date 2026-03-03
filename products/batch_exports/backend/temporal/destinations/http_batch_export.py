@@ -13,6 +13,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, HttpBatchExportInputs
 from posthog.models import BatchExportRun
+from posthog.security.outbound_proxy import external_aiohttp_session
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -294,7 +295,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
                 activity.heartbeat(last_uploaded_timestamp)
 
-            async with aiohttp.ClientSession() as session:
+            async with external_aiohttp_session() as session:
                 for record_batch in record_iterator:
                     for row in record_batch.select(columns).to_pylist():
                         # Format result row as PostHog event, write JSON to the batch file.

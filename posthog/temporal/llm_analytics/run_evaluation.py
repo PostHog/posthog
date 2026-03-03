@@ -1,5 +1,4 @@
 import json
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -10,14 +9,13 @@ import structlog
 import temporalio
 from pydantic import BaseModel, model_validator
 from structlog.contextvars import bind_contextvars
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.models.event.util import create_event
+from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.llm_analytics.emit_eval_signal import emit_eval_signal_activity
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 from posthog.temporal.llm_analytics.metrics import (
     increment_errors,
@@ -39,6 +37,11 @@ from products.llm_analytics.backend.llm.errors import (
 from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
 from products.llm_analytics.backend.models.evaluations import Evaluation
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
+from products.signals.backend.temporal.emit_eval_signal import (
+    EmitEvalSignalInputs,
+    EmitEvalSignalWorkflow,
+    emit_eval_signal_activity,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -508,7 +511,7 @@ class EmitEvaluationEventInputs:
 
 @temporalio.activity.defn
 async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> None:
-    """Emit $ai_evaluation event to ClickHouse"""
+    """Emit $ai_evaluation event via capture_internal so it routes through the ingestion pipeline for cost calculation"""
     evaluation = inputs.evaluation
     event_data = inputs.event_data
     result = inputs.result
@@ -521,14 +524,17 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             logger.exception("Team not found", team_id=event_data["team_id"])
             raise ValueError(f"Team {event_data['team_id']} not found")
 
-        event_uuid = uuid.uuid4()
         allows_na = result.get("allows_na", False)
 
         properties: dict[str, Any] = {
+            # Standard AI properties for cost calculation in ingestion pipeline
+            "$ai_model": result.get("model", DEFAULT_JUDGE_MODEL),
+            "$ai_provider": result.get("provider", "openai"),
+            "$ai_input_tokens": result.get("input_tokens", 0),
+            "$ai_output_tokens": result.get("output_tokens", 0),
+            # Evaluation-specific properties
             "$ai_evaluation_id": evaluation["id"],
             "$ai_evaluation_name": evaluation["name"],
-            "$ai_evaluation_model": result.get("model", DEFAULT_JUDGE_MODEL),
-            "$ai_evaluation_provider": result.get("provider", "openai"),
             "$ai_evaluation_start_time": start_time.isoformat(),
             "$ai_evaluation_allows_na": allows_na,
             "$ai_evaluation_reasoning": result["reasoning"],
@@ -541,34 +547,30 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             ).get("$ai_trace_id"),
             "$ai_evaluation_key_type": "byok" if result.get("is_byok") else "posthog",
             "$ai_evaluation_key_id": result.get("key_id"),
+            "$ai_evaluation_type": "online",
         }
 
         # Handle result based on allows_na config
         if allows_na:
             applicable = result.get("applicable", True)
             properties["$ai_evaluation_applicable"] = applicable
-            # Only set result when applicable
             if applicable:
                 properties["$ai_evaluation_result"] = result["verdict"]
         else:
-            # Standard boolean output - always set result
             properties["$ai_evaluation_result"] = result["verdict"]
 
-        # Convert person_id string to UUID
-        person_id = uuid.UUID(event_data["person_id"]) if event_data.get("person_id") else None
-
-        # Use current time for when the evaluation actually happened
         event_timestamp = datetime.now(UTC)
 
-        create_event(
-            event_uuid=event_uuid,
-            event="$ai_evaluation",
-            team=team,
+        resp = capture_internal(
+            token=team.api_token,
+            event_name="$ai_evaluation",
+            event_source="llm_analytics_evaluation",
             distinct_id=event_data["distinct_id"],
             timestamp=event_timestamp,
             properties=properties,
-            person_id=person_id,
+            process_person_profile=True,
         )
+        resp.raise_for_status()
 
     await database_sync_to_async(_emit, thread_sensitive=False)()
 
@@ -718,26 +720,62 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             schedule_to_close_timeout=timedelta(seconds=30),
         )
 
-        # Activity 6: Emit signal when eval judge verdict is true (fire-and-forget)
-        if (
-            temporalio.workflow.patched("emit-eval-signal-v1")
-            and result.get("verdict") is True
-            and result.get("reasoning")
-        ):
-            try:
-                await temporalio.workflow.execute_activity(
-                    emit_eval_signal_activity,
-                    args=[evaluation["team_id"], evaluation, inputs.event_data, result],
-                    schedule_to_close_timeout=timedelta(seconds=120),
-                    retry_policy=RetryPolicy(maximum_attempts=2),
-                )
-            except Exception:
-                # Don't fail the workflow if signal emission fails
-                temporalio.workflow.logger.exception(
-                    "Failed to emit eval signal",
-                    evaluation_id=evaluation["id"],
-                    team_id=evaluation["team_id"],
-                )
+        # Emit signal when eval judge verdict is true (fire-and-forget).
+        # v2: dedicated workflow on VIDEO_EXPORT_TASK_QUEUE (signals worker).
+        # v1: legacy activity on evals queue, kept for in-flight workflows during migration.
+        #     Always fails due to missing API key on llma worker
+        if result.get("verdict") is True and result.get("reasoning"):
+            event_uuid = inputs.event_data.get("uuid", "")
+            properties = inputs.event_data.get("properties", {})
+            if isinstance(properties, str):
+                properties = json.loads(properties)
+
+            signal_inputs = EmitEvalSignalInputs(
+                team_id=evaluation["team_id"],
+                evaluation_id=evaluation["id"],
+                evaluation_name=evaluation.get("name", "Unknown evaluation"),
+                evaluation_prompt=(evaluation.get("evaluation_config") or {}).get("prompt", ""),
+                event_uuid=event_uuid,
+                event_type=inputs.event_data.get("event", ""),
+                trace_id=properties.get("$ai_trace_id", ""),
+                reasoning=result.get("reasoning", ""),
+                model=result.get("model", ""),
+                provider=result.get("provider", ""),
+            )
+
+            if temporalio.workflow.patched("emit-eval-signal-v2"):
+                try:
+                    await temporalio.workflow.start_child_workflow(
+                        EmitEvalSignalWorkflow.run,
+                        signal_inputs,
+                        id=f"emit-eval-signal-{evaluation['team_id']}-{evaluation['id']}-{event_uuid}",
+                        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                        parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                        execution_timeout=timedelta(minutes=5),
+                    )
+                except Exception:
+                    # Don't fail the workflow if signal emission fails
+                    temporalio.workflow.logger.exception(
+                        "Failed to start eval signal workflow",
+                        evaluation_id=evaluation["id"],
+                        team_id=evaluation["team_id"],
+                    )
+            elif temporalio.workflow.patched("emit-eval-signal-v1"):
+                # Legacy path for in-flight v1 workflows — remove once all v1 executions complete
+                try:
+                    await temporalio.workflow.execute_activity(
+                        emit_eval_signal_activity,
+                        signal_inputs,
+                        schedule_to_close_timeout=timedelta(seconds=120),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "Failed to emit eval signal",
+                        evaluation_id=evaluation["id"],
+                        team_id=evaluation["team_id"],
+                    )
 
         return {
             "verdict": result["verdict"],

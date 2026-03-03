@@ -9,6 +9,7 @@ import {
     IconGridMasonry,
     IconNotebook,
     IconPalette,
+    IconPencil,
     IconPlusSmall,
     IconScreen,
     IconShare,
@@ -37,7 +38,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { slugify } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
@@ -109,7 +109,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
     const interProjectTransfersEnabled = useFeatureFlag('INTER_PROJECT_TRANSFERS')
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const hasTileRedesign = useFeatureFlag('DASHBOARD_TILE_REDESIGN')
 
     const { tags } = useValues(tagsModel)
 
@@ -458,7 +458,7 @@ export function DashboardHeader(): JSX.Element | null {
                 forceEdit={dashboardMode === DashboardMode.Edit || isNewDashboard}
                 renameDebounceMs={1000}
                 maxToolProps={
-                    dashboard && canEditDashboard && isRemovingSidePanelFlag
+                    dashboard && canEditDashboard
                         ? {
                               identifier: 'upsert_dashboard',
                               context: {
@@ -542,6 +542,22 @@ export function DashboardHeader(): JSX.Element | null {
                                             tooltip="Share"
                                             tooltipPlacement="top"
                                         />
+                                        {canEditDashboard && hasTileRedesign && (
+                                            <LemonButton
+                                                type="secondary"
+                                                data-attr="dashboard-edit-mode-button"
+                                                onClick={() =>
+                                                    setDashboardMode(
+                                                        DashboardMode.Edit,
+                                                        DashboardEventSource.SceneCommonButtons
+                                                    )
+                                                }
+                                                size="small"
+                                                icon={<IconPencil fontSize="16" />}
+                                                tooltip="Edit layout"
+                                                tooltipPlacement="top"
+                                            />
+                                        )}
                                     </>
                                 )}
                                 {dashboard ? (
@@ -593,7 +609,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                       }
                                                     : undefined
                                             }
-                                            active={!isRemovingSidePanelFlag && !!dashboard && canEditDashboard}
+                                            active={false}
                                             callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
                                             position="top-right"
                                         >
@@ -608,9 +624,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     data-attr="dashboard-add-graph-header"
                                                     size="small"
                                                 >
-                                                    <span className={cn('pr-3', isRemovingSidePanelFlag && 'pr-0')}>
-                                                        Add insight
-                                                    </span>
+                                                    Add insight
                                                 </LemonButton>
                                             </AccessControlAction>
                                         </MaxTool>
