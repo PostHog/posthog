@@ -13,22 +13,14 @@ import { CdpEventsConsumer } from './cdp-events.consumer'
 import { counterParseError } from './metrics'
 
 /* NOTE: This is not released yet - outstanding work to be done:
-   * Make it clear that Workflows are not supported / add support (the filter hog function logic is the key part)
-   * It writes to a dedicated topic but its unclear if we actually want to separate the workload from
-     the normal hog topic
-*/
+ * Make it clear that Workflows are not supported / add support (the filter hog function logic is the key part)
+ */
 export class CdpDatawarehouseEventsConsumer extends CdpEventsConsumer {
     protected name = 'CdpDatawarehouseEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
-        super(
-            config,
-            deps,
-            'cdp_data_warehouse_source_table',
-            'cdp-data-warehouse-events-consumer',
-            'datawarehouse_table'
-        )
+        super(config, deps, 'cdp_data_warehouse_source_table', 'cdp-data-warehouse-events-consumer')
     }
 
     protected filterHogFunction(hogFunction: HogFunctionType): boolean {
