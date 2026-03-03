@@ -1,0 +1,148 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Cohorts
+feature: cohorts
+url_prefix: /cohorts
+tools:
+    environments-persons-cohorts-retrieve:
+        operation: environments_persons_cohorts_retrieve
+        enabled: false
+    cohorts-list:
+        operation: cohorts_list
+        enabled: true
+        scopes:
+            - cohort:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List all cohorts
+        description: >
+            List all cohorts in the project. Returns both static cohorts (manually defined user lists) and dynamic
+            cohorts (automatically updated based on property filters).
+        mcp_version: 1
+    cohorts-create:
+        operation: cohorts_create
+        enabled: true
+        scopes:
+            - cohort:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create cohort
+        description: >
+            Create a new cohort. For dynamic cohorts, provide 'filters' with AND/OR groups of property conditions
+            (person properties, behavioral filters, or cohort references). For static cohorts, set 'is_static: true'
+            then use the 'cohorts-add-persons-to-static-cohort-partial-update' tool to add person UUIDs.
+        exclude_params:
+            - groups
+            - deleted
+            - version
+            - pending_version
+            - is_calculating
+            - created_by
+            - created_at
+            - last_calculation
+            - errors_calculating
+            - last_error_message
+            - count
+            - experiment_set
+        mcp_version: 1
+    cohorts-retrieve:
+        operation: cohorts_retrieve
+        enabled: true
+        scopes:
+            - cohort:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get cohort
+        description: >
+            Get a specific cohort by ID. Returns the cohort name, description, filters (for dynamic cohorts), count of
+            matching users, and calculation status.
+        mcp_version: 1
+    cohorts-update:
+        operation: cohorts_update
+        enabled: false
+    cohorts-partial-update:
+        operation: cohorts_partial_update
+        enabled: true
+        scopes:
+            - cohort:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update cohort
+        description: >
+            Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers
+            recalculation. To soft-delete a cohort, set 'deleted: true'.
+        exclude_params:
+            - groups
+            - version
+            - pending_version
+            - is_calculating
+            - created_by
+            - created_at
+            - last_calculation
+            - errors_calculating
+            - last_error_message
+            - count
+            - experiment_set
+        mcp_version: 1
+    cohorts-destroy:
+        operation: cohorts_destroy
+        enabled: false
+    cohorts-activity-retrieve:
+        operation: cohorts_activity_retrieve
+        enabled: false
+    cohorts-add-persons-to-static-cohort-partial-update:
+        operation: cohorts_add_persons_to_static_cohort_partial_update
+        enabled: true
+        scopes:
+            - cohort:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Add persons to static cohort
+        description: |
+            Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).
+        mcp_version: 1
+    cohorts-calculation-history-retrieve:
+        operation: cohorts_calculation_history_retrieve
+        enabled: false
+    cohorts-persons-retrieve:
+        operation: cohorts_persons_retrieve
+        enabled: false
+    cohorts-remove-person-from-static-cohort-partial-update:
+        operation: cohorts_remove_person_from_static_cohort_partial_update
+        enabled: true
+        scopes:
+            - cohort:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Remove person from static cohort
+        description: >
+            Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). The
+            person must exist in the project. Idempotent: removing a person who exists but is not a member of the cohort
+            succeeds silently.
+        mcp_version: 1
+    persons-cohorts-retrieve:
+        operation: persons_cohorts_retrieve
+        enabled: false

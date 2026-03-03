@@ -26,8 +26,11 @@ ACTIVITY_TIMEOUT_SECONDS = 120  # start-to-close timeout for classify activity
 WORKFLOW_TIMEOUT_BATCH_SECONDS = 120  # task timeout for sentiment workflow
 MAX_RETRY_ATTEMPTS = 2  # retry policy for both workflow and activity
 
-# API config
+# Cache config
 CACHE_TTL = 60 * 60 * 24  # 24 hours — events are immutable once ingested
+CACHE_KEY_PREFIX = "llm_sentiment"  # key format: {prefix}:{team_id}:{trace_id}
+
+# API config
 BATCH_MAX_TRACE_IDS = 5
 
 # HogQL query template for fetching $ai_generation events.

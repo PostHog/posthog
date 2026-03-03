@@ -1,5 +1,6 @@
 import { sanitizeString } from '~/utils/db/utils'
 import { LazyLoader } from '~/utils/lazy-loader'
+import { logger } from '~/utils/logger'
 import { TeamManager } from '~/utils/team-manager'
 import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
@@ -67,6 +68,7 @@ export class GroupsManagerService {
 
         const typeMapping = await this.groupTypesLoader.get(String(teamId))
         if (!typeMapping) {
+            logger.warn('No group types found for team', { teamId })
             return {}
         }
 

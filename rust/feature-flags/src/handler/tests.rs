@@ -27,6 +27,7 @@ use crate::{
 use axum::http::HeaderMap;
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
+use common_cache::NegativeCache;
 use common_database::Client;
 use common_geoip::GeoIpClient;
 use reqwest::header::CONTENT_TYPE;
@@ -1189,6 +1190,7 @@ async fn test_fetch_and_filter_flags() {
         reader.clone(),
         team_hypercache_reader,
         hypercache_reader,
+        NegativeCache::new(100, 300),
     );
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();

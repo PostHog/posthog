@@ -67,6 +67,9 @@ class TestClassifySentimentSingleTrace:
         assert result["trace-1"]["generation_count"] == 1
         assert result["trace-1"]["message_count"] == 1
         assert result["trace-1"]["label"] == "positive"
+        # message dict keys must be strings for orjson serialization
+        messages = result["trace-1"]["generations"]["gen-1"]["messages"]
+        assert all(isinstance(k, str) for k in messages.keys())
 
     @pytest.mark.asyncio
     @patch(_PATCH_CLASSIFY)
