@@ -9,7 +9,7 @@ import {
     CollapsiblePrimitiveContent,
     CollapsiblePrimitiveTrigger,
     type CollapsiblePrimitiveProps,
-} from 'lib/ui/CollapsiblePrimitive/CollapsiblePrimitive'
+} from 'lib/ui/Collapsible/CollapsiblePrimitive'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 
