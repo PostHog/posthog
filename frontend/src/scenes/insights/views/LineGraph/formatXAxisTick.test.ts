@@ -184,6 +184,17 @@ describe('createXAxisTickCallback', () => {
             expect(callback('ignored', 1)).toBe('21:00')
             expect(callback('ignored', 2)).toBe('22:00')
         })
+
+        it('does not shift month labels across month boundaries', () => {
+            const callback = createXAxisTickCallback({
+                interval: 'month',
+                allDays: ['2023-06-01', '2023-07-01', '2023-08-01'],
+                timezone: 'America/New_York',
+            })
+            expect(callback('ignored', 0)).toBe('June')
+            expect(callback('ignored', 1)).toBe('July')
+            expect(callback('ignored', 2)).toBe('August')
+        })
     })
 
     describe('fallbacks', () => {

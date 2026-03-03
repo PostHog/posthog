@@ -1,4 +1,4 @@
-import { Dayjs } from 'lib/dayjs'
+import { dayjs, Dayjs } from 'lib/dayjs'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
 
 import { IntervalType } from '~/types'
@@ -25,7 +25,21 @@ export function createXAxisTickCallback({
         return (value) => String(value)
     }
 
-    const parsedDates = allDays.map((d) => dayjsUtcToTimezone(d, timezone, false))
+    // Date strings with a time component (e.g. "2025-04-01 14:00:00") are UTC timestamps
+    // that need timezone conversion. Date-only strings (e.g. "2025-07-01") are bucket labels
+    // that should be interpreted in the target timezone to avoid shifting across day/month
+    // boundaries (e.g. July 1st UTC becoming June 30th in US timezones).
+    const hasTimeComponent = allDays[0].includes(' ') || allDays[0].includes('T')
+    const parsedDates = allDays.map((d) => {
+        if (hasTimeComponent) {
+            return dayjsUtcToTimezone(d, timezone, false)
+        }
+        try {
+            return dayjs.tz(d, timezone)
+        } catch {
+            return dayjs(null)
+        }
+    })
     const first = parsedDates[0]
     const last = parsedDates[parsedDates.length - 1]
 
