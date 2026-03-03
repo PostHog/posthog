@@ -364,17 +364,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     ? defaultEvaluationTemplates.find((t) => t.key === props.templateKey)
                     : undefined
 
-                const isHogTemplate = template?.evaluation_type === 'hog'
-                const newEvaluation: EvaluationConfig = {
+                const baseFields = {
                     id: '',
                     name: template?.name || '',
                     description: template?.description || '',
                     enabled: true,
-                    evaluation_type: isHogTemplate ? 'hog' : 'llm_judge',
-                    evaluation_config: isHogTemplate
-                        ? { source: template.source, bytecode: [] }
-                        : { prompt: template && 'prompt' in template ? template.prompt : '' },
-                    output_type: 'boolean',
+                    output_type: 'boolean' as const,
                     output_config: {},
                     conditions: [
                         {
@@ -388,6 +383,20 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                 }
+                const newEvaluation: EvaluationConfig =
+                    template?.evaluation_type === 'hog'
+                        ? {
+                              ...baseFields,
+                              evaluation_type: 'hog' as const,
+                              evaluation_config: { source: template.source, bytecode: [] },
+                          }
+                        : {
+                              ...baseFields,
+                              evaluation_type: 'llm_judge' as const,
+                              evaluation_config: {
+                                  prompt: template && 'prompt' in template ? template.prompt : '',
+                              },
+                          }
                 actions.loadEvaluationSuccess(newEvaluation)
             }
         },

@@ -386,7 +386,7 @@ class TestTestHogEndpoint(APIBaseTest):
     def test_test_hog_compilation_error(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/test_hog/",
-            {"source": "this is not valid hog !!!"},
+            {"source": "this is not valid hog {{{{"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Compilation error", response.json()["error"])

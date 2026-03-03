@@ -464,7 +464,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
 
 class TestHogRequestSerializer(serializers.Serializer):
-    source = serializers.CharField(required=True, min_length=1)
+    source = serializers.CharField(required=True, min_length=1)  # type: ignore[assignment]
     sample_count = serializers.IntegerField(required=False, default=5, min_value=1, max_value=10)
     allows_na = serializers.BooleanField(required=False, default=False)
     conditions = serializers.ListField(child=serializers.DictField(), required=False, default=list)
