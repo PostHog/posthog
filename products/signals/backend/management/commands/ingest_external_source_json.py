@@ -2,7 +2,7 @@
 Ingest raw external source records from a JSON file through a registered emitter, then emit as signals.
 
 Usage:
-    python manage.py ingest_source_json path/to/records.json --team-id 1 --source-type Linear --schema-name issues
+    python manage.py ingest_external_source_json path/to/records.json --team-id 1 --source-type Linear --schema-name issues
 
 The JSON file should contain an array of record objects matching the format the emitter expects
 (same field names as the data warehouse table). See existing emitters for expected fields:
