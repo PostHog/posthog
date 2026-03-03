@@ -491,6 +491,20 @@ export const GenerationEvent = (): JSX.Element => {
                                 </p>
                             </td>
                         </tr>
+                        <tr>
+                            <td style={propertyColumnStyle}>
+                                <code>$ai_cache_reporting_exclusive</code>
+                            </td>
+                            <td>
+                                <p>
+                                    <em>(Optional)</em> Whether cache tokens are excluded from{' '}
+                                    <code>$ai_input_tokens</code>. When <code>true</code>, cache tokens are separate
+                                    from input tokens. When <code>false</code>, input tokens already include cache
+                                    tokens. Defaults to <code>true</code> for Anthropic provider or Claude models,{' '}
+                                    <code>false</code> otherwise.
+                                </p>
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
             </div>

@@ -9,7 +9,12 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import AzureBlobBatchExportInputs, BatchExportInsertInputs, BatchExportModel
+from posthog.batch_exports.service import (
+    AzureBlobBatchExportInputs,
+    BatchExportField,
+    BatchExportInsertInputs,
+    BatchExportModel,
+)
 from posthog.models.integration import AzureBlobIntegration, Integration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -101,7 +106,11 @@ async def _get_azure_blob_integration(integration_id: int, team_id: int) -> Azur
     return AzureBlobIntegration(integration)
 
 
-azure_blob_default_fields = events_model_default_fields
+def azure_blob_default_fields() -> list[BatchExportField]:
+    """Azure blob default fields include ingested timestamp."""
+    default_fields = events_model_default_fields()
+    default_fields.append({"expression": "NOW64()", "alias": "azure_blob_ingested_timestamp"})
+    return default_fields
 
 
 class AzureBlobConsumer(Consumer):

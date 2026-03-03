@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+// eslint-disable-next-line import/no-cycle
 import { CloseOverlayAction } from './storiesMap'
 
 interface PizzaSurveyOverlayComponentProps {

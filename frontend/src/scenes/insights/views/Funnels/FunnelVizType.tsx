@@ -86,6 +86,7 @@ export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insight
             }}
             options={options}
             dropdownMatchSelectWidth={false}
+            data-attr="funnel-viz-type-select"
         />
     )
 }

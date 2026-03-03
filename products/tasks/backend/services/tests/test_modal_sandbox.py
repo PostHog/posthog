@@ -35,7 +35,7 @@ class TestGetSandboxImageReference:
 
     def test_returns_digest_reference_on_success(self):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.requests.get",
+            "products.tasks.backend.services.modal_sandbox.external_requests.get",
             side_effect=[_mock_token_response(), _mock_manifest_response(digest="sha256:abc123")],
         ):
             result = _get_sandbox_image_reference()
@@ -45,7 +45,7 @@ class TestGetSandboxImageReference:
     @pytest.mark.parametrize("status_code", [401, 403, 404, 500, 502, 503])
     def test_falls_back_to_master_on_token_request_failure(self, status_code: int):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.requests.get",
+            "products.tasks.backend.services.modal_sandbox.external_requests.get",
             return_value=_mock_token_response(status_code=status_code),
         ):
             result = _get_sandbox_image_reference()
@@ -54,7 +54,7 @@ class TestGetSandboxImageReference:
 
     def test_falls_back_to_master_when_token_missing(self):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.requests.get",
+            "products.tasks.backend.services.modal_sandbox.external_requests.get",
             return_value=_mock_token_response(token=None),
         ):
             result = _get_sandbox_image_reference()
@@ -64,7 +64,7 @@ class TestGetSandboxImageReference:
     @pytest.mark.parametrize("status_code", [401, 403, 404, 500, 502, 503])
     def test_falls_back_to_master_on_manifest_request_failure(self, status_code: int):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.requests.get",
+            "products.tasks.backend.services.modal_sandbox.external_requests.get",
             side_effect=[_mock_token_response(), _mock_manifest_response(status_code=status_code)],
         ):
             result = _get_sandbox_image_reference()
@@ -73,7 +73,7 @@ class TestGetSandboxImageReference:
 
     def test_falls_back_to_master_when_digest_header_missing(self):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.requests.get",
+            "products.tasks.backend.services.modal_sandbox.external_requests.get",
             side_effect=[_mock_token_response(), _mock_manifest_response(digest=None)],
         ):
             result = _get_sandbox_image_reference()
@@ -90,7 +90,7 @@ class TestGetSandboxImageReference:
     )
     def test_falls_back_to_master_on_request_exception(self, exception: Exception):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.requests.get",
+            "products.tasks.backend.services.modal_sandbox.external_requests.get",
             side_effect=exception,
         ):
             result = _get_sandbox_image_reference()
@@ -99,7 +99,7 @@ class TestGetSandboxImageReference:
 
     def test_caches_result_across_calls(self):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.requests.get",
+            "products.tasks.backend.services.modal_sandbox.external_requests.get",
             side_effect=[_mock_token_response(), _mock_manifest_response(digest="sha256:cached123")],
         ) as mock_get:
             result1 = _get_sandbox_image_reference()

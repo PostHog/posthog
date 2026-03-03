@@ -218,6 +218,10 @@ class TaskRunAppendLogRequestSerializer(serializers.Serializer):
         return value
 
 
+class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
+    text = serializers.CharField(max_length=10000)
+
+
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
     ARTIFACT_TYPE_CHOICES = ["plan", "context", "reference", "output", "artifact"]
 

@@ -162,7 +162,7 @@ describe('CdpPrecalculatedFiltersConsumer', () => {
         hub = await createHub()
         team = await getFirstTeam(hub)
 
-        processor = new CdpPrecalculatedFiltersConsumer(hub)
+        processor = new CdpPrecalculatedFiltersConsumer(hub, hub)
         await processor.start()
     })
 

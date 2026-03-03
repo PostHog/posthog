@@ -273,7 +273,8 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
                     "event_filters_count": len(event_filters),
                     "trigger_type": "manual",
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
             return Response(

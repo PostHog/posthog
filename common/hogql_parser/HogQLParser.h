@@ -2120,7 +2120,10 @@ public:
     antlr4::tree::TerminalNode *LPAREN();
     SelectSetStmtContext *selectSetStmt();
     antlr4::tree::TerminalNode *RPAREN();
-    WithExprColumnNameListContext *withExprColumnNameList();
+    std::vector<WithExprColumnNameListContext *> withExprColumnNameList();
+    WithExprColumnNameListContext* withExprColumnNameList(size_t i);
+    antlr4::tree::TerminalNode *USING();
+    antlr4::tree::TerminalNode *KEY();
     antlr4::tree::TerminalNode *MATERIALIZED();
     antlr4::tree::TerminalNode *NOT();
 
