@@ -308,6 +308,7 @@ export function EditPhasesModal(): JSX.Element | null {
                             )
                         },
                         isRowExpanded: (row) => (editing?.phaseIndex === row.index - 1 ? true : -1),
+                        expandedRowClassName: 'bg-white',
                         noIndent: true,
                         showRowExpansionToggle: false,
                     }}
