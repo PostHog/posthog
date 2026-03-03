@@ -887,7 +887,7 @@ def _match_repo_rule(
     try:
         from posthog.llm.gateway_client import get_llm_client
 
-        client = get_llm_client("django")  # just for internal testing
+        client = get_llm_client("twig")
         response = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": prompt}],
@@ -1357,19 +1357,22 @@ def twig_interactivity_handler(request: HttpRequest) -> HttpResponse:
     local = False
     ctx_integration_id = context.get("integration_id") if context else None
     if slack_team_id and ctx_integration_id:
-        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get — Slack webhook: scoped by PK + kind + workspace ID
         local = Integration.objects.filter(
-            id=ctx_integration_id, kind="slack-twig", integration_id=slack_team_id
+            id=ctx_integration_id,
+            kind="slack-twig",
+            integration_id=slack_team_id,  # nosemgrep: idor-taint-user-input-to-model-get — Slack webhook: scoped by PK + kind + workspace ID
         ).exists()
     elif slack_team_id and hinted_integration_id and hinted_user_id and requesting_user == hinted_user_id:
-        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get — Slack webhook: scoped by PK + kind + workspace ID
         local = Integration.objects.filter(
-            id=hinted_integration_id, kind="slack-twig", integration_id=slack_team_id
+            id=hinted_integration_id,
+            kind="slack-twig",
+            integration_id=slack_team_id,  # nosemgrep: idor-taint-user-input-to-model-get — Slack webhook: scoped by PK + kind + workspace ID
         ).exists()
     elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
-        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get — Slack webhook: scoped by PK + kind + workspace ID
         local = Integration.objects.filter(
-            id=terminate_integration_id, kind="slack-twig", integration_id=slack_team_id
+            id=terminate_integration_id,
+            kind="slack-twig",
+            integration_id=slack_team_id,  # nosemgrep: idor-taint-user-input-to-model-get — Slack webhook: scoped by PK + kind + workspace ID
         ).exists()
 
     logger.info(

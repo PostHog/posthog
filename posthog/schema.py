@@ -2240,6 +2240,7 @@ class IntegrationFilter(BaseModel):
 
 class IntegrationKind(StrEnum):
     SLACK = "slack"
+    SLACK_TWIG = "slack-twig"
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"
     GOOGLE_PUBSUB = "google-pubsub"
