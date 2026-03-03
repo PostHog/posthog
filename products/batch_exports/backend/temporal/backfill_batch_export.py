@@ -89,6 +89,9 @@ class UpdateBatchExportBackfillInputs:
 
     id: str
     adjusted_start_at: str | None = None
+    # Kept for backwards compatibility with running workflows
+    # TODO: Remove later
+    total_records_count: int | None = None
     estimated_records_count: int | None = None
     status: str | None = None
     finished: bool = False
@@ -105,7 +108,11 @@ async def update_batch_export_backfill_model(inputs: UpdateBatchExportBackfillIn
     logger = LOGGER.bind()
 
     finished_at = None
-    total_records_count = inputs.estimated_records_count
+    # TODO: Remove use of total_records_count once existing workflows have completed
+    estimated_records_count = (
+        inputs.estimated_records_count if inputs.estimated_records_count is not None else inputs.total_records_count
+    )
+    total_records_count = estimated_records_count
 
     if inputs.finished:
         # Calculate actual total from completed runs when finished,
@@ -117,7 +124,7 @@ async def update_batch_export_backfill_model(inputs: UpdateBatchExportBackfillIn
                 BatchExportBackfill.Status.FAILED,
                 BatchExportBackfill.Status.CANCELLED,
             )
-            and inputs.estimated_records_count != 0
+            and estimated_records_count != 0
         ):
             result = await database_sync_to_async(
                 lambda: BatchExportRun.objects.filter(
@@ -127,10 +134,10 @@ async def update_batch_export_backfill_model(inputs: UpdateBatchExportBackfillIn
             )()
             total_records_count = result["total"]
 
-            if inputs.estimated_records_count is not None:
+            if estimated_records_count is not None:
                 logger.info(
                     "Backfill records count: estimated vs actual",
-                    estimated_records_count=inputs.estimated_records_count,
+                    estimated_records_count=estimated_records_count,
                     actual_records_count=total_records_count,
                 )
 
