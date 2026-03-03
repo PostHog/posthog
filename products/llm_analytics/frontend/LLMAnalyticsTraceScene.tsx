@@ -65,12 +65,12 @@ import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
-import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { llmPlaygroundPromptsLogic } from './playground/llmPlaygroundPromptsLogic'
 import { SearchHighlight } from './SearchHighlight'
 import { flattenGenerationMessages } from './sentimentUtils'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
@@ -834,7 +834,7 @@ const EventContent = React.memo(
         showBillingInfo?: boolean
     }): JSX.Element => {
         const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
-        const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
+        const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const { displayOption, lineNumber, initialTab, viewMode } = useValues(traceLogic)
         const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(traceLogic)
@@ -887,9 +887,10 @@ const EventContent = React.memo(
             }
 
             const model = event.properties.$ai_model
+            const provider = event.properties.$ai_provider
             const tools = event.properties.$ai_tools
 
-            setupPlaygroundFromEvent({ model, input: loadedInput, tools })
+            setupPlaygroundFromEvent({ model, provider, input: loadedInput, tools })
         }
 
         return (

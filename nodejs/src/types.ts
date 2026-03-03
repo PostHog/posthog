@@ -160,6 +160,8 @@ export type CdpConfig = {
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string // A comma-separated list of queue to mode like `hog:kafka,fetch:postgres,*:kafka` with * being the default
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: string // Like the above but with a team check too
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: boolean // If true then scheduled jobs will be routed to postgres even if they are mapped to kafka
+    CDP_CYCLOTRON_STRIP_GROUPS_FROM_STATE_TEAMS: string // Team IDs to strip groups from persisted job state ('*' for all, '' for none)
+    CDP_CYCLOTRON_GROUPS_IN_WORKFLOWS_TEAMS: string // Team IDs to load groups fresh in hogflow worker ('*' for all, '' for none)
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
@@ -318,6 +320,10 @@ export type LogsIngestionConsumerConfig = {
     LOGS_LIMITER_TTL_SECONDS: number
     LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: string
     LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
+    REDIS_URL: string
+    REDIS_POOL_MIN_SIZE: number
+    REDIS_POOL_MAX_SIZE: number
+    KAFKA_CLIENT_RACK: string | undefined
 }
 
 export type SessionRecordingApiConfig = {
@@ -486,6 +492,8 @@ export interface PluginsServerConfig
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
+    OUTBOUND_PROXY_URL: string
+    OUTBOUND_PROXY_ENABLED: boolean
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number

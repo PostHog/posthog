@@ -224,13 +224,11 @@ export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?
         }
         // Timestamp doesn't fall in any segment (e.g. timezone mismatch).
         // Pick the nearest segment that has a windowId so the player can still boot.
-        const nearest =
-            timestamp < segments[0].startTimestamp
-                ? segments.find((s) => s.windowId !== undefined)
-                : [...segments].reverse().find((s) => s.windowId !== undefined)
-
-        if (nearest) {
-            return nearest
+        if (timestamp < segments[0].startTimestamp) {
+            const nearest = segments.find((s) => s.windowId !== undefined)
+            if (nearest) {
+                return nearest
+            }
         }
 
         return {
@@ -914,7 +912,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (!currentTimestamp || !sessionPlayerData?.start) {
                     return 0
                 }
-                return Math.max(0, currentTimestamp - sessionPlayerData.start.valueOf())
+                const time = currentTimestamp - sessionPlayerData.start.valueOf()
+                return clamp(time, 0, sessionPlayerData.durationMs || Infinity)
             },
         ],
 
