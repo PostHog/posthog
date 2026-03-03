@@ -50,7 +50,7 @@ export function Navigation({
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
-    const inlinePanelRef = useRef<HTMLDivElement>(null)
+    const inlinePanelRef = useRef<HTMLDivElement | null>(null)
     const inlinePanelCallbackRef = useCallback(
         (node: HTMLDivElement | null) => {
             inlinePanelRef.current = node
