@@ -83,7 +83,25 @@ func main() {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
 	defer consumer.Close()
+
+	usePubSub := config.Redis.UsePubSub
+	if usePubSub {
+		cleanup, err := setupRedisPubSub(config.Redis, consumer, subChan, unSubChan, ctx)
+		if err != nil {
+			log.Printf("ERROR: Failed to set up Redis pub/sub, falling back to in-memory filter: %v", err)
+			usePubSub = false
+		} else {
+			defer cleanup()
+			log.Printf("Redis pub/sub event transport enabled")
+		}
+	}
+
 	go consumer.Consume(ctx)
+
+	if !usePubSub {
+		filter := events.NewFilter(subChan, unSubChan, phEventChan)
+		go filter.Run()
+	}
 
 	if config.Kafka.SessionRecordingEnabled {
 		sessionConsumer, err := events.NewSessionRecordingKafkaConsumer(
@@ -117,23 +135,6 @@ func main() {
 			}
 		}
 	}()
-
-	usePubSub := config.Redis.UsePubSub
-	if usePubSub {
-		cleanup, err := setupRedisPubSub(config.Redis, consumer, subChan, unSubChan, ctx)
-		if err != nil {
-			log.Printf("ERROR: Failed to set up Redis pub/sub, falling back to in-memory filter: %v", err)
-			usePubSub = false
-		} else {
-			defer cleanup()
-			log.Printf("Redis pub/sub event transport enabled")
-		}
-	}
-
-	if !usePubSub {
-		filter := events.NewFilter(subChan, unSubChan, phEventChan)
-		go filter.Run()
-	}
 
 	// Echo instance
 	e := echo.New()
