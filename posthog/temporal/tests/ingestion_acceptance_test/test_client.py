@@ -72,7 +72,10 @@ class TestFetchEventByUuid:
             call_kwargs = mock_post.call_args[1]
 
             assert call_kwargs["headers"] == {"Authorization": "Bearer phx_personal_key"}
-            assert call_kwargs["timeout"] == PostHogClient.HTTP_TIMEOUT_SECONDS
+            assert call_kwargs["timeout"] == (
+                PostHogClient.HTTP_CONNECT_TIMEOUT_SECONDS,
+                PostHogClient.HTTP_READ_TIMEOUT_SECONDS,
+            )
 
             request_body = call_kwargs["json"]
             assert request_body["query"]["kind"] == "HogQLQuery"

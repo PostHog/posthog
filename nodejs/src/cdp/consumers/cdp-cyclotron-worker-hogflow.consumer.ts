@@ -1,6 +1,8 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { PluginsServerConfig } from '~/types'
 
-import { Hub } from '../../types'
+import { buildIntegerMatcher } from '../../config/config'
+import { ValueMatcher } from '../../types'
 import { logger } from '../../utils/logger'
 import {
     CyclotronJobInvocation,
@@ -10,19 +12,16 @@ import {
 } from '../types'
 import { getPersonDisplayName } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
-import { CdpCyclotronWorker, CdpCyclotronWorkerHub } from './cdp-cyclotron-worker.consumer'
+import { CdpConsumerBaseDeps } from './cdp-base.consumer'
+import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
-/**
- * Hub type for CdpCyclotronWorkerHogFlow.
- * Extends CdpCyclotronWorkerHub with hogflow-specific fields.
- */
-export type CdpCyclotronWorkerHogFlowHub = CdpCyclotronWorkerHub & Pick<Hub, 'teamManager'>
-
-export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWorkerHogFlowHub> {
+export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerHogFlow'
+    private loadGroupsMatcher: ValueMatcher<number>
 
-    constructor(hub: CdpCyclotronWorkerHogFlowHub) {
-        super(hub, 'hogflow')
+    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
+        super(config, deps, 'hogflow')
+        this.loadGroupsMatcher = buildIntegerMatcher(config.CDP_CYCLOTRON_GROUPS_IN_WORKFLOWS_TEAMS, true)
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
@@ -39,7 +38,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
 
         await Promise.all(
             invocations.map(async (item) => {
-                const team = await this.hub.teamManager.getTeam(item.teamId)
+                const team = await this.deps.teamManager.getTeam(item.teamId)
                 const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId)
                 if (!hogFlow || !team) {
                     logger.error('⚠️', 'Error finding hog flow', {
@@ -89,17 +88,24 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
                           id: dbPerson.id,
                           properties: dbPerson.properties,
                           name: personDisplayName,
-                          url: `${this.hub.SITE_URL}/project/${hogFlow.team_id}/person/${encodeURIComponent(
+                          url: `${this.config.SITE_URL}/project/${hogFlow.team_id}/person/${encodeURIComponent(
                               hogFlowInvocationState.event.distinct_id
                           )}`,
                       }
                     : undefined
 
+                const groups = this.loadGroupsMatcher(hogFlow.team_id)
+                    ? await this.groupsManager.getGroupsForEvent(
+                          hogFlow.team_id,
+                          hogFlowInvocationState.event.properties,
+                          `${this.config.SITE_URL}/project/${hogFlow.team_id}`
+                      )
+                    : {}
+
                 const filterGlobals = convertToHogFunctionFilterGlobal({
                     event: hogFlowInvocationState.event,
                     person,
-                    // TODO: Load groups as well
-                    groups: {},
+                    groups,
                     variables: hogFlowInvocationState.variables || {},
                 })
 

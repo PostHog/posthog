@@ -268,28 +268,6 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
-        describe('providerKeysByProvider', () => {
-            beforeEach(() => {
-                logic = llmEvaluationLogic({ evaluationId: 'new' })
-                logic.mount()
-            })
-
-            it('groups keys by provider', async () => {
-                await expectLogic(keysLogic).toDispatchActions(['loadProviderKeysSuccess'])
-
-                const byProvider = logic.values.providerKeysByProvider
-                expect(byProvider.openai).toHaveLength(1)
-                expect(byProvider.openai[0].id).toBe('key-1')
-                expect(byProvider.anthropic).toHaveLength(1)
-                expect(byProvider.anthropic[0].id).toBe('key-2')
-                expect(byProvider.gemini).toHaveLength(0)
-                expect(byProvider.openrouter).toHaveLength(1)
-                expect(byProvider.openrouter[0].id).toBe('key-3')
-                expect(byProvider.fireworks).toHaveLength(1)
-                expect(byProvider.fireworks[0].id).toBe('key-4')
-            })
-        })
-
         describe('evaluationProviderKeyIssue', () => {
             beforeEach(() => {
                 logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
@@ -661,45 +639,55 @@ describe('llmEvaluationLogic', () => {
         })
     })
 
-    describe('provider selection', () => {
+    describe('selectModelFromPicker', () => {
         beforeEach(() => {
             logic = llmEvaluationLogic({ evaluationId: 'new' })
             logic.mount()
         })
 
-        it('setSelectedProvider dispatches loadAvailableModels', async () => {
+        it('sets model configuration from BYOK provider key', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+            await expectLogic(keysLogic).toDispatchActions(['loadProviderKeysSuccess'])
 
-            logic.actions.setSelectedProvider('anthropic')
+            logic.actions.selectModelFromPicker('gpt-5', 'key-1')
 
             await expectLogic(logic).toMatchValues({
-                selectedProvider: 'anthropic',
+                selectedModel: 'gpt-5',
+                evaluation: expect.objectContaining({
+                    model_configuration: {
+                        provider: 'openai',
+                        model: 'gpt-5',
+                        provider_key_id: 'key-1',
+                    },
+                }),
             })
         })
 
-        it('setSelectedKeyId resets model selection', async () => {
+        it('sets model configuration from trial provider key', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
-            logic.actions.setSelectedModel('gpt-5-mini')
-
-            await expectLogic(logic).toMatchValues({ selectedModel: 'gpt-5-mini' })
-
-            logic.actions.setSelectedKeyId('key-1')
-
-            await expectLogic(logic).toMatchValues({ selectedModel: '' })
-        })
-
-        it('setSelectedModel updates model configuration', async () => {
-            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-
-            logic.actions.setSelectedModel('gpt-5-mini')
+            logic.actions.selectModelFromPicker('gpt-5', 'trial:openai')
 
             await expectLogic(logic).toMatchValues({
-                selectedModel: 'gpt-5-mini',
+                selectedModel: 'gpt-5',
                 evaluation: expect.objectContaining({
-                    model_configuration: expect.objectContaining({
-                        model: 'gpt-5-mini',
-                    }),
+                    model_configuration: {
+                        provider: 'openai',
+                        model: 'gpt-5',
+                        provider_key_id: null,
+                    },
+                }),
+            })
+        })
+
+        it('ignores empty modelId', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.selectModelFromPicker('', 'key-1')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    model_configuration: null,
                 }),
             })
         })
