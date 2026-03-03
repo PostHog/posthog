@@ -115,7 +115,8 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         # Generate unique workflow ID
-        workflow_id = f"{evaluation_id}-{target_event_id}-manual-{int(time.time() * 1000)}"
+        prefix = "llma-hog-eval" if evaluation.evaluation_type == "hog" else "llma-llm-eval"
+        workflow_id = f"{prefix}-{evaluation_id}-{target_event_id}-manual-{int(time.time() * 1000)}"
 
         # Start Temporal workflow
         try:
