@@ -1,9 +1,12 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team.team import Team
+from posthog.temporal.ai.video_segment_clustering.constants import clustering_workflow_id
+from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
 
 from products.signals.backend.models import SignalSourceConfig
 
@@ -96,6 +99,67 @@ class TestSignalSourceConfigAPI(APIBaseTest):
             created_by=self.user,
         )
         assert SignalSourceConfig.objects.filter(source_type="session_analysis_cluster").count() == 2
+
+    @patch("products.signals.backend.views.sync_connect")
+    def test_workflow_create_session_analysis_cluster_triggers(self, mock_sync_connect):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(
+            self._url(),
+            data={
+                "source_product": "session_replay",
+                "source_type": "session_analysis_cluster",
+                "enabled": True,
+            },
+            format="json",
+        )
+        data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, data
+
+        mock_client.start_workflow.assert_called_once()
+        call_args, call_kwargs = mock_client.start_workflow.call_args
+        assert call_args[0] == "video-segment-clustering"
+        assert call_args[1] == clustering_workflow_id(self.team.id, data["id"])
+        assert isinstance(call_kwargs["arg"], ClusteringWorkflowInputs)
+        assert call_kwargs["arg"].team_id == self.team.id
+
+    @patch("products.signals.backend.views.sync_connect")
+    def test_workflow_create_disabled_does_not_trigger(self, mock_sync_connect):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(
+            self._url(),
+            data={
+                "source_product": "session_replay",
+                "source_type": "session_analysis_cluster",
+                "enabled": False,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_client.start_workflow.assert_not_called()
+
+    @patch("products.signals.backend.views.sync_connect")
+    def test_workflow_create_evaluation_does_not_trigger(self, mock_sync_connect):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(
+            self._url(),
+            data={
+                "source_product": "llm_analytics",
+                "source_type": "evaluation",
+                "enabled": True,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_client.start_workflow.assert_not_called()
 
     # --- Config validation ---
 
