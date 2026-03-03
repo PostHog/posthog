@@ -81,14 +81,11 @@ function getSurveysReactNativeSteps(ctx: OnboardingComponentsContext): StepDefin
                     <Markdown>You can also pass your `client` instance to the `PostHogSurveyProvider`.</Markdown>
                     <CodeBlock
                         blocks={[
-                            {
-                                language: 'typescript',
-                                file: 'App.tsx',
-                                code: dedent`
-                                    <PostHogSurveyProvider client={posthog}>
-                                `,
-                            },
-                        ]}
+code: dedent`
+    <PostHogSurveyProvider client={posthog}>
+      {children}
+    </PostHogSurveyProvider>
+`,
                     />
                 </>
             ),
