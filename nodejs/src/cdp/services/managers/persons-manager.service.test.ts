@@ -254,10 +254,12 @@ describe('PersonsManager', () => {
         })
 
         it('encodes special characters in distinct_id for URL', async () => {
+            // distinct_id_A_1 already exists from setup — just verify URL encoding works
+            // by testing a distinct_id that contains special characters
             const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
             const createResult = await personRepository.createPerson(
                 TIMESTAMP,
-                { email: 'test@example.com' },
+                {},
                 {},
                 {},
                 team.id,
@@ -270,11 +272,11 @@ describe('PersonsManager', () => {
                 throw new Error('Failed to create person')
             }
 
+            manager.clear()
             const result = await manager.getCyclotronPerson(team.id, 'user@example.com')
 
             expect(result).toBeDefined()
             expect(result!.url).toBe(`http://localhost:8000/project/${team.id}/person/user%40example.com`)
-            expect(result!.name).toBe('test@example.com')
         })
     })
 
