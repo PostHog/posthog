@@ -13,7 +13,9 @@ if [ ! -x "$DUCKGRES_BIN" ]; then
 fi
 
 while true; do
+    set +e
     "$DUCKGRES_BIN" --config "$DUCKGRES_CONFIG"
+    set -e
     echo "duckgres exited, restarting in 3s..."
     sleep 3
 done
