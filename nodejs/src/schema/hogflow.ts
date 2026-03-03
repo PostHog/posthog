@@ -226,8 +226,9 @@ export const HogFlowSchema = z.object({
         .nullable(),
     conversion: z
         .object({
-            window_minutes: z.number(),
+            window_minutes: z.number().nullable(),
             filters: z.any(),
+            bytecode: z.array(z.union([z.string(), z.number()])),
         })
         .optional(),
     exit_condition: z.enum([

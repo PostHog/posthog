@@ -124,4 +124,8 @@ class SubagentSurveyAgentToolkit(AgentToolkit):
         return [SurveyAnalysisTool]
 
 
-subagent_survey_agent = replace(survey_agent, toolkit_class=SubagentSurveyAgentToolkit)
+SUBAGENT_MODE_DESCRIPTION = "Specialized mode for analyzing surveys. Analyze survey responses to extract themes, sentiment, and actionable insights."
+
+subagent_survey_agent = replace(
+    survey_agent, toolkit_class=SubagentSurveyAgentToolkit, mode_description=SUBAGENT_MODE_DESCRIPTION
+)

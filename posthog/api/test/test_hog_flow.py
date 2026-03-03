@@ -171,6 +171,134 @@ class TestHogFlowAPI(APIBaseTest):
             "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
         }
 
+    def test_hog_flow_conversion_filters_compiles_bytecode_on_create(self):
+        expected_conversion_bytecode = [
+            "_H",
+            1,
+            32,
+            "Chrome",
+            32,
+            "$browser",
+            32,
+            "properties",
+            32,
+            "person",
+            1,
+            3,
+            11,
+        ]
+
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        hog_flow["status"] = "active"
+        hog_flow["conversion"] = {
+            "filters": [
+                {
+                    "key": "$browser",
+                    "type": "person",
+                    "value": ["Chrome"],
+                    "operator": "exact",
+                }
+            ],
+            "window_minutes": None,
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 201, response.json()
+        conversion = response.json()["conversion"]
+        assert conversion["filters"][0] == {
+            "key": "$browser",
+            "type": "person",
+            "value": ["Chrome"],
+            "operator": "exact",
+        }
+        assert conversion["bytecode"] == expected_conversion_bytecode
+
+        flow = HogFlow.objects.get(pk=response.json()["id"])
+        flow_conversion = flow.conversion
+        assert flow_conversion is not None
+        assert flow_conversion["window_minutes"] is None
+        assert flow_conversion["filters"][0] == {
+            "key": "$browser",
+            "type": "person",
+            "value": ["Chrome"],
+            "operator": "exact",
+        }
+        assert flow_conversion["bytecode"] == expected_conversion_bytecode
+
+    def test_hog_flow_conversion_filters_compiles_bytecode_on_update(self):
+        expected_conversion_bytecode = [
+            "_H",
+            1,
+            32,
+            "Chrome",
+            32,
+            "$browser",
+            32,
+            "properties",
+            32,
+            "person",
+            1,
+            3,
+            11,
+        ]
+
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        hog_flow["status"] = "active"
+
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "conversion": {
+                    "filters": [
+                        {
+                            "key": "$browser",
+                            "type": "person",
+                            "value": ["Chrome"],
+                            "operator": "exact",
+                        }
+                    ],
+                    "window_minutes": None,
+                }
+            },
+        )
+
+        assert update_response.status_code == 200, update_response.json()
+        conversion = update_response.json()["conversion"]
+        assert conversion["filters"][0] == {
+            "key": "$browser",
+            "type": "person",
+            "value": ["Chrome"],
+            "operator": "exact",
+        }
+        assert conversion["bytecode"] == expected_conversion_bytecode
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        flow_conversion = flow.conversion
+        assert flow_conversion is not None
+        assert flow_conversion["window_minutes"] is None
+        assert flow_conversion["filters"][0] == {
+            "key": "$browser",
+            "type": "person",
+            "value": ["Chrome"],
+            "operator": "exact",
+        }
+        assert flow_conversion["bytecode"] == expected_conversion_bytecode
+
     def test_hog_flow_conditional_branch_filters_bytecode(self):
         conditional_action = {
             "id": "cond_1",

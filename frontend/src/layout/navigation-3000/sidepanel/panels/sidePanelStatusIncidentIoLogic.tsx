@@ -71,8 +71,8 @@ function getRelevantGroupName(): string | null {
 function hasRelevantComponents(affectedComponents: IncidentIoAffectedComponent[]): boolean {
     const relevantGroupName = getRelevantGroupName()
     if (!relevantGroupName) {
-        // If no mapping, show all incidents
-        return true
+        // Unknown hostname (self-hosted) — cloud incidents aren't relevant
+        return false
     }
     // If no affected components, show the incident (it's global)
     if (affectedComponents.length === 0) {

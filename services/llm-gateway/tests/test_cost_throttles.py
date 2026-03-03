@@ -59,7 +59,7 @@ class TestUserCostLimitConfig:
         assert "twig" in settings.user_cost_limits
         twig = settings.user_cost_limits["twig"]
         assert twig.burst_limit_usd == 100.0
-        assert twig.burst_window_seconds == 18000
+        assert twig.burst_window_seconds == 86400
         assert twig.sustained_limit_usd == 1000.0
         assert twig.sustained_window_seconds == 2592000
         get_settings.cache_clear()
@@ -166,16 +166,20 @@ class TestUserCostBurstThrottle:
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_skips_for_products_without_config(self) -> None:
+    async def test_uses_default_for_products_without_config(self) -> None:
         get_settings.cache_clear()
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
         context = make_context(product="llm_gateway")
 
-        await throttle.record_cost(context, 99999.0)
+        await throttle.record_cost(context, 99.0)
         result = await throttle.allow_request(context)
         assert result.allowed is True
+
+        await throttle.record_cost(context, 1.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is False
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
@@ -251,16 +255,20 @@ class TestUserCostSustainedThrottle:
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_skips_for_products_without_config(self) -> None:
+    async def test_uses_default_for_products_without_config(self) -> None:
         get_settings.cache_clear()
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)
         context = make_context(product="llm_gateway")
 
-        await throttle.record_cost(context, 99999.0)
+        await throttle.record_cost(context, 999.0)
         result = await throttle.allow_request(context)
         assert result.allowed is True
+
+        await throttle.record_cost(context, 1.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is False
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
@@ -389,7 +397,7 @@ class TestRetryAfterHeader:
         result = await throttle.allow_request(context)
 
         assert result.allowed is False
-        assert result.retry_after == 18000
+        assert result.retry_after == 86400
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
@@ -587,38 +595,45 @@ class TestTeamRateLimitMultipliers:
         get_settings.cache_clear()
 
 
-class TestUnconfiguredProductsNotLimitedPerUser:
-    """Products without user_cost_limits config must never be throttled or accumulate per-user cost."""
+class TestUnconfiguredProductsUseDefaults:
+    """Products without user_cost_limits config use default limits ($100/24h burst, $1000/30d sustained)."""
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("throttle_cls", ["UserCostBurstThrottle", "UserCostSustainedThrottle"])
-    async def test_unconfigured_product_always_allowed(self, throttle_cls: str) -> None:
+    async def test_unconfigured_product_uses_burst_default(self) -> None:
         get_settings.cache_clear()
-        import llm_gateway.rate_limiting.cost_throttles as mod
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
-        throttle = getattr(mod, throttle_cls)(redis=None)
+        throttle = UserCostBurstThrottle(redis=None)
         context = make_context(product="wizard")
 
-        await throttle.record_cost(context, 999_999.0)
+        await throttle.record_cost(context, 99.0)
         result = await throttle.allow_request(context)
         assert result.allowed is True
+
+        await throttle.record_cost(context, 1.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is False
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("throttle_cls", ["UserCostBurstThrottle", "UserCostSustainedThrottle"])
-    async def test_unconfigured_product_does_not_create_limiter(self, throttle_cls: str) -> None:
+    async def test_unconfigured_product_uses_sustained_default(self) -> None:
         get_settings.cache_clear()
-        import llm_gateway.rate_limiting.cost_throttles as mod
+        from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
-        throttle = getattr(mod, throttle_cls)(redis=None)
+        throttle = UserCostSustainedThrottle(redis=None)
         context = make_context(product="wizard")
 
-        await throttle.record_cost(context, 500.0)
-        assert len(throttle._limiters) == 0
+        await throttle.record_cost(context, 999.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is True
+
+        await throttle.record_cost(context, 1.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is False
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_configured_product_limited_while_unconfigured_not(self) -> None:
+    async def test_configured_and_unconfigured_products_both_limited(self) -> None:
         get_settings.cache_clear()
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle, UserCostSustainedThrottle
 
@@ -634,15 +649,13 @@ class TestUnconfiguredProductsNotLimitedPerUser:
         await sustained.record_cost(ctx_wizard, 1000.0)
 
         assert (await burst.allow_request(ctx_twig)).allowed is False
-        assert (await burst.allow_request(ctx_wizard)).allowed is True
+        assert (await burst.allow_request(ctx_wizard)).allowed is False
         assert (await sustained.allow_request(ctx_twig)).allowed is False
-        assert (await sustained.allow_request(ctx_wizard)).allowed is True
+        assert (await sustained.allow_request(ctx_wizard)).allowed is False
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_logs_warning_for_unconfigured_product_with_end_user(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    async def test_logs_info_for_unconfigured_product_with_end_user(self, capsys: pytest.CaptureFixture[str]) -> None:
         get_settings.cache_clear()
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle, _UserCostThrottleBase
 
@@ -653,12 +666,12 @@ class TestUnconfiguredProductsNotLimitedPerUser:
 
         await throttle.allow_request(context)
         captured = capsys.readouterr()
-        assert "user_cost_limits_missing_product" in captured.out
+        assert "user_cost_limits_using_default" in captured.out
         assert "wizard" in captured.out
 
         await throttle.allow_request(context)
         captured2 = capsys.readouterr()
-        assert "user_cost_limits_missing_product" not in captured2.out
+        assert "user_cost_limits_using_default" not in captured2.out
 
         _UserCostThrottleBase._warned_products = set()
         get_settings.cache_clear()
@@ -678,20 +691,20 @@ class TestUnconfiguredProductsNotLimitedPerUser:
 
         await throttle.allow_request(context)
         captured = capsys.readouterr()
-        assert "user_cost_limits_missing_product" not in captured.out
+        assert "user_cost_limits_using_default" not in captured.out
 
         _UserCostThrottleBase._warned_products = set()
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_dynamically_adding_product_config_enables_limits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_dynamically_adding_product_config_overrides_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
         get_settings.cache_clear()
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
         context = make_context(product="wizard")
 
-        await throttle.record_cost(context, 999.0)
+        await throttle.record_cost(context, 99.0)
         assert (await throttle.allow_request(context)).allowed is True
 
         monkeypatch.setenv(
@@ -751,15 +764,18 @@ class TestUserCostEdgeCases:
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_require_config_raises_for_unconfigured_product(self) -> None:
+    async def test_get_config_returns_default_for_unconfigured_product(self) -> None:
         get_settings.cache_clear()
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
         context = make_context(product="wizard")
 
-        with pytest.raises(RuntimeError, match="No user_cost_limits config for product 'wizard'"):
-            throttle._require_config(context)
+        config = throttle._get_config(context)
+        assert config.burst_limit_usd == 100.0
+        assert config.burst_window_seconds == 86400
+        assert config.sustained_limit_usd == 1000.0
+        assert config.sustained_window_seconds == 2592000
         get_settings.cache_clear()
 
     @pytest.mark.asyncio

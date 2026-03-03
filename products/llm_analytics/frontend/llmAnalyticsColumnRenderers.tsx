@@ -3,7 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconFilter } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -321,6 +321,30 @@ const getEventData = (record: unknown, query?: DataTableNode | DataVisualization
     return undefined
 }
 
+const MAX_VISIBLE_TOOLS = 5
+
+function ToolsDisplay({ tools }: { tools: string[] | undefined | null }): JSX.Element {
+    if (!tools || tools.length === 0) {
+        return <>–</>
+    }
+    const visible = tools.slice(0, MAX_VISIBLE_TOOLS)
+    const remaining = tools.length - MAX_VISIBLE_TOOLS
+    return (
+        <div className="flex flex-wrap gap-1">
+            {visible.map((tool) => (
+                <LemonTag key={tool} type="muted">
+                    {tool}
+                </LemonTag>
+            ))}
+            {remaining > 0 && (
+                <Tooltip title={tools.slice(MAX_VISIBLE_TOOLS).join(', ')}>
+                    <LemonTag type="muted">+{remaining} more</LemonTag>
+                </Tooltip>
+            )}
+        </div>
+    )
+}
+
 export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
     'properties.$ai_input[-1]': {
         title: 'Input',
@@ -447,6 +471,30 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
             }
 
             return <LazyGenerationSentimentCell generationEventId={uuid} />
+        },
+    },
+    'properties.$ai_tools_called': {
+        title: 'Tools',
+        render: ({ value }) => {
+            if (!value || typeof value !== 'string') {
+                return <>–</>
+            }
+            const tools = [
+                ...new Set(
+                    value
+                        .split(',')
+                        .map((t) => t.trim())
+                        .filter(Boolean)
+                ),
+            ]
+            return <ToolsDisplay tools={tools} />
+        },
+    },
+    tools: {
+        title: 'Tools',
+        render: ({ record }) => {
+            const row = record as LLMTrace
+            return <ToolsDisplay tools={row.tools} />
         },
     },
     // LLM person column for Users tab - clicking filter redirects to traces page
