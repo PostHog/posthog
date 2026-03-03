@@ -97,6 +97,13 @@ export interface PlaywrightSetupOptions {
     maxRetries?: number
 }
 
+class NonRetryableError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'NonRetryableError'
+    }
+}
+
 /**
  * Main class for setting up PostHog workspaces in tests
  */
@@ -113,7 +120,7 @@ export class PlaywrightSetup {
     /**
      * Call the Django setup endpoint with automatic retry on transient failures.
      * Retries up to `maxRetries` times (default 3) with exponential backoff
-     * (2s, 4s, 8s) to handle intermittent API timeouts in CI.
+     * (2s, 4s between attempts) to handle intermittent API timeouts in CI.
      */
     async callSetupEndpoint(setupType: string, options: PlaywrightSetupOptions = {}): Promise<TestSetupResponse> {
         const { data = {}, throwOnError = true, baseURL, maxRetries = 3 } = options
@@ -149,7 +156,7 @@ export class PlaywrightSetup {
                             `[PlaywrightSetup] Setup failed - Status: ${response.status()}, Result:`,
                             result
                         )
-                        throw new Error(
+                        throw new NonRetryableError(
                             `Playwright setup failed for '${setupType}': ${result.error || 'Unknown error'}`
                         )
                     }
@@ -157,6 +164,11 @@ export class PlaywrightSetup {
 
                 return result
             } catch (error) {
+                // Non-retryable errors (e.g. 4xx) should not be retried
+                if (error instanceof NonRetryableError) {
+                    throw error
+                }
+
                 lastError = error instanceof Error ? error : new Error(String(error))
 
                 if (attempt < maxRetries) {
