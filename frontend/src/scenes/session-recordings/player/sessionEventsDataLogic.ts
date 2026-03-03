@@ -39,7 +39,7 @@ export const sessionEventsDataLogic = kea<sessionEventsDataLogicType>([
         sessionEventsData: [
             null as null | RecordingEventType[],
             {
-                loadEvents: async () => {
+                loadEvents: async (_, breakpoint) => {
                     const meta = values.sessionPlayerMetaData
                     if (!meta) {
                         return null
@@ -96,6 +96,8 @@ AND properties.$lib != 'web'`
                         api.queryHogQL(relatedEventsQuery, tags),
                     ])
 
+                    breakpoint()
+
                     return [...sessionEvents.results, ...relatedEvents.results].map(
                         (event: any): RecordingEventType => {
                             const currentUrl = event[5]
@@ -132,7 +134,7 @@ AND properties.$lib != 'web'`
                     )
                 },
 
-                loadFullEventData: async ({ event }) => {
+                loadFullEventData: async ({ event }, breakpoint) => {
                     // box so we're always dealing with a list
                     const events = Array.isArray(event) ? event : [event]
 
@@ -168,6 +170,7 @@ AND properties.$lib != 'web'`
                             scene: 'ReplaySingle',
                             productKey: 'session_replay',
                         })
+                        breakpoint()
                         if (response.error) {
                             throw new Error(response.error)
                         }

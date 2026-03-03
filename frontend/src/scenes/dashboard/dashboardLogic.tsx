@@ -1678,6 +1678,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cache.abortController = new AbortController()
                 const methodOptions: ApiMethodOptions = { signal: cache.abortController.signal }
 
+                // Cache values used during and after the long-running fetch, since the logic
+                // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
+                // only cancels on newer invocations, not on unmount).
+                const {
+                    currentTeamId,
+                    effectiveRefreshFilters,
+                    urlFilters,
+                    urlVariables,
+                    dashboardLoadData,
+                    dashboard,
+                    lastDashboardRefresh,
+                    isAnalyzing,
+                    refreshAnalysisCacheKey,
+                } = values
+
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
                     const insight = tile.insight
                     const queryId = uuid()
@@ -1690,14 +1705,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         const insightRefreshStartTime = performance.now()
                         const refreshedInsight = await getInsightWithRetry(
-                            values.currentTeamId,
+                            currentTeamId,
                             insight,
                             dashboardId,
                             queryId,
                             forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
                             methodOptions,
-                            values.effectiveRefreshFilters,
-                            values.urlVariables,
+                            effectiveRefreshFilters,
+                            urlVariables,
                             tile.filters_overrides
                         )
 
@@ -1709,8 +1724,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             eventUsageLogic.actions.reportDashboardTileRefreshed(
                                 dashboardId,
                                 tile,
-                                values.urlFilters,
-                                values.urlVariables,
+                                urlFilters,
+                                urlVariables,
                                 Math.floor(performance.now() - insightRefreshStartTime),
                                 false
                             )
@@ -1744,9 +1759,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 if (isInitialLoad) {
                     // capture time to see data
-                    const { dashboardQueryId, startTime, responseBytes } = values.dashboardLoadData
+                    const { dashboardQueryId, startTime, responseBytes } = dashboardLoadData
                     eventUsageLogic.actions.reportTimeToSeeData({
-                        team_id: values.currentTeamId,
+                        team_id: currentTeamId,
                         type: 'dashboard_load',
                         context: 'dashboard',
                         action,
@@ -1755,7 +1770,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         time_to_see_data_ms: Math.floor(performance.now() - startTime),
                         api_response_bytes: responseBytes,
                         insights_fetched: sortedTilesToRefresh.length,
-                        insights_fetched_cached: values.dashboard?.tiles.reduce(
+                        insights_fetched_cached: dashboard?.tiles.reduce(
                             (acc, curr) => acc + (curr.is_cached ? 1 : 0),
                             0
                         ),
@@ -1765,10 +1780,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 eventUsageLogic.actions.reportDashboardRefreshed(
                     dashboardId,
-                    values.dashboard,
-                    values.urlFilters,
-                    values.urlVariables,
-                    values.lastDashboardRefresh,
+                    dashboard,
+                    urlFilters,
+                    urlVariables,
+                    lastDashboardRefresh,
                     action,
                     !!forceRefresh,
                     {
@@ -1782,11 +1797,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
 
                 // Run AI analysis after tiles finish, if it was requested and refresh wasn't aborted
-                if (values.isAnalyzing && values.refreshAnalysisCacheKey && tilesAbortedCount === 0) {
-                    const cacheKey = values.refreshAnalysisCacheKey
+                if (isAnalyzing && refreshAnalysisCacheKey && tilesAbortedCount === 0) {
+                    const cacheKey = refreshAnalysisCacheKey
                     try {
                         const analysisResponse = await api.create(
-                            `api/environments/${values.currentTeamId}/dashboards/${dashboardId}/analyze_refresh_result`,
+                            `api/environments/${currentTeamId}/dashboards/${dashboardId}/analyze_refresh_result`,
                             { cache_key: cacheKey }
                         )
                         actions.setRefreshAnalysisResult(analysisResponse.result)
@@ -1948,16 +1963,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.abortAnyRunningQuery()
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
-            const { currentTeamId } = values
+            const { currentTeamId, dashboardLoadData } = values
             try {
                 await api.insights.cancelQuery(queryId, currentTeamId ?? undefined)
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }
 
-            const { dashboardQueryId } = values.dashboardLoadData
+            const { dashboardQueryId } = dashboardLoadData
             eventUsageLogic.actions.reportTimeToSeeData({
-                team_id: values.currentTeamId,
+                team_id: currentTeamId,
                 type: 'insight_load',
                 context: 'dashboard',
                 primary_interaction_id: dashboardQueryId,
