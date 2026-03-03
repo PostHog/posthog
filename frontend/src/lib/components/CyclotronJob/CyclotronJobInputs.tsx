@@ -1,4 +1,4 @@
-import { DndContext, closestCenter } from '@dnd-kit/core'
+import { DndContext, type DragEndEvent, closestCenter } from '@dnd-kit/core'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
@@ -32,11 +32,39 @@ import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocat
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
 import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
+import { CyclotronJobTemplateOption } from './cyclotronJobTemplateSuggestionsLogic'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputConfiguration } from './types'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
+
+/** Flatten a nested globals object into path-based template suggestion options */
+function globalsToContextOptions(
+    globals: Record<string, any> | null | undefined,
+    templating: 'hog' | 'liquid'
+): CyclotronJobTemplateOption[] {
+    if (!globals) {
+        return []
+    }
+    const options: CyclotronJobTemplateOption[] = []
+    const flatten = (obj: Record<string, any>, prefix: string): void => {
+        for (const [key, value] of Object.entries(obj)) {
+            const path = prefix ? `${prefix}.${key}` : key
+            if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+                flatten(value, path)
+            } else {
+                options.push({
+                    key: `ctx_${path}`,
+                    example: templating === 'hog' ? path : `{{ ${path} }}`,
+                    description: key.startsWith('$') ? key : path,
+                })
+            }
+        }
+    }
+    flatten(globals, '')
+    return options
+}
 
 const INPUT_TYPE_LIST = [
     'string',
@@ -80,7 +108,7 @@ export function CyclotronJobInputs({
         <>
             <DndContext
                 collisionDetection={closestCenter}
-                onDragEnd={({ active, over }) => {
+                onDragEnd={({ active, over }: DragEndEvent) => {
                     if (over && active.id !== over.id) {
                         const oldIndex = inputSchemaIds.indexOf(active.id as string)
                         const newIndex = inputSchemaIds.indexOf(over.id as string)
@@ -125,11 +153,16 @@ function JsonConfigField(props: {
     const templatingKind = props.input.templating ?? 'hog'
     const [isExpanded, setIsExpanded] = useState(true)
 
+    const contextOptions = useMemo(
+        () => globalsToContextOptions(props.sampleGlobalsWithInputs, templatingKind),
+        [props.sampleGlobalsWithInputs, templatingKind]
+    )
+
     // Set up validation logic for this JSON field
     const logic = cyclotronJobInputLogic({
         fieldKey: key,
         initialValue: props.input.value,
-        onChange: (value) => props.onChange?.({ ...props.input, value }),
+        onChange: (value: string) => props.onChange?.({ ...props.input, value }),
     })
 
     const { error, jsonValue } = useValues(logic)
@@ -174,6 +207,7 @@ function JsonConfigField(props: {
                                     onOptionSelect={(option) => {
                                         void copyToClipboard(`{${option.example}}`, 'template code')
                                     }}
+                                    contextOptions={contextOptions}
                                 />
                             </span>
                         ) : null}
@@ -227,6 +261,11 @@ function CyclotronJobTemplateInput(props: {
 }): JSX.Element {
     const templating = props.input.templating ?? 'hog'
 
+    const contextOptions = useMemo(
+        () => globalsToContextOptions(props.sampleGlobalsWithInputs, templating),
+        [props.sampleGlobalsWithInputs, templating]
+    )
+
     if (!props.templating) {
         return (
             <LemonInput
@@ -254,6 +293,7 @@ function CyclotronJobTemplateInput(props: {
                     onOptionSelect={(option) => {
                         props.onChange?.({ ...props.input, value: `${props.input.value} {${option.example}}` })
                     }}
+                    contextOptions={contextOptions}
                 />
             </span>
         </span>

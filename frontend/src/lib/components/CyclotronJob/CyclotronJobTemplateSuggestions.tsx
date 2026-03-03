@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconCode, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
@@ -14,6 +14,7 @@ export type CyclotronJobTemplateSuggestionsProps = {
     setTemplatingEngine?: (templating: 'hog' | 'liquid') => void
     value: string
     onOptionSelect: (option: CyclotronJobTemplateOption) => void
+    contextOptions?: CyclotronJobTemplateOption[]
 }
 
 function CyclotronJobTemplateSuggestionsItem({
@@ -37,15 +38,24 @@ export function CyclotronJobTemplateSuggestions({
     templating,
     setTemplatingEngine,
     onOptionSelect,
+    contextOptions,
 }: CyclotronJobTemplateSuggestionsProps): JSX.Element {
     const logic = cyclotronJobTemplateSuggestionsLogic({ templating })
     const { search, optionsFiltered } = useValues(logic)
     const { setSearch } = useActions(logic)
 
-    // FUTURE IDEAS:
-    // * Allow searching taxonomic properties to auto fill the data (events, person properties etc.)
-    // * Inline documentation for liquid
-    // * Have the last selected text selection be passed in so we can fill it in the appropriate place
+    const filteredContextOptions = useMemo(() => {
+        if (!contextOptions?.length) {
+            return []
+        }
+        if (!search) {
+            return contextOptions
+        }
+        const lower = search.toLowerCase()
+        return contextOptions.filter(
+            (o) => o.description.toLowerCase().includes(lower) || o.example.toLowerCase().includes(lower)
+        )
+    }, [contextOptions, search])
 
     return (
         <div className="flex overflow-hidden flex-col flex-1 gap-1 max-w-100">
@@ -80,6 +90,17 @@ export function CyclotronJobTemplateSuggestions({
                 </div>
             </div>
             <ul className="flex overflow-y-auto flex-col flex-1 gap-px p-2 border-t max-w-100">
+                {filteredContextOptions.length > 0 && (
+                    <>
+                        <li className="text-xs font-semibold text-muted px-2 pt-1 pb-0.5">Available data</li>
+                        {filteredContextOptions.map((value) => (
+                            <li key={value.key}>
+                                <CyclotronJobTemplateSuggestionsItem option={value} onSelect={onOptionSelect} />
+                            </li>
+                        ))}
+                        <li className="text-xs font-semibold text-muted px-2 pt-2 pb-0.5">Functions</li>
+                    </>
+                )}
                 {optionsFiltered.map((value) => (
                     <li key={value.key}>
                         <CyclotronJobTemplateSuggestionsItem option={value} onSelect={onOptionSelect} />
