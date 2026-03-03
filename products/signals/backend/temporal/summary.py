@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from django.db import transaction
-from django.utils import timezone
 
 import structlog
 import temporalio
@@ -301,10 +300,8 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
         @transaction.atomic
         def do_update():
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
-            report.status = SignalReport.Status.IN_PROGRESS
-            report.last_run_at = timezone.now()
-            report.signals_at_run = input.signal_count + 3
-            report.save(update_fields=["status", "last_run_at", "signals_at_run", "updated_at"])
+            updated_fields = report.transition_to(SignalReport.Status.IN_PROGRESS, signals_at_run_increment=3)
+            report.save(update_fields=updated_fields)
 
         await database_sync_to_async(do_update, thread_sensitive=False)()
         logger.debug(
@@ -336,11 +333,8 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> None:
         @transaction.atomic
         def do_update():
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
-            report.status = SignalReport.Status.READY
-            report.title = input.title
-            report.summary = input.summary
-            report.error = None
-            report.save(update_fields=["status", "title", "summary", "error", "updated_at"])
+            updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
+            report.save(update_fields=updated_fields)
 
         await database_sync_to_async(do_update, thread_sensitive=False)()
         logger.debug(
@@ -371,9 +365,8 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         @transaction.atomic
         def do_update():
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
-            report.status = SignalReport.Status.FAILED
-            report.error = input.error
-            report.save(update_fields=["status", "error", "updated_at"])
+            updated_fields = report.transition_to(SignalReport.Status.FAILED, error=input.error)
+            report.save(update_fields=updated_fields)
 
         await database_sync_to_async(do_update, thread_sensitive=False)()
         logger.debug(
@@ -406,11 +399,10 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         @transaction.atomic
         def do_update():
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
-            report.status = SignalReport.Status.PENDING_INPUT
-            report.title = input.title
-            report.summary = input.summary
-            report.error = input.reason
-            report.save(update_fields=["status", "title", "summary", "error", "updated_at"])
+            updated_fields = report.transition_to(
+                SignalReport.Status.PENDING_INPUT, title=input.title, summary=input.summary, error=input.reason
+            )
+            report.save(update_fields=updated_fields)
 
         await database_sync_to_async(do_update, thread_sensitive=False)()
         logger.debug(
@@ -441,11 +433,8 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
         @transaction.atomic
         def do_update():
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
-            report.status = SignalReport.Status.POTENTIAL
-            report.total_weight = 0.0
-            report.promoted_at = None
-            report.error = input.reason
-            report.save(update_fields=["status", "total_weight", "promoted_at", "error", "updated_at"])
+            updated_fields = report.transition_to(SignalReport.Status.POTENTIAL, reset_weight=True, error=input.reason)
+            report.save(update_fields=updated_fields)
 
         await database_sync_to_async(do_update, thread_sensitive=False)()
         logger.debug(

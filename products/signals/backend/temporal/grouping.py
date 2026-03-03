@@ -588,8 +588,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # won't be matched-to (since the associated signals are also deleted), but
                 # if a report is deleted while a signal that would match it is in-flight,
                 # this can happen. In these cases we skip the weight/count update and skip
-                # promotion, but we still emit the signal to ClickHouse — marked as deleted
-                # in metadata — so it lands in the same partition and stays consistent.
+                # promotion, but we still emit the signal to ClickHouse, marked as deleted
+                # in metadata
                 if report.status == SignalReport.Status.DELETED:
                     report_id = str(report.id)
                     ts = input.timestamp or timezone.now()
@@ -637,9 +637,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 and report.total_weight >= WEIGHT_THRESHOLD
                 and report.signal_count >= report.signals_at_run
             ):
-                report.status = SignalReport.Status.CANDIDATE
-                report.promoted_at = timezone.now()
-                report.save(update_fields=["status", "promoted_at", "updated_at"])
+                updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
+                report.save(update_fields=updated_fields)
                 promoted = True
 
             report_id = str(report.id)
