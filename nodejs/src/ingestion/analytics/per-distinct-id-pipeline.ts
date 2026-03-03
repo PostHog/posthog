@@ -5,9 +5,8 @@ import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
+import { BatchStores } from '../event-processing/flush-batch-stores-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper } from '../pipelines/extensions/tophog'
 import {
@@ -26,12 +25,10 @@ export interface PerDistinctIdPipelineConfig {
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
+    kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
-    personsStore: PersonsStore
-    groupStore: BatchWritingGroupStore
-    kafkaProducer: KafkaProducerWrapper
     groupId: string
     topHog: TopHogWrapper
 }
@@ -54,21 +51,11 @@ function classifyEvent(input: PerDistinctIdPipelineInput): EventBranch {
     }
 }
 
-export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipelineInput, TContext>(
+export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipelineInput & BatchStores, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PerDistinctIdPipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const {
-        options,
-        teamManager,
-        groupTypeManager,
-        hogTransformer,
-        personsStore,
-        groupStore,
-        kafkaProducer,
-        groupId,
-        topHog,
-    } = config
+    const { options, kafkaProducer, teamManager, groupTypeManager, hogTransformer, groupId, topHog } = config
 
     return builder.retry(
         (e) =>
@@ -78,21 +65,18 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                     .branch('heatmap', (b) =>
                         createHeatmapSubpipeline(b, {
                             options,
+                            kafkaProducer,
                             teamManager,
                             groupTypeManager,
-                            groupStore,
-                            kafkaProducer,
                         })
                     )
                     .branch('event', (b) =>
                         createEventSubpipeline(b, {
                             options,
+                            kafkaProducer,
                             teamManager,
                             groupTypeManager,
                             hogTransformer,
-                            personsStore,
-                            groupStore,
-                            kafkaProducer,
                             groupId,
                             topHog,
                         })

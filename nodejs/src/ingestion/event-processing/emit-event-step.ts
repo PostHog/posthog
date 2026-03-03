@@ -26,7 +26,7 @@ export function createEmitEventStep<T extends EmitEventStepInput>(
 ): ProcessingStep<T, void> {
     return function emitEventStep(input: T): Promise<PipelineResult<void>> {
         const { eventToEmit, headers, message } = input
-        const { kafkaProducer, clickhouseJsonEventsTopic, groupId } = config
+        const { clickhouseJsonEventsTopic, groupId, kafkaProducer } = config
 
         // Record ingestion lag metric if we have the required data
         if (headers?.now && message?.topic !== undefined && message?.partition !== undefined) {

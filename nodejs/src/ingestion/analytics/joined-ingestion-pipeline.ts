@@ -12,12 +12,15 @@ import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writ
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
-import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
-import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
+import {
+    BatchStores,
+    createFlushBatchStoresStep,
+    createSetBatchStoresStep,
+} from '../event-processing/flush-batch-stores-step'
+import { newBatchingPipeline } from '../pipelines/builders'
 import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
-import { ok } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import {
     PerDistinctIdPipelineConfig,
@@ -26,7 +29,6 @@ import {
 } from './per-distinct-id-pipeline'
 import {
     PostTeamPreprocessingSubpipelineConfig,
-    PostTeamPreprocessingSubpipelineInput,
     createPostTeamPreprocessingSubpipeline,
 } from './post-team-preprocessing-subpipeline'
 import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-subpipeline'
@@ -70,8 +72,6 @@ export interface JoinedIngestionPipelineContext {
     message: Message
 }
 
-type PreprocessingOutput = PostTeamPreprocessingSubpipelineInput
-
 function addTeamToContext<T extends { team: Team }, C>(
     element: OkResultWithContext<T, C>
 ): OkResultWithContext<T, C & { team: Team }> {
@@ -90,29 +90,10 @@ function getTokenAndDistinctId(input: PerDistinctIdPipelineInput): string {
     return `${token}:${distinctId}`
 }
 
-function mapToPerEventInput<C>(
-    element: OkResultWithContext<PreprocessingOutput, C>
-): OkResultWithContext<PerDistinctIdPipelineInput, C> {
-    const input = element.result.value
-    return {
-        result: ok({
-            message: input.message,
-            event: input.event,
-            team: input.team,
-            headers: input.headers,
-        }),
-        context: element.context,
-    }
-}
-
 export function createJoinedIngestionPipeline<
     TInput extends JoinedIngestionPipelineInput,
     TContext extends JoinedIngestionPipelineContext,
->(
-    builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>,
-    config: JoinedIngestionPipelineConfig,
-    deps: JoinedIngestionPipelineDeps
-) {
+>(config: JoinedIngestionPipelineConfig, deps: JoinedIngestionPipelineDeps) {
     const {
         eventSchemaEnforcementEnabled,
         overflowEnabled,
@@ -158,7 +139,6 @@ export function createJoinedIngestionPipeline<
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
-        personsStore,
         personsPrefetchEnabled,
         hogTransformer,
         cdpHogWatcherSampleRate,
@@ -166,36 +146,35 @@ export function createJoinedIngestionPipeline<
 
     const perEventConfig: PerDistinctIdPipelineConfig = {
         options: perDistinctIdOptions,
+        kafkaProducer,
         teamManager,
         groupTypeManager,
         hogTransformer,
-        personsStore,
-        groupStore,
-        kafkaProducer,
         groupId,
         topHog: topHogWrapper,
     }
 
-    return builder
-        .messageAware((b) =>
-            b
-                .sequentially((b) =>
-                    createPreTeamPreprocessingSubpipeline(b, {
-                        teamManager,
-                        eventIngestionRestrictionManager,
-                        overflowEnabled,
-                        overflowTopic,
-                        preservePartitionLocality,
-                    })
-                )
-                .filterMap(addTeamToContext, (b) =>
+    return newBatchingPipeline<TInput, void, TContext, BatchStores>(
+        (beforeBatch) => beforeBatch.pipe(createSetBatchStoresStep({ personsStore, groupStore, kafkaProducer })),
+        (batch) =>
+            batch
+                .messageAware((b) =>
                     b
-                        .teamAware((b) =>
-                            createPostTeamPreprocessingSubpipeline(b, postTeamConfig)
-                                // Group by token:distinctId and process each group concurrently
-                                // Events within each group are processed sequentially
-                                .filterMap(mapToPerEventInput, (b) =>
-                                    b
+                        .sequentially((b) =>
+                            createPreTeamPreprocessingSubpipeline(b, {
+                                teamManager,
+                                eventIngestionRestrictionManager,
+                                overflowEnabled,
+                                overflowTopic,
+                                preservePartitionLocality,
+                            })
+                        )
+                        .filterMap(addTeamToContext, (b) =>
+                            b
+                                .teamAware((b) =>
+                                    createPostTeamPreprocessingSubpipeline(b, postTeamConfig)
+                                        // Group by token:distinctId and process each group concurrently
+                                        // Events within each group are processed sequentially
                                         .groupBy(getTokenAndDistinctId)
                                         .concurrently((eventsForDistinctId) =>
                                             eventsForDistinctId.sequentially((event) =>
@@ -203,19 +182,14 @@ export function createJoinedIngestionPipeline<
                                             )
                                         )
                                 )
-                                .gather()
-                                // Flush person and group stores after all events processed
-                                .pipeBatch(
-                                    createFlushBatchStoresStep({
-                                        personsStore,
-                                        groupStore,
-                                        kafkaProducer,
-                                    })
-                                )
+                                .handleIngestionWarnings(kafkaProducer)
                         )
-                        .handleIngestionWarnings(kafkaProducer)
                 )
-        )
-        .handleResults(pipelineConfig)
-        .handleSideEffects(promiseScheduler, { await: false })
+                .handleResults(pipelineConfig)
+                .handleSideEffects(promiseScheduler, { await: false }),
+        (afterBatch) => afterBatch.pipe(createFlushBatchStoresStep()),
+        // Batch stores (personsStore, groupStore) are singletons that don't support
+        // concurrent batches yet — they accumulate state across events and flush once.
+        { concurrentBatches: 1 }
+    )
 }

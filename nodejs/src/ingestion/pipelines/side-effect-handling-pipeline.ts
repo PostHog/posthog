@@ -1,4 +1,4 @@
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipeline, BatchPipelineResultWithContext, FeedResult } from './batch-pipeline.interface'
 import { sideEffectResultCounter } from './metrics'
 
 export interface PromiseSchedulerInterface {
@@ -21,8 +21,8 @@ export class SideEffectHandlingPipeline<TInput, TOutput, CInput, COutput = CInpu
         private config: SideEffectHandlingConfig = { await: false }
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
-        this.subPipeline.feed(elements)
+    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): FeedResult {
+        return this.subPipeline.feed(elements)
     }
 
     async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {

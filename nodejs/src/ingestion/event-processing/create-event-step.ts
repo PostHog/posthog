@@ -26,12 +26,7 @@ export function createCreateEventStep<T extends CreateEventStepInput>(): Process
 
         const capturedAt = headers.now ?? null
         const rawEvent = createEvent(preparedEvent, person, processPerson, historicalMigration, capturedAt)
-        const result: CreateEventStepResult = {
-            eventToEmit: rawEvent,
-            headers,
-            message,
-        }
 
-        return Promise.resolve(ok(result, []))
+        return Promise.resolve(ok({ eventToEmit: rawEvent, headers, message }, []))
     }
 }

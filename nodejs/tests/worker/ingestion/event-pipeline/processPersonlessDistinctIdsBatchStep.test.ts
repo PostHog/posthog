@@ -1,5 +1,4 @@
 import { PipelineResultType } from '~/ingestion/pipelines/results'
-import { PluginEvent } from '~/plugin-scaffold'
 import { Team } from '~/types'
 
 import { PersonsStore } from '../../../../src/worker/ingestion/persons/persons-store'
@@ -11,6 +10,13 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
     let team: Team
     let processPersonlessDistinctIdsBatchStep: typeof import('../../../../src/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep').processPersonlessDistinctIdsBatchStep
 
+    function createMockPersonsStore(): jest.Mocked<PersonsStore> {
+        return {
+            processPersonlessDistinctIdsBatch: jest.fn().mockResolvedValue(undefined),
+            getPersonlessBatchResult: jest.fn().mockReturnValue(undefined),
+        } as unknown as jest.Mocked<PersonsStore>
+    }
+
     beforeEach(async () => {
         // Reset modules to get a fresh LRU cache for each test
         jest.resetModules()
@@ -20,17 +26,14 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         processPersonlessDistinctIdsBatchStep = module.processPersonlessDistinctIdsBatchStep
 
         team = createTestTeam()
-
-        mockPersonsStore = {
-            processPersonlessDistinctIdsBatch: jest.fn().mockResolvedValue(undefined),
-            getPersonlessBatchResult: jest.fn().mockReturnValue(undefined),
-        } as unknown as jest.Mocked<PersonsStore>
+        mockPersonsStore = createMockPersonsStore()
     })
 
     const createInput = (
         distinctId: string,
-        processPerson: boolean | undefined = undefined
-    ): { event: PluginEvent; team: Team } => ({
+        processPerson: boolean | undefined = undefined,
+        overrides: { personsStore?: PersonsStore } = {}
+    ) => ({
         event: createTestPluginEvent({
             distinct_id: distinctId,
             team_id: team.id,
@@ -38,11 +41,12 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
             uuid: `uuid-${distinctId}`,
         }),
         team,
+        personsStore: (overrides.personsStore ?? mockPersonsStore) as PersonsStore,
     })
 
     describe('when enabled', () => {
         it('should process personless events and call batch insert', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
+            const step = processPersonlessDistinctIdsBatchStep(true)
             const events = [createInput('user-1', false), createInput('user-2', false), createInput('user-3', false)]
 
             const results = await step(events)
@@ -57,7 +61,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
 
         it('should skip non-personless events', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
+            const step = processPersonlessDistinctIdsBatchStep(true)
             const events = [
                 createInput('user-1', true), // processPerson=true
                 createInput('user-2', false), // processPerson=false (personless)
@@ -73,7 +77,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
 
         it('should not call batch insert when no personless events', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
+            const step = processPersonlessDistinctIdsBatchStep(true)
             const events = [createInput('user-1', true), createInput('user-2')]
 
             const results = await step(events)
@@ -85,7 +89,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         it('should return all events as OK even if batch insert fails', async () => {
             mockPersonsStore.processPersonlessDistinctIdsBatch.mockRejectedValue(new Error('DB error'))
 
-            const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
+            const step = processPersonlessDistinctIdsBatchStep(true)
             const events = [createInput('user-1', false)]
 
             // The step should throw since we don't handle errors gracefully
@@ -95,7 +99,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
 
     describe('when disabled', () => {
         it('should not process any events', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, false)
+            const step = processPersonlessDistinctIdsBatchStep(false)
             const events = [createInput('user-1', false), createInput('user-2', false)]
 
             const results = await step(events)
@@ -106,9 +110,83 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
     })
 
+    describe('multiple store instances', () => {
+        it('should group batch inserts by store instance', async () => {
+            const storeA = createMockPersonsStore()
+            const storeB = createMockPersonsStore()
+            const step = processPersonlessDistinctIdsBatchStep(true)
+
+            const events = [
+                createInput('user-1', false, { personsStore: storeA }),
+                createInput('user-2', false, { personsStore: storeB }),
+                createInput('user-3', false, { personsStore: storeA }),
+            ]
+
+            const results = await step(events)
+
+            expect(results).toHaveLength(3)
+            expect(results.every((r) => r.type === PipelineResultType.OK)).toBe(true)
+
+            expect(storeA.processPersonlessDistinctIdsBatch).toHaveBeenCalledTimes(1)
+            expect(storeA.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
+                { teamId: team.id, distinctId: 'user-1' },
+                { teamId: team.id, distinctId: 'user-3' },
+            ])
+
+            expect(storeB.processPersonlessDistinctIdsBatch).toHaveBeenCalledTimes(1)
+            expect(storeB.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
+                { teamId: team.id, distinctId: 'user-2' },
+            ])
+        })
+
+        it('should propagate errors from any store', async () => {
+            const storeA = createMockPersonsStore()
+            const storeB = createMockPersonsStore()
+            storeB.processPersonlessDistinctIdsBatch.mockRejectedValue(new Error('store B failed'))
+            const step = processPersonlessDistinctIdsBatchStep(true)
+
+            const events = [
+                createInput('user-1', false, { personsStore: storeA }),
+                createInput('user-2', false, { personsStore: storeB }),
+            ]
+
+            await expect(step(events)).rejects.toThrow('store B failed')
+        })
+
+        it('should not update cache when any store flush fails', async () => {
+            const storeA = createMockPersonsStore()
+            const storeB = createMockPersonsStore()
+            storeB.processPersonlessDistinctIdsBatch.mockRejectedValue(new Error('store B failed'))
+            const step = processPersonlessDistinctIdsBatchStep(true)
+
+            await expect(
+                step([
+                    createInput('user-1', false, { personsStore: storeA }),
+                    createInput('user-2', false, { personsStore: storeB }),
+                ])
+            ).rejects.toThrow()
+
+            // On retry, both entries should be sent again (not cached)
+            storeA.processPersonlessDistinctIdsBatch.mockClear()
+            storeB.processPersonlessDistinctIdsBatch.mockResolvedValue(undefined)
+
+            await step([
+                createInput('user-1', false, { personsStore: storeA }),
+                createInput('user-2', false, { personsStore: storeB }),
+            ])
+
+            expect(storeA.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
+                { teamId: team.id, distinctId: 'user-1' },
+            ])
+            expect(storeB.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
+                { teamId: team.id, distinctId: 'user-2' },
+            ])
+        })
+    })
+
     describe('LRU cache behavior', () => {
         it('should deduplicate entries within same batch before hitting cache', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
+            const step = processPersonlessDistinctIdsBatchStep(true)
             const events = [
                 createInput('user-1', false),
                 createInput('user-1', false), // Duplicate - deduped before cache/insert
@@ -125,7 +203,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
 
         it('should use cache to skip already-inserted distinct IDs across batches', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
+            const step = processPersonlessDistinctIdsBatchStep(true)
 
             // First batch
             await step([createInput('user-1', false)])

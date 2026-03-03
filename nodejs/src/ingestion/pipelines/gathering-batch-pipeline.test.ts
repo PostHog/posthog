@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipeline, BatchPipelineResultWithContext, FeedResult } from './batch-pipeline.interface'
 import { GatheringBatchPipeline } from './gathering-batch-pipeline'
 import { createContext, createNewBatchPipeline } from './helpers'
 import { dlq, drop, ok, redirect } from './results'
@@ -14,8 +14,9 @@ class MockBatchProcessingPipeline<T, C> implements BatchPipeline<T, T, C> {
         this.results = results
     }
 
-    feed(elements: BatchPipelineResultWithContext<T, C>): void {
+    feed(elements: BatchPipelineResultWithContext<T, C>): FeedResult {
         this.results.push(elements)
+        return { ok: true }
     }
 
     async next(): Promise<BatchPipelineResultWithContext<T, C> | null> {

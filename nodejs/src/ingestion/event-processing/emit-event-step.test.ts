@@ -90,7 +90,11 @@ describe('emit-event-step', () => {
     describe('createEmitEventStep', () => {
         it('should emit event successfully when eventToEmit is present', async () => {
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
+            const input = {
+                eventToEmit: mockRawEvent,
+                headers: mockHeaders,
+                message: mockMessage,
+            }
 
             const result = await step(input)
 
@@ -116,7 +120,11 @@ describe('emit-event-step', () => {
             mockKafkaProducer.produce.mockRejectedValue(messageSizeTooLargeError)
 
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
+            const input = {
+                eventToEmit: mockRawEvent,
+                headers: mockHeaders,
+                message: mockMessage,
+            }
 
             const result = await step(input)
 
@@ -142,7 +150,11 @@ describe('emit-event-step', () => {
             mockKafkaProducer.produce.mockRejectedValue(genericError)
 
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
+            const input = {
+                eventToEmit: mockRawEvent,
+                headers: mockHeaders,
+                message: mockMessage,
+            }
 
             const result = await step(input)
 
@@ -158,7 +170,11 @@ describe('emit-event-step', () => {
 
         it('should serialize event correctly for Kafka', async () => {
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
+            const input = {
+                eventToEmit: mockRawEvent,
+                headers: mockHeaders,
+                message: mockMessage,
+            }
 
             await step(input)
 
@@ -176,7 +192,11 @@ describe('emit-event-step', () => {
                 clickhouseJsonEventsTopic: 'custom_topic',
             }
             const step = createEmitEventStep(customConfig)
-            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
+            const input = {
+                eventToEmit: mockRawEvent,
+                headers: mockHeaders,
+                message: mockMessage,
+            }
 
             await step(input)
 
@@ -194,7 +214,11 @@ describe('emit-event-step', () => {
                 ...mockRawEvent,
                 uuid: 'different-uuid',
             }
-            const input = { eventToEmit: eventWithDifferentUuid, headers: mockHeaders, message: mockMessage }
+            const input = {
+                eventToEmit: eventWithDifferentUuid,
+                headers: mockHeaders,
+                message: mockMessage,
+            }
 
             await step(input)
 
@@ -266,7 +290,11 @@ describe('emit-event-step', () => {
         describe('metrics tracking', () => {
             it('should increment eventProcessedAndIngestedCounter when event is successfully emitted', async () => {
                 const step = createEmitEventStep(config)
-                const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
+                const input = {
+                    eventToEmit: mockRawEvent,
+                    headers: mockHeaders,
+                    message: mockMessage,
+                }
 
                 const result = await step(input)
 
@@ -285,7 +313,11 @@ describe('emit-event-step', () => {
                 mockKafkaProducer.produce.mockRejectedValue(kafkaError)
 
                 const step = createEmitEventStep(config)
-                const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
+                const input = {
+                    eventToEmit: mockRawEvent,
+                    headers: mockHeaders,
+                    message: mockMessage,
+                }
 
                 const result = await step(input)
 
@@ -301,7 +333,11 @@ describe('emit-event-step', () => {
 
             it('should increment metric only once per successful emit', async () => {
                 const step = createEmitEventStep(config)
-                const input1 = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
+                const input1 = {
+                    eventToEmit: mockRawEvent,
+                    headers: mockHeaders,
+                    message: mockMessage,
+                }
                 const input2 = {
                     eventToEmit: { ...mockRawEvent, uuid: 'different-uuid' },
                     headers: mockHeaders,
@@ -325,7 +361,11 @@ describe('emit-event-step', () => {
         it('should emit AI events with llma product track header', async () => {
             const aiEvent = { ...mockRawEvent, event: '$ai_generation' }
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: aiEvent, headers: mockHeaders, message: mockMessage }
+            const input = {
+                eventToEmit: aiEvent,
+                headers: mockHeaders,
+                message: mockMessage,
+            }
 
             await step(input)
 

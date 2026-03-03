@@ -1,4 +1,4 @@
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipeline, BatchPipelineResultWithContext, FeedResult } from './batch-pipeline.interface'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { isOkResult } from './results'
 
@@ -33,8 +33,8 @@ export class ConcurrentlyGroupingBatchPipeline<TInput, TIntermediate, TOutput, T
         private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput>
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
-        this.previousPipeline.feed(elements)
+    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): FeedResult {
+        return this.previousPipeline.feed(elements)
     }
 
     async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {

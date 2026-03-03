@@ -1,12 +1,12 @@
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipeline, BatchPipelineResultWithContext, FeedResult } from './batch-pipeline.interface'
 
 export class GatheringBatchPipeline<TInput, TOutput, CInput, COutput = CInput>
     implements BatchPipeline<TInput, TOutput, CInput, COutput>
 {
     constructor(private subPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
-        this.subPipeline.feed(elements)
+    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): FeedResult {
+        return this.subPipeline.feed(elements)
     }
 
     async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {

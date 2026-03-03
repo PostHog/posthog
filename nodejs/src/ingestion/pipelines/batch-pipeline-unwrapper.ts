@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger'
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipeline, BatchPipelineResultWithContext, FeedResult } from './batch-pipeline.interface'
 import { isOkResult } from './results'
 
 /**
@@ -9,8 +9,8 @@ import { isOkResult } from './results'
 export class BatchPipelineUnwrapper<TInput, TOutput, C> {
     constructor(private batchPipeline: BatchPipeline<TInput, TOutput, C>) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, C>): void {
-        this.batchPipeline.feed(elements)
+    feed(elements: BatchPipelineResultWithContext<TInput, C>): FeedResult {
+        return this.batchPipeline.feed(elements)
     }
 
     async next(): Promise<TOutput[] | null> {
