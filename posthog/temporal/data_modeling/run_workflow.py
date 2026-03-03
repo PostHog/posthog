@@ -24,6 +24,7 @@ import temporalio.workflow
 import temporalio.exceptions
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.hogql import ast
@@ -48,7 +49,11 @@ from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
-from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
+from posthog.temporal.ducklake.types import (
+    DataModelingDuckLakeCopyInputs,
+    DuckLakeCopyModelInput,
+    ducklake_copy_data_modeling_workflow_id,
+)
 
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
 from products.data_warehouse.backend.data_load.saved_query_service import a_pause_saved_query_schedule
@@ -1713,16 +1718,22 @@ class RunWorkflow(PostHogWorkflow):
                 models=len(self.ducklake_copy_inputs.models),
             )
             # Start DuckLake copy workflow as a child (fire-and-forget)
-            await temporalio.workflow.start_child_workflow(
-                DuckLakeCopyDataModelingWorkflow.run,
-                self.ducklake_copy_inputs,
-                id=f"ducklake-copy-data-modeling-{job_id}",
-                task_queue=settings.DUCKLAKE_TASK_QUEUE,
-                parent_close_policy=ParentClosePolicy.ABANDON,
-                retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=1,
-                    non_retryable_error_types=["NondeterminismError"],
-                ),
-            )
+            try:
+                await temporalio.workflow.start_child_workflow(
+                    DuckLakeCopyDataModelingWorkflow.run,
+                    self.ducklake_copy_inputs,
+                    id=ducklake_copy_data_modeling_workflow_id(inputs.team_id, self.ducklake_copy_inputs.models),
+                    task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    retry_policy=temporalio.common.RetryPolicy(
+                        maximum_attempts=1,
+                        non_retryable_error_types=["NondeterminismError"],
+                    ),
+                )
+            except WorkflowAlreadyStartedError:
+                temporalio.workflow.logger.warning(
+                    "DuckLake copy already running, skipping",
+                    models=[m.saved_query_id for m in self.ducklake_copy_inputs.models],
+                )
 
         return results

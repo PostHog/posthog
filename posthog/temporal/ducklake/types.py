@@ -26,3 +26,8 @@ class DataModelingDuckLakeCopyInputs:
             "job_id": self.job_id,
             "model_labels": [model.model_label for model in self.models],
         }
+
+
+def ducklake_copy_data_modeling_workflow_id(team_id: int, models: list[DuckLakeCopyModelInput]) -> str:
+    ids = sorted(m.saved_query_id for m in models)
+    return f"ducklake-copy-data-modeling-{team_id}-{'-'.join(ids)}"
