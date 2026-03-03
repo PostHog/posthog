@@ -18,7 +18,11 @@ import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from
 import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './consts'
 import { issueFiltersLogic } from './issueFiltersLogic'
 
-export const FilterGroup = (): JSX.Element => {
+export const FilterGroup = ({
+    taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
+}: {
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+} = {}): JSX.Element => {
     const { filterGroup } = useValues(issueFiltersLogic)
     const { setFilterGroup } = useActions(issueFiltersLogic)
 
@@ -26,16 +30,19 @@ export const FilterGroup = (): JSX.Element => {
         <UniversalFilters
             rootKey={TAXONOMIC_FILTER_LOGIC_KEY}
             group={filterGroup.values[0] as UniversalFiltersGroup}
-            // TODO: Probably makes sense to create a new taxonomic group for exception-specific event property filters only, keep it clean.
-            taxonomicGroupTypes={TAXONOMIC_GROUP_TYPES}
+            taxonomicGroupTypes={taxonomicGroupTypes}
             onChange={(group) => setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })}
         >
-            <UniversalSearch />
+            <UniversalSearch taxonomicGroupTypes={taxonomicGroupTypes} />
         </UniversalFilters>
     )
 }
 
-const UniversalSearch = (): JSX.Element => {
+const UniversalSearch = ({
+    taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
+}: {
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+}): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
     const { searchQuery } = useValues(issueFiltersLogic)
     const { setSearchQuery } = useActions(issueFiltersLogic)
@@ -51,7 +58,7 @@ const UniversalSearch = (): JSX.Element => {
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         taxonomicFilterLogicKey: TAXONOMIC_FILTER_LOGIC_KEY,
-        taxonomicGroupTypes: TAXONOMIC_GROUP_TYPES,
+        taxonomicGroupTypes,
         onChange: (taxonomicGroup, value, item) => {
             searchInputRef.current?.blur()
             setVisible(false)
@@ -85,7 +92,7 @@ const UniversalSearch = (): JSX.Element => {
                 onClickOutside={() => onClose()}
             >
                 <TaxonomicFilterSearchInput
-                    prefix={<UniversalFilterGroup />}
+                    prefix={<UniversalFilterGroup taxonomicGroupTypes={taxonomicGroupTypes} />}
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
                     onClose={() => onClose()}
@@ -100,7 +107,11 @@ const UniversalSearch = (): JSX.Element => {
     )
 }
 
-const UniversalFilterGroup = (): JSX.Element => {
+const UniversalFilterGroup = ({
+    taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
+}: {
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+}): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
@@ -112,7 +123,7 @@ const UniversalFilterGroup = (): JSX.Element => {
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
-                        <UniversalSearch />
+                        <UniversalSearch taxonomicGroupTypes={taxonomicGroupTypes} />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value

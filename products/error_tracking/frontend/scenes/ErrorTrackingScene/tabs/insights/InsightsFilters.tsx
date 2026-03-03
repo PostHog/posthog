@@ -1,10 +1,19 @@
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { QuickFiltersSection } from 'lib/components/QuickFilters/QuickFiltersSection'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 
 import { ErrorFilters } from 'products/error_tracking/frontend/components/IssueFilters'
+
+const INSIGHTS_TAXONOMIC_GROUP_TYPES = [
+    TaxonomicFilterGroupType.ErrorTrackingProperties,
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.Cohorts,
+    TaxonomicFilterGroupType.HogQLExpression,
+]
 
 export function InsightsFilters(): JSX.Element {
     return (
@@ -16,7 +25,7 @@ export function InsightsFilters(): JSX.Element {
             </div>
             <div className="flex gap-2 items-start">
                 <div className="flex-1">
-                    <ErrorFilters.FilterGroup />
+                    <ErrorFilters.FilterGroup taxonomicGroupTypes={INSIGHTS_TAXONOMIC_GROUP_TYPES} />
                 </div>
                 <ErrorFilters.InternalAccounts />
             </div>
