@@ -755,7 +755,7 @@ describe('createExperimentLogic', () => {
             })
 
             // User clicks cancel — clears draft then navigates away
-            firstLogic.actions.clearDraft()
+            firstLogic.actions.cancelForm()
             firstLogic.unmount()
 
             // User navigates back to /experiments/new
@@ -781,7 +781,7 @@ describe('createExperimentLogic', () => {
             tab2Logic.actions.setExperimentValue('feature_flag_key', 'tab-2-flag')
 
             // Cancel tab 1
-            tab1Logic.actions.clearDraft()
+            tab1Logic.actions.cancelForm()
             tab1Logic.unmount()
 
             // Tab 2 is unaffected

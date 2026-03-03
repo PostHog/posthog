@@ -162,7 +162,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         setExperiment: (experiment: Experiment) => ({ experiment }),
         setExperimentValue: (name: string, value: any) => ({ name, value }),
         resetExperiment: true,
-        clearDraft: true,
+        cancelForm: true,
         setExposureCriteria: (criteria: ExperimentExposureCriteria) => ({ criteria }),
         setFeatureFlagConfig: (config: {
             feature_flag_key?: string
@@ -261,10 +261,10 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 resetExperiment: () => ({}),
             },
         ],
-        draftCleared: [
+        formCanceled: [
             false,
             {
-                clearDraft: () => true,
+                cancelForm: () => true,
             },
         ],
     })),
@@ -362,7 +362,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             }
         },
         beforeUnmount: () => {
-            if (values.draftCleared || props.experiment || values.experiment.id !== 'new') {
+            if (values.formCanceled || props.experiment || values.experiment.id !== 'new') {
                 return
             }
             // Use cases covered:
@@ -372,7 +372,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         },
     })),
     listeners(({ values, actions, props }) => ({
-        clearDraft: () => {
+        cancelForm: () => {
             if (props.experiment || values.experiment.id !== 'new') {
                 return
             }
