@@ -39,7 +39,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase<PluginsServe
         groupId: string = 'cdp-data-warehouse-events-consumer'
     ) {
         super(config, deps)
-        this.cyclotronJobQueue = new CyclotronJobQueue(config, 'datawarehouse_table')
+        this.cyclotronJobQueue = new CyclotronJobQueue(config)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
         this.hogRateLimiter = new HogRateLimiterService(
             {

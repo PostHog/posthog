@@ -40,13 +40,11 @@ export const getDelayByQueue = (queue: CyclotronJobQueueKind): number => {
 export class CyclotronJobQueueDelay {
     private kafkaConsumer?: KafkaConsumer
     private kafkaProducer?: KafkaProducerWrapper
+    private queue?: CyclotronJobQueueKind
+    private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     protected name = 'CdpCyclotronDelayQueue'
 
-    constructor(
-        private config: PluginsServerConfig,
-        private queue: CyclotronJobQueueKind,
-        private consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
-    ) {}
+    constructor(private config: PluginsServerConfig) {}
 
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
@@ -56,7 +54,13 @@ export class CyclotronJobQueueDelay {
         this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
     }
 
-    public async startAsConsumer() {
+    public async startAsConsumer(
+        queue: CyclotronJobQueueKind,
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+    ) {
+        this.queue = queue
+        this.consumeBatch = consumeBatch
+
         const groupId = `cdp-cyclotron-${this.queue}-consumer`
         const topic = `cdp_cyclotron_${this.queue}`
 
@@ -133,12 +137,12 @@ export class CyclotronJobQueueDelay {
 
     private async consumeKafkaBatch(messages: Message[]): Promise<{ backgroundTask: Promise<any> }> {
         if (messages.length === 0) {
-            return await this.consumeBatch([])
+            return await this.consumeBatch!([])
         }
 
         logger.info('🔁', `${this.name} - Consuming batch`, { messageCount: messages.length })
 
-        const maxDelayMs = getDelayByQueue(this.queue)
+        const maxDelayMs = getDelayByQueue(this.queue!)
 
         for (let i = 0; i < messages.length; i++) {
             const message = messages[i]
@@ -209,6 +213,6 @@ export class CyclotronJobQueueDelay {
 
         logger.info('🔁', `${this.name} - Consumed full delay batch`, { messageCount: messages.length })
 
-        return await this.consumeBatch([])
+        return await this.consumeBatch!([])
     }
 }

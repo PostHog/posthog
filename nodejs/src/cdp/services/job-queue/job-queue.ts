@@ -47,7 +47,9 @@ export type CyclotronJobQueueTeamRouting = {
 }
 
 export class CyclotronJobQueue {
-    private consumerMode: CyclotronJobQueueSource
+    private queue?: CyclotronJobQueueKind
+    private consumerMode?: CyclotronJobQueueSource
+    private _consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     private producerMapping: CyclotronJobQueueRouting
     private producerTeamMapping: CyclotronJobQueueTeamRouting
     private producerForceScheduledToPostgres: boolean
@@ -58,36 +60,23 @@ export class CyclotronJobQueue {
     private shadowFailures = 0
     private shadowCircuitOpenUntil = 0
 
-    constructor(
-        private config: PluginsServerConfig,
-        private queue: CyclotronJobQueueKind,
-        private _consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
-        consumerMode?: CyclotronJobQueueSource
-    ) {
-        this.consumerMode = consumerMode ?? this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE
+    constructor(private config: PluginsServerConfig) {
         this.producerMapping = getProducerMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING)
         this.producerTeamMapping = getProducerTeamMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING)
         this.producerForceScheduledToPostgres = this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES
-        this.jobQueueKafka = new CyclotronJobQueueKafka(this.config, this.queue, (invocations) =>
-            this.consumeBatch(invocations, 'kafka')
-        )
-        this.jobQueueDelay = new CyclotronJobQueueDelay(this.config, this.queue, (invocations) =>
-            this.consumeBatch(invocations, 'delay')
-        )
-        this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.config, this.queue, (invocations) =>
-            this.consumeBatch(invocations, this.consumerMode === 'shadow' ? 'shadow' : 'postgres')
-        )
+        this.jobQueueKafka = new CyclotronJobQueueKafka(this.config)
+        this.jobQueueDelay = new CyclotronJobQueueDelay(this.config)
+        this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.config)
 
         if (this.config.CDP_CYCLOTRON_SHADOW_WRITE_ENABLED && this.config.CYCLOTRON_SHADOW_DATABASE_URL) {
             const shadowConfig = {
                 ...this.config,
                 CYCLOTRON_DATABASE_URL: this.config.CYCLOTRON_SHADOW_DATABASE_URL,
             }
-            this.shadowPostgres = new CyclotronJobQueuePostgresShadow(shadowConfig, this.queue)
+            this.shadowPostgres = new CyclotronJobQueuePostgresShadow(shadowConfig)
         }
 
         logger.info('🔄', 'CyclotronJobQueue initialized', {
-            consumerMode: this.consumerMode,
             producerMapping: this.producerMapping,
             producerTeamMapping: this.producerTeamMapping,
             shadowWriteEnabled: !!this.shadowPostgres,
@@ -99,11 +88,11 @@ export class CyclotronJobQueue {
         source: CyclotronJobQueueSource
     ): Promise<{ backgroundTask: Promise<any> }> {
         cyclotronBatchUtilizationGauge
-            .labels({ queue: this.queue, source })
+            .labels({ queue: this.queue!, source })
             .set(invocations.length / this.config.CONSUMER_BATCH_SIZE)
 
         const result = await this._consumeBatch!(invocations)
-        counterJobsProcessed.inc({ queue: this.queue, source }, invocations.length)
+        counterJobsProcessed.inc({ queue: this.queue!, source }, invocations.length)
 
         return result
     }
@@ -142,9 +131,9 @@ export class CyclotronJobQueue {
             await this.jobQueueKafka.startAsProducer()
         }
 
-        if (this.consumerMode === 'delay') {
-            await this.jobQueueDelay.startAsProducer()
-        }
+        // if (this.consumerMode === 'delay') {
+        //     await this.jobQueueDelay.startAsProducer()
+        // }
 
         if (this.shadowPostgres) {
             await this.shadowPostgres.startAsProducer().catch((err) => {
@@ -156,20 +145,26 @@ export class CyclotronJobQueue {
         }
     }
 
-    public async start() {
-        if (!this.consumeBatch) {
-            throw new Error('consumeBatch is required to start the job queue')
-        }
+    public async start(
+        queue: CyclotronJobQueueKind,
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
+        consumerMode?: CyclotronJobQueueSource
+    ) {
+        this.queue = queue
+        this._consumeBatch = consumeBatch
+        this.consumerMode = consumerMode ?? this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE
 
         // The consumer always needs the producers as well
         await this.startAsProducer()
 
         if (this.consumerMode === 'postgres' || this.consumerMode === 'shadow') {
-            await this.jobQueuePostgres.startAsConsumer()
+            await this.jobQueuePostgres.startAsConsumer(queue, (invocations) =>
+                this.consumeBatch(invocations, this.consumerMode === 'shadow' ? 'shadow' : 'postgres')
+            )
         } else if (this.consumerMode === 'kafka') {
-            await this.jobQueueKafka.startAsConsumer()
+            await this.jobQueueKafka.startAsConsumer(queue, (invocations) => this.consumeBatch(invocations, 'kafka'))
         } else if (this.consumerMode === 'delay') {
-            await this.jobQueueDelay.startAsConsumer()
+            await this.jobQueueDelay.startAsConsumer(queue, (invocations) => this.consumeBatch(invocations, 'delay'))
         }
     }
 
@@ -191,7 +186,9 @@ export class CyclotronJobQueue {
     }
 
     public isHealthy() {
-        if (this.consumerMode === 'postgres' || this.consumerMode === 'shadow') {
+        if (!this.consumerMode) {
+            return new HealthCheckResultError('Consumer not started', {})
+        } else if (this.consumerMode === 'postgres' || this.consumerMode === 'shadow') {
             return this.jobQueuePostgres.isHealthy()
         } else if (this.consumerMode === 'kafka') {
             return this.jobQueueKafka.isHealthy()

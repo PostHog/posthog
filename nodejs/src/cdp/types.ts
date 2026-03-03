@@ -255,7 +255,6 @@ export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
     'delay10m',
     'delay60m',
     'delay24h',
-    'datawarehouse_table',
 ] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 

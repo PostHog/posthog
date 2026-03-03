@@ -35,7 +35,7 @@ describe('CyclotronJobQueueDelay', () => {
     beforeEach(() => {
         config = { ...defaultConfig }
         mockConsumeBatch = jest.fn().mockResolvedValue({ backgroundTask: Promise.resolve() })
-        delayQueue = new CyclotronJobQueueDelay(config, 'delay10m', mockConsumeBatch)
+        delayQueue = new CyclotronJobQueueDelay(config)
 
         jest.clearAllMocks()
 
@@ -45,7 +45,7 @@ describe('CyclotronJobQueueDelay', () => {
 
     describe('delayWithCancellation', () => {
         it('should complete delay normally when no cancellation', async () => {
-            await delayQueue.startAsConsumer()
+            await delayQueue.startAsConsumer('delay10m', mockConsumeBatch)
 
             const startTime = Date.now()
             await delayQueue['delayWithCancellation'](100)
@@ -56,7 +56,7 @@ describe('CyclotronJobQueueDelay', () => {
         })
 
         it('should cancel delay when consumer is shutting down', async () => {
-            await delayQueue.startAsConsumer()
+            await delayQueue.startAsConsumer('delay10m', mockConsumeBatch)
 
             const delayPromise = delayQueue['delayWithCancellation'](5000)
 
@@ -68,7 +68,7 @@ describe('CyclotronJobQueueDelay', () => {
         })
 
         it('should cancel delay when consumer is rebalancing', async () => {
-            await delayQueue.startAsConsumer()
+            await delayQueue.startAsConsumer('delay10m', mockConsumeBatch)
 
             const delayPromise = delayQueue['delayWithCancellation'](5000)
 
@@ -82,7 +82,7 @@ describe('CyclotronJobQueueDelay', () => {
 
     describe('consumeKafkaBatch with cancellation', () => {
         it('should throw cancellation errors during delay processing', async () => {
-            await delayQueue.startAsConsumer()
+            await delayQueue.startAsConsumer('delay10m', mockConsumeBatch)
             await delayQueue.startAsProducer()
 
             const mockMessage = {
