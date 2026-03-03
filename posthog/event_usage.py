@@ -3,7 +3,10 @@ Module to centralize event reporting on the server-side.
 """
 
 from enum import StrEnum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 import posthoganalytics
 from rest_framework.authentication import SessionAuthentication
@@ -293,11 +296,12 @@ def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
 
 
 def report_user_action(
-    user: Optional[User] = None,
-    event: str = "",
+    user: Optional[User],
+    event: str,
     properties: Optional[dict] = None,
+    *,
     team: Optional[Team] = None,
-    request=None,
+    request: Optional["Request"] = None,
 ):
     if user is None and request is not None:
         user = getattr(request, "user", None)

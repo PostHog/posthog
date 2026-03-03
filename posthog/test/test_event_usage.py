@@ -84,13 +84,13 @@ class TestReportUserAction(BaseTest):
         request = factory.get("/fake")
         request.user = self.user
 
-        report_user_action(event="test event", request=request)
+        report_user_action(None, "test event", request=request)
 
         mock_capture.assert_called_once()
         assert mock_capture.call_args[1]["distinct_id"] == self.user.distinct_id
 
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_no_user_no_request_is_noop(self, mock_capture):
-        report_user_action(event="test event")
+        report_user_action(None, "test event")
 
         mock_capture.assert_not_called()
