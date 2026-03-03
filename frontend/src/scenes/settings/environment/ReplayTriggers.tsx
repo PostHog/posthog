@@ -6,9 +6,10 @@ import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
+import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { isNumeric } from 'lib/utils'
 import { ReplayPlatform, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
-import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
@@ -28,17 +29,13 @@ function LinkedFlagSelector(): JSX.Element | null {
             >
                 <div className="flex flex-col deprecated-space-y-2 mt-2">
                     <div className="flex justify-between">
-                        <LemonLabel className="text-base">
-                            {selectedPlatform === 'mobile' ? null : <IngestionControls.MatchTypeTag />} Enable
-                            recordings using feature flag
-                            <Since
-                                web={{ version: '1.110.0' }}
-                                ios={{ version: '3.11.0' }}
-                                android={{ version: '3.11.0' }}
-                                reactNative={{ version: '3.6.3' }}
-                                flutter={{ version: '4.7.0' }}
-                            />
-                        </LemonLabel>
+                        <div className="flex gap-2 items-center">
+                            <LemonLabel className="text-base">
+                                {selectedPlatform === 'mobile' ? null : <IngestionControls.MatchTypeTag />} Enable
+                                recordings using feature flag
+                            </LemonLabel>
+                            <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayFeatureFlag} />
+                        </div>
                         <IngestionControls.FlagSelector />
                     </div>
 
@@ -152,9 +149,12 @@ function EventTriggerOptions(): JSX.Element | null {
     return (
         <div className="flex flex-col deprecated-space-y-2 mt-2">
             <div className="flex items-center gap-2 justify-between">
-                <LemonLabel className="text-base">
-                    <IngestionControls.MatchTypeTag /> Event emitted <Since web={{ version: '1.186.0' }} />
-                </LemonLabel>
+                <div className="flex gap-2 items-center">
+                    <LemonLabel className="text-base">
+                        <IngestionControls.MatchTypeTag /> Event emitted
+                    </LemonLabel>
+                    <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayEventTrigger} />
+                </div>
                 <IngestionControls.EventTriggerSelect events={eventTriggerConfig} onChange={updateEventTriggerConfig} />
             </div>
             <p>Start recording when a PostHog event is queued.</p>
@@ -179,15 +179,12 @@ function Sampling(): JSX.Element {
     return (
         <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
             <div className="flex flex-row justify-between mt-2">
-                <LemonLabel className="text-base">
-                    <IngestionControls.MatchTypeTag /> Sampling{' '}
-                    <Since
-                        web={{ version: '1.85.0' }}
-                        android={{ version: '3.34.0' }}
-                        ios={{ version: '3.42.0' }}
-                        reactNative={{ version: '4.37.0' }}
-                    />
-                </LemonLabel>
+                <div className="flex gap-2 items-center">
+                    <LemonLabel className="text-base">
+                        <IngestionControls.MatchTypeTag /> Sampling
+                    </LemonLabel>
+                    <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplaySampling} />
+                </div>
                 <IngestionControls.SamplingTrigger
                     initialSampleRate={
                         typeof currentTeam?.session_recording_sample_rate === 'string'
@@ -209,9 +206,10 @@ function MinimumDurationSetting(): JSX.Element | null {
     return (
         <PayGateMini feature={AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM}>
             <div className="flex flex-row justify-between">
-                <LemonLabel className="text-base">
-                    Minimum session duration (seconds) <Since web={{ version: '1.85.0' }} />
-                </LemonLabel>
+                <div className="flex gap-2 items-center">
+                    <LemonLabel className="text-base">Minimum session duration (seconds)</LemonLabel>
+                    <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayMinDuration} />
+                </div>
                 <IngestionControls.MinDuration
                     value={currentTeam?.session_recording_minimum_duration_milliseconds}
                     onChange={(v) => updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })}

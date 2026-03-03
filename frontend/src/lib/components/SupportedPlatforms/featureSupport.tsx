@@ -134,6 +134,31 @@ export const FEATURE_SUPPORT: Record<Feature, PlatformSupportConfig> = {
     sessionReplayMasking: {
         web: { version: '1.227.0' },
     },
+    sessionReplayFeatureFlag: {
+        web: { version: '1.110.0' },
+        ios: { version: '3.11.0' },
+        android: { version: '3.11.0' },
+        reactNative: { version: '3.6.3' },
+        flutter: { version: '4.7.0' },
+    },
+    sessionReplayEventTrigger: {
+        web: { version: '1.186.0' },
+    },
+    sessionReplaySampling: {
+        web: { version: '1.85.0' },
+        android: { version: '3.34.0' },
+        ios: { version: '3.42.0' },
+        reactNative: { version: '4.37.0' },
+    },
+    sessionReplayMinDuration: {
+        web: { version: '1.85.0' },
+    },
+    sessionReplayTriggerMatching: {
+        web: { version: '1.238.0' },
+    },
+    sessionReplayUrlTrigger: {
+        web: { version: '1.171.0' },
+    },
     autocapture: {
         web: { version: '1.0.0' },
         reactNative: { note: 'via code config' },

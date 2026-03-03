@@ -4,10 +4,11 @@ import { Form } from 'kea-forms'
 import { IconCheck, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonLabel, lemonToast } from '@posthog/lemon-ui'
 
+import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
+import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { cn } from 'lib/utils/css-classes'
 import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
-import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -52,9 +53,10 @@ export function UrlConfig({
     return (
         <div className="flex flex-col deprecated-space-y-2 mt-4">
             <div className="flex items-center gap-2 justify-between">
-                <LemonLabel className="text-base">
-                    {title} <Since web={{ version: '1.171.0' }} />
-                </LemonLabel>
+                <div className="flex gap-2 items-center">
+                    <LemonLabel className="text-base">{title}</LemonLabel>
+                    <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayUrlTrigger} />
+                </div>
                 <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
                     <LemonButton
                         onClick={props.onAdd}

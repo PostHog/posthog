@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 
-import { IconCalendar, IconCheck, IconClock, IconHourglass, IconInfinity, IconInfo } from '@posthog/icons'
+import { IconCalendar, IconClock, IconHourglass, IconInfinity } from '@posthog/icons'
 import {
     LemonBanner,
     LemonDialog,
@@ -10,7 +10,6 @@ import {
     LemonSelect,
     LemonSwitch,
     Link,
-    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -18,7 +17,6 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { isObject } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { InternalMultipleChoiceSurvey } from 'scenes/session-recordings/components/InternalSurvey/InternalMultipleChoiceSurvey'
@@ -32,34 +30,6 @@ import {
     type SessionRecordingMaskingLevel,
     type SessionRecordingRetentionPeriod,
 } from '~/types'
-
-export function Since(props: {
-    web?: false | { version?: string }
-    android?: false | { version?: string }
-    ios?: false | { version?: string }
-    reactNative?: false | { version?: string }
-    flutter?: false | { version?: string }
-}): JSX.Element {
-    const tooltipContent = useMemo(() => {
-        return Object.entries(props)
-            .filter(([_, value]) => !!value)
-            .map(([key, value]) => {
-                const since = isObject(value) && !!value.version ? <span>since {value.version}</span> : <IconCheck />
-                return (
-                    <li key={key} className="flex flex-row justify-between gap-x-2">
-                        <span>{key}:</span>
-                        {since}
-                    </li>
-                )
-            })
-    }, [props])
-
-    return (
-        <Tooltip delayMs={200} title={<ul>{tooltipContent}</ul>}>
-            <IconInfo className="text-muted-alt cursor-help" />
-        </Tooltip>
-    )
-}
 
 export function LogCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)

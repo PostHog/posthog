@@ -2,7 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonLabel, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
-import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
+import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
+import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 
 import { SelectOption } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { AccessControlLevel } from '~/types'
@@ -16,9 +17,10 @@ export function MatchTypeSelect(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-y-1">
-            <LemonLabel className="text-base py-2">
-                Trigger matching <Since web={{ version: '1.238.0' }} />
-            </LemonLabel>
+            <div className="flex gap-2 items-center py-2">
+                <LemonLabel className="text-base">Trigger matching</LemonLabel>
+                <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayTriggerMatching} />
+            </div>
             <div className="flex flex-row gap-x-2 items-center">
                 <div>Start when</div>
                 <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
