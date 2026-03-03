@@ -23,6 +23,7 @@ esac
 ASSET_NAME="duckgres-${OS}-${ARCH}"
 
 # Get the latest release tag
+
 LATEST_TAG=$(gh release view latest --repo posthog/duckgres --json tagName --jq '.tagName' 2>/dev/null || echo "")
 if [ -z "$LATEST_TAG" ]; then
     echo "ERROR: Could not determine latest duckgres release" >&2
@@ -37,11 +38,12 @@ fi
 mkdir -p "$CACHE_DIR"
 
 echo "Downloading duckgres ($ASSET_NAME) $LATEST_TAG..."
-gh release download latest \
+gh release download "$LATEST_TAG" \
     --repo posthog/duckgres \
     --pattern "$ASSET_NAME" \
     --dir "$CACHE_DIR" \
     --clobber
+
 
 mv "$CACHE_DIR/$ASSET_NAME" "$BINARY"
 chmod +x "$BINARY"
