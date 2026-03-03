@@ -2,13 +2,7 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 import { PluginsServerConfig } from '~/types'
 
 import { logger } from '../../utils/logger'
-import {
-    CyclotronJobInvocation,
-    CyclotronJobInvocationHogFlow,
-    CyclotronJobInvocationResult,
-    CyclotronPerson,
-} from '../types'
-import { getPersonDisplayName } from '../utils'
+import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
@@ -60,35 +54,18 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
 
-                const dbPerson = await this.personsManager.get({
-                    teamId: hogFlow.team_id,
-                    distinctId: hogFlowInvocationState.event.distinct_id,
-                })
-
-                const personDisplayName = getPersonDisplayName(
-                    team,
-                    hogFlowInvocationState.event.distinct_id,
-                    dbPerson?.properties ?? {}
+                const person = await this.personsManager.getCyclotronPerson(
+                    hogFlow.team_id,
+                    hogFlowInvocationState.event.distinct_id
                 )
 
-                if (!dbPerson && hogFlow.trigger?.type === 'event') {
+                if (!person && hogFlow.trigger?.type === 'event') {
                     logger.warn('⚠️', 'Person not found for hog flow invocation', {
                         hogFlowId: hogFlow.id,
                         distinctId: hogFlowInvocationState.event.distinct_id,
                         invocationId: item.id,
                     })
                 }
-
-                const person: CyclotronPerson | undefined = dbPerson
-                    ? {
-                          id: dbPerson.id,
-                          properties: dbPerson.properties,
-                          name: personDisplayName,
-                          url: `${this.config.SITE_URL}/project/${hogFlow.team_id}/person/${encodeURIComponent(
-                              hogFlowInvocationState.event.distinct_id
-                          )}`,
-                      }
-                    : undefined
 
                 const groups = await this.groupsManager.getGroupsForEvent(
                     hogFlow.team_id,

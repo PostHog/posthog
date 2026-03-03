@@ -1,9 +1,10 @@
-import { PersonPropertyFilter, Team } from '~/types'
+import { PersonPropertyFilter } from '~/types'
 
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
+import { TeamManager } from '../../../utils/team-manager'
 import { PersonRepository } from '../../../worker/ingestion/persons/repositories/person-repository'
-import { HogFunctionInvocationGlobals } from '../../types'
+import { CyclotronPerson } from '../../types'
 import { getPersonDisplayName } from '../../utils'
 
 export type PersonGetArgs = {
@@ -33,7 +34,11 @@ export type PersonManagerPerson = {
 export class PersonsManagerService {
     private lazyLoader: LazyLoader<PersonManagerPerson>
 
-    constructor(private personRepository: PersonRepository) {
+    constructor(
+        private teamManager: TeamManager,
+        private personRepository: PersonRepository,
+        private siteUrl: string
+    ) {
         this.lazyLoader = new LazyLoader({
             name: 'person_manager',
             loader: async (ids) => await this.fetchPersons(ids),
@@ -98,18 +103,18 @@ export class PersonsManagerService {
         }
     }
 
-    public async addPersonToGlobals(globals: HogFunctionInvocationGlobals, team: Team, siteUrl: string): Promise<void> {
-        const distinctId = globals.event.distinct_id
-        const dbPerson = await this.get({ teamId: team.id, distinctId })
+    public async getCyclotronPerson(teamId: number, distinctId: string): Promise<CyclotronPerson | undefined> {
+        const [team, dbPerson] = await Promise.all([this.teamManager.getTeam(teamId), this.get({ teamId, distinctId })])
 
-        if (dbPerson) {
-            const personDisplayName = getPersonDisplayName(team, distinctId, dbPerson.properties)
-            globals.person = {
-                id: dbPerson.id,
-                properties: dbPerson.properties,
-                name: personDisplayName,
-                url: `${siteUrl}/project/${team.id}/person/${encodeURIComponent(distinctId)}`,
-            }
+        if (!dbPerson || !team) {
+            return undefined
+        }
+
+        return {
+            id: dbPerson.id,
+            properties: dbPerson.properties,
+            name: getPersonDisplayName(team, distinctId, dbPerson.properties),
+            url: `${this.siteUrl}/project/${teamId}/person/${encodeURIComponent(distinctId)}`,
         }
     }
 

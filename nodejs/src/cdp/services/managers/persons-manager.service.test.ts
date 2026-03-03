@@ -20,7 +20,7 @@ describe('PersonsManager', () => {
         hub = await createHub()
         personRepository = new PostgresPersonRepository(hub.postgres)
         await resetTestDatabase()
-        manager = new PersonsManagerService(hub.personRepository)
+        manager = new PersonsManagerService(hub.teamManager, hub.personRepository, 'http://localhost:8000')
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
@@ -214,6 +214,68 @@ describe('PersonsManager', () => {
                 team_id: team.id,
             },
         ])
+    })
+
+    describe('getCyclotronPerson', () => {
+        it('returns a CyclotronPerson when the person exists', async () => {
+            const result = await manager.getCyclotronPerson(team.id, 'distinct_id_A_1')
+
+            expect(result).toEqual({
+                id: persons[0].uuid,
+                properties: { foo: '1' },
+                name: 'distinct_id_A_1',
+                url: `http://localhost:8000/project/${team.id}/person/distinct_id_A_1`,
+            })
+        })
+
+        it('returns undefined when person does not exist', async () => {
+            const result = await manager.getCyclotronPerson(team.id, 'nonexistent')
+
+            expect(result).toBeUndefined()
+        })
+
+        it('returns undefined when team does not exist', async () => {
+            const result = await manager.getCyclotronPerson(99999, 'distinct_id_A_1')
+
+            expect(result).toBeUndefined()
+        })
+
+        it('uses person display name properties from team config', async () => {
+            // The default display name properties are email, name, username
+            // persons[0] has properties { foo: '1' } which don't match, so distinct_id is used
+            const result = await manager.getCyclotronPerson(team.id, 'distinct_id_B_1')
+
+            expect(result).toEqual({
+                id: persons[1].uuid,
+                properties: { foo: '2' },
+                name: 'distinct_id_B_1',
+                url: `http://localhost:8000/project/${team.id}/person/distinct_id_B_1`,
+            })
+        })
+
+        it('encodes special characters in distinct_id for URL', async () => {
+            const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+            const createResult = await personRepository.createPerson(
+                TIMESTAMP,
+                { email: 'test@example.com' },
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                new UUIDT().toString(),
+                { distinctId: 'user@example.com' }
+            )
+            if (!createResult.success) {
+                throw new Error('Failed to create person')
+            }
+
+            const result = await manager.getCyclotronPerson(team.id, 'user@example.com')
+
+            expect(result).toBeDefined()
+            expect(result!.url).toBe(`http://localhost:8000/project/${team.id}/person/user%40example.com`)
+            expect(result!.name).toBe('test@example.com')
+        })
     })
 
     describe('streamMany', () => {
