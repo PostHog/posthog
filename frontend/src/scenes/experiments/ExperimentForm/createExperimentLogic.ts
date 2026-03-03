@@ -261,6 +261,12 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 resetExperiment: () => ({}),
             },
         ],
+        draftCleared: [
+            false,
+            {
+                clearDraft: () => true,
+            },
+        ],
     })),
     selectors(() => ({
         canSubmitExperiment: [
@@ -356,9 +362,12 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             }
         },
         beforeUnmount: () => {
-            if (props.experiment || values.experiment.id !== 'new') {
+            if (values.draftCleared || props.experiment || values.experiment.id !== 'new') {
                 return
             }
+            // Use cases covered:
+            // - switching in-app tabs to avoid side effects while having multiple experiment forms open
+            // - navigating away from the form without saving
             writeDraftToStorage(props.tabId, values.experiment)
         },
     })),
