@@ -1219,7 +1219,7 @@ def safe_cache_set(cache_key: str, value: Any, timeout: int | None = None) -> No
     try:
         cache.set(cache_key, value, timeout)
     except Exception:
-        logger.warning("safe_cache_set_failure", cache_key=cache_key)
+        logger.warning("safe_cache_set_failure", cache_key=cache_key, exc_info=True)
 
 
 def safe_cache_delete(cache_key: str) -> None:
@@ -1228,7 +1228,7 @@ def safe_cache_delete(cache_key: str) -> None:
     try:
         cache.delete(cache_key)
     except Exception:
-        logger.warning("safe_cache_delete_failure", cache_key=cache_key)
+        logger.warning("safe_cache_delete_failure", cache_key=cache_key, exc_info=True)
 
 
 def is_anonymous_id(distinct_id: str) -> bool:
