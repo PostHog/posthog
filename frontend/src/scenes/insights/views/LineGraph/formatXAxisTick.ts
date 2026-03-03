@@ -25,17 +25,16 @@ export function createXAxisTickCallback({
         return (value) => String(value)
     }
 
-    // Sub-day intervals have UTC timestamps that need timezone conversion.
-    // Day+ intervals are bucket labels (e.g. "2023-07-01" = July) — interpreting them
-    // as UTC and converting shifts midnight across day/month boundaries in behind-UTC
-    // timezones. Parse those directly in the target timezone instead.
+    // Only convert sub-day dates from UTC; converting day/week/month dates shifts labels across month boundaries.
     const isSubDay = interval === 'hour' || interval === 'minute' || interval === 'second'
     const parsedDates = allDays.map((d) => {
         if (isSubDay) {
             return dayjsUtcToTimezone(d, timezone, false)
         }
         try {
-            return dayjs.tz(d, timezone)
+            // Append time so JS doesn't parse date-only strings as UTC (ISO 8601 quirk)
+            const withTime = d.includes(' ') || d.includes('T') ? d : d + ' 00:00:00'
+            return dayjs.tz(withTime, timezone)
         } catch {
             return dayjs(null)
         }
