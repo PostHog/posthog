@@ -4,7 +4,7 @@
 	and session counts across multiple service instances by
 	adding tokens to a sorted set with a short-lived TTL.
 
-	Redis pipelines are used to batch multiple commands into a single round-trip.
+	Redis pipelines (DoMulti) are used to batch multiple commands into a single round-trip.
 	Each pipeline targets a single key, so all commands hit the same hash slot
 	and are safe by default in cluster mode.
 */
@@ -13,11 +13,12 @@ package events
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/posthog/posthog/livestream/configs"
 	"github.com/posthog/posthog/livestream/metrics"
-	"github.com/redis/go-redis/v9"
+	"github.com/redis/rueidis"
 )
 
 const (
@@ -26,7 +27,7 @@ const (
 )
 
 type StatsInRedis struct {
-	client redis.UniversalClient
+	client rueidis.Client
 }
 
 // Creates a Redis-backed stats store from the given config.
@@ -65,8 +66,8 @@ func (s *StatsInRedis) GetSessionCount(ctx context.Context, token string) (int64
 }
 
 // Close closes the underlying Redis connection.
-func (s *StatsInRedis) Close() error {
-	return s.client.Close()
+func (s *StatsInRedis) Close() {
+	s.client.Close()
 }
 
 func userKey(token string) string {
@@ -80,38 +81,52 @@ func sessionKey(token string) string {
 // Adds a member to a sorted set scored by the current timestamp, then sets the key expiry. 
 func (s *StatsInRedis) addKey(ctx context.Context, key string, memberId string, ttl time.Duration, metricsLabel string) error {
 	now := time.Now()
+	score := float64(now.Unix())
 
-	pipe := s.client.Pipeline()
-	pipe.ZAdd(ctx, key, redis.Z{Score: float64(now.Unix()), Member: memberId})
-	pipe.Expire(ctx, key, ttl)
-	_, err := pipe.Exec(ctx)
+	cmds := make(rueidis.Commands, 2)
+	cmds[0] = s.client.B().Zadd().Key(key).Gt().ScoreMember().ScoreMember(score, memberId).Build()
+	cmds[1] = s.client.B().Expire().Key(key).Seconds(int64(ttl.Seconds())).Build()
+
+	results := s.client.DoMulti(ctx, cmds...)
 
 	metrics.RedisLatency.WithLabelValues(metricsLabel).Observe(time.Since(now).Seconds())
-	if err != nil {
-		metrics.RedisErrors.WithLabelValues(metricsLabel).Inc()
+
+	for _, r := range results {
+		if err := r.Error(); err != nil {
+			metrics.RedisErrors.WithLabelValues(metricsLabel).Inc()
+			return err
+		}
 	}
-	return err
+	return nil
 }
 
 // Returns a sliding-window count by first pruning entries older than the TTL then counting survivors
 func (s *StatsInRedis) getCount(ctx context.Context, key string, ttl time.Duration, metricsLabel string) (int64, error) {
 	now := time.Now()
-	cutoff := float64(now.Add(-ttl).Unix())
+	cutoff := strconv.FormatFloat(float64(now.Add(-ttl).Unix()), 'f', 0, 64)
 
-	pipe := s.client.Pipeline()
-	pipe.ZRemRangeByScore(ctx, key, "-inf", fmt.Sprintf("%f", cutoff))
-	cardCmd := pipe.ZCard(ctx, key)
-	_, err := pipe.Exec(ctx)
+	cmds := make(rueidis.Commands, 2)
+	cmds[0] = s.client.B().Zremrangebyscore().Key(key).Min("-inf").Max(cutoff).Build()
+	cmds[1] = s.client.B().Zcard().Key(key).Build()
+
+	results := s.client.DoMulti(ctx, cmds...)
 
 	metrics.RedisLatency.WithLabelValues(metricsLabel).Observe(time.Since(now).Seconds())
+
+	if err := results[0].Error(); err != nil {
+		metrics.RedisErrors.WithLabelValues(metricsLabel).Inc()
+		return 0, err
+	}
+
+	count, err := results[1].AsInt64()
 	if err != nil {
 		metrics.RedisErrors.WithLabelValues(metricsLabel).Inc()
 		return 0, err
 	}
-	return cardCmd.Val(), nil
+	return count, nil
 }
 
 // Testing helper
-func NewStatsInRedisFromClient(client redis.UniversalClient) *StatsInRedis {
+func NewStatsInRedisFromClient(client rueidis.Client) *StatsInRedis {
 	return &StatsInRedis{client: client}
 }

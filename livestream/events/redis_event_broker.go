@@ -2,15 +2,15 @@ package events
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"slices"
+	"time"
 
 	"github.com/posthog/posthog/livestream/configs"
 	"github.com/posthog/posthog/livestream/metrics"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/redis/go-redis/v9"
+	"github.com/redis/rueidis"
 )
 
 //easyjson:json
@@ -59,7 +59,7 @@ func channelName(token string) string {
 }
 
 type RedisEventBroker struct {
-	client redis.UniversalClient
+	client rueidis.Client
 }
 
 func NewRedisEventBroker(cfg configs.RedisConfig) (*RedisEventBroker, error) {
@@ -70,7 +70,7 @@ func NewRedisEventBroker(cfg configs.RedisConfig) (*RedisEventBroker, error) {
 	return &RedisEventBroker{client: client}, nil
 }
 
-func NewRedisEventBrokerFromClient(client redis.UniversalClient) *RedisEventBroker {
+func NewRedisEventBrokerFromClient(client rueidis.Client) *RedisEventBroker {
 	return &RedisEventBroker{client: client}
 }
 
@@ -79,14 +79,15 @@ func (b *RedisEventBroker) Publish(ctx context.Context, event PostHogEvent) {
 		return
 	}
 
-	data, err := json.Marshal(toPubSubEvent(event))
+	pse := toPubSubEvent(event)
+	data, err := pse.MarshalJSON()
 	if err != nil {
 		log.Printf("redis publish: marshal error: %v", err)
 		metrics.RedisPublishErrorsTotal.Inc()
 		return
 	}
 
-	if err := b.client.Publish(ctx, channelName(event.Token), data).Err(); err != nil {
+	if err := b.client.Do(ctx, b.client.B().Spublish().Channel(channelName(event.Token)).Message(string(data)).Build()).Error(); err != nil {
 		log.Printf("redis publish: %v", err)
 		metrics.RedisPublishErrorsTotal.Inc()
 		return
@@ -95,39 +96,41 @@ func (b *RedisEventBroker) Publish(ctx context.Context, event PostHogEvent) {
 	metrics.RedisPublishTotal.Inc()
 }
 
-func (b *RedisEventBroker) Close() error {
-	return b.client.Close()
+func (b *RedisEventBroker) Close() {
+	b.client.Close()
 }
 
-func NewRedisUniversalClient(cfg configs.RedisConfig) (redis.UniversalClient, error) {
+func NewRedisClient(cfg configs.RedisConfig) (rueidis.Client, error) {
 	return newRedisClient(cfg)
 }
 
 type TokenRouter struct {
-	client    redis.UniversalClient
-	SubChan   chan Subscription
-	UnSubChan chan Subscription
-	tokenSubs map[string][]Subscription
-	allSubs   map[uint64]Subscription
-	redisSub  *redis.PubSub
+	client         rueidis.Client
+	SubChan        chan Subscription
+	UnSubChan      chan Subscription
+	tokenSubs      map[string][]Subscription
+	allSubs        map[uint64]Subscription
+	msgCh          chan rueidis.PubSubMessage
+	channelCancels map[string]context.CancelFunc
 }
 
-func NewTokenRouter(client redis.UniversalClient, subChan, unSubChan chan Subscription) *TokenRouter {
+func NewTokenRouter(client rueidis.Client, subChan, unSubChan chan Subscription) (*TokenRouter, error) {
 	return &TokenRouter{
-		client:    client,
-		SubChan:   subChan,
-		UnSubChan: unSubChan,
-		tokenSubs: make(map[string][]Subscription),
-		allSubs:   make(map[uint64]Subscription),
-		redisSub:  client.Subscribe(context.Background()),
-	}
+		client:         client,
+		SubChan:        subChan,
+		UnSubChan:      unSubChan,
+		tokenSubs:      make(map[string][]Subscription),
+		allSubs:        make(map[uint64]Subscription),
+		msgCh:          make(chan rueidis.PubSubMessage, 10000),
+		channelCancels: make(map[string]context.CancelFunc),
+	}, nil
 }
 
 func (tr *TokenRouter) Run(ctx context.Context) {
-	msgCh := tr.redisSub.Channel()
-
 	defer func() {
-		_ = tr.redisSub.Close()
+		for _, cancel := range tr.channelCancels {
+			cancel()
+		}
 	}()
 
 	for {
@@ -142,11 +145,7 @@ func (tr *TokenRouter) Run(ctx context.Context) {
 			metrics.SubTotal.Inc()
 
 			if len(tr.tokenSubs[token]) == 1 {
-				if err := tr.redisSub.Subscribe(ctx, channelName(token)); err != nil {
-					log.Printf("redis subscribe %s: %v", token, err)
-				} else {
-					metrics.RedisSubscribeTotal.Inc()
-				}
+				tr.subscribeChannel(ctx, token)
 			}
 
 		case unSub := <-tr.UnSubChan:
@@ -172,22 +171,14 @@ func (tr *TokenRouter) Run(ctx context.Context) {
 
 			if len(tr.tokenSubs[token]) == 0 {
 				delete(tr.tokenSubs, token)
-				if err := tr.redisSub.Unsubscribe(ctx, channelName(token)); err != nil {
-					log.Printf("redis unsubscribe %s: %v", token, err)
-				} else {
-					metrics.RedisSubscribeTotal.Dec()
-				}
+				tr.unsubscribeChannel(token)
 			}
 
-		case msg, ok := <-msgCh:
-			if !ok {
-				log.Printf("redis pubsub channel closed, exiting")
-				return
-			}
+		case msg := <-tr.msgCh:
 			metrics.RedisMessagesReceivedTotal.Inc()
 
 			var pse PubSubEvent
-			if err := json.Unmarshal([]byte(msg.Payload), &pse); err != nil {
+			if err := pse.UnmarshalJSON([]byte(msg.Message)); err != nil {
 				log.Printf("redis message unmarshal: %v", err)
 				continue
 			}
@@ -234,5 +225,63 @@ func (tr *TokenRouter) Run(ctx context.Context) {
 				}
 			}
 		}
+	}
+}
+
+// subscribeChannel starts a background Receive goroutine for a channel.
+// On connection failure, it retries with exponential backoff.
+// On intentional cancellation, it sends SUNSUBSCRIBE to clean up server-side.
+func (tr *TokenRouter) subscribeChannel(ctx context.Context, token string) {
+	chCtx, chCancel := context.WithCancel(ctx)
+	tr.channelCancels[token] = chCancel
+	ch := channelName(token)
+
+	go func() {
+		defer func() {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cleanupCancel()
+			_ = tr.client.Do(cleanupCtx, tr.client.B().Sunsubscribe().Channel(ch).Build()).Error()
+		}()
+
+		backoff := 100 * time.Millisecond
+		const maxBackoff = 10 * time.Second
+
+		for {
+			err := tr.client.Receive(chCtx, tr.client.B().Ssubscribe().Channel(ch).Build(), func(msg rueidis.PubSubMessage) {
+				select {
+				case tr.msgCh <- msg:
+				default:
+					metrics.RedisReceiveDropsTotal.Inc()
+				}
+			})
+
+			if chCtx.Err() != nil {
+				return
+			}
+
+			if err != nil {
+				log.Printf("redis receive %s: %v (retrying in %s)", token, err, backoff)
+				metrics.RedisErrors.WithLabelValues("receive").Inc()
+			}
+
+			select {
+			case <-chCtx.Done():
+				return
+			case <-time.After(backoff):
+			}
+
+			backoff = min(backoff*2, maxBackoff)
+		}
+	}()
+
+	metrics.RedisSubscribeTotal.Inc()
+}
+
+// unsubscribeChannel cancels the Receive goroutine for a channel.
+func (tr *TokenRouter) unsubscribeChannel(token string) {
+	if cancel, ok := tr.channelCancels[token]; ok {
+		cancel()
+		delete(tr.channelCancels, token)
+		metrics.RedisSubscribeTotal.Dec()
 	}
 }

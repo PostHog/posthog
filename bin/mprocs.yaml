@@ -120,7 +120,7 @@ procs:
 
     livestream:
         shell: |-
-            bin/wait-for-docker && \
+            bin/wait-for-docker redis-cluster && \
             bin/start-go-service livestream
         capability: livestream
 

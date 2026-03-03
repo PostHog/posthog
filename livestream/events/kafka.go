@@ -165,7 +165,7 @@ func NewPostHogKafkaConsumer(
 	}, nil
 }
 
-func (c *PostHogKafkaConsumer) Consume() {
+func (c *PostHogKafkaConsumer) Consume(ctx context.Context) {
 	rebalanceCallback := func(consumer *kafka.Consumer, event kafka.Event) error {
 		if _, ok := event.(kafka.AssignedPartitions); ok {
 			log.Printf("✅ Livestream service ready")
@@ -178,7 +178,7 @@ func (c *PostHogKafkaConsumer) Consume() {
 	}
 
 	for i := 0; i < c.parallel; i++ {
-		go c.runParsing()
+		go c.runParsing(ctx)
 	}
 
 	for {
@@ -203,7 +203,7 @@ func (c *PostHogKafkaConsumer) Consume() {
 	}
 }
 
-func (c *PostHogKafkaConsumer) runParsing() {
+func (c *PostHogKafkaConsumer) runParsing(ctx context.Context) {
 	for {
 		value, ok := <-c.incoming
 		if !ok {
@@ -213,7 +213,7 @@ func (c *PostHogKafkaConsumer) runParsing() {
 		c.outgoingChan <- phEvent
 		c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
 		if c.Broker != nil {
-			c.Broker.Publish(context.Background(), phEvent)
+			c.Broker.Publish(ctx, phEvent)
 		}
 	}
 }

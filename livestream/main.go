@@ -63,11 +63,7 @@ func main() {
 	if err != nil || statsRedis == nil {
 		log.Printf("WARNING: Redis connection failed, continuing without Redis: %v", err)
 	} else {
-		defer func() {
-			if err := statsRedis.Close(); err != nil {
-				log.Printf("ERROR: Failed to close Redis store: %v", err)
-			}
-		}()
+		defer statsRedis.Close()
 		stats.RedisStore = statsRedis
 		sessionStats.RedisStore = statsRedis
 		log.Printf("Redis stats store enabled (address: %s:%s)", config.Redis.Address, config.Redis.Port)
@@ -87,7 +83,7 @@ func main() {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
 	defer consumer.Close()
-	go consumer.Consume()
+	go consumer.Consume(ctx)
 
 	if config.Kafka.SessionRecordingEnabled {
 		sessionConsumer, err := events.NewSessionRecordingKafkaConsumer(
@@ -294,23 +290,25 @@ func setupRedisPubSub(
 		return nil, fmt.Errorf("create Redis event broker: %w", err)
 	}
 
-	subscriberClient, err := events.NewRedisUniversalClient(redisConfig)
+	subscriberClient, err := events.NewRedisClient(redisConfig)
 	if err != nil {
 		broker.Close()
 		return nil, fmt.Errorf("create Redis subscriber client: %w", err)
 	}
 
+	tokenRouter, err := events.NewTokenRouter(subscriberClient, subChan, unSubChan)
+	if err != nil {
+		subscriberClient.Close()
+		broker.Close()
+		return nil, fmt.Errorf("create token router: %w", err)
+	}
+
 	consumer.Broker = broker
-	tokenRouter := events.NewTokenRouter(subscriberClient, subChan, unSubChan)
 	go tokenRouter.Run(ctx)
 
 	cleanup = func() {
-		if err := subscriberClient.Close(); err != nil {
-			log.Printf("ERROR: Failed to close Redis subscriber client: %v", err)
-		}
-		if err := broker.Close(); err != nil {
-			log.Printf("ERROR: Failed to close Redis event broker: %v", err)
-		}
+		subscriberClient.Close()
+		broker.Close()
 	}
 	return cleanup, nil
 }

@@ -127,6 +127,10 @@ var (
 		Name: "livestream_redis_messages_received_total",
 		Help: "Total number of messages received from Redis pub/sub",
 	})
+	RedisReceiveDropsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_receive_drops_total",
+		Help: "Messages dropped at the Redis receive layer due to full message channel",
+	})
 
 	RedisErrors = promauto.NewCounterVec(
 		prometheus.CounterOpts{
