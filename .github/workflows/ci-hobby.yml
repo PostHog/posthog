@@ -253,11 +253,16 @@ jobs:
                           comment_id: parseInt(commentId),
                           body: errorBody,
                       });
-            - name: Fail if Docker build failed
-              if: steps.wait-for-image.outputs.conclusion != 'success' && steps.wait-for-image.outputs.conclusion != 'skipped'
+            - name: Check Docker image build result
               run: |
-                  echo "Docker image build failed with conclusion: ${{ steps.wait-for-image.outputs.conclusion }}"
-                  exit 1
+                  conclusion="${{ steps.wait-for-image.outputs.conclusion }}"
+                  if [ "$conclusion" = "skipped" ]; then
+                    echo "Docker image build skipped"
+                    exit 0
+                  elif [ "$conclusion" != "success" ]; then
+                    echo "Docker image build failed with conclusion: $conclusion"
+                    exit 1
+                  fi
             - name: Update comment - Docker image ready
               if: steps.check-preview.outputs.preview == 'true' && steps.wait-for-image.outputs.conclusion == 'success'
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
