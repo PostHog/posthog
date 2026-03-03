@@ -49,6 +49,7 @@ import {
     PageHeaderCustom,
 } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
+import { EditPhasesModal } from './EditPhasesModal'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
@@ -429,6 +430,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
 
                     <EditConclusionModal />
                     <AddPhaseModal />
+                    <EditPhasesModal />
 
                     <VariantDeltaTimeseries />
                 </>

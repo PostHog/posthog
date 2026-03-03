@@ -625,6 +625,8 @@ export const experimentLogic = kea<experimentLogicType>([
         addPhase: (phaseStartDate: string, name?: string, reason?: string) => ({ phaseStartDate, name, reason }),
         openAddPhaseModal: true,
         closeAddPhaseModal: true,
+        openEditPhasesModal: true,
+        closeEditPhasesModal: true,
         // METRICS
         setMetric: ({
             uuid,
@@ -1232,6 +1234,13 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openAddPhaseModal: () => true,
                 closeAddPhaseModal: () => false,
+            },
+        ],
+        isEditPhasesModalOpen: [
+            false,
+            {
+                openEditPhasesModal: () => true,
+                closeEditPhasesModal: () => false,
             },
         ],
     }),

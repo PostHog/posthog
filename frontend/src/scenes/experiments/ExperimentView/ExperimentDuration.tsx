@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Label } from 'lib/ui/Label/Label'
@@ -74,22 +75,25 @@ const DateButton = ({ date, type, onChange }: DateButtonProps): JSX.Element => {
     )
 }
 
-export const ExperimentDuration = (): JSX.Element => {
+export const ExperimentDuration = (): JSX.Element | null => {
+    const isPhasesEnabled = useFeatureFlag('EXPERIMENT_PHASES')
     const { experiment } = useValues(experimentLogic)
     const { changeExperimentStartDate, changeExperimentEndDate } = useActions(experimentLogic)
+
+    // When phases feature is enabled, show the phase selector instead
+    if (isPhasesEnabled) {
+        return <ExperimentPhaseSelector />
+    }
 
     const { start_date, end_date } = experiment
 
     return (
         <div>
             <Label intent="menu">Duration</Label>
-            <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                    <DateButton date={start_date} type="start" onChange={changeExperimentStartDate} />
-                    <IconArrowRight className="text-base" />
-                    <DateButton date={end_date} type="end" onChange={changeExperimentEndDate} />
-                </div>
-                <ExperimentPhaseSelector />
+            <div className="flex items-center gap-2">
+                <DateButton date={start_date} type="start" onChange={changeExperimentStartDate} />
+                <IconArrowRight className="text-base" />
+                <DateButton date={end_date} type="end" onChange={changeExperimentEndDate} />
             </div>
         </div>
     )
