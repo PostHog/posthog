@@ -9,7 +9,7 @@ from parameterized import parameterized
 from redis.exceptions import RedisError
 
 from posthog import redis as posthog_redis
-from posthog.hogql_queries.query_coalescing import LOCK_KEY_PREFIX, QueryCoalescer
+from posthog.hogql_queries.query_coalescer import LOCK_KEY_PREFIX, QueryCoalescer
 
 
 class TestQueryCoalescer(TestCase):
