@@ -190,29 +190,60 @@ export const QueryDatabase = (): JSX.Element => {
             return sourceData
         }
 
-        const flattenedTables = sourceData.flatMap((item) => {
-            if (
-                item.record?.type === 'sources' ||
-                item.record?.type === 'views' ||
-                item.record?.type === 'managed-views'
-            ) {
-                return item.children ?? []
+        const flattenedTables: TreeDataItem[] = []
+        const flattenedViews: TreeDataItem[] = []
+        const additionalItems: TreeDataItem[] = []
+
+        sourceData.forEach((item) => {
+            if (item.record?.type === 'sources') {
+                flattenedTables.push(...(item.children ?? []))
+                return
             }
 
-            return [item]
+            if (item.record?.type === 'views' || item.record?.type === 'managed-views') {
+                flattenedViews.push(...(item.children ?? []))
+                return
+            }
+
+            additionalItems.push(item)
         })
 
         return [
-            {
-                id: searchTerm ? 'search-tables' : 'tables',
-                name: 'Tables',
-                type: 'node' as const,
-                icon: <IconDatabase />,
-                record: { type: 'tables' },
-                children: flattenedTables,
-            },
+            ...(flattenedTables.length > 0
+                ? [
+                      {
+                          id: searchTerm ? 'search-tables' : 'tables',
+                          name: 'Tables',
+                          type: 'node' as const,
+                          icon: <IconDatabase />,
+                          record: { type: 'tables' },
+                          children: flattenedTables,
+                      },
+                  ]
+                : []),
+            ...(flattenedViews.length > 0
+                ? [
+                      {
+                          id: searchTerm ? 'search-views' : 'views',
+                          name: 'Views',
+                          type: 'node' as const,
+                          icon: <IconDatabase />,
+                          record: { type: 'views' },
+                          children: flattenedViews,
+                      },
+                  ]
+                : []),
+            ...additionalItems,
         ]
     }, [searchTerm, searchTreeData, connectionId, treeData])
+
+    const defaultExpandedRootIds = useMemo(() => {
+        if (!connectionId || connectionId === POSTHOG_WAREHOUSE) {
+            return []
+        }
+
+        return displayedTreeData.map((item) => item.id)
+    }, [connectionId, displayedTreeData])
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -227,8 +258,8 @@ export const QueryDatabase = (): JSX.Element => {
             expandedItemIds={
                 connectionId
                     ? searchTerm
-                        ? ['search-tables', ...expandedSearchFolders]
-                        : ['tables', ...expandedFolders]
+                        ? [...defaultExpandedRootIds, ...expandedSearchFolders]
+                        : [...defaultExpandedRootIds, ...expandedFolders]
                     : searchTerm
                       ? expandedSearchFolders
                       : expandedFolders
