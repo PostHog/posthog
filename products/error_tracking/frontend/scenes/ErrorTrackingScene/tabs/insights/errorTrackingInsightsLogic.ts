@@ -1,29 +1,20 @@
 import equal from 'fast-deep-equal'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { Dayjs, dayjs } from 'lib/dayjs'
 import { Params } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { issueFiltersLogic } from '../../../../components/IssueFilters/issueFiltersLogic'
 import { syncSearchParams, updateSearchParams } from '../../../../utils'
 import type { errorTrackingInsightsLogicType } from './errorTrackingInsightsLogicType'
 
-function getPeriodStart(date: Dayjs, viewMode: InsightsViewMode, weekStartDay: number): Dayjs {
-    if (viewMode === 'month') {
-        return date.startOf('month')
-    }
-    const daysFromWeekStart = (date.day() - weekStartDay + 7) % 7
-    return date.subtract(daysFromWeekStart, 'day').startOf('day')
-}
-
-export type InsightsViewMode = 'week' | 'month'
+export const INSIGHTS_LOGIC_KEY = 'insights'
 
 export type InsightsTrackableItem = 'summary_stats' | 'exception_volume' | 'crash_free_sessions'
 
@@ -36,10 +27,12 @@ export interface InsightsSummaryStats {
     crashFreeRate: number
 }
 
-const DEFAULT_FILTER_GROUP: UniversalFiltersGroup = {
+const DEFAULT_DATE_RANGE = { date_from: '-7d', date_to: null }
+const DEFAULT_FILTER_GROUP = {
     type: FilterLogicalOperator.And,
     values: [{ type: FilterLogicalOperator.And, values: [] }],
 }
+const DEFAULT_FILTER_TEST_ACCOUNTS = false
 
 export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
     path([
@@ -53,50 +46,24 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
     ]),
 
     connect(() => ({
-        values: [teamLogic, ['weekStartDay']],
+        values: [
+            issueFiltersLogic({ logicKey: INSIGHTS_LOGIC_KEY }),
+            ['dateRange', 'filterTestAccounts', 'filterGroup'],
+        ],
+        actions: [
+            issueFiltersLogic({ logicKey: INSIGHTS_LOGIC_KEY }),
+            ['setDateRange', 'setFilterGroup', 'setFilterTestAccounts'],
+        ],
     })),
 
     actions({
-        setViewMode: (mode: InsightsViewMode) => ({ mode }),
-        setViewModeOnly: (mode: InsightsViewMode) => ({ mode }),
-        setAnchorDate: (date: Dayjs) => ({ date }),
-        navigateBack: true,
-        navigateForward: true,
         reload: true,
-        setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
-        setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         setLoadStartTime: (time: number) => ({ time }),
         reportItemLoaded: (item: InsightsTrackableItem, durationMs: number) => ({ item, durationMs }),
         incrementRefreshKey: true,
     }),
 
     reducers({
-        viewMode: [
-            'week' as InsightsViewMode,
-            {
-                setViewMode: (_, { mode }) => mode,
-                setViewModeOnly: (_, { mode }) => mode,
-            },
-        ],
-        anchorDate: [
-            dayjs().startOf('week') as Dayjs,
-            {
-                setAnchorDate: (_, { date }) => date,
-            },
-        ],
-        filterGroup: [
-            DEFAULT_FILTER_GROUP as UniversalFiltersGroup,
-            {
-                setFilterGroup: (_, { filterGroup }) =>
-                    filterGroup?.values?.length ? filterGroup : DEFAULT_FILTER_GROUP,
-            },
-        ],
-        filterTestAccounts: [
-            false as boolean,
-            {
-                setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
-            },
-        ],
         loadStartTime: [
             0 as number,
             {
@@ -118,71 +85,12 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         ],
     }),
 
-    selectors({
-        dateFrom: [(s) => [s.anchorDate], (anchorDate): string => anchorDate.format('YYYY-MM-DD')],
-        dateTo: [
-            (s) => [s.anchorDate, s.viewMode],
-            (anchorDate, viewMode): string => {
-                const end = viewMode === 'week' ? anchorDate.add(1, 'week') : anchorDate.add(1, 'month')
-                const now = dayjs()
-                const effective = end.isAfter(now) ? now : end
-                return effective.format('YYYY-MM-DD')
-            },
-        ],
-        chartDateTo: [
-            (s) => [s.anchorDate, s.viewMode],
-            (anchorDate, viewMode): string => {
-                const end =
-                    viewMode === 'week' ? anchorDate.add(6, 'day') : anchorDate.add(1, 'month').subtract(1, 'day')
-                return end.format('YYYY-MM-DD')
-            },
-        ],
-        dateLabel: [
-            (s) => [s.anchorDate, s.viewMode],
-            (anchorDate, viewMode): string => {
-                if (viewMode === 'week') {
-                    const end = anchorDate.add(6, 'day')
-                    return `${anchorDate.format('MMM D')} – ${end.format('MMM D, YYYY')}`
-                }
-                return anchorDate.format('MMMM YYYY')
-            },
-        ],
-        relativeDateLabel: [
-            (s) => [s.anchorDate, s.viewMode, s.weekStartDay],
-            (anchorDate, viewMode, weekStartDay): string => {
-                const now = dayjs()
-                const unit = viewMode === 'week' ? 'week' : 'month'
-                const currentPeriodStart = getPeriodStart(now, viewMode, weekStartDay)
-                const diffPeriods = currentPeriodStart.diff(anchorDate, unit)
-                if (diffPeriods === 0) {
-                    return viewMode === 'week' ? 'this week' : 'this month'
-                } else if (diffPeriods === 1) {
-                    return viewMode === 'week' ? 'last week' : 'last month'
-                }
-                return `${diffPeriods} ${unit}s ago`
-            },
-        ],
-        canNavigateForward: [
-            (s) => [s.anchorDate, s.viewMode, s.weekStartDay],
-            (anchorDate, viewMode, weekStartDay): boolean => {
-                const now = dayjs()
-                const currentPeriodStart = getPeriodStart(now, viewMode, weekStartDay)
-                return anchorDate.isBefore(currentPeriodStart)
-            },
-        ],
-    }),
-
     loaders(({ actions, values }) => ({
         summaryStats: [
             null as InsightsSummaryStats | null,
             {
                 loadSummaryStats: async () => {
                     const startTime = performance.now()
-                    const periodEnd =
-                        values.viewMode === 'week'
-                            ? values.anchorDate.add(1, 'week')
-                            : values.anchorDate.add(1, 'month')
-                    const effectiveEnd = periodEnd.isAfter(dayjs()) ? dayjs() : periodEnd
                     const response = await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
@@ -194,10 +102,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                             WHERE {filters}
                         `,
                         filters: {
-                            dateRange: {
-                                date_from: values.anchorDate.startOf('day').format('YYYY-MM-DD HH:mm:ss'),
-                                date_to: effectiveEnd.format('YYYY-MM-DD HH:mm:ss'),
-                            },
+                            dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
                             properties: (values.filterGroup.values[0] as UniversalFiltersGroup)
                                 .values as AnyPropertyFilter[],
@@ -225,21 +130,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
-        setViewMode: ({ mode }) => {
-            posthog.capture('error_tracking_insights_view_mode_changed', { view_mode: mode })
-            actions.setAnchorDate(getPeriodStart(dayjs(), mode, values.weekStartDay))
-        },
-        navigateBack: () => {
-            const unit = values.viewMode === 'week' ? 'week' : 'month'
-            actions.setAnchorDate(values.anchorDate.subtract(1, unit))
-        },
-        navigateForward: () => {
-            const unit = values.viewMode === 'week' ? 'week' : 'month'
-            const next = values.anchorDate.add(1, unit)
-            const currentPeriodStart = getPeriodStart(dayjs(), values.viewMode, values.weekStartDay)
-            actions.setAnchorDate(next.isAfter(currentPeriodStart) ? currentPeriodStart : next)
-        },
-        setAnchorDate: () => {
+        setDateRange: () => {
             actions.setLoadStartTime(performance.now())
             actions.loadSummaryStats()
         },
@@ -261,10 +152,8 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             const allLoaded = TRACKABLE_ITEMS.every((key) => updatedTimings[key] !== undefined)
             if (allLoaded) {
                 posthog.capture('error_tracking_insights_data_loaded', {
-                    view_mode: values.viewMode,
-                    date_from: values.dateFrom,
-                    date_to: values.dateTo,
-                    relative_label: values.relativeDateLabel,
+                    date_from: values.dateRange.date_from,
+                    date_to: values.dateRange.date_to,
                     duration_ms_summary_stats: updatedTimings.summary_stats,
                     duration_ms_exception_volume: updatedTimings.exception_volume,
                     duration_ms_crash_free_sessions: updatedTimings.crash_free_sessions,
@@ -275,23 +164,17 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
 
     urlToAction(({ actions, values }) => ({
         '**/error_tracking': (_, params: Params) => {
-            if (params.insights_viewMode && params.insights_viewMode !== values.viewMode) {
-                actions.setViewModeOnly(params.insights_viewMode)
+            const dateRange = params.insights_dateRange ?? DEFAULT_DATE_RANGE
+            if (!equal(dateRange, values.dateRange)) {
+                actions.setDateRange(dateRange)
             }
-            if (params.insights_filterGroup && !equal(params.insights_filterGroup, values.filterGroup)) {
-                actions.setFilterGroup(params.insights_filterGroup)
+            const filterGroup = params.insights_filterGroup ?? DEFAULT_FILTER_GROUP
+            if (!equal(filterGroup, values.filterGroup)) {
+                actions.setFilterGroup(filterGroup)
             }
-            if (
-                params.insights_filterTestAccounts !== undefined &&
-                !equal(params.insights_filterTestAccounts, values.filterTestAccounts)
-            ) {
-                actions.setFilterTestAccounts(params.insights_filterTestAccounts)
-            }
-            if (params.insights_anchorDate) {
-                const urlDate = dayjs(params.insights_anchorDate)
-                if (!urlDate.isSame(values.anchorDate, 'day')) {
-                    actions.setAnchorDate(urlDate)
-                }
+            const filterTestAccounts = params.insights_filterTestAccounts ?? DEFAULT_FILTER_TEST_ACCOUNTS
+            if (!equal(filterTestAccounts, values.filterTestAccounts)) {
+                actions.setFilterTestAccounts(filterTestAccounts)
             }
         },
     })),
@@ -299,26 +182,26 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
     actionToUrl(({ values }) => {
         const buildURL = (): ReturnType<typeof syncSearchParams> =>
             syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'insights_viewMode', values.viewMode, 'week')
-                updateSearchParams(params, 'insights_anchorDate', values.anchorDate.format('YYYY-MM-DD'), null)
+                updateSearchParams(params, 'insights_dateRange', values.dateRange, DEFAULT_DATE_RANGE)
                 updateSearchParams(params, 'insights_filterGroup', values.filterGroup, DEFAULT_FILTER_GROUP)
-                updateSearchParams(params, 'insights_filterTestAccounts', values.filterTestAccounts, false)
+                updateSearchParams(
+                    params,
+                    'insights_filterTestAccounts',
+                    values.filterTestAccounts,
+                    DEFAULT_FILTER_TEST_ACCOUNTS
+                )
                 return params
             })
 
         return {
-            setViewMode: buildURL,
-            setViewModeOnly: buildURL,
-            setAnchorDate: buildURL,
+            setDateRange: buildURL,
             setFilterGroup: buildURL,
             setFilterTestAccounts: buildURL,
         }
     }),
 
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions }) => {
         posthog.capture('error_tracking_insights_viewed')
-        if (!router.values.searchParams.insights_anchorDate) {
-            actions.setAnchorDate(getPeriodStart(dayjs(), values.viewMode, values.weekStartDay))
-        }
+        actions.loadSummaryStats()
     }),
 ])

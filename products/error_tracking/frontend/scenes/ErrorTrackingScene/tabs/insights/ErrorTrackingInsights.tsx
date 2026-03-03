@@ -1,27 +1,36 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
+
 import { ChartCard } from './ChartCard'
-import { InsightsTrackableItem, errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
+import { errorTrackingInsightsLogic, INSIGHTS_LOGIC_KEY, InsightsTrackableItem } from './errorTrackingInsightsLogic'
 import { InsightsFilters } from './InsightsFilters'
 import { buildCrashFreeSessionsQuery, buildExceptionVolumeQuery } from './queries'
 import { SummaryStats } from './SummaryStats'
-import { TimeRangeControls } from './TimeRangeControls'
 
 export function ErrorTrackingInsights(): JSX.Element {
-    const { dateFrom, chartDateTo, filterGroup, filterTestAccounts, loadStartTime, refreshKey } =
+    return (
+        <BindLogic logic={issueFiltersLogic} props={{ logicKey: INSIGHTS_LOGIC_KEY }}>
+            <InsightsContent />
+        </BindLogic>
+    )
+}
+
+function InsightsContent(): JSX.Element {
+    const { dateRange, filterGroup, filterTestAccounts, loadStartTime, refreshKey } =
         useValues(errorTrackingInsightsLogic)
     const { reportItemLoaded } = useActions(errorTrackingInsightsLogic)
 
     const filters = useMemo(() => ({ filterGroup, filterTestAccounts }), [filterGroup, filterTestAccounts])
 
     const exceptionVolumeQuery = useMemo(
-        () => buildExceptionVolumeQuery(dateFrom, chartDateTo, filters),
-        [dateFrom, chartDateTo, filters]
+        () => buildExceptionVolumeQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
+        [dateRange, filters]
     )
     const crashFreeQuery = useMemo(
-        () => buildCrashFreeSessionsQuery(dateFrom, chartDateTo, filters),
-        [dateFrom, chartDateTo, filters]
+        () => buildCrashFreeSessionsQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
+        [dateRange, filters]
     )
 
     const handleChartLoad = useCallback(
@@ -32,7 +41,6 @@ export function ErrorTrackingInsights(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="border rounded bg-surface-primary p-2 space-y-2">
-                <TimeRangeControls />
                 <InsightsFilters />
             </div>
             <SummaryStats />

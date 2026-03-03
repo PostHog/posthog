@@ -29,7 +29,7 @@ export function formatQueryForInsightEditor(query: InsightVizNode<TrendsQuery>):
 
 export function buildExceptionVolumeQuery(
     dateFrom: string,
-    dateTo: string,
+    dateTo: string | null,
     { filterGroup, filterTestAccounts }: InsightQueryFilters
 ): InsightVizNode<TrendsQuery> {
     return {
@@ -56,7 +56,7 @@ export function buildExceptionVolumeQuery(
 
 export function buildCrashFreeSessionsQuery(
     dateFrom: string,
-    dateTo: string,
+    dateTo: string | null,
     { filterGroup, filterTestAccounts }: InsightQueryFilters
 ): InsightVizNode<TrendsQuery> {
     return {
