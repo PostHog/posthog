@@ -231,7 +231,7 @@
         "import/no-cycle": [
             "error",
             {
-                "maxDepth": 5
+                "maxDepth": 10
             }
         ],
         "jest/no-restricted-matchers": [
