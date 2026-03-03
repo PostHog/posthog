@@ -198,7 +198,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         sourceConfig: {
             defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources),
             errors: (sourceValues) => {
-                return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any)
+                return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any, true)
             },
             submit: async ({ payload = {}, description }) => {
                 const newJobInputs = {

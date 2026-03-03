@@ -414,5 +414,55 @@ describe('sourceWizardLogic', () => {
             )
             expect(res.payload.test_field.option_field).toBeTruthy()
         })
+
+        it('returns errors for an empty required password field in create mode', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'password',
+                        label: 'Password',
+                        type: 'password',
+                        required: true,
+                        placeholder: '',
+                    },
+                ],
+                { prefix: '', payload: { password: '' } }
+            )
+            expect(res.payload.password).toBeTruthy()
+        })
+
+        it('skips required validation for empty password fields in update mode', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'password',
+                        label: 'Password',
+                        type: 'password',
+                        required: true,
+                        placeholder: '',
+                    },
+                ],
+                { prefix: '', payload: { password: '' } },
+                true
+            )
+            expect(res.payload.password).toBeUndefined()
+        })
+
+        it('still validates required non-password fields in update mode', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'host',
+                        label: 'Host',
+                        type: 'text',
+                        required: true,
+                        placeholder: 'localhost',
+                    },
+                ],
+                { prefix: '', payload: { host: '' } },
+                true
+            )
+            expect(res.payload.host).toBeTruthy()
+        })
     })
 })
