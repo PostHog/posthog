@@ -364,15 +364,6 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                 workflow_logger.info(
                     f"Duration percentile filtering p{min_p}-p{max_p}: disabled (no historical query data)"
                 )
-
-                # Early exit for higher percentile schedules when insufficient duration data
-                # This prevents tripling the workload during feature launch when all schedules
-                # would otherwise process every cohort
-                if inputs.duration_percentile_min is not None and inputs.duration_percentile_min >= 90.0:
-                    workflow_logger.info(
-                        f"Skipping p{min_p}-p{max_p} schedule execution: insufficient duration data for percentile filtering"
-                    )
-                    return
         else:
             workflow_logger.info("Duration percentile filtering: disabled (processing all cohorts)")
             thresholds = None
@@ -390,8 +381,21 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
         )
 
         all_cohort_ids = selection_result.cohort_ids
+
+        # Check for early exit after executing all activities to maintain determinism
         if not all_cohort_ids:
             workflow_logger.warning("No realtime cohorts found matching selection criteria")
+            return
+
+        # Early exit for higher percentile schedules when insufficient duration data
+        # This prevents tripling the workload during feature launch when all schedules
+        # would otherwise process every cohort
+        if thresholds is None and inputs.duration_percentile_min is not None and inputs.duration_percentile_min >= 90.0:
+            min_p = inputs.duration_percentile_min if inputs.duration_percentile_min is not None else 0.0
+            max_p = inputs.duration_percentile_max if inputs.duration_percentile_max is not None else 100.0
+            workflow_logger.info(
+                f"Skipping p{min_p}-p{max_p} schedule execution: insufficient duration data for percentile filtering"
+            )
             return
 
         total_cohorts = len(all_cohort_ids)
