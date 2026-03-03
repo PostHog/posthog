@@ -55,7 +55,9 @@ export function UrlConfig({
             <div className="flex items-center gap-2 justify-between">
                 <div className="flex gap-2 items-center">
                     <LemonLabel className="text-base">{title}</LemonLabel>
-                    <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayUrlTrigger} />
+                    <div className="hidden lg:block">
+                        <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayUrlTrigger} />
+                    </div>
                 </div>
                 <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
                     <LemonButton

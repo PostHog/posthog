@@ -34,7 +34,9 @@ function LinkedFlagSelector(): JSX.Element | null {
                                 {selectedPlatform === 'mobile' ? null : <IngestionControls.MatchTypeTag />} Enable
                                 recordings using feature flag
                             </LemonLabel>
-                            <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayFeatureFlag} />
+                            <div className="hidden lg:block">
+                                <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayFeatureFlag} />
+                            </div>
                         </div>
                         <IngestionControls.FlagSelector />
                     </div>
@@ -153,7 +155,9 @@ function EventTriggerOptions(): JSX.Element | null {
                     <LemonLabel className="text-base">
                         <IngestionControls.MatchTypeTag /> Event emitted
                     </LemonLabel>
-                    <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayEventTrigger} />
+                    <div className="hidden lg:block">
+                        <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayEventTrigger} />
+                    </div>
                 </div>
                 <IngestionControls.EventTriggerSelect events={eventTriggerConfig} onChange={updateEventTriggerConfig} />
             </div>
@@ -183,7 +187,9 @@ function Sampling(): JSX.Element {
                     <LemonLabel className="text-base">
                         <IngestionControls.MatchTypeTag /> Sampling
                     </LemonLabel>
-                    <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplaySampling} />
+                    <div className="hidden lg:block">
+                        <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplaySampling} />
+                    </div>
                 </div>
                 <IngestionControls.SamplingTrigger
                     initialSampleRate={
@@ -208,7 +214,9 @@ function MinimumDurationSetting(): JSX.Element | null {
             <div className="flex flex-row justify-between">
                 <div className="flex gap-2 items-center">
                     <LemonLabel className="text-base">Minimum session duration (seconds)</LemonLabel>
-                    <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayMinDuration} />
+                    <div className="hidden lg:block">
+                        <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayMinDuration} />
+                    </div>
                 </div>
                 <IngestionControls.MinDuration
                     value={currentTeam?.session_recording_minimum_duration_milliseconds}
