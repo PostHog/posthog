@@ -776,14 +776,10 @@ async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) 
             group_signals=group_signals,
         )
 
-        def validate(text: str) -> SpecificityResult:
-            data = json.loads(text)
-            return SpecificityResult.model_validate(data)
-
         specificity = await call_llm(
             system_prompt=SPECIFICITY_CHECK_SYSTEM_PROMPT,
             user_prompt=specificity_prompt,
-            validate=validate,
+            validate=lambda text: SpecificityResult.model_validate_json(text),
             temperature=0.2,
         )
 
