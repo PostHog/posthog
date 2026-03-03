@@ -42,7 +42,7 @@ export function createNormalizeProcessPersonFlagStep<TInput extends NormalizePro
                     // Only a boolean `false` disables person processing.
                     processPerson = false
 
-                    if (['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'].includes(event.event)) {
+                    if (['$identify', '$create_alias', '$merge_dangerously'].includes(event.event)) {
                         warnings.push({
                             type: 'invalid_event_when_process_person_profile_is_false',
                             details: {

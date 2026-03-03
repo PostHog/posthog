@@ -945,6 +945,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             {},
             async (ingester, hub, team) => {
                 const distinctId = new UUIDT().toString()
+                const groupKey = 'group_key'
                 const timestamp = DateTime.now().toMillis()
                 await ingester.handleKafkaBatch(
                     createKafkaMessages([
@@ -961,7 +962,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                             .withProperties({
                                 distinctId: distinctId,
                                 $process_person_profile: false,
-                                $group_0: 'group_key',
+                                $groups: { organization: groupKey },
                                 $set: {
                                     c: 3,
                                 },
@@ -995,8 +996,56 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
                     expect(events[1].event).toEqual('custom event')
                     expect(events[1].person_properties).toEqual({})
+                    // Group properties should be populated even with $process_person_profile=false
+                    expect(events[1].properties.$group_0).toEqual(groupKey)
                     expect(events[2].event).toEqual('custom event')
                     expect(events[2].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+                })
+            }
+        )
+
+        testWithTeamIngester(
+            '$groupidentify is processed when $process_person_profile=false',
+            {},
+            async (ingester, hub, team) => {
+                const distinctId = new UUIDT().toString()
+                const groupKey = 'group_key'
+                const timestamp = DateTime.now().toMillis()
+
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$groupidentify')
+                            .withGroupProperties('organization', groupKey, { name: 'Acme Corp' })
+                            .withProperties({
+                                $process_person_profile: false,
+                                $group_type: 'organization',
+                                $group_key: groupKey,
+                                $group_set: { name: 'Acme Corp' },
+                            })
+                            .withTimestamp(timestamp)
+                            .build(),
+                    ])
+                )
+
+                await waitForKafkaMessages(hub)
+
+                await waitForExpect(async () => {
+                    const events = await fetchEvents(hub, team.id)
+                    expect(events.length).toEqual(1)
+                    expect(events[0].event).toEqual('$groupidentify')
+                })
+
+                await waitForExpect(async () => {
+                    const group = await hub.groupRepository.fetchGroup(team.id, 0, groupKey)
+                    expect(group).toEqual(
+                        expect.objectContaining({
+                            team_id: team.id,
+                            group_type_index: 0,
+                            group_properties: { name: 'Acme Corp' },
+                            group_key: groupKey,
+                        })
+                    )
                 })
             }
         )

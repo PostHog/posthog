@@ -107,13 +107,11 @@ export class EventsProcessor {
             }
         }
 
-        if (processPerson) {
-            // Adds group_0 etc values to properties
-            properties = await addGroupProperties(team.id, team.project_id, properties, this.groupTypeManager)
+        // Adds group_0 etc values to properties — independent of person processing
+        properties = await addGroupProperties(team.id, team.project_id, properties, this.groupTypeManager)
 
-            if (event === '$groupidentify') {
-                await this.upsertGroup(team.id, team.project_id, properties, timestamp, groupStore)
-            }
+        if (event === '$groupidentify') {
+            await this.upsertGroup(team.id, team.project_id, properties, timestamp, groupStore)
         }
 
         return {
