@@ -181,3 +181,9 @@ junit.xml
 
 # Downloaded GitHub issues for signals
 products/signals/backend/github_issues/
+test-coverage-map.md
+.agents/skills/playwright/SKILL.md
+playwright/.mcp.json
+playwright/.claude/agents/playwright-test-generator.md
+playwright/.claude/agents/playwright-test-healer.md
+playwright/.claude/agents/playwright-test-planner.md
