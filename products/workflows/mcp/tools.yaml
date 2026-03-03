@@ -20,7 +20,7 @@ tools:
         list: true
         title: List workflows
         description: >
-            List all workflows (HogFlows) in the project. Returns workflows with their name,
+            List all workflows in the project. Returns workflows with their name,
             description, status (draft/active/archived), version, trigger configuration,
             and timestamps.
         mcp_version: 1
@@ -35,6 +35,6 @@ tools:
             idempotent: true
         title: Get workflow
         description: >
-            Get a specific workflow (HogFlow) by ID. Returns the full workflow definition
+            Get a specific workflow by ID. Returns the full workflow definition
             including trigger, edges, actions, exit condition, and variables.
         mcp_version: 1

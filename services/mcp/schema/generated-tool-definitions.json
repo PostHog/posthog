@@ -135,7 +135,7 @@
         }
     },
     "workflows-list": {
-        "description": "List all workflows (HogFlows) in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
+        "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
         "category": "Workflows",
         "feature": "hog_flows",
         "summary": "List workflows",
@@ -150,7 +150,7 @@
         }
     },
     "workflows-get": {
-        "description": "Get a specific workflow (HogFlow) by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, and variables.",
+        "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, and variables.",
         "category": "Workflows",
         "feature": "hog_flows",
         "summary": "Get workflow",
