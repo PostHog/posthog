@@ -288,6 +288,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(metadata.isValid)
         self.assertEqual(metadata.errors, [])
 
+    def test_metadata_variable_placeholder_without_variables(self):
+        metadata = self._select_with_variables("SELECT {variables.company_name}")
+
+        self.assertFalse(metadata.isValid)
+        self.assertEqual(len(metadata.errors), 1)
+        self.assertIn("company_name", metadata.errors[0].message)
+
     def test_metadata_property_type_notice_no_debug(self):
         try:
             from ee.clickhouse.materialized_columns.analyze import materialize

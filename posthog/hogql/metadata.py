@@ -71,7 +71,7 @@ def get_hogql_metadata(
                     hogql_ast = replace_filters(hogql_ast, query.filters, team)
                 if query.variables or finder.placeholder_fields or finder.placeholder_expressions:
                     hogql_ast = replace_variables(
-                        hogql_ast, list(query.variables.values()) if query.variables else {}, team
+                        hogql_ast, list(query.variables.values()) if query.variables else [], team
                     )
                     hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
 
