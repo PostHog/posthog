@@ -21,6 +21,7 @@ const RELEVANT_GROUP_NAME_MAP: Record<string, string> = {
     'us.posthog.com': 'US Cloud 🇺🇸',
     'eu.posthog.com': 'EU Cloud 🇪🇺',
     localhost: 'US Cloud 🇺🇸', // Default to US for local dev
+    '127.0.0.1': 'US Cloud 🇺🇸', // Storybook CI runs at 127.0.0.1:6006
 }
 
 function getRelevantGroupName(): string | null {

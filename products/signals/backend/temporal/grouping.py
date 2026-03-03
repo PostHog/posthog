@@ -30,7 +30,12 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
-from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
+from products.signals.backend.temporal.summary import (
+    FetchSignalsForReportInput,
+    FetchSignalsForReportOutput,
+    SignalReportSummaryWorkflow,
+    fetch_signals_for_report_activity,
+)
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
     ExistingReportMatch,
@@ -703,6 +708,7 @@ class VerifyMatchSpecificityInput:
     new_signal_description: str
     new_signal_source_product: str
     new_signal_source_type: str
+    group_signals: list[SignalData]
 
 
 @dataclass
@@ -716,64 +722,12 @@ class VerifyMatchSpecificityOutput:
 async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     try:
-        team = await Team.objects.aget(pk=input.team_id)
-
-        query = """
-            SELECT
-                document_id,
-                content,
-                metadata,
-                toString(timestamp) as timestamp
-            FROM (
-                SELECT
-                    document_id,
-                    argMax(content, inserted_at) as content,
-                    argMax(metadata, inserted_at) as metadata,
-                    argMax(timestamp, inserted_at) as timestamp
-                FROM document_embeddings
-                WHERE model_name = {model_name}
-                  AND product = 'signals'
-                  AND document_type = 'signal'
-                GROUP BY document_id
-            )
-            WHERE JSONExtractString(metadata, 'report_id') = {report_id}
-              AND NOT JSONExtractBool(metadata, 'deleted')
-            ORDER BY timestamp ASC
-        """
-
-        result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
-            query_type="SignalsFetchForSpecificity",
-            query=query,
-            team=team,
-            placeholders={
-                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-                "report_id": ast.Constant(value=input.report_id),
-            },
-        )
-
-        group_signals: list[SignalData] = []
-        for row in result.results or []:
-            document_id, content, metadata_str, timestamp = row
-            metadata = json.loads(metadata_str)
-            group_signals.append(
-                SignalData(
-                    signal_id=document_id,
-                    content=content,
-                    source_product=metadata.get("source_product", ""),
-                    source_type=metadata.get("source_type", ""),
-                    source_id=metadata.get("source_id", ""),
-                    weight=metadata.get("weight", 0.0),
-                    timestamp=timestamp,
-                    extra=metadata.get("extra", {}),
-                )
-            )
-
         specificity_prompt = _build_specificity_prompt(
             new_signal_description=input.new_signal_description,
             new_signal_source_product=input.new_signal_source_product,
             new_signal_source_type=input.new_signal_source_type,
             report_title=input.report_title,
-            group_signals=group_signals,
+            group_signals=input.group_signals,
         )
 
         specificity = await call_llm(
@@ -786,6 +740,7 @@ async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) 
         logger.debug(
             f"Specificity check for report {input.report_id}: "
             f'pr_title="{specificity.pr_title}", specific_enough={specificity.specific_enough}',
+            team_id=input.team_id,
             report_id=input.report_id,
             pr_title=specificity.pr_title,
             specific_enough=specificity.specific_enough,
@@ -799,6 +754,7 @@ async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) 
     except Exception as e:
         logger.exception(
             f"Failed to verify match specificity for report {input.report_id}: {e}",
+            team_id=input.team_id,
             report_id=input.report_id,
         )
         raise
@@ -837,6 +793,37 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
             if isinstance(match_result, ExistingReportMatch):
                 report = SignalReport.objects.select_for_update().get(id=match_result.report_id, team_id=input.team_id)
+                # Soft-deleted reports shouldn't receive new signals at all. Generally, these
+                # won't be matched-to (since the associated signals are also deleted), but
+                # if a report is deleted while a signal that would match it is in-flight,
+                # this can happen. In these cases we skip the weight/count update and skip
+                # promotion, but we still emit the signal to ClickHouse, marked as deleted
+                # in metadata
+                if report.status == SignalReport.Status.DELETED:
+                    report_id = str(report.id)
+                    ts = input.timestamp or timezone.now()
+                    metadata = {
+                        "source_product": input.source_product,
+                        "source_type": input.source_type,
+                        "source_id": input.source_id,
+                        "weight": input.weight,
+                        "report_id": report_id,
+                        "extra": input.extra,
+                        "deleted": True,
+                    }
+                    metadata["match_metadata"] = asdict(match_result.match_metadata)
+                    emit_embedding_request(
+                        content=input.description,
+                        team_id=input.team_id,
+                        product="signals",
+                        document_type="signal",
+                        rendering="plain",
+                        document_id=input.signal_id,
+                        models=[m.value for m in EmbeddingModelName],
+                        timestamp=ts,
+                        metadata=metadata,
+                    )
+                    return report_id, False, ts
                 report.total_weight += input.weight
                 report.signal_count += 1
                 update_fields = ["total_weight", "signal_count", "updated_at"]
@@ -854,10 +841,16 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     summary=match_result.summary,
                 )
 
-            if report.status == SignalReport.Status.POTENTIAL and report.total_weight >= WEIGHT_THRESHOLD:
-                report.status = SignalReport.Status.CANDIDATE
-                report.promoted_at = timezone.now()
-                report.save(update_fields=["status", "promoted_at", "updated_at"])
+            # SUPPRESSED reports gather signals indefinitely but are never promoted
+            # POTENTIAL reports are only promoted once signal_count >= signals_at_run (snooze gate;
+            # signals_at_run defaults to 0 so fresh reports always pass) and weight threshold is met
+            if (
+                report.status == SignalReport.Status.POTENTIAL
+                and report.total_weight >= WEIGHT_THRESHOLD
+                and report.signal_count >= report.signals_at_run
+            ):
+                updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
+                report.save(update_fields=updated_fields)
                 promoted = True
 
             report_id = str(report.id)
@@ -922,31 +915,32 @@ WAIT_MAX_ATTEMPTS = 12  # 5s * 12 = 60s
 
 @temporalio.activity.defn
 async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
-    """Poll ClickHouse until the emitted signal appears, or give up after ~1 minute."""
+    """Poll ClickHouse until the emitted signal appears, or give up after ~1 minute.
+
+    Filters on inserted_at >= (now - 1 minute) rather than on the deleted flag, so we
+    confirm that *this specific ingestion* landed — regardless of whether the signal is
+    deleted — and don't mistake an older row for the one we just emitted.
+    """
     team = await Team.objects.aget(pk=input.team_id)
+    inserted_at_threshold = timezone.now() - timedelta(minutes=1)
 
     query = """
         SELECT count()
-        FROM (
-            SELECT
-                document_id,
-                argMax(metadata, inserted_at) as metadata
-            FROM document_embeddings
-            WHERE toDate(timestamp) = toDate({timestamp})
-              AND product = 'signals'
-              AND document_type = 'signal'
-              AND model_name = {model_name}
-              AND rendering = 'plain'
-              AND document_id = {signal_id}
-            GROUP BY document_id
-        )
-        WHERE NOT JSONExtractBool(metadata, 'deleted')
+        FROM document_embeddings
+        WHERE toDate(timestamp) = toDate({timestamp})
+          AND product = 'signals'
+          AND document_type = 'signal'
+          AND model_name = {model_name}
+          AND rendering = 'plain'
+          AND document_id = {signal_id}
+          AND inserted_at >= {inserted_at_threshold}
     """
 
     placeholders = {
         "timestamp": ast.Constant(value=input.timestamp),
         "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
         "signal_id": ast.Constant(value=input.signal_id),
+        "inserted_at_threshold": ast.Constant(value=inserted_at_threshold),
     }
 
     for attempt in range(WAIT_MAX_ATTEMPTS):
@@ -1073,6 +1067,14 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
         report_ctx = report_contexts_result.contexts.get(match_result.report_id)
         report_title = report_ctx.title if report_ctx else ""
 
+        # Fetch existing signals for the report, then run the LLM specificity check
+        group_signals_result: FetchSignalsForReportOutput = await workflow.execute_activity(
+            fetch_signals_for_report_activity,
+            FetchSignalsForReportInput(team_id=inputs.team_id, report_id=match_result.report_id),
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
         # Hard requirement, no try-except wrapping, but could lead to the signal skip if the activity exceeds retries
         specificity_result: VerifyMatchSpecificityOutput = await workflow.execute_activity(
             verify_match_specificity_activity,
@@ -1083,6 +1085,7 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
                 new_signal_description=inputs.description,
                 new_signal_source_product=inputs.source_product,
                 new_signal_source_type=inputs.source_type,
+                group_signals=group_signals_result.signals,
             ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1129,20 +1132,17 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
         retry_policy=RetryPolicy(maximum_attempts=3),
     )
 
-    # Wait for the signal to appear in ClickHouse before processing the next one,
-    # so subsequent signals can find it during semantic search
-    if workflow.patched("wait-for-clickhouse-v1"):
-        await workflow.execute_activity(
-            wait_for_signal_in_clickhouse_activity,
-            WaitForClickHouseInput(
-                team_id=inputs.team_id,
-                signal_id=signal_id,
-                timestamp=assign_result.timestamp,
-            ),
-            start_to_close_timeout=timedelta(minutes=2),
-            heartbeat_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
+    await workflow.execute_activity(
+        wait_for_signal_in_clickhouse_activity,
+        WaitForClickHouseInput(
+            team_id=inputs.team_id,
+            signal_id=signal_id,
+            timestamp=assign_result.timestamp,
+        ),
+        start_to_close_timeout=timedelta(minutes=2),
+        heartbeat_timeout=timedelta(seconds=30),
+        retry_policy=RetryPolicy(maximum_attempts=2),
+    )
 
     if assign_result.promoted:
         try:
