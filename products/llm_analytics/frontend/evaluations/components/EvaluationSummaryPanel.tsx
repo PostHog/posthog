@@ -334,11 +334,11 @@ function FilteredPatternSection({
     evaluationSummary: EvaluationSummary
     runsLookup: Record<string, EvaluationRun>
 }): JSX.Element | null {
-    const section = FILTER_CONFIG[filter]
-    if (!section) {
+    if (filter === 'all') {
         return null
     }
 
+    const section = FILTER_CONFIG[filter]
     const patterns = evaluationSummary[section.patternsKey]
 
     return (
