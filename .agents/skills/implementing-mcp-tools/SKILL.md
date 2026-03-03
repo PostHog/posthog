@@ -66,7 +66,7 @@ tools:
       destructive: false
       idempotent: true
     # Optional:
-    new_mcp: true # true for CUD ops, false for read/list if available via HogQL
+    mcp_version: 1 # 2 for CUD ops, 1 for read/list if available via HogQL
     title: List things
     description: >
       Human-friendly description for the LLM.
@@ -110,7 +110,7 @@ This lets agents query data via SQL in v2 of the MCP.
 
 Each system table **must include a `team_id` column** for data isolation.
 
-Use `new_mcp: false` on read/list YAML tools when a system table covers the same data —
+Use `mcp_version: 1` on read/list YAML tools when a system table covers the same data —
 v2 agents use SQL instead.
 
 When adding a system table, also add a model reference file
@@ -122,4 +122,4 @@ and register it in [`products/posthog_ai/skills/query-examples/SKILL.md`](produc
 - **v1 (legacy)**: all CRUD tools exposed, for clients without skill support.
 - **v2 (SQL-first)**: read/list tools replaced by HogQL, CUD tools kept. For coding agents.
 
-Control per-tool availability with `new_mcp: true/false` in the YAML definition.
+Control per-tool availability with `mcp_version: 1/2` in the YAML definition.

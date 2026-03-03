@@ -79,7 +79,7 @@ This lets agents query PostHog data via SQL in addition to (or instead of) the R
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
 
-Use `new_mcp: true/false` to control availability of retrieval tools in v2 of the MCP.
+Use `mcp_version: 1/2` to control availability of retrieval tools in v2 of the MCP.
 
 Example from the codebase:
 
@@ -175,12 +175,16 @@ Product teams own their definitions and control which operations are exposed as 
 2. **Configure** the YAML — enable tools, add scopes, annotations, and descriptions.
    Each YAML file has a top-level structure validated by Zod ([`scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts)):
 
+   Tool names follow a **`domain-action`** convention in kebab-case,
+   e.g. `feature-flags-list`, `experiments-create`, `surveys-delete`.
+   The domain groups related tools together and the action describes the operation.
+
    ```yaml
    category: Human readable name # shown in tool registry
    feature: snake_case_name # product identifier
    url_prefix: /path # base URL for enrich_url links
    tools:
-     your-tool-name: # tool name, kebab-case
+     domain-action: # e.g. feature-flags-list, experiments-create
        operation: your_product_endpoint_list # must match an OpenAPI operationId
        enabled: true # false excludes from generation
        # --- required when enabled: ---
@@ -191,7 +195,7 @@ Product teams own their definitions and control which operations are exposed as 
          destructive: false
          idempotent: true
        # --- optional: ---
-       new_mcp: true # true for CUD operations, false for read/list if available via HogQL
+       mcp_version: 2 # 2 for create/update/delete operations or not available through SQL for retrieval, 1 for read/list if available via HogQL
        title: List things # human-friendly title (used in UI)
        description: > # instructions for the LLM
          Human-friendly description for the LLM.
