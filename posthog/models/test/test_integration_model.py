@@ -702,6 +702,52 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.errors == ""
 
+    @patch("posthog.models.integration.external_requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_list_repositories_retries_transient_non_json_response(self, _mock_expired, mock_get):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        transient = MagicMock()
+        transient.status_code = 502
+        transient.json.side_effect = ValueError("not json")
+
+        success = MagicMock()
+        success.status_code = 200
+        success.json.return_value = {"repositories": [{"name": "posthog"}, {"name": "posthog-js"}]}
+
+        mock_get.side_effect = [transient, success]
+
+        repos = GitHubIntegration(integration).list_repositories()
+
+        assert repos == ["posthog", "posthog-js"]
+        assert mock_get.call_count == 2
+
+    @patch("posthog.models.integration.external_requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_list_repositories_returns_empty_after_repeated_transient_non_json(self, _mock_expired, mock_get):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        transient_1 = MagicMock()
+        transient_1.status_code = 502
+        transient_1.json.side_effect = ValueError("not json")
+
+        transient_2 = MagicMock()
+        transient_2.status_code = 502
+        transient_2.json.side_effect = ValueError("not json")
+
+        mock_get.side_effect = [transient_1, transient_2]
+
+        repos = GitHubIntegration(integration).list_repositories()
+
+        assert repos == []
+        assert mock_get.call_count == 2
+
 
 class TestDatabricksIntegrationModel(BaseTest):
     @patch("posthog.models.integration.socket.socket")

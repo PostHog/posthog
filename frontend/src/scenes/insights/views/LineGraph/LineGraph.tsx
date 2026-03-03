@@ -239,6 +239,7 @@ export interface LineGraphProps {
     isStacked?: boolean
     showTrendLines?: boolean
     ignoreActionsInSeriesLabels?: boolean
+    datalabelFormatter?: (value: number, datasetIndex: number) => string
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -285,6 +286,7 @@ export function LineGraph_({
     isStacked = true,
     showTrendLines = false,
     ignoreActionsInSeriesLabels = false,
+    datalabelFormatter,
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -563,18 +565,14 @@ export function LineGraph_({
                 }
             }
             const hasAnyDottedDataset = processedDatasets.some((dataset) => dataset.dotted)
-            const datalabelTotalsByDatasetIndex = processedDatasets.map((dataset) => {
-                const totalResponses = (dataset as any).totalResponses
-                if (totalResponses !== undefined && totalResponses !== null) {
-                    return totalResponses
-                }
-                return Array.isArray(dataset.data)
+            const datalabelTotalsByDatasetIndex = processedDatasets.map((dataset) =>
+                Array.isArray(dataset.data)
                     ? dataset.data.reduce(
                           (sum: number, value: unknown) => sum + (typeof value === 'number' ? value : 0),
                           0
                       )
                     : 0
-            })
+            )
 
             const tickOptions: Partial<TickOptions> = {
                 color: colors.axisLabel as Color,
@@ -642,16 +640,23 @@ export function LineGraph_({
                         },
                         display: (context) => {
                             const datum = context.dataset?.data[context.dataIndex]
-                            if (showValuesOnSeries && inSurveyView) {
-                                return true
+                            if (
+                                typeof datum === 'number' &&
+                                datum !== 0 &&
+                                (datalabelFormatter || (showValuesOnSeries && inSurveyView))
+                            ) {
+                                return 'auto'
                             }
                             return showValuesOnSeries === true && typeof datum === 'number' && datum !== 0
                                 ? 'auto'
                                 : false
                         },
                         formatter: (value: number, context) => {
-                            if (value !== 0 && inSurveyView && showValuesOnSeries) {
-                                // Use totalResponses if provided (for per-respondent %), otherwise sum of values
+                            if (typeof value === 'number' && value !== 0 && datalabelFormatter) {
+                                return datalabelFormatter(value, context.datasetIndex)
+                            }
+
+                            if (typeof value === 'number' && value !== 0 && inSurveyView && showValuesOnSeries) {
                                 const total = datalabelTotalsByDatasetIndex[context.datasetIndex] ?? 1
                                 const percentage = ((value / total) * 100).toFixed(1)
                                 return `${value} (${percentage}%)`
@@ -746,6 +751,17 @@ export function LineGraph_({
                                         dp.datasetIndex < (hasDotted ? _datasets.length * 2 : _datasets.length)
                                     )
                                 })
+                                const referenceSeriesDatum = seriesData.find(
+                                    (datum) =>
+                                        datum.datasetIndex === referenceDataPoint.datasetIndex &&
+                                        datum.dataIndex === referenceDataPoint.dataIndex
+                                )
+                                const {
+                                    getInspectLabel,
+                                    inspectLabel: staticInspectLabel,
+                                    ...tooltipProps
+                                } = tooltipConfig || {}
+                                const inspectLabel = getInspectLabel?.(referenceSeriesDatum) ?? staticInspectLabel
 
                                 tooltipRoot.render(
                                     <InsightTooltip
@@ -760,7 +776,7 @@ export function LineGraph_({
                                         breakdownFilter={breakdownFilter}
                                         interval={interval}
                                         dateRange={insightData?.resolved_date_range}
-                                        showShiftKeyHint={isBar && isStacked && !isHighlightBarMode}
+                                        showShiftKeyHint={isBar && isStacked && !isHighlightBarMode && !inSurveyView}
                                         renderSeries={(value, datum) => {
                                             const hasBreakdown =
                                                 datum.breakdown_value !== undefined && !!datum.breakdown_value
@@ -821,13 +837,15 @@ export function LineGraph_({
                                             })
                                         }
                                         hideInspectActorsSection={!onClick || !showPersonsModal}
-                                        {...tooltipConfig}
+                                        inspectLabel={inspectLabel}
+                                        {...tooltipProps}
                                         groupTypeLabel={
-                                            labelGroupType === 'people'
+                                            tooltipProps.groupTypeLabel ??
+                                            (labelGroupType === 'people'
                                                 ? 'people'
                                                 : labelGroupType === 'none'
                                                   ? ''
-                                                  : aggregationLabel(labelGroupType).plural
+                                                  : aggregationLabel(labelGroupType).plural)
                                         }
                                     />
                                 )

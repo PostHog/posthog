@@ -2,7 +2,10 @@ import os
 import re
 import json
 import uuid
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
+
+if TYPE_CHECKING:
+    from products.slack_app.backend.slack_thread import SlackThreadContext
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -31,6 +34,7 @@ class Task(DeletedMetaFields, models.Model):
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
+        SLACK = "slack", "Slack"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
 
@@ -114,13 +118,21 @@ class Task(DeletedMetaFields, models.Model):
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
         self.task_number = (max_task_number if max_task_number is not None else -1) + 1
 
-    def create_run(self, environment: Optional["TaskRun.Environment"] = None, mode: str = "background") -> "TaskRun":
+    def create_run(
+        self,
+        environment: Optional["TaskRun.Environment"] = None,
+        mode: str = "background",
+        extra_state: dict | None = None,
+    ) -> "TaskRun":
+        state: dict = {"mode": mode}
+        if extra_state:
+            state.update({k: v for k, v in extra_state.items() if k != "mode"})
         return TaskRun.objects.create(
             task=self,
             team=self.team,
             status=TaskRun.Status.QUEUED,
             environment=environment or TaskRun.Environment.CLOUD,
-            state={"mode": mode},
+            state=state,
         )
 
     def soft_delete(self):
@@ -142,13 +154,13 @@ class Task(DeletedMetaFields, models.Model):
         repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         create_pr: bool = True,
         mode: str = "background",
+        slack_thread_context: Optional["SlackThreadContext"] = None,
+        slack_thread_url: str | None = None,
+        start_workflow: bool = True,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
         created_by = User.objects.get(id=user_id)
-
-        if not created_by:
-            raise ValueError(f"User {user_id} does not exist")
 
         github_integration = Integration.objects.filter(team=team, kind="github").first()
 
@@ -165,15 +177,25 @@ class Task(DeletedMetaFields, models.Model):
             repository=repository,
         )
 
-        task_run = task.create_run(mode=mode)
+        extra_state: dict[str, str] | None = None
+        if slack_thread_url or slack_thread_context:
+            extra_state = {}
+            if slack_thread_url:
+                extra_state["slack_thread_url"] = slack_thread_url
+            if slack_thread_context:
+                extra_state["interaction_origin"] = "slack"
 
-        execute_task_processing_workflow(
-            task_id=str(task.id),
-            run_id=str(task_run.id),
-            team_id=task.team.id,
-            user_id=user_id,
-            create_pr=create_pr,
-        )
+        task_run = task.create_run(mode=mode, extra_state=extra_state)
+
+        if start_workflow:
+            execute_task_processing_workflow(
+                task_id=str(task.id),
+                run_id=str(task_run.id),
+                team_id=task.team.id,
+                user_id=user_id,
+                create_pr=create_pr,
+                slack_thread_context=slack_thread_context,
+            )
 
         return task
 
@@ -386,6 +408,10 @@ class TaskRun(models.Model):
             },
         }
         self.append_log([event])
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in {self.Status.COMPLETED, self.Status.FAILED, self.Status.CANCELLED}
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")

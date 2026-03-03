@@ -7,6 +7,7 @@ from django.db import models, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
@@ -185,7 +186,6 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
     email = models.EmailField(_("email address"), unique=True)
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
-    temporary_token = models.CharField(max_length=200, null=True, blank=True, unique=True)
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified = models.BooleanField(null=True, blank=True)
     requested_password_reset_at = models.DateTimeField(null=True, blank=True)
@@ -222,6 +222,9 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     events_column_config = models.JSONField(default=events_column_config_default)
     # DEPRECATED - Most emails are done via 3rd parties and we use their opt/in out tooling
     email_opt_in = models.BooleanField(default=False, null=True, blank=True)
+    # DEPRECATED - Replaced by toolbar OAuth flow. Kept for schema compatibility only;
+    # we never drop columns to avoid failures during rolling deploys.
+    temporary_token = deprecate_field(models.CharField(max_length=200, null=True, blank=True, unique=True))
 
     # Remove unused attributes from `AbstractUser`
     username = None

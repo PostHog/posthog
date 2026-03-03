@@ -42,7 +42,7 @@ function QuestionTitle({
           ? `${SurveyQuestionLabel[question.type]} ${SCALE_LABELS[question.scale] || `1 - ${question.scale}`}`
           : SurveyQuestionLabel[question.type]
 
-    metaParts.push({ text: questionLabel, className: 'font-semibold uppercase tracking-wide text-text-secondary' })
+    metaParts.push({ text: questionLabel, className: 'font-semibold uppercase tracking-wide text-text-tertiary' })
     if (totalResponses > 0) {
         metaParts.push({
             text: `${humanFriendlyNumber(totalResponses)} ${pluralize(totalResponses, 'response', 'responses', false)}`,

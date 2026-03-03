@@ -1,7 +1,7 @@
-import { randomString } from '../utils'
-import { expect, test } from '../utils/playwright-test-base'
+import { randomString } from '../../utils'
+import { expect, test } from '../../utils/playwright-test-base'
 
-test.describe('Batch Exports', () => {
+test.describe('Batch export configuration', () => {
     test('Create new S3 batch export', async ({ page }) => {
         const name = randomString('S3 Export')
         const mockId = '01234567-0123-0123-0123-0123456789ab'
