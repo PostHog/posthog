@@ -187,9 +187,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         safe_expose_ch_error: bool = True,
     ) -> DataWarehouseTableColumns:
         # Run CSV double-quote detection before schema discovery so the result
-        # is stored for query-time use. Detection is side-effect-only here —
-        # we intentionally do NOT override the main DESCRIBE TABLE settings
-        # to preserve the original ClickHouse server-default behavior.
+        # is stored for query-time use.
         if self._is_csv_format() and self.csv_allow_double_quotes is None:
             self.csv_allow_double_quotes = self._detect_csv_double_quotes_setting()
 
