@@ -619,9 +619,11 @@ utilities:
             - name: node_modules
               cmd: rm -rf **/node_modules
             - name: python venvs
-              cmd: rm -rf .venv .flox/cache/venv && uv sync --active
+              cmd: rm -rf .venv .flox/cache/venv
             - name: rust builds
               cmd: cd rust && cargo clean && find . -name 'index.node' -type f -delete
+            - name: flox on activate
+              cmd: ./.flox/env/on-activate.sh
             - dev:reset
         description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
         prompt: true

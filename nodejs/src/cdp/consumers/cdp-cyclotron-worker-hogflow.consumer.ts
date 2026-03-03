@@ -1,8 +1,6 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { PluginsServerConfig } from '~/types'
 
-import { buildIntegerMatcher } from '../../config/config'
-import { ValueMatcher } from '../../types'
 import { logger } from '../../utils/logger'
 import {
     CyclotronJobInvocation,
@@ -17,11 +15,9 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerHogFlow'
-    private loadGroupsMatcher: ValueMatcher<number>
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps, 'hogflow')
-        this.loadGroupsMatcher = buildIntegerMatcher(config.CDP_CYCLOTRON_GROUPS_IN_WORKFLOWS_TEAMS, true)
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
@@ -94,13 +90,11 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                       }
                     : undefined
 
-                const groups = this.loadGroupsMatcher(hogFlow.team_id)
-                    ? await this.groupsManager.getGroupsForEvent(
-                          hogFlow.team_id,
-                          hogFlowInvocationState.event.properties,
-                          `${this.config.SITE_URL}/project/${hogFlow.team_id}`
-                      )
-                    : {}
+                const groups = await this.groupsManager.getGroupsForEvent(
+                    hogFlow.team_id,
+                    hogFlowInvocationState.event.properties,
+                    `${this.config.SITE_URL}/project/${hogFlow.team_id}`
+                )
 
                 const filterGlobals = convertToHogFunctionFilterGlobal({
                     event: hogFlowInvocationState.event,
