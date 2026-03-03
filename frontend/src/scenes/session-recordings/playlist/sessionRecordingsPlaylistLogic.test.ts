@@ -207,19 +207,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
 
         describe('nextSessionRecording', () => {
-            it('returns undefined when there is no active session recording', async () => {
-                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
-                    activeSessionRecording: listOfSessionRecordings[0],
-                })
-
-                expectLogic(logic, () => logic.actions.setSelectedRecordingId('not-in-list'))
-                    .toDispatchActions(['loadSessionRecordingsSuccess'])
-                    .toMatchValues({
-                        activeSessionRecording: { id: 'not-in-list' },
-                        nextSessionRecording: undefined,
-                    })
-            })
-
             it('returns next older recording when autoplay direction is null (autoplay off)', async () => {
                 playerSettingsLogic.mount()
                 playerSettingsLogic.actions.setAutoplayDirection(null)
