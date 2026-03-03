@@ -5089,6 +5089,141 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Interval 0: (50 + 30) / 2 = 40 — avg of return events after start events per user
         self.assertEqual(day0_values[0]["aggregation_value"], 40)
 
+    def test_retention_aggregation_person_property_sum(self):
+        """Aggregating on a person property reads person.properties, not event.properties."""
+        Person.objects.create(team=self.team, distinct_ids=["high_value"], properties={"account_value": 100})
+        Person.objects.create(team=self.team, distinct_ids=["low_value"], properties={"account_value": 10})
+
+        # Both users perform $pageview on Day 0 and Day 1.
+        # The event itself has no revenue property — value comes solely from person properties.
+        _create_events(
+            self.team,
+            [
+                ("high_value", _date(0)),
+                ("high_value", _date(1)),
+                ("low_value", _date(0)),
+                ("low_value", _date(1)),
+            ],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "account_value",
+                    "aggregationPropertyType": "person",
+                },
+            }
+        )
+
+        # Day 0 cohort (both users started):
+        # interval 0: high_value (100) + low_value (10) = 110
+        # interval 1: both returned — high_value (100) + low_value (10) = 110
+        day0_values = result[0]["values"]
+        self.assertEqual(day0_values[0]["count"], 2)
+        self.assertEqual(day0_values[0]["aggregation_value"], 110)
+        self.assertEqual(day0_values[1]["count"], 2)
+        self.assertEqual(day0_values[1]["aggregation_value"], 110)
+
+    def test_retention_aggregation_person_property_avg(self):
+        """AVG over a person property divides the sum by the number of distinct actors."""
+        Person.objects.create(team=self.team, distinct_ids=["user_a"], properties={"score": 80})
+        Person.objects.create(team=self.team, distinct_ids=["user_b"], properties={"score": 60})
+
+        _create_events(
+            self.team,
+            [
+                ("user_a", _date(0)),
+                ("user_a", _date(1)),
+                ("user_b", _date(0)),
+                ("user_b", _date(1)),
+            ],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "avg",
+                    "aggregationProperty": "score",
+                    "aggregationPropertyType": "person",
+                },
+            }
+        )
+
+        # Day 0 cohort: avg((80 + 60) / 2) = 70
+        day0_values = result[0]["values"]
+        self.assertEqual(day0_values[0]["count"], 2)
+        self.assertEqual(day0_values[0]["aggregation_value"], 70)
+        self.assertEqual(day0_values[1]["count"], 2)
+        self.assertEqual(day0_values[1]["aggregation_value"], 70)
+
+    def test_retention_aggregation_person_property_no_self_join(self):
+        """Using person property aggregation must not generate a self-join (events__events)."""
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.modifiers import create_default_modifiers_for_team
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        runner = RetentionQueryRunner(
+            team=self.team,
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "account_value",
+                    "aggregationPropertyType": "person",
+                },
+            },
+        )
+        actor_query = runner.actor_query()
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql, _ = prepare_and_print_ast(actor_query, context, "clickhouse", pretty=True)
+
+        self.assertNotIn("events__events", sql, "Self-join detected with person property aggregation")
+        self.assertIn("_start_event_data", sql)
+        self.assertIn("_return_event_data", sql)
+        # person properties are accessed via the persons join, not via event properties
+        self.assertIn("person", sql)
+
+    def test_retention_aggregation_event_property_default(self):
+        """Omitting aggregationPropertyType defaults to event property behaviour."""
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.modifiers import create_default_modifiers_for_team
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        runner = RetentionQueryRunner(
+            team=self.team,
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            },
+        )
+        actor_query = runner.actor_query()
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql, _ = prepare_and_print_ast(actor_query, context, "clickhouse", pretty=True)
+
+        self.assertNotIn("events__events", sql)
+        # event property access should be present, not person property access
+        self.assertIn("properties", sql)
+
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
     def run_query(self, query, *, limit_context: Optional[LimitContext] = None):

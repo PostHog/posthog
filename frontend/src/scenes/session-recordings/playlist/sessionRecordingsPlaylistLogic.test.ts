@@ -7,6 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import {
@@ -202,6 +203,68 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     activeSessionRecording: listOfSessionRecordings[0],
                 })
                 expect(router.values.searchParams).not.toHaveProperty('sessionRecordingId', 'not-in-list')
+            })
+        })
+
+        describe('nextSessionRecording', () => {
+            it('returns next older recording when autoplay direction is null (autoplay off)', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection(null)
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[0],
+                        nextSessionRecording: listOfSessionRecordings[1],
+                    })
+            })
+
+            it('returns next older recording when autoplay direction is older', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection('older')
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[0],
+                        nextSessionRecording: listOfSessionRecordings[1],
+                    })
+            })
+
+            it('returns next newer recording when autoplay direction is newer', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection('newer')
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('def'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[1],
+                        nextSessionRecording: listOfSessionRecordings[0],
+                    })
+            })
+
+            it('returns undefined when at the end of the list (older direction)', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection('older')
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('def'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[1],
+                        nextSessionRecording: undefined,
+                    })
+            })
+
+            it('returns undefined when at the start of the list (newer direction)', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection('newer')
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[0],
+                        nextSessionRecording: undefined,
+                    })
             })
         })
 

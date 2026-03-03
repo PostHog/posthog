@@ -106,7 +106,6 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
         type: 'survey',
         ref: surveyId,
         enabled: Boolean(surveyId && !surveyLoading),
-        deps: [surveyId, surveyLoading],
     })
 
     useEffect(() => {
@@ -403,7 +402,12 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         processedSurveyStats,
         archivedResponseUuids,
         isSurveyHeadlineEnabled,
+        hasActiveFilters,
+        hasActiveAnswerFilters,
+        hasActiveDateRange,
+        propertyFilters,
     } = useValues(surveyLogic)
+    const { clearFilters } = useActions(surveyLogic)
 
     /**
      * custom column renderer that does:
@@ -508,7 +512,16 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                         ))}
                 </>
             ) : (
-                <SurveyNoResponsesBanner type="survey" />
+                <SurveyNoResponsesBanner
+                    type="survey"
+                    isFiltered={hasActiveFilters}
+                    onClearFilters={hasActiveFilters ? clearFilters : undefined}
+                    activeFilterTypes={{
+                        dateRange: hasActiveDateRange,
+                        answerFilters: hasActiveAnswerFilters,
+                        propertyFilters: propertyFilters.length > 0,
+                    }}
+                />
             )}
         </div>
     )

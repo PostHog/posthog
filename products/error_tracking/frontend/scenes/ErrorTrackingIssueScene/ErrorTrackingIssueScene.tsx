@@ -86,7 +86,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     onNameChange={updateName}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
-                                    className="px-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0"
+                                    className="px-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0 mb-0"
                                     actions={
                                         <div className="flex items-center gap-1">
                                             <StatusIndicator status={issue.status} withTooltip />
@@ -173,6 +173,7 @@ const LeftHandColumn = (): JSX.Element => {
         logicKey: 'error-tracking-issue',
         persistent: true,
         placement: 'right',
+        persistPrefix: 'error-tracking-issue-view-columns-ratio',
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
     const hasTasks = useFeatureFlag('TASKS')
@@ -183,7 +184,7 @@ const LeftHandColumn = (): JSX.Element => {
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: desiredSize ?? '30%',
+                width: desiredSize ?? '40%',
                 minWidth: 320,
             }}
             className="flex flex-col h-full relative bg-surface-primary"

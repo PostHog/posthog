@@ -27,7 +27,7 @@ class TestPersonPropertiesCapture(AcceptanceTest):
         self.assert_properties_contain(set_props, expected_person_props, "event $set")
 
         person = self.client.query_person_by_distinct_id(distinct_id)
-        assert person is not None, "Person not found"
+        assert person is not None, "Person not found within time budget"
         self.assert_properties_contain(person.properties, expected_person_props, "person")
 
     def test_set_once_person_properties(self) -> None:
@@ -45,7 +45,7 @@ class TestPersonPropertiesCapture(AcceptanceTest):
         self.assert_event(found_first, first_event_uuid, event_name, distinct_id)
 
         person = self.client.query_person_by_distinct_id(distinct_id)
-        assert person is not None, "Person not found"
+        assert person is not None, "Person not found within time budget"
         self.assert_properties_contain(person.properties, initial_props, "person after first event")
 
         # Second event: try to overwrite with $set_once (should not change existing)
@@ -62,7 +62,7 @@ class TestPersonPropertiesCapture(AcceptanceTest):
         self.assert_event(found_second, second_event_uuid, event_name, distinct_id)
 
         person_after = self.client.query_person_by_distinct_id(distinct_id, min_timestamp=second_timestamp)
-        assert person_after is not None
+        assert person_after is not None, "Person updates not found within time budget"
         # Original values preserved, new property added
         expected_props = {"initial_referrer": "google", "new_property": "should_be_set"}
         self.assert_properties_contain(person_after.properties, expected_props, "person after second event")
@@ -86,7 +86,7 @@ class TestPersonPropertiesCapture(AcceptanceTest):
         self.assert_event(found_first, first_event_uuid, event_name, distinct_id)
 
         person = self.client.query_person_by_distinct_id(distinct_id)
-        assert person is not None
+        assert person is not None, "Person not found after first event"
         self.assert_properties_contain(person.properties, initial_props, "person after first event")
 
         # Second event: unset specific properties
@@ -99,7 +99,7 @@ class TestPersonPropertiesCapture(AcceptanceTest):
 
         # Verify properties are removed, others remain
         person_after = self.client.query_person_by_distinct_id(distinct_id, min_timestamp=second_timestamp)
-        assert person_after is not None
+        assert person_after is not None, "$unset event not propagated within time budget"
         assert person_after.properties.get("temporary_flag") is None, "$unset should remove the property"
         expected_remaining = {"email": "test@example.com", "name": "Test User"}
         self.assert_properties_contain(person_after.properties, expected_remaining, "remaining properties")
@@ -120,7 +120,7 @@ class TestPersonPropertiesCapture(AcceptanceTest):
         self.assert_event(found_first, first_event_uuid, event_name, distinct_id)
 
         person = self.client.query_person_by_distinct_id(distinct_id)
-        assert person is not None
+        assert person is not None, "Person not found after first event"
         expected_after_first = {"plan": "free", "first_plan": "free"}
         self.assert_properties_contain(person.properties, expected_after_first)
 
@@ -136,7 +136,7 @@ class TestPersonPropertiesCapture(AcceptanceTest):
         self.assert_event(found_second, second_event_uuid, event_name, distinct_id)
 
         person_after = self.client.query_person_by_distinct_id(distinct_id, min_timestamp=second_timestamp)
-        assert person_after is not None
+        assert person_after is not None, "Combined $set/$set_once/$unset not propagated within time budget"
 
         # $set overwrites, $set_once preserves existing + adds new, $unset removes
         expected_after_second = {

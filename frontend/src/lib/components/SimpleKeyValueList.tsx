@@ -1,5 +1,5 @@
 // A React component that renders a list of key-value pairs in a simple way.
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, useMemo } from 'react'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -27,12 +27,9 @@ export function SimpleKeyValueList({
     header,
     sortItems = true,
 }: SimpleKeyValueListProps): JSX.Element {
-    const [sortedItemsPromotedFirst, setSortedItemsPromotedFirst] = useState<[string, any][]>([])
-
-    useEffect(() => {
+    const sortedItemsPromotedFirst = useMemo(() => {
         const sortedItems = sortItems
             ? Object.entries(item).sort((a, b) => {
-                  // if this is a posthog property we want to sort by its label
                   const left = getCoreFilterDefinition(a[0], TaxonomicFilterGroupType.EventProperties)?.label || a[0]
                   const right = getCoreFilterDefinition(b[0], TaxonomicFilterGroupType.EventProperties)?.label || b[0]
 
@@ -46,18 +43,16 @@ export function SimpleKeyValueList({
               })
             : Object.entries(item)
 
-        // promoted items are shown in the order provided
         const promotedItems = promotedKeys?.length
             ? Object.entries(item)
                   .filter(([key]) => promotedKeys.includes(key))
                   .sort((a, b) => promotedKeys.indexOf(a[0]) - promotedKeys.indexOf(b[0]))
             : []
-        // all other keys are provided sorted by key
         const nonPromotedItems = promotedKeys?.length
             ? sortedItems.filter(([key]) => !promotedKeys.includes(key))
             : sortedItems
 
-        setSortedItemsPromotedFirst([...promotedItems, ...nonPromotedItems])
+        return [...promotedItems, ...nonPromotedItems]
     }, [item, promotedKeys, sortItems])
 
     return (

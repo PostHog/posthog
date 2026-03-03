@@ -68,6 +68,24 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
         output[trace_id] = trace_result.to_dict()
         offset += consumed
 
+    # Cache results in the activity so they survive even if the HTTP caller disconnects.
+    # Uses the same key format and TTL as the API view.
+    from django.core.cache import cache
+
+    from posthog.temporal.llm_analytics.sentiment.constants import CACHE_KEY_PREFIX, CACHE_TTL
+
+    to_cache = {f"{CACHE_KEY_PREFIX}:{input.team_id}:{tid}": result for tid, result in output.items()}
+    if to_cache:
+        try:
+            cache.set_many(to_cache, timeout=CACHE_TTL)
+        except Exception:
+            logger.warning(
+                "Failed to cache sentiment results",
+                team_id=input.team_id,
+                trace_count=len(to_cache),
+                exc_info=True,
+            )
+
     logger.info(
         "Sentiment activity completed",
         team_id=input.team_id,

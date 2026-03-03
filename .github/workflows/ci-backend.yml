@@ -104,6 +104,7 @@ jobs:
                         - pytest.ini
                         - .test_durations # Used for pytest-split sharding
                         - frontend/src/queries/schema.json # Used for generating schema.py
+                        - rust/feature-flags/src/properties/property_models.rs # Operator parity check
                         - common/plugin_transpiler/src # Used for transpiling plugins
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
@@ -194,6 +195,9 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Setup Node.js
               uses: actions/setup-node@v6
               with:
@@ -260,13 +264,13 @@ jobs:
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
     # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
     turbo-tests:
-        needs: [changes, turbo-discover]
+        needs: [changes, turbo-discover, detect-snapshot-mode]
         if: >-
             always() &&
             needs.turbo-discover.result == 'success' &&
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
-        runs-on: depot-ubuntu-latest-4
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 30
         name: Product tests (${{ matrix.group }})
         strategy:
@@ -295,6 +299,9 @@ jobs:
 
             - name: Setup pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Setup Node.js
               uses: actions/setup-node@v6
@@ -364,6 +371,7 @@ jobs:
                   # On master, also collect timing data for pytest-split sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
+                      ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
               run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
 
@@ -375,6 +383,35 @@ jobs:
                   path: .test_durations
                   include-hidden-files: true
                   retention-days: 2
+
+            - name: Verify new snapshots for flakiness
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              shell: bash
+              run: |
+                  .github/scripts/verify-new-snapshots.sh
+
+            - name: Generate snapshot patch
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              shell: bash
+              run: |
+                  mkdir -p /tmp/patches
+                  git add -N '*.ambr' || true
+                  if ! git diff --quiet '*.ambr' 2>/dev/null; then
+                    git diff --binary --full-index '*.ambr' > /tmp/patches/backend-Products-${{ strategy.job-index }}.patch
+                    echo "Generated patch with $(wc -l < /tmp/patches/backend-Products-${{ strategy.job-index }}.patch) lines"
+                  else
+                    echo "No snapshot changes to patch"
+                  fi
+
+            - name: Upload snapshot patch
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: snapshot-patch-Products-${{ strategy.job-index }}
+                  path: /tmp/patches/
+                  if-no-files-found: ignore
+                  retention-days: 1
+
     check-idor-coverage:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
@@ -395,6 +432,21 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Check IDOR model coverage
               run: python .github/scripts/check-idor-model-coverage.py
+
+    check-operator-parity:
+        needs: [changes]
+        if: needs.changes.outputs.backend == 'true'
+        timeout-minutes: 2
+        name: Check operator parity across languages
+        runs-on: depot-ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.12.12
+            - name: Check operator parity
+              run: python .github/scripts/check-operator-parity.py
 
     check-migrations:
         needs: [changes]
@@ -816,7 +868,7 @@ jobs:
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Runner type is performance-critical — consult #team-devex before changing
-        runs-on: depot-ubuntu-latest-4
+        runs-on: depot-ubuntu-latest
 
         strategy:
             fail-fast: false
@@ -1406,7 +1458,7 @@ jobs:
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:
         name: Commit snapshot changes
-        needs: [changes, detect-snapshot-mode, django]
+        needs: [changes, detect-snapshot-mode, django, turbo-tests]
         # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
         # Run even if some matrix jobs failed (to commit snapshots from passing jobs)
         if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.backend == 'true' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
@@ -1485,6 +1537,7 @@ jobs:
                 turbo-tests,
                 handle-snapshots,
                 check-idor-coverage,
+                check-operator-parity,
             ]
         name: Django Tests Pass
         runs-on: ubuntu-latest
@@ -1519,6 +1572,12 @@ jobs:
                   # Check IDOR coverage - must pass for Django Tests to be green
                   if [[ "${{ needs.check-idor-coverage.result }}" != "success" && "${{ needs.check-idor-coverage.result }}" != "skipped" ]]; then
                     echo "IDOR coverage check failed."
+                    exit 1
+                  fi
+
+                  # Check operator parity - must pass for Django Tests to be green
+                  if [[ "${{ needs.check-operator-parity.result }}" != "success" && "${{ needs.check-operator-parity.result }}" != "skipped" ]]; then
+                    echo "Operator parity check failed."
                     exit 1
                   fi
 

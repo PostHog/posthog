@@ -8,6 +8,7 @@ Authenticated via team API token passed as a Bearer token in the Authorization h
 
 import hashlib
 
+import structlog
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -16,10 +17,13 @@ from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
 from posthog.models import Team
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
 from products.conversations.backend.cache import invalidate_unread_count_cache
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
+
+logger = structlog.get_logger(__name__)
 
 
 class _ExternalTicketThrottle(SimpleRateThrottle):
@@ -63,6 +67,7 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
 class ExternalTicketUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=[s.value for s in Status], required=False)
     priority = serializers.ChoiceField(choices=[p.value for p in Priority], required=False)
+    sla_due_at = serializers.DateTimeField(required=False, allow_null=True)
 
 
 class ExternalTicketView(APIView):
@@ -104,6 +109,7 @@ class ExternalTicketView(APIView):
                 "last_message_text": ticket.last_message_text,
                 "unread_team_count": ticket.unread_team_count,
                 "unread_customer_count": ticket.unread_customer_count,
+                "sla_due_at": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
             }
         )
 
@@ -139,7 +145,37 @@ class ExternalTicketView(APIView):
             ticket.priority = new_priority
             update_fields.append("priority")
 
+        old_sla_due_at = ticket.sla_due_at
+        sla_changed = False
+        if "sla_due_at" in serializer.validated_data:
+            ticket.sla_due_at = serializer.validated_data["sla_due_at"]
+            update_fields.append("sla_due_at")
+            sla_changed = old_sla_due_at != ticket.sla_due_at
+
         if update_fields:
             ticket.save(update_fields=[*update_fields, "updated_at"])
+
+        if sla_changed:
+            log_activity(
+                organization_id=team.organization_id,
+                team_id=team.id,
+                user=None,
+                was_impersonated=False,
+                item_id=str(ticket.id),
+                scope="Ticket",
+                activity="updated",
+                detail=Detail(
+                    name=f"Ticket #{ticket.ticket_number}",
+                    changes=[
+                        Change(
+                            type="Ticket",
+                            field="sla_due_at",
+                            before=old_sla_due_at.isoformat() if old_sla_due_at else None,
+                            after=ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
+                            action="changed",
+                        )
+                    ],
+                ),
+            )
 
         return Response({"ok": True})

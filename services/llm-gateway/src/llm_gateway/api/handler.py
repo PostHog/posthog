@@ -22,6 +22,8 @@ from llm_gateway.metrics.prometheus import (
 from llm_gateway.observability import capture_exception
 from llm_gateway.request_context import (
     RequestContext,
+    get_posthog_flags,
+    get_posthog_properties,
     get_request_id,
     set_auth_user,
     set_request_context,
@@ -56,7 +58,14 @@ async def handle_llm_request(
     settings = get_settings()
     start_time = time.monotonic()
 
-    set_request_context(RequestContext(request_id=get_request_id(), product=product))
+    set_request_context(
+        RequestContext(
+            request_id=get_request_id(),
+            product=product,
+            posthog_properties=get_posthog_properties(),
+            posthog_flags=get_posthog_flags(),
+        )
+    )
     set_auth_user(user)
 
     structlog.contextvars.bind_contextvars(
@@ -129,17 +138,70 @@ async def _handle_streaming_request(
     timeout: float,
     product: str = "llm_gateway",
 ) -> StreamingResponse:
+    CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).inc()
+    try:
+        llm_response = await asyncio.wait_for(llm_call(**request_data), timeout=timeout)
+    except TimeoutError:
+        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
+        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type="timeout", product=product).inc()
+        REQUEST_COUNT.labels(
+            endpoint=provider_config.endpoint_name,
+            provider=provider_config.name,
+            model=model,
+            status_code="504",
+            auth_method=user.auth_method,
+            product=product,
+        ).inc()
+        REQUEST_LATENCY.labels(
+            endpoint=provider_config.endpoint_name,
+            provider=provider_config.name,
+            streaming="true",
+            product=product,
+        ).observe(time.monotonic() - start_time)
+        logger.error(f"Streaming timeout for {provider_config.endpoint_name}")
+        raise HTTPException(
+            status_code=504,
+            detail={"error": {"message": "Request timed out", "type": "timeout_error", "code": None}},
+        ) from None
+    except Exception as e:
+        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
+        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
+        capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
+        logger.exception(f"Streaming error in {provider_config.endpoint_name} endpoint: {e}")
+        status_code = getattr(e, "status_code", 500)
+        REQUEST_COUNT.labels(
+            endpoint=provider_config.endpoint_name,
+            provider=provider_config.name,
+            model=model,
+            status_code=str(status_code),
+            auth_method=user.auth_method,
+            product=product,
+        ).inc()
+        REQUEST_LATENCY.labels(
+            endpoint=provider_config.endpoint_name,
+            provider=provider_config.name,
+            streaming="true",
+            product=product,
+        ).observe(time.monotonic() - start_time)
+        raise HTTPException(
+            status_code=status_code,
+            detail={
+                "error": {
+                    "message": getattr(e, "message", str(e)),
+                    "type": getattr(e, "type", "internal_error"),
+                    "code": getattr(e, "code", None),
+                }
+            },
+        ) from e
+
     async def stream_generator() -> AsyncGenerator[bytes, None]:
         ACTIVE_STREAMS.labels(provider=provider_config.name, model=model, product=product).inc()
-        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).inc()
         status_code = "200"
         provider_start = time.monotonic()
         first_chunk_received = False
 
         try:
-            response = await asyncio.wait_for(llm_call(**request_data), timeout=timeout)
-
-            async for chunk in format_sse_stream(response):
+            async for chunk in format_sse_stream(llm_response):
                 if not first_chunk_received:
                     first_chunk_received = True
                     time_to_first = time.monotonic() - provider_start

@@ -314,12 +314,6 @@ jobs:
                   touch frontend/dist/exporter.html
                   ./bin/download-mmdb
 
-            - name: Setup Emscripten for WASM build
-              uses: ./.github/actions/setup-emsdk
-
-            - name: Install Ninja
-              run: sudo apt-get install -y ninja-build
-
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
@@ -408,7 +402,7 @@ jobs:
                   # Note: Playwright's built-in retry (3x per test) handles test flakiness
                   echo "Attempt 1: Running Playwright tests"
                   set -o pipefail
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 2>&1 | tee /tmp/playwright-output-attempt-1.log
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5 2>&1 | tee /tmp/playwright-output-attempt-1.log
                   EXIT_CODE=$?
                   set +o pipefail
 
@@ -428,7 +422,7 @@ jobs:
                       # Attempt 2: Update snapshots
                       echo "Attempt 2: Running Playwright tests with --update-snapshots"
                       set -o pipefail
-                      pnpm --filter=@posthog/playwright exec playwright test --workers=4 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
+                      pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
                       EXIT_CODE=$?
                       set +o pipefail
 
