@@ -486,7 +486,7 @@ class TestGetDeltaSnapshotFiles:
 
         mock_delta_table_cls = MagicMock(return_value=mock_dt)
         mock_deltalake = types.ModuleType("deltalake")
-        mock_deltalake.DeltaTable = mock_delta_table_cls
+        mock_deltalake.DeltaTable = mock_delta_table_cls  # type: ignore[attr-defined]
         monkeypatch.setitem(sys.modules, "deltalake", mock_deltalake)
         monkeypatch.setattr("posthog.ducklake.storage.get_deltalake_storage_options", lambda: {"key": "val"})
 
