@@ -94,8 +94,8 @@ describe('postgres parity', () => {
         }
         const person = result.person
         const kafkaMessages = result.messages
-
         await kafkaProducer.queueMessages(kafkaMessages)
+        await kafkaProducer.flush()
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(person), 2)
