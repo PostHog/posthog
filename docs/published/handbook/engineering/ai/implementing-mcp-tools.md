@@ -233,6 +233,11 @@ CI runs this as a drift check.
 See [`services/mcp/definitions/README.md`](https://github.com/PostHog/posthog/blob/master/services/mcp/definitions/README.md) for the full YAML schema reference
 and [`services/mcp/scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts) for the Zod validation source.
 
+## Testing
+
+See [How to develop and test](/handbook/engineering/ai/implementation#how-to-develop-and-test)
+for instructions on running the MCP server locally and verifying tools end-to-end.
+
 ## Serializer best practices
 
 Descriptions flow through the entire pipeline:

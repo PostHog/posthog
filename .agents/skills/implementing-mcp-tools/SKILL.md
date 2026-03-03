@@ -66,7 +66,7 @@ tools:
       destructive: false
       idempotent: true
     # Optional:
-    mcp_version: 1 # 2 for CUD ops, 1 for read/list if available via HogQL
+    mcp_version: 1 # 2 for create/update/delete ops, 1 for read/list if available via HogQL
     title: List things
     description: >
       Human-friendly description for the LLM.
@@ -120,6 +120,6 @@ and register it in [`products/posthog_ai/skills/query-examples/SKILL.md`](produc
 ## Two MCP versions
 
 - **v1 (legacy)**: all CRUD tools exposed, for clients without skill support.
-- **v2 (SQL-first)**: read/list tools replaced by HogQL, CUD tools kept. For coding agents.
+- **v2 (SQL-first)**: read/list tools replaced by HogQL, create/update/delete tools kept. For coding agents.
 
 Control per-tool availability with `mcp_version: 1/2` in the YAML definition.

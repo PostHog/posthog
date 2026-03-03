@@ -47,7 +47,10 @@ but need guidance on _which_ tools to use, in _what order_, with _what constrain
 
 ## Skill structure
 
-Skills live in `products/*/skills/` and come in two forms:
+Skills live in `products/*/skills/` and come in two forms.
+If your product hasn't moved to the `products/` folder yet,
+create a product folder and add skills there –
+skills are designed to work from within the products folder structure.
 
 ### Simple skill (single file)
 
@@ -314,6 +317,11 @@ PostHog AI will consume the same set of skills.
 
 Product teams don't need to handle distribution –
 the pipeline and CI take care of it.
+
+## Testing
+
+See [How to develop and test](/handbook/engineering/ai/implementation#how-to-develop-and-test)
+for instructions on running the MCP server locally and verifying skills end-to-end.
 
 ## Writing effective skills
 
