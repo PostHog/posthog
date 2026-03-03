@@ -1,11 +1,12 @@
 """Experiment service — single source of truth for experiment business logic."""
 
 from copy import deepcopy
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
+from django.utils import timezone
 
 import pydantic
 from rest_framework.exceptions import ValidationError
@@ -80,6 +81,8 @@ class ExperimentService:
         if not isinstance(phases, list):
             raise ValidationError("Phases must be a list")
 
+        now = timezone.now()
+
         for i, phase in enumerate(phases):
             if not isinstance(phase, dict):
                 raise ValidationError(f"Phase {i} must be an object")
@@ -92,12 +95,24 @@ class ExperimentService:
             except (ValueError, TypeError):
                 raise ValidationError(f"Phase {i} has an invalid start_date")
 
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=UTC)
+
+            if start > now:
+                raise ValidationError(f"Phase {i} start_date cannot be in the future")
+
             end = None
             if phase.get("end_date") is not None:
                 try:
                     end = datetime.fromisoformat(phase["end_date"])
                 except (ValueError, TypeError):
                     raise ValidationError(f"Phase {i} has an invalid end_date")
+
+                if end.tzinfo is None:
+                    end = end.replace(tzinfo=UTC)
+
+                if end > now:
+                    raise ValidationError(f"Phase {i} end_date cannot be in the future")
 
                 if end <= start:
                     raise ValidationError(f"Phase {i} end_date must be after start_date")

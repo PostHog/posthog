@@ -1254,9 +1254,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 { phase_start_date: phaseStartDate, name, reason }
             )
             actions.setExperiment(response)
-            actions.closeAddPhaseModal()
+            const newPhaseIndex = response.phases?.length ? response.phases.length - 1 : null
+            actions.setSelectedPhaseIndex(newPhaseIndex)
             lemonToast.success('Phase added successfully')
-            actions.refreshExperimentResults(true)
         },
         setSelectedPhaseIndex: () => {
             actions.refreshExperimentResults(true)

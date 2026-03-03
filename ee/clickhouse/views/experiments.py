@@ -1,9 +1,11 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
 from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
+from django.utils import timezone
+from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
@@ -461,6 +463,12 @@ class EnterpriseExperimentsViewSet(
         except (ValueError, TypeError):
             raise ValidationError("phase_start_date must be a valid ISO 8601 date")
 
+        if parsed_start.tzinfo is None:
+            parsed_start = parsed_start.replace(tzinfo=UTC)
+
+        if parsed_start > timezone.now():
+            raise ValidationError("phase_start_date cannot be in the future")
+
         if parsed_start <= experiment.start_date:
             raise ValidationError("phase_start_date must be after the experiment start date")
 
@@ -481,6 +489,8 @@ class EnterpriseExperimentsViewSet(
         else:
             last_phase = phases[-1]
             last_start = datetime.fromisoformat(last_phase["start_date"])
+            if last_start.tzinfo is None:
+                last_start = last_start.replace(tzinfo=UTC)
             if parsed_start <= last_start:
                 raise ValidationError("phase_start_date must be after the last phase's start_date")
             last_phase["end_date"] = phase_start_date

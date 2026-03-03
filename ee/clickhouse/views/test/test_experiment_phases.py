@@ -1,3 +1,7 @@
+from datetime import timedelta
+
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -49,6 +53,12 @@ class TestExperimentPhasesValidation(APILicensedTest):
                 [{"start_date": "not-a-date", "end_date": None}],
                 False,
                 "Phase 0 has an invalid start_date",
+            ),
+            (
+                "start_date_in_future",
+                [{"start_date": "2099-01-01T00:00:00+00:00", "end_date": None}],
+                False,
+                "start_date cannot be in the future",
             ),
             (
                 "end_before_start",
@@ -243,6 +253,18 @@ class TestAddPhaseEndpoint(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("after the experiment start date", str(response.json()))
+
+    def test_add_phase_rejects_future_date(self):
+        experiment = self._create_running_experiment("-future")
+        future_date = (timezone.now() + timedelta(days=1)).isoformat()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/add_phase/",
+            {"phase_start_date": future_date},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("cannot be in the future", str(response.json()))
 
     def test_add_phase_rejects_missing_start_date(self):
         experiment = self._create_running_experiment("-missing")
