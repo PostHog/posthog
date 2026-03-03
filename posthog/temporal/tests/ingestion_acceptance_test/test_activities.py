@@ -7,17 +7,16 @@ from unittest.mock import MagicMock, patch
 from posthog.temporal.ingestion_acceptance_test.config import Config
 
 
-def _make_config(**overrides) -> Config:
-    defaults = {
-        "api_host": "https://test.posthog.com",
-        "project_api_key": "phc_test_key",
-        "project_id": "12345",
-        "personal_api_key": "phx_personal_key",
-        "slack_webhook_url": "https://hooks.slack.com/services/T00/B00/XXX",
-        "activity_timeout_seconds": 1,
-    }
-    defaults.update(overrides)
-    return Config(**defaults)
+@pytest.fixture
+def config() -> Config:
+    return Config(
+        api_host="https://test.posthog.com",
+        project_api_key="phc_test_key",
+        project_id="12345",
+        personal_api_key="phx_personal_key",
+        slack_webhook_url="https://hooks.slack.com/services/T00/B00/XXX",
+        activity_timeout_seconds=1,
+    )
 
 
 class TestRunIngestionAcceptanceTestsTimeout:
@@ -38,8 +37,8 @@ class TestRunIngestionAcceptanceTestsTimeout:
         mock_client_cls: MagicMock,
         mock_send_slack: MagicMock,
         mock_send_timeout: MagicMock,
+        config: Config,
     ) -> None:
-        config = _make_config()
         mock_config_cls.return_value = config
 
         def slow_run_tests(*args, **kwargs):
@@ -72,8 +71,8 @@ class TestRunIngestionAcceptanceTestsTimeout:
         mock_client_cls: MagicMock,
         mock_send_slack: MagicMock,
         mock_send_timeout: MagicMock,
+        config: Config,
     ) -> None:
-        config = _make_config()
         mock_config_cls.return_value = config
 
         mock_result = MagicMock()
