@@ -55,14 +55,24 @@ pub(crate) struct HandleInner {
 }
 
 impl Handle {
-    /// Future that resolves when global shutdown begins (any trigger: signal, pre-stop,
-    /// [`signal_failure`](Handle::signal_failure), or [`request_shutdown`](Handle::request_shutdown)).
+    /// Future that resolves when shutdown begins for this handle's tier.
+    /// Standard handles: resolves when global shutdown begins.
+    /// Observability handles: resolves after all standard components finish.
     /// Use in `tokio::select!` to break out of work loops.
     pub fn shutdown_recv(&self) -> tokio_util::sync::WaitForCancellationFuture<'_> {
         self.inner.shutdown_token.cancelled()
     }
 
-    /// Returns true if shutdown has been initiated.
+    /// Owned future that resolves when shutdown begins for this handle's tier.
+    /// Same semantics as [`shutdown_recv`](Handle::shutdown_recv) but returns a
+    /// `'static` future suitable for passing to
+    /// `axum::serve(...).with_graceful_shutdown(handle.shutdown_signal())`.
+    pub fn shutdown_signal(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let token = self.inner.shutdown_token.clone();
+        async move { token.cancelled().await }
+    }
+
+    /// Returns true if shutdown has been initiated for this handle's tier.
     pub fn is_shutting_down(&self) -> bool {
         self.inner.shutdown_token.is_cancelled()
     }
@@ -208,5 +218,15 @@ impl Drop for HandleInner {
         if let Some(tx) = self.event_tx.get() {
             drop(tx.try_send(event));
         }
+    }
+}
+
+impl common_liveness::SyncLivenessReporter for Handle {
+    fn report_healthy(&self) {
+        Handle::report_healthy(self);
+    }
+
+    fn report_unhealthy(&self) {
+        Handle::report_unhealthy(self);
     }
 }

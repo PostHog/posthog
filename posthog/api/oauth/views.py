@@ -246,7 +246,9 @@ class OAuthValidator(OAuth2Validator):
             scoped_teams = grant.scoped_teams
             scoped_organizations = grant.scoped_organizations
 
-        if request.decoded_body:
+        # Only fall back to the authorization code when no other scope source exists,
+        # so a `code` param injected into a refresh request cannot escalate scopes.
+        if scoped_teams is None and scoped_organizations is None and request.decoded_body:
             try:
                 code = dict(request.decoded_body).get("code", None)
                 if code:

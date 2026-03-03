@@ -165,6 +165,7 @@ class QueryTags(BaseModel):
     person_on_events_mode: Optional[str] = None  # PersonsOnEventsMode
 
     timings: Optional[dict[str, float]] = None
+    execution_mode: Optional[str] = None
     trigger: Optional[str] = None
 
     # used by billing

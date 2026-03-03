@@ -1,4 +1,4 @@
-import { USER_AGENT } from '@/lib/constants'
+import { getUserAgent } from '@/lib/constants'
 
 import type { ApiConfig } from './client'
 import type { createApiClient } from './generated'
@@ -18,7 +18,7 @@ export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApi
 
                 const headers = new Headers()
                 headers.set('Authorization', `Bearer ${config.apiToken}`)
-                headers.set('User-Agent', USER_AGENT)
+                headers.set('User-Agent', getUserAgent(config.clientIdentifier))
 
                 // Handle query parameters
                 if (input.urlSearchParams) {

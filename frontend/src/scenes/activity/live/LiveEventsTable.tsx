@@ -159,6 +159,7 @@ export function LiveEventsTable(): JSX.Element {
                 </div>
             </div>
             <LemonTable
+                className="table-fixed"
                 columns={columns}
                 data-attr="live-events-table"
                 rowKey="uuid"

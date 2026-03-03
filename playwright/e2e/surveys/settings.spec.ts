@@ -16,7 +16,7 @@ test.describe('Survey Settings', () => {
         await expect(page.getByTestId('opt-in-surveys-switch')).not.toBeDisabled()
         await expect(page.getByText('Surveys opt in updated').first()).toBeVisible()
         await page.getByTestId('toast-close-button').first().click()
-        await expect(page.getByText('Surveys opt in updated')).not.toBeVisible()
+        await expect(page.getByText('Surveys opt in updated')).toHaveCount(0)
     }
 
     test('toggles survey opt in on the survey settings page', async ({ page }) => {

@@ -24,7 +24,6 @@ import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/
 import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
-import { isExperimentCreationIncomplete } from '../experimentsLogic'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 import { validateExperimentSubmission } from './experimentSubmissionValidation'
 import { variantsPanelLogic } from './variantsPanelLogic'
@@ -513,9 +512,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     actions.saveExperimentSuccess()
                     clearDraftStorage(props.tabId)
 
-                    if (isExperimentCreationIncomplete(response)) {
-                        router.actions.push(urls.experiments())
-                    } else if (props.tabId) {
+                    if (props.tabId) {
                         const sceneLogicInstance = experimentSceneLogic({ tabId: props.tabId })
                         sceneLogicInstance.actions.setSceneState(response.id, FORM_MODES.update)
                         const logicRef = sceneLogicInstance.values.experimentLogicRef

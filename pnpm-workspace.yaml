@@ -5,13 +5,13 @@ packages:
     - common/plugin_transpiler
     - common/storybook
     - common/tailwind
-    - common/hogql_parser
     - frontend
     - playwright
     - nodejs
     - nodejs/src/scripts
     - products/*
     - docs/onboarding
+    - services/oauth-proxy
     - services/mcp
     - rust/cyclotron-node
 
@@ -27,7 +27,7 @@ catalog:
     kea-waitfor: ^0.2.1
     kea-window-values: ^3.0.1
     # PostHog packages
-    posthog-js: ^1.352.1
+    posthog-js: ^1.357.0
     # Build tools
     '@parcel/packager-ts': 2.13.3
     '@parcel/transformer-typescript-types': 2.13.3
@@ -61,6 +61,7 @@ minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
     - posthog-js
     - posthog-js-lite
+    - posthog-node
     - '@posthog/*'
     - kea@4.0.0-pre.5
     - chartjs-plugin-stacked100@1.7.1
