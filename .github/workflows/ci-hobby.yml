@@ -295,7 +295,7 @@ jobs:
         timeout-minutes: 60
         name: Setup DO Hobby Instance and test
         needs: [wait-for-docker-image, changes]
-        if: always() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.result == 'success') || github.event_name == 'push')
+        if: always() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.outputs.conclusion == 'success') || github.event_name == 'push')
         steps:
             - uses: actions/checkout@v6
               with:
