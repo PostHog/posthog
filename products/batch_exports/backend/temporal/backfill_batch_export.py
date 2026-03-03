@@ -108,6 +108,7 @@ class UpdateBatchExportBackfillInputs:
     estimated_records_count: int | None = None
     status: str | None = None
     finished: bool = False
+    latest_error: str | None = None
 
 
 @temporalio.activity.defn
@@ -166,9 +167,9 @@ async def update_batch_export_backfill_model(inputs: UpdateBatchExportBackfillIn
 
     if inputs.finished:
         if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
-            logger.error("Batch export backfill failed")
+            logger.error("Batch export backfill failed: %s", inputs.latest_error or "Unknown error")
         elif backfill.status == BatchExportBackfill.Status.CANCELLED:
-            logger.warning("Batch export backfill was cancelled.")
+            logger.warning("Batch export backfill was canceled")
         else:
             logger.info(
                 "Successfully finished backfilling batches in range %s - %s",
