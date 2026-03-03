@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
 import {
@@ -871,7 +871,7 @@ describe('cohortEditLogic', () => {
                     full: true,
                     showPropertyFilter: false,
                     showEventFilter: false,
-                })
+                } as DataTableNode)
             })
                 .toDispatchActions(['setQuery'])
                 .toMatchValues({
@@ -939,11 +939,11 @@ describe('cohortEditLogic', () => {
                     full: true,
                     showPropertyFilter: false,
                     showEventFilter: false,
-                })
+                } as DataTableNode)
             }).toDispatchActions(['setQuery'])
 
             // Verify custom columns are set
-            expect(logic.values.query.source.select).toEqual(customColumns)
+            expect(((logic.values.query as DataTableNode).source as ActorsQuery).select).toEqual(customColumns)
 
             // User saves the cohort - this triggers setCohort with the updated cohort from API
             // (simulating what happens in saveCohort loader after API call)
@@ -956,7 +956,7 @@ describe('cohortEditLogic', () => {
             }).toDispatchActions(['setCohort'])
 
             // Custom columns should still be preserved after save
-            expect(logic.values.query.source.select).toEqual(customColumns)
+            expect(((logic.values.query as DataTableNode).source as ActorsQuery).select).toEqual(customColumns)
         })
     })
 
