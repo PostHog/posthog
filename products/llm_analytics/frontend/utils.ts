@@ -1,4 +1,5 @@
 import * as PartialJSON from 'partial-json'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -556,7 +557,16 @@ function normalizeOTelPartsMessage(message: OTelPartsMessage, role: string): Com
                 },
             })
         } else if (part.type === 'tool_call_response') {
-            const resultContent = typeof part.result === 'string' ? part.result : JSON.stringify(part.result)
+            let resultContent: string
+            if (typeof part.result === 'string') {
+                resultContent = part.result
+            } else {
+                try {
+                    resultContent = JSON.stringify(part.result)
+                } catch {
+                    resultContent = String(part.result)
+                }
+            }
             toolResponses.push({
                 role: 'tool',
                 content: resultContent,
@@ -835,6 +845,10 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
 
     // Unsupported message.
     console.warn("AI message isn't in a shape of any known AI provider", rawMessage)
+    posthog.capture('llma message normalization failed', {
+        message_keys: typeof rawMessage === 'object' && rawMessage !== null ? Object.keys(rawMessage) : [],
+        message_type: typeof rawMessage,
+    })
     let cajoledContent: string // Let's do what we can
     if (typeof rawMessage === 'string') {
         cajoledContent = rawMessage
