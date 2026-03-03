@@ -678,6 +678,10 @@ describe('createExperimentLogic', () => {
     describe('post-save state reset', () => {
         const TAB_ID = 'test-tab'
 
+        beforeEach(() => {
+            sessionStorage.clear()
+        })
+
         it('form resets to NEW_EXPERIMENT after saving and re-entering create mode', async () => {
             const firstLogic = createExperimentLogic({ tabId: TAB_ID })
             firstLogic.mount()
