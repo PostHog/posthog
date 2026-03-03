@@ -36,10 +36,10 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         return {"The DNS query name does not exist": None, "authentication failed": None, "SSL handshake failed": None}
 
     def get_schemas(self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        mongo_schemas = get_mongo_schemas(config)
+        mongo_schemas = get_mongo_schemas(config, team_id=team_id)
 
         connection_params = _parse_connection_string(config.connection_string)
-        with mongo_client(config.connection_string) as client:
+        with mongo_client(config.connection_string, team_id=team_id) as client:
             db = client[connection_params["database"]]
             filtered_results = [
                 (collection_name, filter_mongo_incremental_fields(columns, db[collection_name]))
@@ -77,12 +77,18 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         if not connection_params.get("database"):
             return False, "Database name is required in connection string"
 
-        valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id)
-        if not valid_host:
-            return False, host_errors
+        if not connection_params["is_srv"]:
+            # For SRV connections the hostname is a DNS namespace (e.g.
+            # cluster0.mongodb.net), not a real host. Actual server addresses
+            # are resolved at connection time and validated by
+            # _make_safe_server_selector instead.
+            # This check allows an early failure for obviously invalid connection strings for non SRV connections.
+            valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id)
+            if not valid_host:
+                return False, host_errors
 
         try:
-            collection_names = get_collection_names(config)
+            collection_names = get_collection_names(config, team_id=team_id)
             if len(collection_names) == 0:
                 return False, "No collections found in database"
         except OperationFailure as e:
@@ -103,6 +109,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             incremental_field=inputs.incremental_field,
             incremental_field_type=inputs.incremental_field_type,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            team_id=inputs.team_id,
         )
 
     @property

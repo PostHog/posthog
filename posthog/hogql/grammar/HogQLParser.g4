@@ -244,7 +244,7 @@ hogqlxTagAttribute
 
 withExprList: withExpr (COMMA withExpr)* COMMA?;
 withExpr
-    : identifier withExprColumnNameList? AS (NOT? MATERIALIZED)? LPAREN selectSetStmt RPAREN    # WithExprSubquery
+    : identifier withExprColumnNameList? (USING KEY withExprColumnNameList)? AS (NOT? MATERIALIZED)? LPAREN selectSetStmt RPAREN    # WithExprSubquery
     // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
     | columnExpr AS identifier                                          # WithExprColumn
     ;

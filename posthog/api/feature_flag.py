@@ -36,10 +36,10 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
-from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
@@ -86,6 +86,48 @@ from products.product_tours.backend.models import ProductTour
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 MAX_PROPERTY_VALUES = 1000
+
+# Operators the Rust feature-flag evaluation service supports (OperatorType in property_models.rs).
+# None means "no operator specified" which defaults to exact.
+FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
+    {
+        None,
+        "exact",
+        "is_not",
+        "icontains",
+        "not_icontains",
+        "icontains_multi",
+        "not_icontains_multi",
+        "regex",
+        "not_regex",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "semver_gt",
+        "semver_gte",
+        "semver_lt",
+        "semver_lte",
+        "semver_eq",
+        "semver_neq",
+        "semver_tilde",
+        "semver_caret",
+        "semver_wildcard",
+        "is_set",
+        "is_not_set",
+        "is_date_exact",
+        "is_date_after",
+        "is_date_before",
+        "in",
+        "not_in",
+        "flag_evaluates_to",
+    }
+)
+
+FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {
+    "min": "gte",
+    "max": "lte",
+}
 
 LOCAL_EVALUATION_REQUEST_COUNTER = Counter(
     "posthog_local_evaluation_request_total",
@@ -779,12 +821,21 @@ class FeatureFlagSerializer(
                 raise serializers.ValidationError("Filters are not valid (variant override does not exist)")
 
             for property in condition.get("properties", []):
+                if property.get("operator") in FEATURE_FLAG_OPERATOR_ALIASES:
+                    property["operator"] = FEATURE_FLAG_OPERATOR_ALIASES[property["operator"]]
+
                 prop = Property(**property)
 
                 if prop.operator is not None and prop.operator not in PropertyOperator.__members__.values():
                     raise serializers.ValidationError(
                         detail=f"Invalid operator: {prop.operator}",
                         code="invalid_operator",
+                    )
+
+                if prop.operator not in FEATURE_FLAG_SUPPORTED_OPERATORS:
+                    raise serializers.ValidationError(
+                        detail=f"Unsupported operator for feature flags: {prop.operator}",
+                        code="unsupported_operator",
                     )
 
                 if isinstance(prop.value, list):
@@ -850,6 +901,8 @@ class FeatureFlagSerializer(
                         code="invalid_operator",
                     )
 
+                # Currently unreachable (between/not_between rejected by FEATURE_FLAG_SUPPORTED_OPERATORS),
+                # but kept so value validation is ready if Rust adds support for these operators.
                 if prop.operator in (PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN):
                     if not isinstance(prop.value, list) or len(prop.value) != 2:
                         raise serializers.ValidationError(
@@ -1109,8 +1162,9 @@ class FeatureFlagSerializer(
 
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
-        analytics_metadata.update(get_request_analytics_properties(request))
-        report_user_action(request.user, "feature flag created", analytics_metadata)
+        report_user_action(
+            request.user, "feature flag created", analytics_metadata, team=instance.team, request=request
+        )
 
         return instance
 
@@ -1276,7 +1330,9 @@ class FeatureFlagSerializer(
         report_user_action(
             request.user,
             "feature flag updated",
-            {**instance.get_analytics_metadata(), **get_request_analytics_properties(request)},
+            instance.get_analytics_metadata(),
+            team=instance.team,
+            request=request,
         )
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
@@ -1609,9 +1665,6 @@ class FeatureFlagViewSet(
     scope_object = "feature_flag"
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
-    authentication_classes = [
-        TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
-    ]
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         """Apply filters from request query params to queryset."""
@@ -1901,8 +1954,18 @@ class FeatureFlagViewSet(
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
 
+        # Exclude internal flags (survey targeting and product tour internal flags)
+        # These are auto-generated and not user-editable, same as the main flags list
+        survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
+            team__project_id=self.project_id, internal_targeting_flag__isnull=False
+        ).values_list("internal_targeting_flag_id", flat=True)
+
         feature_flags = list(
-            FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False).order_by("-created_at")
+            FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False)
+            .exclude(Q(id__in=survey_flag_ids))
+            .exclude(Q(id__in=product_tour_internal_targeting_flags))
+            .order_by("-created_at")
         )
 
         if not feature_flags:
@@ -2438,7 +2501,6 @@ class FeatureFlagViewSet(
         throttle_classes=[LocalEvaluationThrottle],
         required_scopes=["feature_flag:read"],
         authentication_classes=[
-            TemporaryTokenAuthentication,
             ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[ProjectSecretAPITokenPermission],
@@ -2752,7 +2814,6 @@ class FeatureFlagViewSet(
         detail=True,
         required_scopes=["feature_flag:read"],
         authentication_classes=[
-            TemporaryTokenAuthentication,
             ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[ProjectSecretAPITokenPermission],

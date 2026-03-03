@@ -50,7 +50,7 @@ describe('HogTransformer', () => {
         const team = await getFirstTeam(hub)
         teamId = team.id
 
-        hogTransformer = createHogTransformerService(hub)
+        hogTransformer = createHogTransformerService(hub, hub)
     })
 
     afterEach(async () => {
