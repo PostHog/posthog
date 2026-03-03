@@ -333,64 +333,10 @@ async def get_cached_percentile_thresholds(
 
 async def calculate_quantiles() -> CachedQuantiles | None:
     """Calculate quantiles array from database for caching."""
-<<<<<<< HEAD
 
     @database_sync_to_async
     def get_quantiles():
         # Calculate quantiles directly from cohort last_calculation_duration_ms field
-
-        # Get cohorts with recent duration data (past 24 hours)
-        recent_cohorts = Cohort.objects.filter(
-            last_calculation__gte=timezone.now() - dt.timedelta(hours=24),
-            last_calculation_duration_ms__isnull=False,
-            last_calculation_duration_ms__gt=0,
-            deleted=False,
-        ).values_list("last_calculation_duration_ms", flat=True)
-
-        if not recent_cohorts:
-            return None
-
-        # Calculate percentiles using Python statistics module
-        import statistics
-
-        durations_list = list(recent_cohorts)
-
-        if len(durations_list) < 2:
-            return None
-
-        # Convert percentiles to quantiles (keep in milliseconds)
-        try:
-            quantiles = statistics.quantiles(durations_list, n=100, method="inclusive")
-            # Return quantiles as integers and store the maximum for p100 handling
-            return CachedQuantiles(
-                quantiles=[int(q) for q in quantiles],
-                max_value=int(max(durations_list)),  # Store actual maximum for p100
-            )
-        except statistics.StatisticsError:
-            return None
-
-    return await get_quantiles()
-
-
-async def calculate_percentile_thresholds(
-    inputs: QueryPercentileThresholdsInput,
-) -> QueryPercentileThresholds | None:
-    """Calculate percentile thresholds from database (extracted from original activity)."""
-
-    @database_sync_to_async
-    def get_percentile_thresholds():
-        # Default percentiles if not specified
-        min_percentile = inputs.min_percentile if inputs.min_percentile is not None else 0.0
-        max_percentile = inputs.max_percentile if inputs.max_percentile is not None else 100.0
-
-        # Calculate percentiles directly from cohort last_calculation_duration_ms field
-        # This uses the same metric that we store during cohort calculation (Python timing)
-=======
-
-    @database_sync_to_async
-    def get_quantiles():
-        # Calculate quantiles directly from cohort last_calculation_duration_ms field
->>>>>>> b3337c75e4 (feat(cohort-calculation): implement code reviewer suggestions for production readiness)
 
         # Get cohorts with recent duration data (past 24 hours)
         recent_cohorts = Cohort.objects.filter(
