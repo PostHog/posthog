@@ -261,6 +261,7 @@ class PostHogClient:
 
     # Polling configuration
     POLL_BACKOFF_FACTOR = 1.5
+    POLL_MAX_INTERVAL_SECONDS = 300.0
 
     def _poll_until_found(
         self,
@@ -291,6 +292,7 @@ class PostHogClient:
                 )
             current_interval = min(
                 current_interval * self.POLL_BACKOFF_FACTOR,
+                self.POLL_MAX_INTERVAL_SECONDS,
                 self.config.event_timeout_seconds - (time.time() - start_time),
             )
 
