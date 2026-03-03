@@ -1,0 +1,64 @@
+name: Setup Buf
+description: |
+    Installs the Buf CLI for proto linting and breaking change detection.
+    Uses actions/cache to avoid repeated downloads from GitHub releases,
+    reducing GitHub API usage and preventing installation rate limit exhaustion.
+
+inputs:
+    version:
+        description: 'Buf version to install (e.g. 1.50.0)'
+        required: false
+        default: '1.50.0'
+
+runs:
+    using: composite
+    steps:
+        - name: Restore buf binary from cache
+          id: cache-buf
+          uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          with:
+              path: ${{ runner.temp }}/buf
+              key: buf-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+        - name: Download buf on cache miss
+          if: steps.cache-buf.outputs.cache-hit != 'true'
+          shell: bash
+          env:
+              BUF_VERSION: ${{ inputs.version }}
+          run: |
+              set -euo pipefail
+              echo "Cache miss — downloading buf v$BUF_VERSION"
+
+              # Map runner arch to buf release naming
+              case "$RUNNER_ARCH" in
+                X64)   ARCH="x86_64" ;;
+                ARM64) ARCH="aarch64" ;;
+                *) echo "::error::Unsupported architecture: $RUNNER_ARCH"; exit 1 ;;
+              esac
+
+              ASSET="buf-Linux-${ARCH}"
+              URL="https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/${ASSET}"
+
+              mkdir -p "$RUNNER_TEMP/buf/bin"
+              curl -fsSL --retry 10 --retry-delay 30 --retry-all-errors \
+                -o "$RUNNER_TEMP/buf/bin/buf" "$URL"
+
+              if [ ! -s "$RUNNER_TEMP/buf/bin/buf" ]; then
+                echo "::error::Downloaded buf binary is empty"
+                exit 1
+              fi
+              chmod +x "$RUNNER_TEMP/buf/bin/buf"
+              echo "Downloaded buf $(du -h "$RUNNER_TEMP/buf/bin/buf" | cut -f1)"
+
+        - name: Save buf binary to cache
+          if: steps.cache-buf.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
+          uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          with:
+              path: ${{ runner.temp }}/buf
+              key: buf-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+        - name: Add buf to PATH
+          shell: bash
+          run: |
+              echo "$RUNNER_TEMP/buf/bin" >> "$GITHUB_PATH"
+              "$RUNNER_TEMP/buf/bin/buf" --version
