@@ -675,6 +675,50 @@ describe('createExperimentLogic', () => {
         })
     })
 
+    describe('post-save state reset', () => {
+        const TAB_ID = 'test-tab'
+
+        beforeEach(() => {
+            sessionStorage.clear()
+        })
+
+        it('form resets to NEW_EXPERIMENT after saving and re-entering create mode', async () => {
+            const firstLogic = createExperimentLogic({ tabId: TAB_ID })
+            firstLogic.mount()
+
+            await expectLogic(firstLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: '' }),
+            })
+
+            // Simulate what saveExperiment does on success:
+            // the server response replaces the form state
+            firstLogic.actions.setExperiment({
+                ...NEW_EXPERIMENT,
+                id: 999,
+                name: 'Saved Experiment',
+                description: 'Already persisted',
+                feature_flag_key: 'saved-experiment',
+            })
+
+            await expectLogic(firstLogic).toMatchValues({
+                experiment: partial({ id: 999, name: 'Saved Experiment' }),
+            })
+
+            // Scene transitions away from create mode — component unmounts the logic
+            firstLogic.unmount()
+
+            // User navigates back to /experiments/new — component remounts the logic
+            const secondLogic = createExperimentLogic({ tabId: TAB_ID })
+            secondLogic.mount()
+
+            await expectLogic(secondLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: '', feature_flag_key: '' }),
+            })
+
+            secondLogic.unmount()
+        })
+    })
+
     describe('feature flag key auto-generation', () => {
         it('does not auto-generate a flag key when changing experiment name', async () => {
             await expectLogic(logic, () => {

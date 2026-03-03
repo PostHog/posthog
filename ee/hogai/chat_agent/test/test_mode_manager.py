@@ -40,7 +40,7 @@ from ee.hogai.chat_agent.prompts import (
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
 )
-from ee.hogai.chat_agent.toolkit import ChatAgentPlanToolkit, ChatAgentToolkit
+from ee.hogai.chat_agent.toolkit import ChatAgentPlanToolkit, ChatAgentToolkit, ChatAgentToolkitManager
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.presets.product_analytics import ReadOnlyProductAnalyticsAgentToolkit
 from ee.hogai.core.agent_modes.presets.survey import SubagentSurveyAgentToolkit
@@ -165,6 +165,20 @@ class TestAgentToolkit(BaseTest):
                 self.assertIn(expected, tool_names)
             for unexpected in unexpected_tools:
                 self.assertNotIn(unexpected, tool_names)
+
+    @patch("ee.hogai.core.agent_modes.toolkit.AgentToolkitManager.get_tools", new_callable=AsyncMock)
+    async def test_toolkit_manager_always_includes_web_search_server_tool(self, mock_get_tools):
+        mock_get_tools.return_value = []
+
+        context_manager = AssistantContextManager(
+            team=self.team, user=self.user, config=RunnableConfig(configurable={})
+        )
+        toolkit_manager = ChatAgentToolkitManager(team=self.team, user=self.user, context_manager=context_manager)
+
+        tools = await toolkit_manager.get_tools(AssistantState(messages=[]), RunnableConfig(configurable={}))
+
+        mock_get_tools.assert_awaited_once()
+        self.assertIn({"type": "web_search_20250305", "name": "web_search", "max_uses": 5}, tools)
 
     @parameterized.expand(
         [

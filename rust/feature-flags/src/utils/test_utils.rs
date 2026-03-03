@@ -52,7 +52,7 @@ pub async fn update_team_in_hypercache(
 pub async fn insert_new_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Result<Team, Error> {
-    let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+    let id = rand::thread_rng().gen_range(1_000_000..i32::MAX);
     let token = random_string("phc_", 12);
     let team = Team {
         id,
@@ -459,7 +459,13 @@ pub async fn insert_new_team_in_pg(
     // Create team model
     let id = match team_id {
         Some(value) => value,
-        None => rand::thread_rng().gen_range(1_000_000..100_000_000),
+        None => {
+            let mut non_persons_conn = non_persons_client.get_connection().await?;
+            let row: (i32,) = sqlx::query_as("SELECT nextval('posthog_team_id_seq')::int")
+                .fetch_one(&mut *non_persons_conn)
+                .await?;
+            row.0
+        }
     };
     let token = random_string("phc_", 12);
     let team = Team {
@@ -507,15 +513,10 @@ pub async fn insert_flag_for_team_in_pg(
     team_id: i32,
     flag: Option<FeatureFlagRow>,
 ) -> Result<FeatureFlagRow, Error> {
-    let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
-
-    let payload_flag = match flag {
-        Some(mut value) => {
-            value.id = id;
-            value
-        }
+    let mut payload_flag = match flag {
+        Some(value) => value,
         None => FeatureFlagRow {
-            id,
+            id: 0, // Placeholder, will be updated after insertion
             key: "flag1".to_string(),
             name: Some("flag1 description".to_string()),
             active: true,
@@ -544,13 +545,14 @@ pub async fn insert_flag_for_team_in_pg(
     };
 
     let mut conn = client.get_connection().await?;
-    let res = sqlx::query(
+    let row: (i32,) = sqlx::query_as(
         r#"INSERT INTO posthog_featureflag
-        (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity, evaluation_runtime, created_at) VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, '2024-06-17')"#
-    ).bind(payload_flag.id).bind(team_id).bind(&payload_flag.name).bind(&payload_flag.key).bind(&payload_flag.filters).bind(payload_flag.deleted).bind(payload_flag.active).bind(payload_flag.ensure_experience_continuity).bind(&payload_flag.evaluation_runtime).execute(&mut *conn).await?;
+        (team_id, name, key, filters, deleted, active, ensure_experience_continuity, evaluation_runtime, created_at) VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, '2024-06-17')
+        RETURNING id"#
+    ).bind(team_id).bind(&payload_flag.name).bind(&payload_flag.key).bind(&payload_flag.filters).bind(payload_flag.deleted).bind(payload_flag.active).bind(payload_flag.ensure_experience_continuity).bind(&payload_flag.evaluation_runtime).fetch_one(&mut *conn).await?;
 
-    assert_eq!(res.rows_affected(), 1);
+    payload_flag.id = row.0;
 
     Ok(payload_flag)
 }
@@ -1251,8 +1253,12 @@ impl TestContext {
 
         const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
-        // Create team model
-        let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        // Create team model with a sequence-assigned ID
+        let mut conn = self.non_persons_writer.get_connection().await?;
+        let row: (i32,) = sqlx::query_as("SELECT nextval('posthog_team_id_seq')::int")
+            .fetch_one(&mut *conn)
+            .await?;
+        let id = row.0;
         let team = Team {
             id,
             name: "Test Team".to_string(),

@@ -97,9 +97,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         result = execute_hogql_query(query, team=self.team)
 
         values = [row[0] for row in result.results]
-        response = Response([{"name": convert_property_value(value)} for value in flatten(values)])
-        response["Cache-Control"] = "max-age=10"
-        return response
+        resp = Response(
+            {"results": [{"name": convert_property_value(value)} for value in flatten(values)], "refreshing": False}
+        )
+        resp["Cache-Control"] = "max-age=10"
+        return resp
 
     @action(methods=["GET"], detail=False)
     def total_rows_stats(self, request: Request, **kwargs) -> Response:

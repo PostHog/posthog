@@ -239,18 +239,18 @@ class PostHogClient:
             description=f"person with distinct_id '{distinct_id}'",
         )
 
-    def query_events_by_person_id(self, person_id: str, expected_count: int) -> list[CapturedEvent] | None:
-        """Query for events by person_id, polling until expected count is reached or timeout.
+    def query_events_by_person_id(self, person_id: str, expected_event_uuids: set[str]) -> list[CapturedEvent] | None:
+        """Query for events by person_id, polling until all expected UUIDs are found or timeout.
 
         Args:
             person_id: The person ID to search events for.
-            expected_count: The minimum number of events expected.
+            expected_event_uuids: Set of event UUIDs that must all be present.
 
         Returns:
-            List of events if expected_count is reached, None if timeout.
+            List of events if all expected UUIDs are found, None if timeout.
         """
         return self._poll_until_found(
-            fetch_fn=lambda: self._fetch_events_by_person_id(person_id, expected_count),
+            fetch_fn=lambda: self._fetch_events_by_person_id(person_id, expected_event_uuids),
             description=f"events for person '{person_id}'",
         )
 
@@ -395,8 +395,8 @@ class PostHogClient:
             created_at=row.get("created_at", ""),
         )
 
-    def _fetch_events_by_person_id(self, person_id: str, expected_count: int) -> list[CapturedEvent] | None:
-        """Fetch events by person_id. Returns None if fewer than expected_count events found.
+    def _fetch_events_by_person_id(self, person_id: str, expected_event_uuids: set[str]) -> list[CapturedEvent] | None:
+        """Fetch events by person_id. Returns None if not all expected UUIDs are found.
 
         Includes a timestamp filter to benefit from ClickHouse's table partitioning
         (PARTITION BY toYYYYMM(timestamp)) and ordering (ORDER BY includes toDate(timestamp)).
@@ -416,7 +416,8 @@ class PostHogClient:
                 "min_timestamp": self._test_start_date.isoformat(),
             },
         )
-        if len(rows) < expected_count:
+        found_uuids = {row.get("uuid", "") for row in rows}
+        if not expected_event_uuids.issubset(found_uuids):
             return None
 
         events = []

@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable, Iterable
-from typing import Any, ClassVar, Literal, Optional, Protocol, TypedDict, TypeVar
+from typing import Any, ClassVar, Literal, NotRequired, Optional, Protocol, TypedDict, TypeVar
 
 from dlt.common.data_types.typing import TDataType
 from structlog.types import FilteringBoundLogger
@@ -58,3 +58,4 @@ class SourceInputs:
 
 class PipelineResult(TypedDict):
     should_trigger_cdp_producer: bool
+    consumer_manages_job_status: NotRequired[bool]

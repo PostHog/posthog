@@ -579,7 +579,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             if not key or key.startswith("$virt"):
                 span.set_attribute("result_count", 0)
-                return response.Response([])
+                resp = response.Response({"results": [], "refreshing": False})
+                resp["Cache-Control"] = "max-age=10"
+                return resp
 
             runner = PropertyValuesQueryRunner(
                 team=self.team,
@@ -591,9 +593,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
+            is_refreshing = (
+                isinstance(result, CachedPropertyValuesQueryResponse)
+                and result.query_status is not None
+                and not result.query_status.complete
+            )
             results = [item.model_dump(exclude_none=True) for item in result.results]
             span.set_attribute("result_count", len(results))
-            resp = response.Response(results)
+            span.set_attribute("is_refreshing", is_refreshing)
+            resp = response.Response({"results": results, "refreshing": is_refreshing})
             resp["Cache-Control"] = "max-age=10"
             return resp
 
