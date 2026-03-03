@@ -19,6 +19,7 @@ import {
 import { CyclotronJobQueueDelay } from './job-queue-delay'
 import { CyclotronJobQueueKafka } from './job-queue-kafka'
 import { CyclotronJobQueuePostgres, CyclotronJobQueuePostgresShadow } from './job-queue-postgres'
+import { CyclotronJobQueuePostgresV2 } from './job-queue-postgres-v2'
 
 const cyclotronBatchUtilizationGauge = new Gauge({
     name: 'cdp_cyclotron_batch_utilization',
@@ -51,6 +52,7 @@ export class CyclotronJobQueue {
     private producerTeamMapping: CyclotronJobQueueTeamRouting
     private producerForceScheduledToPostgres: boolean
     private jobQueuePostgres: CyclotronJobQueuePostgres
+    private jobQueuePostgresV2: CyclotronJobQueuePostgresV2 | null = null
     private jobQueueKafka: CyclotronJobQueueKafka
     private jobQueueDelay: CyclotronJobQueueDelay
     private shadowPostgres: CyclotronJobQueuePostgresShadow | null = null
@@ -78,6 +80,12 @@ export class CyclotronJobQueue {
             this.consumeBatch(invocations, this.consumerMode === 'shadow' ? 'shadow' : 'postgres')
         )
 
+        if (this.config.CDP_CYCLOTRON_V2_ENABLED && this.config.CYCLOTRON_V2_DATABASE_URL) {
+            this.jobQueuePostgresV2 = new CyclotronJobQueuePostgresV2(this.config, this.queue, (invocations) =>
+                this.consumeBatch(invocations, 'postgres-v2')
+            )
+        }
+
         if (this.config.CDP_CYCLOTRON_SHADOW_WRITE_ENABLED && this.config.CYCLOTRON_SHADOW_DATABASE_URL) {
             const shadowConfig = {
                 ...this.config,
@@ -91,6 +99,7 @@ export class CyclotronJobQueue {
             producerMapping: this.producerMapping,
             producerTeamMapping: this.producerTeamMapping,
             shadowWriteEnabled: !!this.shadowPostgres,
+            v2Enabled: !!this.jobQueuePostgresV2,
         })
     }
 
@@ -138,6 +147,10 @@ export class CyclotronJobQueue {
             await this.jobQueuePostgres.startAsProducer()
         }
 
+        if (anySplitRouting || targets.has('postgres-v2')) {
+            await this.jobQueuePostgresV2?.startAsProducer()
+        }
+
         if (anySplitRouting || targets.has('kafka')) {
             await this.jobQueueKafka.startAsProducer()
         }
@@ -166,6 +179,11 @@ export class CyclotronJobQueue {
 
         if (this.consumerMode === 'postgres' || this.consumerMode === 'shadow') {
             await this.jobQueuePostgres.startAsConsumer()
+        } else if (this.consumerMode === 'postgres-v2') {
+            if (!this.jobQueuePostgresV2) {
+                throw new Error('Cyclotron V2 consumer mode requires CDP_CYCLOTRON_V2_ENABLED=true')
+            }
+            await this.jobQueuePostgresV2.startAsConsumer()
         } else if (this.consumerMode === 'kafka') {
             await this.jobQueueKafka.startAsConsumer()
         } else if (this.consumerMode === 'delay') {
@@ -177,6 +195,7 @@ export class CyclotronJobQueue {
         // Important - first shut down the consumers so we aren't processing anything
         await Promise.all([
             this.jobQueuePostgres.stopConsumer(),
+            this.jobQueuePostgresV2?.stopConsumer(),
             this.jobQueueKafka.stopConsumer(),
             this.jobQueueDelay.stopConsumer(),
         ])
@@ -184,6 +203,7 @@ export class CyclotronJobQueue {
         // Only then do we shut down the producers
         await Promise.all([
             this.jobQueuePostgres.stopProducer(),
+            this.jobQueuePostgresV2?.stopProducer(),
             this.jobQueueKafka.stopProducer(),
             this.jobQueueDelay.stopProducer(),
             this.shadowPostgres?.stopProducer(),
@@ -193,6 +213,8 @@ export class CyclotronJobQueue {
     public isHealthy() {
         if (this.consumerMode === 'postgres' || this.consumerMode === 'shadow') {
             return this.jobQueuePostgres.isHealthy()
+        } else if (this.consumerMode === 'postgres-v2') {
+            return this.jobQueuePostgresV2?.isHealthy() ?? new HealthCheckResultError('V2 not enabled', {})
         } else if (this.consumerMode === 'kafka') {
             return this.jobQueueKafka.isHealthy()
         } else if (this.consumerMode === 'delay') {
@@ -229,6 +251,7 @@ export class CyclotronJobQueue {
 
     public async queueInvocations(invocations: CyclotronJobInvocation[]) {
         const postgresInvocations: CyclotronJobInvocation[] = []
+        const postgresV2Invocations: CyclotronJobInvocation[] = []
         const kafkaInvocations: CyclotronJobInvocation[] = []
 
         for (const invocation of invocations) {
@@ -236,6 +259,8 @@ export class CyclotronJobQueue {
 
             if (target === 'postgres') {
                 postgresInvocations.push(invocation)
+            } else if (target === 'postgres-v2') {
+                postgresV2Invocations.push(invocation)
             } else {
                 kafkaInvocations.push(invocation)
             }
@@ -243,6 +268,7 @@ export class CyclotronJobQueue {
 
         await Promise.all([
             this.jobQueuePostgres.queueInvocations(postgresInvocations),
+            this.jobQueuePostgresV2?.queueInvocations(postgresV2Invocations),
             this.jobQueueKafka.queueInvocations(kafkaInvocations),
         ])
 
@@ -274,6 +300,11 @@ export class CyclotronJobQueue {
         if (pgJobsToDequeue.length > 0) {
             await this.jobQueuePostgres.dequeueInvocations(pgJobsToDequeue)
         }
+
+        const v2JobsToDequeue = invocations.filter((x) => x.queueSource === 'postgres-v2')
+        if (v2JobsToDequeue.length > 0) {
+            await this.jobQueuePostgresV2?.dequeueInvocations(v2JobsToDequeue)
+        }
     }
 
     public async cancelInvocations(invocations: CyclotronJobInvocation[]) {
@@ -281,6 +312,11 @@ export class CyclotronJobQueue {
         const pgJobsToCancel = invocations.filter((x) => x.queueSource === 'postgres')
         if (pgJobsToCancel.length > 0) {
             await this.jobQueuePostgres.cancelInvocations(pgJobsToCancel)
+        }
+
+        const v2JobsToCancel = invocations.filter((x) => x.queueSource === 'postgres-v2')
+        if (v2JobsToCancel.length > 0) {
+            await this.jobQueuePostgresV2?.cancelInvocations(v2JobsToCancel)
         }
     }
 
@@ -290,6 +326,8 @@ export class CyclotronJobQueue {
 
         const postgresInvocationsToCreate: CyclotronJobInvocationResult[] = []
         const postgresInvocationsToUpdate: CyclotronJobInvocationResult[] = []
+        const postgresV2InvocationsToUpdate: CyclotronJobInvocationResult[] = []
+        const postgresV2InvocationsToCreate: CyclotronJobInvocationResult[] = []
         const kafkaInvocations: CyclotronJobInvocationResult[] = []
 
         for (const invocationResult of invocationResults) {
@@ -301,12 +339,18 @@ export class CyclotronJobQueue {
                 } else {
                     postgresInvocationsToCreate.push(invocationResult)
                 }
+            } else if (target === 'postgres-v2') {
+                if (invocationResult.invocation.queueSource === 'postgres-v2') {
+                    postgresV2InvocationsToUpdate.push(invocationResult)
+                } else {
+                    postgresV2InvocationsToCreate.push(invocationResult)
+                }
             } else {
                 kafkaInvocations.push(invocationResult)
             }
         }
 
-        logger.debug('🔄', 'Queueing postgres invocations', {
+        logger.debug('🔄', 'Queueing invocation results', {
             kafka: kafkaInvocations.map(
                 (x) => `${x.invocation.id} (queue:${x.invocation.queue},source:${x.invocation.queueSource})`
             ),
@@ -314,6 +358,12 @@ export class CyclotronJobQueue {
                 (x) => `${x.invocation.id} (queue:${x.invocation.queue},source:${x.invocation.queueSource})`
             ),
             postgres_create: postgresInvocationsToCreate.map(
+                (x) => `${x.invocation.id} (queue:${x.invocation.queue},source:${x.invocation.queueSource})`
+            ),
+            postgres_v2_update: postgresV2InvocationsToUpdate.map(
+                (x) => `${x.invocation.id} (queue:${x.invocation.queue},source:${x.invocation.queueSource})`
+            ),
+            postgres_v2_create: postgresV2InvocationsToCreate.map(
                 (x) => `${x.invocation.id} (queue:${x.invocation.queue},source:${x.invocation.queueSource})`
             ),
         })
@@ -328,6 +378,16 @@ export class CyclotronJobQueue {
             promises.push(this.jobQueuePostgres.queueInvocations(postgresInvocationsToCreate.map((x) => x.invocation)))
         }
 
+        if (postgresV2InvocationsToUpdate.length > 0 && this.jobQueuePostgresV2) {
+            promises.push(this.jobQueuePostgresV2.queueInvocationResults(postgresV2InvocationsToUpdate))
+        }
+
+        if (postgresV2InvocationsToCreate.length > 0 && this.jobQueuePostgresV2) {
+            promises.push(
+                this.jobQueuePostgresV2.queueInvocations(postgresV2InvocationsToCreate.map((x) => x.invocation))
+            )
+        }
+
         if (kafkaInvocations.length > 0) {
             promises.push(this.jobQueueKafka.queueInvocationResults(kafkaInvocations))
 
@@ -337,6 +397,14 @@ export class CyclotronJobQueue {
 
             if (jobsToRelease.length > 0) {
                 promises.push(this.jobQueuePostgres.releaseInvocations(jobsToRelease))
+            }
+
+            const v2JobsToRelease = kafkaInvocations
+                .filter((x) => x.invocation.queueSource === 'postgres-v2')
+                .map((x) => x.invocation)
+
+            if (v2JobsToRelease.length > 0 && this.jobQueuePostgresV2) {
+                promises.push(this.jobQueuePostgresV2.releaseInvocations(v2JobsToRelease))
             }
         }
 

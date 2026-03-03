@@ -1,0 +1,245 @@
+import { chunk } from 'lodash'
+import { DateTime } from 'luxon'
+
+import { parseJSON } from '~/utils/json-parse'
+
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig } from '../../../types'
+import { logger } from '../../../utils/logger'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import {
+    CyclotronV2DequeuedJob,
+    CyclotronV2Janitor,
+    CyclotronV2JobInit,
+    CyclotronV2Manager,
+    CyclotronV2Worker,
+} from '../cyclotron-v2'
+
+/**
+ * State blob stored in the single `state` BYTEA column.
+ * Mirrors the Kafka serialization: everything in one JSON object.
+ */
+type SerializedJobState = {
+    state: CyclotronJobInvocation['state']
+    queueParameters?: CyclotronJobInvocation['queueParameters']
+    queueMetadata?: CyclotronJobInvocation['queueMetadata']
+}
+
+export class CyclotronJobQueuePostgresV2 {
+    private manager?: CyclotronV2Manager
+    private worker?: CyclotronV2Worker
+    private janitor?: CyclotronV2Janitor
+    private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
+
+    constructor(
+        private config: PluginsServerConfig,
+        private queue: CyclotronJobQueueKind,
+        private consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+    ) {}
+
+    public async startAsProducer(): Promise<void> {
+        if (!this.config.CYCLOTRON_V2_DATABASE_URL) {
+            throw new Error('Cyclotron V2 database URL not set')
+        }
+
+        this.manager = new CyclotronV2Manager({
+            pool: { dbUrl: this.config.CYCLOTRON_V2_DATABASE_URL },
+        })
+        await this.manager.connect()
+    }
+
+    public async startAsConsumer(): Promise<void> {
+        if (!this.config.CYCLOTRON_V2_DATABASE_URL) {
+            throw new Error('Cyclotron V2 database URL not set')
+        }
+
+        await this.startAsProducer()
+
+        this.worker = new CyclotronV2Worker({
+            pool: { dbUrl: this.config.CYCLOTRON_V2_DATABASE_URL },
+            queueName: this.queue,
+            batchMaxSize: this.config.CONSUMER_BATCH_SIZE,
+            pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
+            includeEmptyBatches: true,
+        })
+
+        this.janitor = new CyclotronV2Janitor({
+            pool: { dbUrl: this.config.CYCLOTRON_V2_DATABASE_URL },
+        })
+
+        await this.worker.connect((jobs) => this.consumeV2Jobs(jobs))
+        await this.janitor.start()
+    }
+
+    public async stopConsumer(): Promise<void> {
+        await this.worker?.disconnect()
+        await this.janitor?.stop()
+    }
+
+    public async stopProducer(): Promise<void> {
+        await this.manager?.disconnect()
+    }
+
+    public isHealthy(): HealthCheckResult {
+        if (!this.worker) {
+            return new HealthCheckResultError('CyclotronV2Worker not initialized', {})
+        }
+        if (this.worker.isHealthy()) {
+            return new HealthCheckResultOk()
+        }
+        return new HealthCheckResultError('CyclotronV2Worker is not healthy', {})
+    }
+
+    public async queueInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
+        if (invocations.length === 0) {
+            return
+        }
+
+        if (!this.manager) {
+            throw new Error('CyclotronV2Manager not initialized')
+        }
+
+        const jobs = invocations.map((inv) => invocationToV2JobInit(inv))
+
+        try {
+            const chunked = chunk(jobs, this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
+            if (this.config.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
+                await Promise.all(chunked.map((batch) => this.manager!.bulkCreateJobs(batch)))
+            } else {
+                for (const batch of chunked) {
+                    await this.manager.bulkCreateJobs(batch)
+                }
+            }
+        } catch (e) {
+            logger.error('Error creating cyclotron V2 jobs', { error: String(e) })
+            throw e
+        }
+    }
+
+    public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
+        await Promise.all(
+            invocationResults.map(async (result) => {
+                const job = this.pendingJobs.get(result.invocation.id)
+                if (!job) {
+                    logger.warn('No pending V2 job found for result, creating new job', {
+                        id: result.invocation.id,
+                    })
+                    if (!result.finished && !result.error) {
+                        await this.queueInvocations([result.invocation])
+                    }
+                    return
+                }
+
+                this.pendingJobs.delete(result.invocation.id)
+
+                if (result.error) {
+                    await job.fail()
+                } else if (result.finished) {
+                    await job.ack()
+                } else {
+                    const stateBuffer = serializeState(result.invocation)
+                    await job.retry({ state: stateBuffer })
+                }
+            })
+        )
+    }
+
+    public async dequeueInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
+        await Promise.all(
+            invocations.map(async (inv) => {
+                const job = this.pendingJobs.get(inv.id)
+                if (job) {
+                    this.pendingJobs.delete(inv.id)
+                    await job.fail()
+                }
+            })
+        )
+    }
+
+    public async cancelInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
+        await Promise.all(
+            invocations.map(async (inv) => {
+                const job = this.pendingJobs.get(inv.id)
+                if (job) {
+                    this.pendingJobs.delete(inv.id)
+                    await job.cancel()
+                }
+            })
+        )
+    }
+
+    public async releaseInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
+        await Promise.all(
+            invocations.map(async (inv) => {
+                const job = this.pendingJobs.get(inv.id)
+                if (job) {
+                    this.pendingJobs.delete(inv.id)
+                    await job.ack()
+                }
+            })
+        )
+    }
+
+    private async consumeV2Jobs(jobs: CyclotronV2DequeuedJob[]): Promise<void> {
+        const invocations: CyclotronJobInvocation[] = []
+
+        for (const job of jobs) {
+            this.pendingJobs.set(job.id, job)
+            invocations.push(v2JobToInvocation(job))
+        }
+
+        await this.consumeBatch(invocations)
+    }
+}
+
+function serializeState(invocation: CyclotronJobInvocation): Buffer {
+    const blob: SerializedJobState = {
+        state: invocation.state,
+        queueParameters: invocation.queueParameters ?? undefined,
+        queueMetadata: invocation.queueMetadata ?? undefined,
+    }
+    return Buffer.from(JSON.stringify(blob))
+}
+
+function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2JobInit {
+    return {
+        id: invocation.id,
+        teamId: invocation.teamId,
+        functionId: invocation.functionId,
+        queueName: invocation.queue,
+        priority: invocation.queuePriority,
+        scheduled: invocation.queueScheduledAt?.toJSDate() ?? new Date(),
+        parentRunId: invocation.parentRunId ?? null,
+        state: serializeState(invocation),
+    }
+}
+
+function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {
+    let parsed: SerializedJobState = { state: null }
+
+    if (job.state) {
+        try {
+            parsed = parseJSON(job.state.toString('utf-8'))
+        } catch (e) {
+            logger.error('Error parsing V2 job state', { error: String(e), jobId: job.id })
+        }
+    }
+
+    const invocation: CyclotronJobInvocation = {
+        id: job.id,
+        teamId: job.teamId,
+        functionId: job.functionId ?? '',
+        queue: job.queueName as CyclotronJobQueueKind,
+        queuePriority: job.priority,
+        queueScheduledAt: job.scheduled ? DateTime.fromJSDate(job.scheduled) : undefined,
+        queueMetadata: parsed.queueMetadata ?? undefined,
+        queueParameters: parsed.queueParameters ?? undefined,
+        state: parsed.state,
+        queueSource: 'postgres-v2',
+    }
+
+    if (job.parentRunId) {
+        invocation.parentRunId = job.parentRunId
+    }
+
+    return invocation
+}
