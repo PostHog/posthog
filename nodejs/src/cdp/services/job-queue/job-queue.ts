@@ -84,7 +84,7 @@ export class CyclotronJobQueue {
             this.consumeBatch(invocations, this.consumerMode === 'shadow' ? 'shadow' : 'postgres')
         )
 
-        if (this.config.CYCLOTRON_V2_DATABASE_URL) {
+        if (this.config.CYCLOTRON_NODE_DATABASE_URL) {
             this.jobQueuePostgresV2 = new CyclotronJobQueuePostgresV2(this.config, this.queue, (invocations) =>
                 this.consumeBatch(invocations, 'postgres-v2')
             )
@@ -185,7 +185,7 @@ export class CyclotronJobQueue {
             await this.jobQueuePostgres.startAsConsumer()
         } else if (this.consumerMode === 'postgres-v2') {
             if (!this.jobQueuePostgresV2) {
-                throw new Error('Cyclotron V2 consumer mode requires CDP_CYCLOTRON_V2_ENABLED=true')
+                throw new Error('Cyclotron V2 consumer mode requires CDP_CYCLOTRON_NODE_ENABLED=true')
             }
             await this.jobQueuePostgresV2.startAsConsumer()
         } else if (this.consumerMode === 'kafka') {

@@ -1,4 +1,4 @@
-CREATE TYPE CyclotronV2JobStatus AS ENUM(
+CREATE TYPE CyclotronJobStatus AS ENUM(
     'available',
     'running',
     'completed',
@@ -6,12 +6,12 @@ CREATE TYPE CyclotronV2JobStatus AS ENUM(
     'canceled'
 );
 
-CREATE TABLE IF NOT EXISTS cyclotron_v2_jobs (
+CREATE TABLE IF NOT EXISTS cyclotron_jobs (
     id UUID PRIMARY KEY,
     team_id INT NOT NULL,
     function_id UUID,
     queue_name TEXT NOT NULL,
-    status CyclotronV2JobStatus NOT NULL,
+    status CyclotronJobStatus NOT NULL,
     priority SMALLINT NOT NULL,
     scheduled TIMESTAMPTZ NOT NULL,
     created TIMESTAMPTZ NOT NULL,
@@ -25,19 +25,19 @@ CREATE TABLE IF NOT EXISTS cyclotron_v2_jobs (
 );
 
 -- Dequeue: workers SELECT available jobs ordered by priority then scheduled time
-CREATE INDEX idx_cv2_jobs_dequeue
-    ON cyclotron_v2_jobs (queue_name, priority, scheduled)
+CREATE INDEX idx_cyclotron_jobs_dequeue
+    ON cyclotron_jobs (queue_name, priority, scheduled)
     WHERE status = 'available';
 
 -- Janitor: find running jobs with stale heartbeats
-CREATE INDEX idx_cv2_jobs_stalled
-    ON cyclotron_v2_jobs (last_heartbeat)
+CREATE INDEX idx_cyclotron_jobs_stalled
+    ON cyclotron_jobs (last_heartbeat)
     WHERE status = 'running';
 
 -- Janitor: find terminal jobs to clean up
-CREATE INDEX idx_cv2_jobs_terminal
-    ON cyclotron_v2_jobs (last_transition)
+CREATE INDEX idx_cyclotron_jobs_terminal
+    ON cyclotron_jobs (last_transition)
     WHERE status IN ('completed', 'failed', 'canceled');
 
-CREATE INDEX idx_cv2_jobs_team_id ON cyclotron_v2_jobs(team_id);
-CREATE INDEX idx_cv2_jobs_function_id ON cyclotron_v2_jobs(function_id);
+CREATE INDEX idx_cyclotron_jobs_team_id ON cyclotron_jobs(team_id);
+CREATE INDEX idx_cyclotron_jobs_function_id ON cyclotron_jobs(function_id);

@@ -30,26 +30,26 @@ export class CyclotronJobQueuePostgresV2 {
     ) {}
 
     public async startAsProducer(): Promise<void> {
-        if (!this.config.CYCLOTRON_V2_DATABASE_URL) {
+        if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
             throw new Error('Cyclotron V2 database URL not set')
         }
 
         this.manager = new CyclotronV2Manager({
-            pool: { dbUrl: this.config.CYCLOTRON_V2_DATABASE_URL },
+            pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             depthLimit: this.config.CYCLOTRON_SHARD_DEPTH_LIMIT,
         })
         await this.manager.connect()
     }
 
     public async startAsConsumer(): Promise<void> {
-        if (!this.config.CYCLOTRON_V2_DATABASE_URL) {
+        if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
             throw new Error('Cyclotron V2 database URL not set')
         }
 
         await this.startAsProducer()
 
         this.worker = new CyclotronV2Worker({
-            pool: { dbUrl: this.config.CYCLOTRON_V2_DATABASE_URL },
+            pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             queueName: this.queue,
             batchMaxSize: this.config.CONSUMER_BATCH_SIZE,
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,

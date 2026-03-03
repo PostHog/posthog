@@ -270,16 +270,16 @@ export class PluginServer {
             }
 
             if (capabilities.cdpCyclotronV2Janitor) {
-                if (this.config.CYCLOTRON_V2_DATABASE_URL) {
+                if (this.config.CYCLOTRON_NODE_DATABASE_URL) {
                     serviceLoaders.push(async () => {
                         const janitor = new CyclotronV2JanitorService({
-                            pool: { dbUrl: this.config.CYCLOTRON_V2_DATABASE_URL },
+                            pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
                         })
                         await janitor.start()
                         return janitor.service
                     })
                 } else {
-                    logger.info('⏭️', 'Skipping CyclotronV2JanitorService - CYCLOTRON_V2_DATABASE_URL not configured')
+                    logger.info('⏭️', 'Skipping CyclotronV2JanitorService - CYCLOTRON_NODE_DATABASE_URL not configured')
                 }
             }
 

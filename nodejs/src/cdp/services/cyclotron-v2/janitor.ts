@@ -78,17 +78,17 @@ export class CyclotronV2Janitor {
         const result = await this.pool.query<{ status: string; count: string }>(
             `WITH to_delete AS (
                 SELECT id
-                FROM cyclotron_v2_jobs
+                FROM cyclotron_jobs
                 WHERE status IN ('completed', 'failed', 'canceled')
                   AND last_transition < $1
                 ORDER BY last_transition ASC
                 LIMIT $2
                 FOR UPDATE SKIP LOCKED
             )
-            DELETE FROM cyclotron_v2_jobs
+            DELETE FROM cyclotron_jobs
             USING to_delete
-            WHERE cyclotron_v2_jobs.id = to_delete.id
-            RETURNING cyclotron_v2_jobs.status::text`,
+            WHERE cyclotron_jobs.id = to_delete.id
+            RETURNING cyclotron_jobs.status::text`,
             [cutoff, this.cleanupBatchSize]
         )
 
@@ -115,12 +115,12 @@ export class CyclotronV2Janitor {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
         const result = await this.pool.query(
-            `UPDATE cyclotron_v2_jobs
+            `UPDATE cyclotron_jobs
              SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
                  last_transition = NOW(), transition_count = transition_count + 1
              WHERE id IN (
                  SELECT id
-                 FROM cyclotron_v2_jobs
+                 FROM cyclotron_jobs
                  WHERE status = 'running'
                    AND COALESCE(last_heartbeat, $1) <= $1
                    AND janitor_touch_count >= $2
@@ -144,16 +144,16 @@ export class CyclotronV2Janitor {
         const result = await this.pool.query(
             `WITH stalled AS (
                 SELECT id
-                FROM cyclotron_v2_jobs
+                FROM cyclotron_jobs
                 WHERE status = 'running'
                   AND COALESCE(last_heartbeat, $1) <= $1
                 FOR UPDATE SKIP LOCKED
             )
-            UPDATE cyclotron_v2_jobs
+            UPDATE cyclotron_jobs
             SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
                 janitor_touch_count = janitor_touch_count + 1
             FROM stalled
-            WHERE cyclotron_v2_jobs.id = stalled.id`,
+            WHERE cyclotron_jobs.id = stalled.id`,
             [heartbeatCutoff]
         )
 
@@ -169,7 +169,7 @@ export class CyclotronV2Janitor {
     async measureQueueDepths(): Promise<Map<string, number>> {
         const result = await this.pool.query<{ queue_name: string; count: string }>(
             `SELECT queue_name, COUNT(*) as count
-             FROM cyclotron_v2_jobs
+             FROM cyclotron_jobs
              WHERE status = 'available' AND scheduled <= NOW()
              GROUP BY queue_name`
         )

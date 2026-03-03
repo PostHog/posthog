@@ -1,14 +1,14 @@
-# Cyclotron V2
+# Cyclotron (Node)
 
 TypeScript job queue backed by PostgreSQL, using `pg` directly.
 
 ## Schema
 
-Lives in a **separate database** (`cyclotron_v2`) with its own migrations
-in `rust/cyclotron_v2_migrations/`.
-Run them with `rust/bin/migrate-cyclotron-v2`.
+Lives in a **separate database** (`cyclotron_node`) with its own migrations
+in `rust/cyclotron_node_migrations/`.
+Run them with `rust/bin/migrate-cyclotron-node`.
 
-Single table `cyclotron_v2_jobs` with a single `state` BYTEA column
+Single table `cyclotron_jobs` with a single `state` BYTEA column
 for all job payload data (mirrors how the Kafka backend serializes everything into one blob).
 
 ## Components
@@ -45,7 +45,7 @@ Responsibilities:
 
 The `CyclotronJobQueuePostgresV2` wrapper in `job-queue/` bridges this SDK with the existing
 `CyclotronJobInvocation` types used by CDP consumers.
-It's enabled via `CDP_CYCLOTRON_V2_ENABLED=true` and routed alongside the existing backends
+It's enabled via `CDP_CYCLOTRON_NODE_ENABLED=true` and routed alongside the existing backends
 (kafka, delay) in `CyclotronJobQueue`.
 
 ## No DLQ

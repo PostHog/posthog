@@ -32,7 +32,7 @@ export class CyclotronV2Manager {
         const id = job.id ?? uuidv7()
         const now = new Date()
         await this.pool.query(
-            `INSERT INTO cyclotron_v2_jobs
+            `INSERT INTO cyclotron_jobs
              (id, team_id, function_id, queue_name, status, priority, scheduled, created,
               lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
               parent_run_id, state)
@@ -85,7 +85,7 @@ export class CyclotronV2Manager {
         }
 
         await this.pool.query(
-            `INSERT INTO cyclotron_v2_jobs
+            `INSERT INTO cyclotron_jobs
              (id, team_id, function_id, queue_name, status, priority, scheduled, created,
               lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
               parent_run_id, state)
@@ -94,7 +94,7 @@ export class CyclotronV2Manager {
                 unnest($2::int[]),
                 unnest($3::uuid[]),
                 unnest($4::text[]),
-                'available'::CyclotronV2JobStatus,
+                'available'::CyclotronJobStatus,
                 unnest($5::smallint[]),
                 unnest($6::timestamptz[]),
                 $9::timestamptz,
@@ -134,7 +134,7 @@ export class CyclotronV2Manager {
     private async queryDepth(): Promise<boolean> {
         try {
             const result = await this.pool.query(
-                `SELECT COUNT(*) AS count FROM cyclotron_v2_jobs
+                `SELECT COUNT(*) AS count FROM cyclotron_jobs
                  WHERE status = 'available' AND scheduled <= NOW()`
             )
             const count = parseInt(result.rows[0].count, 10)

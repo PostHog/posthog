@@ -81,7 +81,7 @@ export class CyclotronV2Worker {
         const result = await this.pool.query<RawJobRow>(
             `WITH available AS (
                 SELECT id
-                FROM cyclotron_v2_jobs
+                FROM cyclotron_jobs
                 WHERE status = 'available'
                   AND queue_name = $1
                   AND scheduled <= NOW()
@@ -89,26 +89,26 @@ export class CyclotronV2Worker {
                 LIMIT $2
                 FOR UPDATE SKIP LOCKED
             )
-            UPDATE cyclotron_v2_jobs
+            UPDATE cyclotron_jobs
             SET status = 'running',
                 lock_id = $3,
                 last_heartbeat = NOW(),
                 last_transition = NOW(),
                 transition_count = transition_count + 1
             FROM available
-            WHERE cyclotron_v2_jobs.id = available.id
+            WHERE cyclotron_jobs.id = available.id
             RETURNING
-                cyclotron_v2_jobs.id,
-                cyclotron_v2_jobs.team_id,
-                cyclotron_v2_jobs.function_id,
-                cyclotron_v2_jobs.queue_name,
-                cyclotron_v2_jobs.priority,
-                cyclotron_v2_jobs.scheduled,
-                cyclotron_v2_jobs.created,
-                cyclotron_v2_jobs.parent_run_id,
-                cyclotron_v2_jobs.transition_count,
-                cyclotron_v2_jobs.state,
-                cyclotron_v2_jobs.lock_id`,
+                cyclotron_jobs.id,
+                cyclotron_jobs.team_id,
+                cyclotron_jobs.function_id,
+                cyclotron_jobs.queue_name,
+                cyclotron_jobs.priority,
+                cyclotron_jobs.scheduled,
+                cyclotron_jobs.created,
+                cyclotron_jobs.parent_run_id,
+                cyclotron_jobs.transition_count,
+                cyclotron_jobs.state,
+                cyclotron_jobs.lock_id`,
             [this.config.queueName, this.batchMaxSize, lockId]
         )
         return result.rows
@@ -141,7 +141,7 @@ export class CyclotronV2Worker {
             async ack(): Promise<void> {
                 releaseGuard('ack')
                 await pool.query(
-                    `UPDATE cyclotron_v2_jobs
+                    `UPDATE cyclotron_jobs
                      SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = transition_count + 1
                      WHERE id = $1 AND lock_id = $2`,
@@ -152,7 +152,7 @@ export class CyclotronV2Worker {
             async fail(): Promise<void> {
                 releaseGuard('fail')
                 await pool.query(
-                    `UPDATE cyclotron_v2_jobs
+                    `UPDATE cyclotron_jobs
                      SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = transition_count + 1
                      WHERE id = $1 AND lock_id = $2`,
@@ -167,7 +167,7 @@ export class CyclotronV2Worker {
 
                 if (hasStateUpdate) {
                     await pool.query(
-                        `UPDATE cyclotron_v2_jobs
+                        `UPDATE cyclotron_jobs
                          SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
                              last_transition = NOW(), transition_count = transition_count + 1,
                              scheduled = NOW() + make_interval(secs => $3::double precision / 1000),
@@ -177,7 +177,7 @@ export class CyclotronV2Worker {
                     )
                 } else {
                     await pool.query(
-                        `UPDATE cyclotron_v2_jobs
+                        `UPDATE cyclotron_jobs
                          SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
                              last_transition = NOW(), transition_count = transition_count + 1,
                              scheduled = NOW() + make_interval(secs => $3::double precision / 1000)
@@ -190,7 +190,7 @@ export class CyclotronV2Worker {
             async cancel(): Promise<void> {
                 releaseGuard('cancel')
                 await pool.query(
-                    `UPDATE cyclotron_v2_jobs
+                    `UPDATE cyclotron_jobs
                      SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = transition_count + 1
                      WHERE id = $1 AND lock_id = $2`,
@@ -203,7 +203,7 @@ export class CyclotronV2Worker {
                     throw new Error(`Job ${row.id} already released, cannot heartbeat`)
                 }
                 await pool.query(
-                    `UPDATE cyclotron_v2_jobs
+                    `UPDATE cyclotron_jobs
                      SET last_heartbeat = NOW()
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
