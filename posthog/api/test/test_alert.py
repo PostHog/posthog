@@ -41,6 +41,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [
                 self.user.id,
             ],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "name": "alert name",
             "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
@@ -50,7 +51,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         expected_alert_json = {
             "calculation_interval": "daily",
-            "condition": {},
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "created_at": mock.ANY,
             "created_by": mock.ANY,
             "enabled": True,
@@ -119,6 +120,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [
                 self.user.id,
             ],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             "name": "alert name",
@@ -146,6 +148,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "subscribed_users": [
                     self.user.id,
                 ],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
                 "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
                 "name": "alert name",
@@ -165,6 +168,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [
                 self.user.id,
             ],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             "name": "alert name",
@@ -196,6 +200,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             "name": "alert name",
@@ -242,6 +247,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [
                 self.user.id,
             ],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             "name": "alert name",
@@ -311,6 +317,44 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             **overrides,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert expected_error_fragment in str(response.content).lower()
+
+    @parameterized.expand(
+        [
+            (
+                "invalid_condition_via_patch",
+                {"condition": {"type": "bogus"}},
+                "invalid condition",
+            ),
+            (
+                "missing_config_type_via_patch",
+                {"config": {"series_index": 0}},
+                "unsupported alert config type",
+            ),
+            (
+                "absolute_with_percentage_threshold_via_patch",
+                {
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "threshold": {"configuration": {"type": InsightThresholdType.PERCENTAGE, "bounds": {}}},
+                },
+                "absolute value alerts require an absolute threshold",
+            ),
+        ]
+    )
+    def test_patch_alert_rejects_invalid_config(self, _name, overrides, expected_error_fragment):
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "alert name",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        assert "id" in alert, alert
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert['id']}", overrides)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected_error_fragment in str(response.content).lower()
 
@@ -385,6 +429,7 @@ class TestAlertAPIKeyAccess(APIBaseTest):
                 "insight": self.insight["id"],
                 "subscribed_users": [self.user.id],
                 "name": "New Alert",
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
                 "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             },

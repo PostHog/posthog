@@ -278,8 +278,12 @@ class AlertSerializer(serializers.ModelSerializer):
         condition = attrs.get("condition", self.instance.condition if self.instance else None)
         config = attrs.get("config", self.instance.config if self.instance else None)
         insight = attrs.get("insight") or (self.instance.insight if self.instance else None)
+        if insight is None:
+            raise ValidationError({"insight": ["Insight is required."]})
         with upgrade_query(insight):
             query = insight.query
+            if query is None:
+                raise ValidationError({"insight": ["Insight has no valid query."]})
 
         threshold_config = None
         if "threshold" in attrs and isinstance(attrs["threshold"], dict):

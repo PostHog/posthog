@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from parameterized import parameterized
@@ -5,16 +7,16 @@ from parameterized import parameterized
 from posthog.tasks.alerts.utils import validate_alert_config
 
 
-def _base_condition(type="absolute_value"):
+def _base_condition(type: str = "absolute_value") -> dict[str, Any]:
     return {"type": type}
 
 
-def _base_config(series_index=0):
+def _base_config(series_index: int = 0) -> dict[str, Any]:
     return {"type": "TrendsAlertConfig", "series_index": series_index}
 
 
-def _base_query(series_count=1, display=None):
-    query = {
+def _base_query(series_count: int = 1, display: str | None = None) -> dict[str, Any]:
+    query: dict[str, Any] = {
         "kind": "TrendsQuery",
         "series": [{"kind": "EventsNode", "event": f"$event_{i}"} for i in range(series_count)],
     }
@@ -23,8 +25,8 @@ def _base_query(series_count=1, display=None):
     return query
 
 
-def _base_threshold(type="absolute", bounds=None):
-    config = {"type": type}
+def _base_threshold(type: str = "absolute", bounds: dict[str, Any] | None = None) -> dict[str, Any]:
+    config: dict[str, Any] = {"type": type}
     if bounds is not None:
         config["bounds"] = bounds
     return config
@@ -48,6 +50,22 @@ class TestValidateAlertConfig:
                 _base_config(),
                 _base_threshold(),
                 None,
+            ),
+            (
+                "none_condition",
+                _base_query(),
+                None,
+                _base_config(),
+                None,
+                "Alert has invalid condition: None",
+            ),
+            (
+                "empty_condition",
+                _base_query(),
+                {},
+                _base_config(),
+                None,
+                "Alert has invalid condition",
             ),
             (
                 "invalid_condition_type",
@@ -183,7 +201,15 @@ class TestValidateAlertConfig:
             ),
         ]
     )
-    def test_validate_alert_config(self, _name, query, condition, config, threshold_config, expected_error_fragment):
+    def test_validate_alert_config(
+        self,
+        _name: str,
+        query: dict[str, Any],
+        condition: dict[str, Any] | None,
+        config: dict[str, Any] | None,
+        threshold_config: dict[str, Any] | None,
+        expected_error_fragment: str | None,
+    ) -> None:
         if expected_error_fragment is None:
             validate_alert_config(query, condition, config, threshold_config)
         else:

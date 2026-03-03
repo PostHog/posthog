@@ -300,7 +300,7 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> Non
     # message.send()
 
 
-def send_notifications_for_disabled(alert: AlertConfiguration, reason: str) -> None:
+def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targets: list[str]) -> None:
     logger.info("Sending alert disabled notification", alert_id=alert.id, reason=reason)
 
     subject = f"PostHog alert {alert.name} has been disabled"
@@ -319,7 +319,7 @@ def send_notifications_for_disabled(alert: AlertConfiguration, reason: str) -> N
             "alert_error": reason,
         },
     )
-    for target in alert.get_subscribed_users_emails():
+    for target in targets:
         message.add_recipient(email=target)
 
     message.send()

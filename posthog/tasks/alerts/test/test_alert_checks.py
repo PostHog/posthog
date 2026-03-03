@@ -950,7 +950,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         alert.refresh_from_db()
         assert alert.enabled is False
-        assert alert.state == AlertState.ERRORED
+        assert alert.state == AlertState.ERRORED  # type: ignore[unreachable]
         assert mock_send_disabled.call_count == 1
         assert mock_send_notifications_for_breaches.call_count == 0
 

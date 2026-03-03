@@ -256,6 +256,8 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
     try:
         insight = alert.insight
         with upgrade_query(insight):
+            if insight.query is None:
+                raise ValueError("Alert's insight has no valid query")
             threshold_config = alert.threshold.configuration if alert.threshold else None
             validate_alert_config(insight.query, alert.condition, alert.config, threshold_config)
     except ValueError as e:
@@ -410,7 +412,7 @@ def _disable_invalid_alert(alert: AlertConfiguration, reason: str) -> None:
         error={"message": reason},
     )
     if targets_to_notify:
-        send_notifications_for_disabled(alert, reason)
+        send_notifications_for_disabled(alert, reason, targets_to_notify)
 
 
 def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
