@@ -1317,13 +1317,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         nextSessionRecording: [
             (s) => [s.activeSessionRecording, s.recordings, s.autoplayDirection],
             (activeSessionRecording, recordings, autoplayDirection): Partial<SessionRecordingType> | undefined => {
-                if (!activeSessionRecording || !autoplayDirection) {
+                if (!activeSessionRecording) {
                     return
                 }
                 const activeSessionRecordingIndex = recordings.findIndex((x) => x.id === activeSessionRecording.id)
-                return autoplayDirection === 'older'
-                    ? recordings[activeSessionRecordingIndex + 1]
-                    : recordings[activeSessionRecordingIndex - 1]
+                return autoplayDirection === 'newer'
+                    ? recordings[activeSessionRecordingIndex - 1]
+                    : recordings[activeSessionRecordingIndex + 1]
             },
         ],
 
