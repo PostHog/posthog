@@ -29,6 +29,7 @@ import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { projectLogic } from 'scenes/projectLogic'
+import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
@@ -653,7 +654,8 @@ export function FeatureFlags(): JSX.Element {
     return (
         <SceneContent className="feature_flags">
             <SceneTitleSection
-                name="Feature flags"
+                name={sceneConfigurations[Scene.FeatureFlags].name}
+                description={sceneConfigurations[Scene.FeatureFlags].description}
                 resourceType={{
                     type: 'feature_flag',
                 }}

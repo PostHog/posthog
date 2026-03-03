@@ -71,6 +71,7 @@ export interface InsightCardProps extends Resizeable {
     layout?: Layout
     ribbonColor?: InsightColor | null
     updateColor?: (newColor: DashboardTile['color']) => void
+    toggleShowDescription?: () => void
     removeFromDashboard?: () => void
     deleteWithUndo?: () => Promise<void>
     refresh?: () => void
@@ -118,6 +119,7 @@ function InsightCardInternal(
         showEditingControls,
         showDetailsControls,
         updateColor,
+        toggleShowDescription,
         removeFromDashboard,
         deleteWithUndo,
         refresh,
@@ -247,6 +249,7 @@ function InsightCardInternal(
                         ribbonColor={ribbonColor}
                         dashboardId={dashboardId}
                         updateColor={updateColor}
+                        toggleShowDescription={toggleShowDescription}
                         removeFromDashboard={removeFromDashboard}
                         deleteWithUndo={deleteWithUndo}
                         refresh={refresh}

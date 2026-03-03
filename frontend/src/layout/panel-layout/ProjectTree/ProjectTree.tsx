@@ -177,6 +177,8 @@ export function ProjectTree({
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
+    const isAIFirst = useFeatureFlag('AI_FIRST')
+
     let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
 
     // Filter out Data pipelines item if it's been clicked
@@ -218,7 +220,7 @@ export function ProjectTree({
                     item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
             )
 
-            if (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) {
+            if ((fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) && !isAIFirst) {
                 const CustomIcon = isCustomProductsExperiment ? IconGear : IconPencil
                 treeData.push({
                     id: 'products/custom-products-helper-category',

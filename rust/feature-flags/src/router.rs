@@ -12,6 +12,7 @@ use axum::{
     routing::{any, get},
     Router,
 };
+use common_cache::NegativeCache;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
@@ -76,6 +77,9 @@ pub struct State {
     pub config_hypercache_reader: Arc<HyperCacheReader>,
     /// Bounds concurrent large-batch dispatches to the Rayon pool
     pub rayon_dispatcher: RayonDispatcher,
+    /// In-memory negative cache for invalid API tokens, preventing repeated
+    /// Redis/S3/PG lookups for tokens that don't correspond to any team
+    pub team_negative_cache: NegativeCache,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -94,6 +98,7 @@ pub fn router(
     team_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
     rayon_dispatcher: RayonDispatcher,
+    team_negative_cache: NegativeCache,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -159,6 +164,7 @@ pub fn router(
         team_hypercache_reader,
         config_hypercache_reader,
         rayon_dispatcher,
+        team_negative_cache,
     };
 
     // Very permissive CORS policy, as old SDK versions
