@@ -119,7 +119,7 @@ export const RelatedExperimentsTable = ({
                         sorter: (a, b) => {
                             const durationA = getExperimentDuration(a) ?? -1
                             const durationB = getExperimentDuration(b) ?? -1
-                            return durationA > durationB ? 1 : -1
+                            return durationA - durationB
                         },
                         align: 'right',
                     },

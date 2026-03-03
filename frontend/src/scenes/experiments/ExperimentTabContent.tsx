@@ -2,6 +2,7 @@ import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import type { FeatureFlagType } from '~/types'
 
+import { CreateDraftExperimentCard } from './ExperimentTabContent/CreateDraftExperimentCard'
 import { RelatedExperimentsTable } from './ExperimentTabContent/RelatedExperimentsTable'
 
 type ExperimentTabContentProps = {
@@ -37,9 +38,12 @@ export const ExperimentTabContent = ({
     }
 
     return (
-        <RelatedExperimentsTable
-            featureFlag={featureFlag}
-            multipleExperimentsBannerMessage={multipleExperimentsBannerMessage}
-        />
+        <div className="space-y-4">
+            <CreateDraftExperimentCard featureFlag={featureFlag} />
+            <RelatedExperimentsTable
+                featureFlag={featureFlag}
+                multipleExperimentsBannerMessage={multipleExperimentsBannerMessage}
+            />
+        </div>
     )
 }
