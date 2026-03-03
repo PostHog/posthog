@@ -3040,6 +3040,9 @@ class StripeIntegration:
         )
 
         stripe_user_id = self.integration.integration_id
+        if not stripe_user_id:
+            raise ValueError("Missing stripe_user_id on integration")
+
         region = get_instance_region() or "us"
 
         secrets = {
@@ -3073,6 +3076,9 @@ class StripeIntegration:
         from stripe import StripeClient
 
         stripe_user_id = self.integration.integration_id
+        if not stripe_user_id:
+            raise ValueError("Missing stripe_user_id on integration")
+
         client = StripeClient(settings.STRIPE_APP_SECRET_KEY)
 
         for name in ("posthog_region", "posthog_access_token", "posthog_refresh_token"):
