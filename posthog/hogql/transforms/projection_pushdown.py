@@ -241,6 +241,13 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
         if pruned_select:
             node.select = pruned_select
+            # Sync SelectQueryType.columns to match the pruned select list.
+            # Without this, stale LazyTableType references on pruned columns
+            # leak through type traversal (e.g. CTETableType → SelectQueryType.columns)
+            # and cause KeyErrors in the lazy table resolver.
+            if isinstance(node.type, ast.SelectQueryType):
+                kept_names = {self._get_column_name(expr) for expr in pruned_select}
+                node.type.columns = {k: v for k, v in node.type.columns.items() if k in kept_names}
 
     def _get_column_name(self, expr: ast.Expr) -> str | None:
         """Extract column name from expression"""
