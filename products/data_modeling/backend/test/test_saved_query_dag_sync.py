@@ -103,7 +103,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         edge = Edge.objects.filter(source=events_node, target=node).first()
         self.assertIsNotNone(edge)
         assert edge is not None
-        self.assertEqual(edge.dag_id, dag.id)
+        self.assertEqual(edge.dag_fk_id, dag.id)
 
     def test_sync_creates_edges_for_multiple_dependencies(self):
         saved_query = DataWarehouseSavedQuery.objects.create(

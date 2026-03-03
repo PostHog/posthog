@@ -94,7 +94,10 @@ def resolve_dependency_to_node(
             dag_id_text=dag_id,
             name=dependency_name,
             type=NodeType.TABLE,
-            defaults={"dag": dag, "properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)}},
+            defaults={
+                "dag_fk": dag,
+                "properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)},
+            },
         )
         return node
     # system table
@@ -103,7 +106,7 @@ def resolve_dependency_to_node(
         dag_id_text=dag_id,
         name=dependency_name,
         type=NodeType.TABLE,
-        defaults={"dag": dag, "properties": {"origin": "posthog"}},
+        defaults={"dag_fk": dag, "properties": {"origin": "posthog"}},
     )
     return node
 
@@ -141,7 +144,7 @@ def sync_saved_query_to_dag(
         team=team,
         saved_query=saved_query,
         dag_id_text=dag_id,
-        defaults={"dag": dag, "name": saved_query.name, "type": node_type, "properties": extra_properties},
+        defaults={"dag_fk": dag, "name": saved_query.name, "type": node_type, "properties": extra_properties},
     )
     # update type (name is automatically synced from saved_query in Node.save())
     target.type = node_type
