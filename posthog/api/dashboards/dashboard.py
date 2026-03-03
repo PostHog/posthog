@@ -869,7 +869,7 @@ class DashboardsViewSet(
                 messages,
                 f"team/{self.team.id}/dashboard_refresh",
                 posthog_properties={
-                    "ai_product": "product-analytics",
+                    "ai_product": "product_analytics",
                     "ai_feature": "dashboard-refresh-analysis",
                 },
             )
