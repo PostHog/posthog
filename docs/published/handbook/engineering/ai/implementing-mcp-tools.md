@@ -1,6 +1,6 @@
 # Implementing MCP tools
 
-MCP tools are atomic capabilities — CRUD operations and simple actions that agents compose into workflows.
+MCP tools are atomic capabilities – CRUD operations and simple actions that agents compose into workflows.
 Every product should be accessible through the MCP server.
 Tools answer "what can I do?" (list feature flags, execute SQL, create a survey).
 
@@ -13,7 +13,7 @@ see [Writing skills](/handbook/engineering/ai/writing-skills).
 # 1. Scaffold a starter YAML with all operations disabled
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product
 
-# 2. Configure the YAML — enable tools, add scopes, annotations, descriptions
+# 2. Configure the YAML – enable tools, add scopes, annotations, descriptions
 #    Place in products/<product>/mcp/*.yaml (preferred) or services/mcp/definitions/*.yaml
 
 # 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
@@ -22,12 +22,12 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product
 # 4. Generate handlers and schemas
 hogli build:openapi
 
-# 5. Merge to master — CI builds and distributes automatically
+# 5. Merge to master – CI builds and distributes automatically
 ```
 
 ## Tool design principles
 
-MCP tools should be **basic capabilities** — atomic CRUD operations and simple actions.
+MCP tools should be **basic capabilities** – atomic CRUD operations and simple actions.
 Agents compose these primitives into higher-level workflows.
 
 **Good tools**:
@@ -39,7 +39,7 @@ Agents compose these primitives into higher-level workflows.
 
 **Bad tools**:
 
-- "Search for session recordings of an experiment" — this bundles multiple concerns.
+- "Search for session recordings of an experiment" – this bundles multiple concerns.
   Instead, expose four composable tools:
   list experiments, get experiment, search session recordings, summarize sessions.
 
@@ -153,8 +153,8 @@ build:openapi-mcp-tools  YAML definitions + Zod schemas → TypeScript tool hand
 YAML definitions are the configuration layer.
 They can live in two locations:
 
-- **`products/<product>/mcp/*.yaml`** — preferred for product-owned definitions, keeps config close to the code.
-- **`services/mcp/definitions/*.yaml`** — shared location.
+- **`products/<product>/mcp/*.yaml`** – preferred for product-owned definitions, keeps config close to the code.
+- **`services/mcp/definitions/*.yaml`** – shared location.
 
 The build pipeline discovers YAML files from both paths.
 Product teams own their definitions and control which operations are exposed as MCP tools.
@@ -172,7 +172,7 @@ Product teams own their definitions and control which operations are exposed as 
        --output ../../products/your_product/mcp/tools.yaml
    ```
 
-2. **Configure** the YAML — enable tools, add scopes, annotations, and descriptions.
+2. **Configure** the YAML – enable tools, add scopes, annotations, and descriptions.
    Each YAML file has a top-level structure validated by Zod ([`scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts)):
 
    Tool names follow a **`domain-action`** convention in kebab-case,
@@ -225,7 +225,7 @@ When backend API endpoints change, sync the YAML definitions:
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 ```
 
-This is idempotent and non-destructive —
+This is idempotent and non-destructive –
 it only adds newly discovered operations (with `enabled: false`) and removes stale ones.
 All hand-authored configuration is preserved.
 CI runs this as a drift check.
@@ -242,12 +242,12 @@ Django serializer field → OpenAPI spec → Zod schema → MCP tool description
 ```
 
 Product teams should **type and describe** their serializer fields.
-These descriptions are what agents read to understand tool parameters —
+These descriptions are what agents read to understand tool parameters –
 vague or missing descriptions lead to worse agent behavior.
 
 **Tips:**
 
-- Use `help_text` on serializer fields — it becomes the OpenAPI description.
+- Use `help_text` on serializer fields – it becomes the OpenAPI description.
   Be careful when using imperative language in `help_text`,
   as the same annotations are used in the API docs.
 - Use `param_overrides` in YAML definitions to override Orval-generated descriptions.
@@ -265,13 +265,13 @@ that help agents generate correct HogQL.
 The cleaner and better-described these schemas are,
 the better agents perform at query generation.
 
-This is a work in progress —
+This is a work in progress –
 the goal is to make it easier to generate HogQL queries from typed schemas
 than from freeform SQL.
 A `schema.json` integration into the codegen pipeline is planned.
 
 ## Agent skills that support the MCP server
 
-- **`query-examples`** — HogQL query patterns, system model schemas, and available functions.
+- **`query-examples`** – HogQL query patterns, system model schemas, and available functions.
   Extend this skill to explain how agents should use your HogQL-exposed tables and queries.
   See [`products/posthog_ai/skills/query-examples/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/SKILL.md).

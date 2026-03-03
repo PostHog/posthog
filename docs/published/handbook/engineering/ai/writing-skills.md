@@ -3,7 +3,7 @@
 Skills are job-to-be-done templates that teach agents _how_ to use capabilities to achieve a goal.
 They should read like how an experienced person would approach a job,
 not like a rigid script of commands to run.
-Describe the workflow, the reasoning behind each step, and what to watch out for —
+Describe the workflow, the reasoning behind each step, and what to watch out for –
 then trust the agent to adapt.
 Overly strict instructions break when context changes;
 a well-explained approach generalizes.
@@ -26,12 +26,12 @@ hogli lint:skills
 # 4. Build locally to verify rendered output
 hogli build:skills
 
-# 5. Merge to master — CI builds and distributes automatically
+# 5. Merge to master – CI builds and distributes automatically
 ```
 
 ## Skills vs tools
 
-**Tools** are atomic capabilities — CRUD operations and simple actions exposed via the MCP server.
+**Tools** are atomic capabilities – CRUD operations and simple actions exposed via the MCP server.
 They answer "what can I do?" (list feature flags, execute SQL, create a survey).
 
 **Skills** answer "how do I accomplish X?"
@@ -72,7 +72,7 @@ products/{product}/skills/{skill-name}/
 ```
 
 The skill name is the directory name.
-Only `references/` and `scripts/` subdirectories are included in the output —
+Only `references/` and `scripts/` subdirectories are included in the output –
 other subdirectories are ignored.
 
 ### Frontmatter
@@ -91,11 +91,11 @@ Both fields are required and validated at build time.
 ### Progressive disclosure
 
 `SKILL.md` serves as an overview that points agents to detailed materials as needed.
-Reference files are loaded on demand — only the entry point is read initially.
+Reference files are loaded on demand – only the entry point is read initially.
 Keep `SKILL.md` under 500 lines and split detailed content into `references/`.
 
 See [`query-examples/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/SKILL.md)
-for how this works in practice —
+for how this works in practice –
 the entry point links to 30+ reference files
 covering model schemas, query patterns, and HogQL extensions.
 
@@ -122,7 +122,7 @@ The `name` field: lowercase letters, numbers, and hyphens only. Max 64 character
 
 ### Writing descriptions
 
-The `description` field is critical for skill discovery —
+The `description` field is critical for skill discovery –
 agents use it to decide which skill to activate from potentially many available skills.
 Max 1024 characters.
 
@@ -130,7 +130,7 @@ Max 1024 characters.
 
 - Write in **third person** ("Analyzes LLM traces...", not "I can help you analyze...").
 - Include both **what** the skill does and **when** to use it.
-- Be specific — include key terms agents would match against.
+- Be specific – include key terms agents would match against.
 
 **Good descriptions:**
 
@@ -153,10 +153,10 @@ description: >
 **Bad descriptions:**
 
 ```yaml
-# Too vague — agents can't determine when to use it
+# Too vague – agents can't determine when to use it
 description: 'Helps with LLM analytics'
 
-# Too broad — an umbrella for everything isn't a skill
+# Too broad – an umbrella for everything isn't a skill
 description: 'Everything about PostHog AI features'
 ```
 
@@ -182,13 +182,13 @@ A reference skill with a clear entry point and 30+ reference files:
   links to model schemas, query patterns, and HogQL extensions.
 - Guidelines file ([`references/guidelines.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/references/guidelines.md))
   explains schema verification workflow, time ranges, joins, and HogQL differences.
-- Uses progressive disclosure — agents load only the references they need.
+- Uses progressive disclosure – agents load only the references they need.
 
 ### Bad: `llm-analytics`
 
 An umbrella skill that tries to cover everything:
 traces, experiments, evaluations, cost tracking, prompt management.
-Too broad to be useful — agents can't determine _when_ to activate it
+Too broad to be useful – agents can't determine _when_ to activate it
 and the instructions are too generic to guide any specific workflow.
 Break it into focused skills instead.
 
@@ -312,7 +312,7 @@ and consumed via plugins for coding agents at [PostHog/ai-plugin](https://github
 PostHog Code already consumes skills automatically.
 PostHog AI will consume the same set of skills.
 
-Product teams don't need to handle distribution —
+Product teams don't need to handle distribution –
 the pipeline and CI take care of it.
 
 ## Writing effective skills
