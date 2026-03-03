@@ -1,8 +1,10 @@
 use crate::{
     api::{auth, errors::FlagError},
-    flags::{flag_analytics::increment_request_count, flag_request::FlagRequestType},
+    flags::{
+        flag_analytics::increment_request_count, flag_request::FlagRequestType,
+        flag_service::FlagService,
+    },
     handler::types::Library,
-    metrics::consts::DB_TEAM_READS_COUNTER,
     router::State as AppState,
     team::team_models::Team,
 };
@@ -122,41 +124,17 @@ fn handle_non_get_method(method: &Method) -> Response {
     }
 }
 
-/// Fetches a team by its API token from HyperCache or PostgreSQL
+/// Fetches a team by its API token, delegating to FlagService for consistent
+/// negative caching, metrics, and error handling across all endpoints.
 async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
-    let key = KeyType::string(token);
-    let pg_reader = state.database_pools.non_persons_reader.clone();
-    let token_owned = token.to_string();
-
-    let (data, source) = state
-        .team_hypercache_reader
-        .get_with_source_or_fallback(&key, || async move {
-            let team = Team::from_pg(pg_reader, &token_owned)
-                .await
-                .map_err(|_| FlagError::TokenValidationError)?;
-            inc(DB_TEAM_READS_COUNTER, &[], 1);
-            let value = serde_json::to_value(&team).map_err(|e| {
-                tracing::error!("Failed to serialize team from PG: {}", e);
-                FlagError::Internal(format!("Failed to serialize team: {e}"))
-            })?;
-            Ok::<Option<serde_json::Value>, FlagError>(Some(value))
-        })
-        .await?;
-
-    let team = Team::from_hypercache_value(data)?;
-
-    let source_name = match source {
-        CacheSource::Redis => "Redis",
-        CacheSource::S3 => "S3",
-        CacheSource::Fallback => "Fallback",
-    };
-    info!(
-        team_id = team.id,
-        source = source_name,
-        "Fetched team metadata"
+    let flag_service = FlagService::new(
+        state.redis_client.clone(),
+        state.database_pools.non_persons_reader.clone(),
+        state.team_hypercache_reader.clone(),
+        state.flags_hypercache_reader.clone(),
+        state.team_negative_cache.clone(),
     );
-
-    Ok(team)
+    flag_service.verify_token_and_get_team(token).await
 }
 
 /// Retrieves the cached response using the pre-initialized HyperCacheReader

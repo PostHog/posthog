@@ -60,7 +60,7 @@ describe.each([
         // Set up default quota limiting mock - not limited by default
         jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(false)
 
-        processor = new Consumer(hub)
+        processor = new Consumer(hub, hub)
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -577,7 +577,7 @@ describe('hog flow processing', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub)
-        processor = new CdpEventsConsumer(hub)
+        processor = new CdpEventsConsumer(hub, hub)
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -743,7 +743,7 @@ describe('hog flow processing', () => {
 
         it('should not process workflows with email actions when team has email quota limit', async () => {
             // Mock quota limiting for email
-            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest
+            ;(processor as any)['deps'].quotaLimiting.isTeamQuotaLimited = jest
                 .fn()
                 .mockImplementation((_teamId, resource) => {
                     return resource === 'workflow_emails'
@@ -789,11 +789,11 @@ describe('hog flow processing', () => {
             expect(invocations).toHaveLength(0)
 
             // Should have checked quota limits
-            expect((processor as any).hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
+            expect((processor as any)['deps'].quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
                 team.id,
                 'workflow_emails'
             )
-            expect((processor as any).hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
+            expect((processor as any)['deps'].quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
                 team.id,
                 'workflow_destinations_dispatched'
             )
@@ -820,7 +820,7 @@ describe('hog flow processing', () => {
 
         it('should not process workflows with destination actions when team has destination quota limit', async () => {
             // Mock quota limiting for destinations
-            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest
+            ;(processor as any)['deps'].quotaLimiting.isTeamQuotaLimited = jest
                 .fn()
                 .mockImplementation((_teamId, resource) => {
                     return resource === 'workflow_destinations_dispatched'
@@ -863,7 +863,7 @@ describe('hog flow processing', () => {
             const invocations = await processor['createHogFlowInvocations']([globals])
 
             expect(invocations).toHaveLength(0)
-            expect((processor as any).hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
+            expect((processor as any)['deps'].quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
                 team.id,
                 'workflow_destinations_dispatched'
             )
@@ -871,7 +871,7 @@ describe('hog flow processing', () => {
 
         it('should process workflows without limited action types even when quotas exist', async () => {
             // Mock quota limiting for both
-            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest.fn().mockResolvedValue(true)
+            ;(processor as any)['deps'].quotaLimiting.isTeamQuotaLimited = jest.fn().mockResolvedValue(true)
 
             const hogFlow = await insertHogFlow(
                 new FixtureHogFlowBuilder()
@@ -921,7 +921,7 @@ describe('hog flow processing', () => {
 
         it('should process workflows when team has no quota limits', async () => {
             // No quota limits
-            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest.fn().mockResolvedValue(false)
+            ;(processor as any)['deps'].quotaLimiting.isTeamQuotaLimited = jest.fn().mockResolvedValue(false)
 
             const hogFlow = await insertHogFlow(
                 new FixtureHogFlowBuilder()

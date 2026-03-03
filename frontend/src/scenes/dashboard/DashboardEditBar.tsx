@@ -12,6 +12,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -38,6 +39,7 @@ export function DashboardEditBar(): JSX.Element {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const canAccessExplicitDateToggle = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DATE_PICKER_EXPLICIT_DATE_TOGGLE]
+    const { hasPageview, hasScreen } = getProjectEventExistence()
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new',
@@ -133,6 +135,9 @@ export function DashboardEditBar(): JSX.Element {
                             TaxonomicFilterGroupType.PersonProperties,
                             TaxonomicFilterGroupType.EventFeatureFlags,
                             TaxonomicFilterGroupType.EventMetadata,
+                            ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
+                            ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
+                            TaxonomicFilterGroupType.EmailAddresses,
                             ...groupsTaxonomicTypes,
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,

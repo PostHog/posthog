@@ -20,7 +20,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope, SurveyEventName } from '~/types'
 
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { DuplicateToProjectModal } from './DuplicateToProjectModal'
@@ -178,7 +178,11 @@ function Surveys(): JSX.Element {
             {tab === SurveysTabs.Notifications && (
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
-                    <LinkedHogFunctions type="destination" subTemplateIds={['survey-response']} />
+                    <LinkedHogFunctions
+                        type="destination"
+                        subTemplateIds={['survey-response']}
+                        forceFilterGroups={[{ events: [{ id: SurveyEventName.SENT, type: 'events' }] }]}
+                    />
                 </>
             )}
 

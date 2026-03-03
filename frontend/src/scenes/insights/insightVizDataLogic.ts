@@ -335,7 +335,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isBreakdownSeries: [
             (s) => [s.breakdownFilter],
             (breakdownFilter): boolean => {
-                return !!breakdownFilter?.breakdown
+                return !!breakdownFilter?.breakdown || (breakdownFilter?.breakdowns?.length ?? 0) > 0
             },
         ],
 
