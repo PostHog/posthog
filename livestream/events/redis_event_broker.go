@@ -26,31 +26,11 @@ type PubSubEvent struct {
 }
 
 func toPubSubEvent(e PostHogEvent) PubSubEvent {
-	return PubSubEvent{
-		Token:       e.Token,
-		Event:       e.Event,
-		Properties:  e.Properties,
-		Timestamp:   e.Timestamp,
-		Uuid:        e.Uuid,
-		DistinctId:  e.DistinctId,
-		Lat:         e.Lat,
-		Lng:         e.Lng,
-		CountryCode: e.CountryCode,
-	}
+	return PubSubEvent(e)
 }
 
 func (p PubSubEvent) toPostHogEvent() PostHogEvent {
-	return PostHogEvent{
-		Token:       p.Token,
-		Event:       p.Event,
-		Properties:  p.Properties,
-		Timestamp:   p.Timestamp,
-		Uuid:        p.Uuid,
-		DistinctId:  p.DistinctId,
-		Lat:         p.Lat,
-		Lng:         p.Lng,
-		CountryCode: p.CountryCode,
-	}
+	return PostHogEvent(p)
 }
 
 func channelName(token string) string {

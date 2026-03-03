@@ -115,7 +115,7 @@ func TestPubSubEventRoundTrip(t *testing.T) {
 			assert.Equal(t, tt.input.CountryCode, result.CountryCode)
 
 			if tt.input.Properties == nil {
-				assert.True(t, result.Properties == nil || len(result.Properties) == 0)
+				assert.True(t, len(result.Properties) == 0)
 			} else {
 				assert.Equal(t, tt.input.Properties, result.Properties)
 			}
