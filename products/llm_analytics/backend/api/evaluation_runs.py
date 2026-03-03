@@ -151,7 +151,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "workflow_id": workflow_id,
                     "trigger_type": "manual",
                 },
-                self.team,
+                team=self.team,
                 request=self.request,
             )
 

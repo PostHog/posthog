@@ -374,7 +374,7 @@ The response includes the formatted text and metadata about the rendering.
                     "char_count": len(text),
                     "duration_seconds": duration_seconds,
                 },
-                self.team,
+                team=self.team,
                 request=self.request,
             )
 

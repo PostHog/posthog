@@ -246,7 +246,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 cast(User, request.user),
                 "llma playground completion started",
                 tracking_properties,
-                getattr(request.user, "current_team", None),
+                team=getattr(request.user, "current_team", None),
                 request=request,
             )
 
@@ -280,7 +280,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     cast(User, request.user),
                     "llma playground completion failed",
                     error_properties,
-                    getattr(request.user, "current_team", None),
+                    team=getattr(request.user, "current_team", None),
                     request=request,
                 )
 

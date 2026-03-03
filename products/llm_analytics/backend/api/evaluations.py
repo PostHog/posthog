@@ -221,7 +221,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "has_rollout_percentage": has_rollout_percentage,
                 "prompt_length": prompt_length,
             },
-            self.team,
+            team=self.team,
             request=self.request,
         )
 
@@ -282,7 +282,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                     "evaluation_name": instance.name,
                     "was_enabled": old_enabled_value,
                 },
-                self.team,
+                team=self.team,
                 request=self.request,
             )
         elif changed_fields:
@@ -304,7 +304,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 cast(User, self.request.user),
                 "llma evaluation updated",
                 event_properties,
-                self.team,
+                team=self.team,
                 request=self.request,
             )
 

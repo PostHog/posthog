@@ -447,7 +447,7 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
                     "fail_count": result["statistics"]["fail_count"],
                     "na_count": result["statistics"]["na_count"],
                 },
-                self.team,
+                team=self.team,
                 request=self.request,
             )
 
