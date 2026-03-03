@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("llm_analytics", "0016_clusteringjob"),
+        ("llm_analytics", "0017_clusteringjob"),
     ]
 
     operations = [
