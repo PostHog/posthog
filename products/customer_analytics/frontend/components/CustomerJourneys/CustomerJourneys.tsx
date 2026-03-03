@@ -23,8 +23,10 @@ export function CustomerJourneys(): JSX.Element {
         activeJourneyId,
         activeInsightLoading,
         activeJourneyFullQuery,
+        isBuilderOpen,
     } = useValues(mountedCustomerJourneysLogic)
-    const { showAddJourneyModal, setActiveJourneyId, deleteJourney } = useActions(mountedCustomerJourneysLogic)
+    const { showAddJourneyModal, setActiveJourneyId, deleteJourney, openBuilder, closeBuilder } =
+        useActions(mountedCustomerJourneysLogic)
 
     if (journeysLoading) {
         return (
@@ -43,6 +45,25 @@ export function CustomerJourneys(): JSX.Element {
                     buttonText="Add a funnel"
                     buttonOnClick={showAddJourneyModal}
                 />
+                <div className="flex justify-center -mt-2">
+                    <LemonButton
+                        type="primary"
+                        onClick={openBuilder}
+                        disabledReason={isBuilderOpen ? 'Builder is already open' : undefined}
+                    >
+                        Build journey
+                    </LemonButton>
+                </div>
+                {isBuilderOpen && (
+                    <div className="mt-4 p-4 border rounded bg-bg-light">
+                        <div className="flex items-center justify-between">
+                            <span>Journey builder coming soon...</span>
+                            <LemonButton type="secondary" size="small" onClick={closeBuilder}>
+                                Close
+                            </LemonButton>
+                        </div>
+                    </div>
+                )}
                 <AddJourneyModal />
             </>
         )
@@ -59,6 +80,14 @@ export function CustomerJourneys(): JSX.Element {
                 />
                 <LemonButton type="secondary" icon={<IconPlus />} size="small" onClick={showAddJourneyModal}>
                     Add journey
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={openBuilder}
+                    disabledReason={isBuilderOpen ? 'Builder is already open' : undefined}
+                >
+                    Build journey
                 </LemonButton>
                 {activeJourney && (
                     <LemonButton
@@ -80,6 +109,17 @@ export function CustomerJourneys(): JSX.Element {
                 <Query query={activeJourneyFullQuery} readOnly />
             ) : (
                 <div className="text-muted text-center p-8">Insight not found</div>
+            )}
+
+            {isBuilderOpen && (
+                <div className="mt-4 p-4 border rounded bg-bg-light">
+                    <div className="flex items-center justify-between">
+                        <span>Journey builder coming soon...</span>
+                        <LemonButton type="secondary" size="small" onClick={closeBuilder}>
+                            Close
+                        </LemonButton>
+                    </div>
+                </div>
             )}
 
             <AddJourneyModal />
