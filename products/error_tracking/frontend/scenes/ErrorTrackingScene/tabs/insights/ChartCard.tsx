@@ -12,17 +12,15 @@ export function ChartCard({
     description,
     query,
     chartKey,
-    refreshKey,
 }: {
     title: string
     description: string
     query: InsightVizNode<TrendsQuery>
     chartKey: string
-    refreshKey: number
 }): JSX.Element {
     const insightProps: InsightLogicProps = {
-        dashboardItemId: `new-AdHoc.error-tracking-insights-${chartKey}-${refreshKey}`,
-        dataNodeCollectionId: `error-tracking-insights-${chartKey}-${refreshKey}`,
+        dashboardItemId: `new-AdHoc.error-tracking-insights-${chartKey}`,
+        dataNodeCollectionId: `error-tracking-insights-${chartKey}`,
         query,
     }
 

@@ -1,12 +1,10 @@
 import { BindLogic, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
 
 import { ChartCard } from './ChartCard'
 import { errorTrackingInsightsLogic, INSIGHTS_LOGIC_KEY } from './errorTrackingInsightsLogic'
 import { InsightsFilters } from './InsightsFilters'
-import { buildCrashFreeSessionsQuery, buildExceptionVolumeQuery } from './queries'
 import { SummaryStats } from './SummaryStats'
 
 export function ErrorTrackingInsights(): JSX.Element {
@@ -18,21 +16,7 @@ export function ErrorTrackingInsights(): JSX.Element {
 }
 
 function InsightsContent(): JSX.Element {
-    const { dateRange, mergedFilterGroup, filterTestAccounts, refreshKey } = useValues(errorTrackingInsightsLogic)
-
-    const filters = useMemo(
-        () => ({ filterGroup: mergedFilterGroup, filterTestAccounts }),
-        [mergedFilterGroup, filterTestAccounts]
-    )
-
-    const exceptionVolumeQuery = useMemo(
-        () => buildExceptionVolumeQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
-        [dateRange, filters]
-    )
-    const crashFreeQuery = useMemo(
-        () => buildCrashFreeSessionsQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
-        [dateRange, filters]
-    )
+    const { exceptionVolumeQuery, crashFreeSessionsQuery } = useValues(errorTrackingInsightsLogic)
 
     return (
         <div className="space-y-4">
@@ -51,14 +35,12 @@ function InsightsContent(): JSX.Element {
                         description="Exceptions per day"
                         query={exceptionVolumeQuery}
                         chartKey="exception_volume"
-                        refreshKey={refreshKey}
                     />
                     <ChartCard
                         title="Crash-free sessions"
                         description="Percentage of sessions without any exceptions"
-                        query={crashFreeQuery}
+                        query={crashFreeSessionsQuery}
                         chartKey="crash_free_sessions"
-                        refreshKey={refreshKey}
                     />
                 </div>
             </div>

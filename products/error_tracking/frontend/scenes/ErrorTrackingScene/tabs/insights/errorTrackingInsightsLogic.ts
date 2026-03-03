@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -8,21 +8,20 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { Params } from 'scenes/sceneTypes'
 
-import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+import { HogQLQueryResponse, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, UniversalFiltersGroup } from '~/types'
 
-import { issueFiltersLogic } from '../../../../components/IssueFilters/issueFiltersLogic'
+import {
+    DEFAULT_DATE_RANGE,
+    DEFAULT_FILTER_GROUP,
+    DEFAULT_TEST_ACCOUNT,
+    issueFiltersLogic,
+} from '../../../../components/IssueFilters/issueFiltersLogic'
 import { syncSearchParams, updateSearchParams } from '../../../../utils'
 import type { errorTrackingInsightsLogicType } from './errorTrackingInsightsLogicType'
+import { buildCrashFreeSessionsQuery, buildExceptionVolumeQuery, InsightQueryFilters } from './queries'
 
 export const INSIGHTS_LOGIC_KEY = 'insights'
-
-const DEFAULT_DATE_RANGE = { date_from: '-7d', date_to: null }
-const DEFAULT_FILTER_GROUP = {
-    type: FilterLogicalOperator.And,
-    values: [{ type: FilterLogicalOperator.And, values: [] }],
-}
-const DEFAULT_FILTER_TEST_ACCOUNTS = false
 
 export interface InsightsSummaryStats {
     totalExceptions: number
@@ -53,17 +52,23 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         ],
     })),
 
-    actions({
-        reload: true,
-        incrementRefreshKey: true,
-    }),
-
-    reducers({
-        refreshKey: [
-            0 as number,
-            {
-                incrementRefreshKey: (state) => state + 1,
-            },
+    selectors({
+        insightQueryFilters: [
+            (s) => [s.mergedFilterGroup, s.filterTestAccounts],
+            (mergedFilterGroup, filterTestAccounts): InsightQueryFilters => ({
+                filterGroup: mergedFilterGroup,
+                filterTestAccounts,
+            }),
+        ],
+        exceptionVolumeQuery: [
+            (s) => [s.dateRange, s.insightQueryFilters],
+            (dateRange, filters): InsightVizNode<TrendsQuery> =>
+                buildExceptionVolumeQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
+        ],
+        crashFreeSessionsQuery: [
+            (s) => [s.dateRange, s.insightQueryFilters],
+            (dateRange, filters): InsightVizNode<TrendsQuery> =>
+                buildCrashFreeSessionsQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
         ],
     }),
 
@@ -71,7 +76,8 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         summaryStats: [
             null as InsightsSummaryStats | null,
             {
-                loadSummaryStats: async () => {
+                loadSummaryStats: async (_, breakpoint) => {
+                    await breakpoint(10)
                     const response = await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
@@ -115,10 +121,6 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         setFilterTestAccounts: () => {
             actions.loadSummaryStats()
         },
-        reload: () => {
-            actions.incrementRefreshKey()
-            actions.loadSummaryStats()
-        },
     })),
 
     subscriptions(({ actions }) => ({
@@ -137,7 +139,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             if (!equal(filterGroup, values.filterGroup)) {
                 actions.setFilterGroup(filterGroup)
             }
-            const filterTestAccounts = params.insights_filterTestAccounts ?? DEFAULT_FILTER_TEST_ACCOUNTS
+            const filterTestAccounts = params.insights_filterTestAccounts ?? DEFAULT_TEST_ACCOUNT
             if (!equal(filterTestAccounts, values.filterTestAccounts)) {
                 actions.setFilterTestAccounts(filterTestAccounts)
             }
@@ -153,7 +155,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                     params,
                     'insights_filterTestAccounts',
                     values.filterTestAccounts,
-                    DEFAULT_FILTER_TEST_ACCOUNTS
+                    DEFAULT_TEST_ACCOUNT
                 )
                 return params
             })
