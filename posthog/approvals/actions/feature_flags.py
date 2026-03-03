@@ -20,6 +20,23 @@ class FeatureFlagActionBase(BaseAction):
     target_active_state: bool
 
     @classmethod
+    def check_staleness(
+        cls,
+        intent_data: dict[str, Any],
+        context: Optional[dict[str, Any]] = None,
+    ) -> bool:
+        instance = context.get("instance") if context else None
+        if not instance:
+            return True
+
+        preconditions = intent_data.get("preconditions", {})
+        stored_version = preconditions.get("version")
+        if stored_version is not None and instance.version != stored_version:
+            return True
+
+        return False
+
+    @classmethod
     def validate_intent(
         cls,
         intent_data: dict[str, Any],
