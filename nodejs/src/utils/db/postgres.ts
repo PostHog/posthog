@@ -21,6 +21,7 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'ECONNREFUSED',
     'ETIMEDOUT',
     'query_wait_timeout', // Waiting on PG bouncer to give us a slot
+    'server login has been failing', // PgBouncer cannot authenticate with upstream PG
 ]
 
 export enum PostgresUse {
