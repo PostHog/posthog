@@ -121,6 +121,36 @@ def process_query_model(
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
+    if isinstance(query, HogQLAutocomplete):
+        return get_hogql_autocomplete(query=query, team=team, user=user)
+
+    if isinstance(query, HogQLMetadata):
+        metadata_query = HogQLMetadata.model_validate(query)
+        return get_hogql_metadata(query=metadata_query, team=team, user=user)
+
+    if isinstance(query, DatabaseSchemaQuery):
+        joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
+        database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team), user=user)
+        context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
+        return DatabaseSchemaQueryResponse(
+            tables=database.serialize(context, include_hidden_posthog_tables=True),
+            joins=[
+                DataWarehouseViewLink.model_validate(
+                    {
+                        "id": str(join.id),
+                        "source_table_name": join.source_table_name,
+                        "source_table_key": join.source_table_key,
+                        "joining_table_name": join.joining_table_name,
+                        "joining_table_key": join.joining_table_key,
+                        "field_name": join.field_name,
+                        "configuration": join.configuration,
+                        "created_at": join.created_at.isoformat(),
+                    }
+                )
+                for join in joins
+            ],
+        )
+
     try:
         query_runner = get_query_runner(query, team, limit_context=limit_context)
     except ValueError:  # This query doesn't run via query runner
@@ -157,34 +187,6 @@ def process_query_model(
                 )
             except Exception as e:
                 result = HogQueryResponse(results=f"ERROR: {str(e)}")
-        elif isinstance(query, HogQLAutocomplete):
-            result = get_hogql_autocomplete(query=query, team=team, user=user)
-        elif isinstance(query, HogQLMetadata):
-            metadata_query = HogQLMetadata.model_validate(query)
-            metadata_response = get_hogql_metadata(query=metadata_query, team=team, user=user)
-            result = metadata_response
-        elif isinstance(query, DatabaseSchemaQuery):
-            joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
-            database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team), user=user)
-            context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
-            result = DatabaseSchemaQueryResponse(
-                tables=database.serialize(context, include_hidden_posthog_tables=True),
-                joins=[
-                    DataWarehouseViewLink.model_validate(
-                        {
-                            "id": str(join.id),
-                            "source_table_name": join.source_table_name,
-                            "source_table_key": join.source_table_key,
-                            "joining_table_name": join.joining_table_name,
-                            "joining_table_key": join.joining_table_key,
-                            "field_name": join.field_name,
-                            "configuration": join.configuration,
-                            "created_at": join.created_at.isoformat(),
-                        }
-                    )
-                    for join in joins
-                ],
-            )
         else:
             raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
     else:  # Query runner available - it will handle execution as well as caching
