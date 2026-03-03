@@ -1054,6 +1054,8 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                     bigquery_target_table.parents,
                     primary_key=bigquery_target_table.primary_key,
                     version_key=bigquery_target_table.version_key,
+                    # Do not partition the consumer table to avoid running into quota errors.
+                    time_partitioning=None,
                 )
 
                 if inputs.use_json_type:
