@@ -599,4 +599,186 @@ mod tests {
         let restrictions_after = service.get_restrictions("token1", &event_ctx_now()).await;
         assert!(restrictions_after.is_empty());
     }
+
+    // ========================================================================
+    // start_refresh_task tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_refresh_task_loads_restrictions() {
+        let cancel = CancellationToken::new();
+        let cancel_clone = cancel.clone();
+
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service_clone = service.clone();
+
+        let handle = tokio::spawn(async move {
+            service_clone
+                .start_refresh_task(
+                    move || {
+                        let cancel = cancel_clone.clone();
+                        async move {
+                            cancel.cancel();
+                            let repo = MockRestrictionsRepository::new();
+                            repo.set_entries(
+                                RestrictionType::DropEvent,
+                                Some(vec![make_entry("token1", vec!["analytics"])]),
+                            )
+                            .await;
+                            let result: Arc<dyn EventRestrictionsRepository> = Arc::new(repo);
+                            Ok(result)
+                        }
+                    },
+                    Duration::from_millis(5),
+                    cancel,
+                )
+                .await;
+        });
+
+        handle.await.unwrap();
+
+        let restrictions = service.get_restrictions("token1", &event_ctx_now()).await;
+        assert!(restrictions.contains(RestrictionType::DropEvent));
+
+        let unknown = service.get_restrictions("unknown", &event_ctx_now()).await;
+        assert!(unknown.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_refresh_task_retries_connection_while_fail_open() {
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let cancel = CancellationToken::new();
+        let cancel_clone = cancel.clone();
+        let attempt_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let count_clone = attempt_count.clone();
+
+        let service_clone = service.clone();
+        let handle = tokio::spawn(async move {
+            service_clone
+                .start_refresh_task(
+                    move || {
+                        let n = count_clone.fetch_add(1, Ordering::SeqCst);
+                        let cancel = cancel_clone.clone();
+                        async move {
+                            if n >= 2 {
+                                cancel.cancel();
+                            }
+                            Err(CustomRedisError::Timeout)
+                        }
+                    },
+                    Duration::from_millis(5),
+                    cancel,
+                )
+                .await;
+        });
+
+        handle.await.unwrap();
+
+        let restrictions = service.get_restrictions("token", &event_ctx_now()).await;
+        assert!(restrictions.is_empty());
+        assert!(
+            attempt_count.load(Ordering::SeqCst) >= 2,
+            "should have retried"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_refresh_task_reconnects_after_refresh_failure() {
+        let cancel = CancellationToken::new();
+        let cancel_clone = cancel.clone();
+        let connect_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let count_clone = connect_count.clone();
+
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service_clone = service.clone();
+
+        let handle = tokio::spawn(async move {
+            service_clone
+                .start_refresh_task(
+                    move || {
+                        let n = count_clone.fetch_add(1, Ordering::SeqCst);
+                        let cancel = cancel_clone.clone();
+                        async move {
+                            // First connection succeeds but repo returns all errors,
+                            // second connection triggers shutdown so we can assert.
+                            if n >= 1 {
+                                cancel.cancel();
+                            }
+                            let repo = MockRestrictionsRepository::new();
+                            for rt in RestrictionType::all() {
+                                repo.set_error(rt, CustomRedisError::Timeout).await;
+                            }
+                            let result: Arc<dyn EventRestrictionsRepository> = Arc::new(repo);
+                            Ok(result)
+                        }
+                    },
+                    Duration::from_millis(5),
+                    cancel,
+                )
+                .await;
+        });
+
+        handle.await.unwrap();
+
+        assert!(
+            connect_count.load(Ordering::SeqCst) >= 2,
+            "should have reconnected after refresh failure"
+        );
+        // Service never got a successful refresh, so it stays fail-open
+        let restrictions = service.get_restrictions("token", &event_ctx_now()).await;
+        assert!(restrictions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_refresh_task_fail_open_then_recover() {
+        let cancel = CancellationToken::new();
+        let cancel_clone = cancel.clone();
+        let attempt_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let count_clone = attempt_count.clone();
+
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service_clone = service.clone();
+
+        let handle = tokio::spawn(async move {
+            service_clone
+                .start_refresh_task(
+                    move || {
+                        let n = count_clone.fetch_add(1, Ordering::SeqCst);
+                        let cancel = cancel_clone.clone();
+                        async move {
+                            if n < 2 {
+                                // First two attempts fail (simulating Redis down)
+                                return Err(CustomRedisError::Timeout);
+                            }
+                            // Third attempt succeeds with restrictions
+                            cancel.cancel();
+                            let repo = MockRestrictionsRepository::new();
+                            repo.set_entries(
+                                RestrictionType::ForceOverflow,
+                                Some(vec![make_entry("token1", vec!["analytics"])]),
+                            )
+                            .await;
+                            let result: Arc<dyn EventRestrictionsRepository> = Arc::new(repo);
+                            Ok(result)
+                        }
+                    },
+                    Duration::from_millis(5),
+                    cancel,
+                )
+                .await;
+        });
+
+        handle.await.unwrap();
+
+        assert!(
+            attempt_count.load(Ordering::SeqCst) >= 3,
+            "should have attempted at least 3 times"
+        );
+        // After recovery, restrictions should be active
+        let restrictions = service.get_restrictions("token1", &event_ctx_now()).await;
+        assert!(
+            restrictions.contains(RestrictionType::ForceOverflow),
+            "restrictions should be active after recovery"
+        );
+    }
 }
