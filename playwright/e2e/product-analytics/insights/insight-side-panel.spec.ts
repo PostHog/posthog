@@ -1,5 +1,6 @@
 import { NodeKind } from '../../../../frontend/src/queries/schema/schema-general'
 import { InsightPage } from '../../../page-models/insightPage'
+import { randomString } from '../../../utils'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'
 
 test.describe('Insight side panel actions', () => {
@@ -56,11 +57,12 @@ test.describe('Insight side panel actions', () => {
 
     test('Favorite insight from side panel shows in favorites list', async ({ page }) => {
         const insight = new InsightPage(page)
+        const insightName = randomString('Favorite Test')
 
         await test.step('create and save insight', async () => {
             await insight.goToNewTrends()
             await insight.trends.waitForChart()
-            await insight.editName('Side Panel Favorite Test')
+            await insight.editName(insightName)
             await insight.save()
             await insight.trends.waitForChart()
             await expect(insight.editButton).toBeVisible()
@@ -70,13 +72,14 @@ test.describe('Insight side panel actions', () => {
             await insight.openInfoPanel()
             const favoriteButton = page.getByTestId('insight-favorite-button')
             await expect(favoriteButton).toBeVisible()
-            await favoriteButton.click()
+            await favoriteButton.click({ force: true })
+            await expect(favoriteButton).toHaveAttribute('data-active', 'true')
         })
 
         await test.step('insight appears in favorites list on product analytics page', async () => {
             await page.goto('/insights')
             await page.getByRole('button', { name: 'Favorites' }).click()
-            await expect(page.getByText('Side Panel Favorite Test')).toBeVisible()
+            await expect(page.getByText(insightName)).toBeVisible()
         })
     })
 
