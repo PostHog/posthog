@@ -72,6 +72,49 @@ class ExperimentService:
                 raise ValidationError("Feature flag variants must contain a control variant")
 
     @staticmethod
+    def validate_experiment_phases(phases: list | None) -> None:
+        """Validate experiment phase boundaries and ordering."""
+        if phases is None or phases == []:
+            return
+
+        if not isinstance(phases, list):
+            raise ValidationError("Phases must be a list")
+
+        for i, phase in enumerate(phases):
+            if not isinstance(phase, dict):
+                raise ValidationError(f"Phase {i} must be an object")
+
+            if "start_date" not in phase:
+                raise ValidationError(f"Phase {i} must have a start_date")
+
+            try:
+                start = datetime.fromisoformat(phase["start_date"])
+            except (ValueError, TypeError):
+                raise ValidationError(f"Phase {i} has an invalid start_date")
+
+            end = None
+            if phase.get("end_date") is not None:
+                try:
+                    end = datetime.fromisoformat(phase["end_date"])
+                except (ValueError, TypeError):
+                    raise ValidationError(f"Phase {i} has an invalid end_date")
+
+                if end <= start:
+                    raise ValidationError(f"Phase {i} end_date must be after start_date")
+
+            if phase.get("end_date") is None and i < len(phases) - 1:
+                raise ValidationError(f"Phase {i} must have an end_date (only the last phase can be open)")
+
+            if i > 0:
+                prev_end = phases[i - 1].get("end_date")
+                if prev_end is None:
+                    raise ValidationError(f"Phase {i - 1} must have an end_date before another phase can follow")
+                if phase["start_date"] != prev_end:
+                    raise ValidationError(
+                        f"Phase {i} start_date must equal Phase {i - 1} end_date (phases must be contiguous)"
+                    )
+
+    @staticmethod
     def validate_experiment_exposure_criteria(exposure_criteria: dict | None) -> None:
         """Validate experiment exposure criteria payloads."""
         if not exposure_criteria:
@@ -610,6 +653,9 @@ class ExperimentService:
                 "Restore the feature flag first, then restore the experiment."
             )
 
+        if "phases" in update_data:
+            self.validate_experiment_phases(update_data["phases"])
+
         expected_keys = {
             "name",
             "description",
@@ -626,6 +672,7 @@ class ExperimentService:
             "metrics_secondary",
             "stats_config",
             "scheduling_config",
+            "phases",
             "conclusion",
             "conclusion_comment",
             "primary_metrics_ordered_uuids",

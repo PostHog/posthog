@@ -69,6 +69,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     stats_config = models.JSONField(default=dict, null=True, blank=True)
     scheduling_config = models.JSONField(default=dict, null=True, blank=True)
+    phases = models.JSONField(default=list, null=True, blank=True)
 
     exposure_preaggregation_enabled = models.BooleanField(default=False)
 

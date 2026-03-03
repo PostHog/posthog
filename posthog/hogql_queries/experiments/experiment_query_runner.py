@@ -1,11 +1,13 @@
 from datetime import UTC, datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CachedExperimentQueryResponse,
+    DateRange,
     ExperimentBreakdownResult,
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
@@ -107,7 +109,7 @@ class ExperimentQueryRunner(QueryRunner):
         stats_config = self.experiment.stats_config or {}
         self.baseline_variant_key = stats_config.get("baseline_variant_key", CONTROL_VARIANT_KEY)
 
-        self.date_range = get_experiment_date_range(self.experiment, self.team, self.override_end_date)
+        self.date_range = self._resolve_date_range()
         self.date_range_query = QueryDateRange(
             date_range=self.date_range,
             team=self.team,
@@ -142,6 +144,30 @@ class ExperimentQueryRunner(QueryRunner):
 
         self.clickhouse_sql: str | None = None
         self.hogql: str | None = None
+
+    def _resolve_date_range(self) -> DateRange:
+        phase_index = self.query.phase_index
+        phases = self.experiment.phases or []
+
+        if phase_index is not None and 0 <= phase_index < len(phases):
+            phase = phases[phase_index]
+            tz = ZoneInfo(self.team.timezone) if self.team.timezone else None
+
+            start_dt = datetime.fromisoformat(phase["start_date"])
+            start_date = start_dt.astimezone(tz) if tz else start_dt
+
+            end_date = None
+            if phase.get("end_date"):
+                end_dt = datetime.fromisoformat(phase["end_date"])
+                end_date = end_dt.astimezone(tz) if tz else end_dt
+
+            return DateRange(
+                date_from=start_date.isoformat(),
+                date_to=end_date.isoformat() if end_date else None,
+                explicitDate=True,
+            )
+
+        return get_experiment_date_range(self.experiment, self.team, self.override_end_date)
 
     def _get_breakdowns_for_builder(self) -> list | None:
         """Extract and validate breakdowns from metric configuration."""

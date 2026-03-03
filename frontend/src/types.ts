@@ -4367,11 +4367,19 @@ export interface Experiment {
     scheduling_config?: {
         timeseries?: boolean
     }
+    phases?: ExperimentPhase[]
     exposure_preaggregation_enabled?: boolean
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
     user_access_level: AccessControlLevel
+}
+
+export interface ExperimentPhase {
+    start_date: string
+    end_date: string | null
+    name?: string
+    reason?: string
 }
 
 export interface ExperimentVelocityStats {

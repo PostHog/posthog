@@ -11,6 +11,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Label } from 'lib/ui/Label/Label'
 
 import { experimentLogic } from '../experimentLogic'
+import { ExperimentPhaseSelector } from './ExperimentPhaseSelector'
 
 interface DateButtonProps {
     date: string | null | undefined
@@ -82,12 +83,13 @@ export const ExperimentDuration = (): JSX.Element => {
     return (
         <div>
             <Label intent="menu">Duration</Label>
-            <div className="flex gap-2 items-center">
+            <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                     <DateButton date={start_date} type="start" onChange={changeExperimentStartDate} />
                     <IconArrowRight className="text-base" />
                     <DateButton date={end_date} type="end" onChange={changeExperimentEndDate} />
                 </div>
+                <ExperimentPhaseSelector />
             </div>
         </div>
     )

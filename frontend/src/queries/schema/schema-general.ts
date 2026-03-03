@@ -3253,6 +3253,8 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     metric: ExperimentMetric
     experiment_id?: integer
     name?: string
+    /** 0-based index into the experiment's phases array. null/undefined = full experiment range */
+    phase_index?: integer
 }
 
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {

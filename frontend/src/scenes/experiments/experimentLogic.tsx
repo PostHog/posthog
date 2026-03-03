@@ -192,6 +192,7 @@ interface MetricLoadingConfig {
     isPrimary: boolean
     isRetry: boolean
     metricIndexOffset: number
+    phaseIndex?: number | null
     onSetLegacyResults: (
         results: (
             | CachedLegacyExperimentQueryResponse
@@ -273,6 +274,7 @@ const loadMetrics = async ({
     isPrimary,
     isRetry,
     metricIndexOffset,
+    phaseIndex,
     onSetLegacyResults,
     onSetResults,
     onSetErrors,
@@ -305,6 +307,7 @@ const loadMetrics = async ({
                         kind: NodeKind.ExperimentQuery,
                         metric: metric,
                         experiment_id: experimentId,
+                        ...(phaseIndex != null ? { phase_index: phaseIndex } : {}),
                     }
                 } else {
                     queryWithExperimentId = {
@@ -617,6 +620,11 @@ export const experimentLogic = kea<experimentLogicType>([
         setFeatureFlagValidationError: (error: string) => ({ error }),
         validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
         setHogfettiTrigger: (trigger: (() => void) | null) => ({ trigger }),
+        // PHASES
+        setSelectedPhaseIndex: (phaseIndex: number | null) => ({ phaseIndex }),
+        addPhase: (phaseStartDate: string, name?: string, reason?: string) => ({ phaseStartDate, name, reason }),
+        openAddPhaseModal: true,
+        closeAddPhaseModal: true,
         // METRICS
         setMetric: ({
             uuid,
@@ -1212,10 +1220,37 @@ export const experimentLogic = kea<experimentLogicType>([
                 setPageVisibility: (_, { visible }) => visible,
             },
         ],
+        selectedPhaseIndex: [
+            null as number | null,
+            {
+                setSelectedPhaseIndex: (_, { phaseIndex }) => phaseIndex,
+                loadExperimentSuccess: () => null,
+            },
+        ],
+        isAddPhaseModalOpen: [
+            false,
+            {
+                openAddPhaseModal: () => true,
+                closeAddPhaseModal: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions, asyncActions, cache }) => ({
         beforeUnmount: () => {
             actions.stopAutoRefreshInterval()
+        },
+        addPhase: async ({ phaseStartDate, name, reason }) => {
+            const response = await api.create(
+                `api/projects/${values.currentProjectId}/experiments/${values.experimentId}/add_phase`,
+                { phase_start_date: phaseStartDate, name, reason }
+            )
+            actions.setExperiment(response)
+            actions.closeAddPhaseModal()
+            lemonToast.success('Phase added successfully')
+            actions.refreshExperimentResults(true)
+        },
+        setSelectedPhaseIndex: () => {
+            actions.refreshExperimentResults(true)
         },
         setFeatureFlagActive: async ({ isActive }) => {
             if (!values.experiment.feature_flag) {
@@ -1822,6 +1857,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: true,
                 isRetry: false,
                 metricIndexOffset: 0,
+                phaseIndex: values.selectedPhaseIndex,
                 onSetLegacyResults: actions.setLegacyPrimaryMetricsResults,
                 onSetResults: actions.setPrimaryMetricsResults,
                 onSetErrors: actions.setPrimaryMetricsResultsErrors,
@@ -1860,6 +1896,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: false,
                 isRetry: false,
                 metricIndexOffset: 0,
+                phaseIndex: values.selectedPhaseIndex,
                 onSetLegacyResults: actions.setLegacySecondaryMetricsResults,
                 onSetResults: actions.setSecondaryMetricsResults,
                 onSetErrors: actions.setSecondaryMetricsResultsErrors,
@@ -1907,6 +1944,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: true,
                 isRetry: true,
                 metricIndexOffset: index,
+                phaseIndex: values.selectedPhaseIndex,
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacyPrimaryMetricsResults(currentLegacyResults)
@@ -1955,6 +1993,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: false,
                 isRetry: true,
                 metricIndexOffset: index,
+                phaseIndex: values.selectedPhaseIndex,
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacySecondaryMetricsResults(currentLegacyResults)
@@ -2174,14 +2213,17 @@ export const experimentLogic = kea<experimentLogicType>([
                         return
                     }
 
+                    const selectedPhase =
+                        values.selectedPhaseIndex != null ? experiment.phases?.[values.selectedPhaseIndex] : null
+
                     const query = setLatestVersionsOnQuery({
                         kind: NodeKind.ExperimentExposureQuery,
                         experiment_id: values.experimentId,
                         experiment_name: experiment.name,
                         exposure_criteria: experiment.exposure_criteria,
                         feature_flag: experiment.feature_flag,
-                        start_date: experiment.start_date,
-                        end_date: experiment.end_date,
+                        start_date: selectedPhase?.start_date ?? experiment.start_date,
+                        end_date: selectedPhase?.end_date ?? experiment.end_date,
                         holdout: experiment.holdout,
                     })
                     return await performQuery(query, undefined, refresh ? 'force_async' : 'async')

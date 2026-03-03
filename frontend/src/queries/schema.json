@@ -14852,6 +14852,10 @@
                 "name": {
                     "type": "string"
                 },
+                "phase_index": {
+                    "$ref": "#/definitions/integer",
+                    "description": "0-based index into the experiment's phases array. null/undefined = full experiment range"
+                },
                 "response": {
                     "$ref": "#/definitions/ExperimentQueryResponse"
                 },

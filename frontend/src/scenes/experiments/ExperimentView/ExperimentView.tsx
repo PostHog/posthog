@@ -40,6 +40,7 @@ import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimese
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
+import { AddPhaseModal } from './AddPhaseModal'
 import {
     EditConclusionModal,
     LegacyExploreButton,
@@ -427,6 +428,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                     <ReleaseConditionsModal />
 
                     <EditConclusionModal />
+                    <AddPhaseModal />
 
                     <VariantDeltaTimeseries />
                 </>

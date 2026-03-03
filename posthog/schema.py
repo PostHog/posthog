@@ -18188,6 +18188,10 @@ class ExperimentQuery(BaseModel):
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None
+    phase_index: int | None = Field(
+        default=None,
+        description=("0-based index into the experiment's phases array. null/undefined = full experiment range"),
+    )
     response: ExperimentQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
