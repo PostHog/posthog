@@ -216,7 +216,7 @@ export function SurveyDisplaySummary({
                     </div>
                 </div>
             )}
-            {survey.appearance?.surveyPopupDelaySeconds && (
+            {!!survey.appearance?.surveyPopupDelaySeconds && (
                 <div className="flex flex-col font-medium gap-1">
                     <div className="flex-row">
                         <span>Delay before showing:</span>{' '}
