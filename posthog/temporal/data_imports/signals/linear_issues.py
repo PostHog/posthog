@@ -49,12 +49,12 @@ EXTRA_FIELDS = (
     "identifier",
     "number",
     "priority",
-    "priorityLabel",
+    "priority_label",
     "labels",
     "state",
     "team",
-    "createdAt",
-    "updatedAt",
+    "created_at",
+    "updated_at",
 )
 
 
@@ -85,7 +85,7 @@ def linear_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
 
 LINEAR_ISSUES_CONFIG = SignalSourceTableConfig(
     emitter=linear_issue_emitter,
-    partition_field="createdAt",
+    partition_field="created_at",
     partition_field_is_datetime_string=True,
     fields=REQUIRED_FIELDS + EXTRA_FIELDS,
     where_clause=f"JSONExtractString(state, 'type') NOT IN ({', '.join(repr(s) for s in LINEAR_IGNORED_STATE_TYPES)})",

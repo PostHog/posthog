@@ -71,18 +71,18 @@ MOCK_LINEAR_ISSUE_RECORD: dict = {
         "also shows incorrect dates. Reproducible in both Chrome and Safari."
     ),
     "priority": 2,
-    "priorityLabel": "High",
+    "priority_label": "High",
     "number": 42,
     "url": "https://linear.app/acme/issue/ENG-42",
     "state": '{"id": "state-1", "name": "In Progress", "type": "started", "color": "#f2c94c"}',
     "team": '{"id": "team-1", "name": "Engineering", "key": "ENG"}',
     "labels": '{"nodes": [{"id": "label-1", "name": "bug", "color": "#eb5757"}]}',
     "assignee": '{"id": "user-1", "name": "Jane Doe", "email": "jane@acme.com"}',
-    "createdAt": "2025-06-10T14:30:00.000Z",
-    "updatedAt": "2025-06-11T09:15:00.000Z",
+    "created_at": "2025-06-10T14:30:00.000Z",
+    "updated_at": "2025-06-11T09:15:00.000Z",
     "estimate": 3,
-    "completedAt": None,
-    "canceledAt": None,
+    "completed_at": None,
+    "canceled_at": None,
 }
 
 
