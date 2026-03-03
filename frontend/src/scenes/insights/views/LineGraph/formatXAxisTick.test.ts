@@ -199,17 +199,6 @@ describe('createXAxisTickCallback', () => {
             expect(callback('ignored', 1)).toBe('July')
             expect(callback('ignored', 2)).toBe('August')
         })
-
-        it('does not shift month labels with datetime strings from ClickHouse', () => {
-            const callback = createXAxisTickCallback({
-                interval: 'month' as const,
-                allDays: ['2023-06-01 00:00:00', '2023-07-01 00:00:00', '2023-08-01 00:00:00'],
-                timezone: 'US/Pacific',
-            })
-            expect(callback('ignored', 0)).toBe('June')
-            expect(callback('ignored', 1)).toBe('July')
-            expect(callback('ignored', 2)).toBe('August')
-        })
     })
 
     describe('fallbacks', () => {

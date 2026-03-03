@@ -25,16 +25,16 @@ export function createXAxisTickCallback({
         return (value) => String(value)
     }
 
-    // Only convert sub-day dates from UTC; converting day/week/month dates shifts labels across month boundaries.
-    const isSubDay = interval === 'hour' || interval === 'minute' || interval === 'second'
+    // Datetime strings (with time component) are UTC from ClickHouse — convert to project timezone.
+    // Date-only strings are calendar bucket labels — parse as midnight in the project timezone
+    // so that e.g. "2023-07-01" stays July and doesn't drift to June in behind-UTC timezones.
     const parsedDates = allDays.map((d) => {
-        if (isSubDay) {
+        const hasTime = d.includes(' ') || d.includes('T')
+        if (hasTime) {
             return dayjsUtcToTimezone(d, timezone, false)
         }
         try {
-            // Append time so JS doesn't parse date-only strings as UTC (ISO 8601 quirk)
-            const withTime = d.includes(' ') || d.includes('T') ? d : d + ' 00:00:00'
-            return dayjs.tz(withTime, timezone)
+            return dayjs.tz(d + ' 00:00:00', timezone)
         } catch {
             return dayjs(null)
         }
