@@ -10,6 +10,7 @@ from posthog.models.organization import Organization
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.user_repo_preference import UserRepoPreference
 
 from products.slack_app.backend.api import (
     RulesCommand,
@@ -265,6 +266,74 @@ class TestSelectRepository:
         assert decision.reason == "no_repos"
         assert decision.llm_found_match is False
 
+    def test_user_default_preference(self):
+        user = User.objects.create(email="pref@example.com", distinct_id="pref-user")
+        UserRepoPreference.set_default(
+            team_id=self.team.id,
+            user_id=user.id,
+            scope_type="slack_channel",
+            scope_id="C001",
+            repository="posthog/posthog-js",
+        )
+
+        decision = select_repository(
+            event_text="fix the bug",
+            thread_messages=self.thread_messages,
+            integration=self.slack_integration,
+            all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
+            user_id=user.id,
+            channel="C001",
+        )
+
+        assert decision.mode == "auto"
+        assert decision.repository == "posthog/posthog-js"
+        assert decision.reason == "user_default"
+        assert decision.llm_found_match is False
+
+    def test_user_default_ignored_when_repo_not_connected(self):
+        user = User.objects.create(email="pref2@example.com", distinct_id="pref-user-2")
+        UserRepoPreference.set_default(
+            team_id=self.team.id,
+            user_id=user.id,
+            scope_type="slack_channel",
+            scope_id="C001",
+            repository="posthog/disconnected-repo",
+        )
+
+        decision = select_repository(
+            event_text="fix the bug",
+            thread_messages=self.thread_messages,
+            integration=self.slack_integration,
+            all_repos=["posthog/posthog", "posthog/posthog-js"],
+            user_id=user.id,
+            channel="C001",
+        )
+
+        assert decision.reason != "user_default"
+
+    def test_explicit_mention_takes_precedence_over_user_default(self):
+        user = User.objects.create(email="pref3@example.com", distinct_id="pref-user-3")
+        UserRepoPreference.set_default(
+            team_id=self.team.id,
+            user_id=user.id,
+            scope_type="slack_channel",
+            scope_id="C001",
+            repository="posthog/posthog",
+        )
+
+        decision = select_repository(
+            event_text="fix posthog/posthog-js",
+            thread_messages=self.thread_messages,
+            integration=self.slack_integration,
+            all_repos=["posthog/posthog", "posthog/posthog-js"],
+            user_id=user.id,
+            channel="C001",
+        )
+
+        assert decision.mode == "auto"
+        assert decision.repository == "posthog/posthog-js"
+        assert decision.reason == "explicit_mention"
+
 
 class TestMatchRepoRule:
     @pytest.fixture(autouse=True)
@@ -417,6 +486,20 @@ class TestParseRulesCommand:
             ("help", "help", RulesCommand(action="help")),
             ("help_case_insensitive", "Help", RulesCommand(action="help")),
             ("bot_mention_help", "<@U123BOT> help", RulesCommand(action="help")),
+            (
+                "default_repo_set",
+                "default repo set org/repo",
+                RulesCommand(action="default_set", repository="org/repo"),
+            ),
+            (
+                "default_repo_set_bot",
+                "<@U123BOT> default repo set my-org/my.repo",
+                RulesCommand(action="default_set", repository="my-org/my.repo"),
+            ),
+            ("default_repo_show", "default repo show", RulesCommand(action="default_show")),
+            ("default_repo_show_bot", "<@U123BOT> default repo show", RulesCommand(action="default_show")),
+            ("default_repo_clear", "default repo clear", RulesCommand(action="default_clear")),
+            ("default_repo_clear_bot", "<@U123BOT> default repo clear", RulesCommand(action="default_clear")),
         ]
     )
     def test_parses_command(self, _name, text, expected):
@@ -431,7 +514,6 @@ class TestParseRulesCommand:
             ("unknown_action", "rules delete"),
             ("add_no_quotes", "rules add JS issues org/repo"),
             ("remove_no_number", "rules remove"),
-            ("old_default_repo", "default repo show"),
         ]
     )
     def test_returns_none_for_non_commands(self, _name, text):

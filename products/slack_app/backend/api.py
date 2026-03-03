@@ -75,7 +75,7 @@ class RepoDecision:
 
 @dataclass
 class RulesCommand:
-    action: Literal["list", "add", "remove", "help"]
+    action: Literal["list", "add", "remove", "help", "default_set", "default_show", "default_clear"]
     rule_text: str | None = None
     repository: str | None = None
     rule_number: int | None = None
@@ -670,6 +670,20 @@ def _parse_rules_command(text: str) -> RulesCommand | None:
     if remove_match:
         return RulesCommand(action="remove", rule_number=int(remove_match.group(1)))
 
+    default_set_match = re.fullmatch(
+        r"default\s+repo\s+set\s+([\w.-]+/[\w.-]+)",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if default_set_match:
+        return RulesCommand(action="default_set", repository=default_set_match.group(1))
+
+    if re.fullmatch(r"default\s+repo\s+show", cleaned, flags=re.IGNORECASE):
+        return RulesCommand(action="default_show")
+
+    if re.fullmatch(r"default\s+repo\s+clear", cleaned, flags=re.IGNORECASE):
+        return RulesCommand(action="default_clear")
+
     if re.fullmatch(r"help", cleaned, flags=re.IGNORECASE):
         return RulesCommand(action="help")
 
@@ -827,6 +841,8 @@ def select_repository(
     thread_messages: list[dict[str, str]],
     integration: Integration,
     all_repos: list[str],
+    user_id: int | None = None,
+    channel: str = "",
 ) -> RepoDecision:
     if not all_repos:
         return RepoDecision(mode="picker", repository=None, reason="no_repos", llm_found_match=False)
@@ -837,6 +853,18 @@ def select_repository(
     explicit_repo = _extract_explicit_repo(event_text, all_repos)
     if explicit_repo:
         return RepoDecision(mode="auto", repository=explicit_repo, reason="explicit_mention", llm_found_match=False)
+
+    if user_id and channel:
+        from posthog.models.user_repo_preference import UserRepoPreference
+
+        default = UserRepoPreference.get_default(
+            team_id=integration.team_id,
+            user_id=user_id,
+            scope_type="slack_channel",
+            scope_id=channel,
+        )
+        if default and default in all_repos:
+            return RepoDecision(mode="auto", repository=default, reason="user_default", llm_found_match=False)
 
     matched = _match_repo_rule(event_text, thread_messages, integration.team_id, all_repos)
     if matched:
