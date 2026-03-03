@@ -168,7 +168,7 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
 }
 
 export function SurveyQuestionVisualization({ question, questionIndex, demoData }: Props): JSX.Element | null {
-    const { consolidatedSurveyResults, consolidatedSurveyResultsLoading, surveyBaseStatsLoading } =
+    const { enrichedConsolidatedSurveyResults, consolidatedSurveyResultsLoading, surveyBaseStatsLoading } =
         useValues(surveyLogic)
 
     if (demoData) {
@@ -216,7 +216,7 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
     }
 
     const processedData: QuestionProcessedResponses | undefined =
-        consolidatedSurveyResults?.responsesByQuestion[question.id]
+        enrichedConsolidatedSurveyResults?.responsesByQuestion[question.id]
 
     if (consolidatedSurveyResultsLoading || surveyBaseStatsLoading || !processedData) {
         return (

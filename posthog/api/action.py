@@ -132,6 +132,8 @@ class ActionSerializer(
             validated_data["created_by"],
             "action created",
             {**instance.get_analytics_metadata(), "creation_context": creation_context},
+            team=instance.team,
+            request=self.context["request"],
         )
 
         return instance
@@ -154,6 +156,8 @@ class ActionSerializer(
                 **instance.get_analytics_metadata(),
                 "updated_by_creator": self.context["request"].user == instance.created_by,
             },
+            team=instance.team,
+            request=self.context["request"],
         )
         return instance
 

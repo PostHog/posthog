@@ -6915,6 +6915,7 @@ class TrendsFilter(BaseModel):
     formulas: list[str] | None = None
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
+    hideWeekends: bool | None = False
     minDecimalPlaces: float | None = None
     movingAverageIntervals: float | None = None
     resultCustomizationBy: ResultCustomizationBy | None = Field(
