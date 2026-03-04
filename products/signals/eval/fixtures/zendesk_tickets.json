@@ -42,5 +42,27 @@
     "created_at": "2026-01-28T00:48:51+00:00",
     "priority": "low",
     "status": "open"
+  },
+  {
+    "id": "00005",
+    "subject": "Requesting a refund for last month's invoice",
+    "description": "Hi there,\n\nI'd like to request a refund for our last invoice (INV-2026-00412). We were charged $847.00 on Feb 1st but we had already downgraded our plan to the free tier on Jan 25th. Could you please process the refund to the card on file?\n\nOur organization ID is 00000000-0000-0000-0000-000000000099.\n\nThank you,\nJane Doe\nFinance Team, Initech Corp\n\n-----\nKind: billing\nAdmin: https://us.posthog.com/admin/posthog/user/000099/change/ (organization ID 00000000-0000-0000-0000-000000000099: Initech Corp, project ID 00099: Production)",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00005.json",
+    "type": null,
+    "tags": "[\"billing\",\"low\",\"org-checked\",\"plan_free\",\"priority_g_free\",\"refund_request\"]",
+    "created_at": "2026-02-03T10:15:22+00:00",
+    "priority": "low",
+    "status": "open"
+  },
+  {
+    "id": "00006",
+    "subject": "Re: Your PostHog support request has been resolved",
+    "description": "Thanks so much for the quick help! Everything is working perfectly now. Really appreciate the support team's responsiveness.\n\nBest regards,\nMike\n\n---\nOn Mon, Feb 3, 2026 at 2:30 PM PostHog Support <support@posthog.com> wrote:\n> Hi Mike,\n> Your support request #43210 has been marked as resolved. If you have any further questions, feel free to reopen this ticket.\n> Thanks for using PostHog!\n> - The PostHog Support Team\n\n-----\nKind: support\nAdmin: https://us.posthog.com/admin/posthog/user/000100/change/ (organization ID 00000000-0000-0000-0000-000000000100: Soylent Corp, project ID 00100: Production)",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00006.json",
+    "type": null,
+    "tags": "[\"ack_email_sent\",\"low\",\"org-checked\",\"pending_solved\",\"plan_pay-as-you-go_paying\",\"priority_f_paying\"]",
+    "created_at": "2026-02-03T14:45:09+00:00",
+    "priority": "low",
+    "status": "solved"
   }
 ]
