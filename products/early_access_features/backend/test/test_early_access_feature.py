@@ -652,8 +652,9 @@ class TestEarlyAccessFeature(APIBaseTest):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "early_access_features",
-                "source": "web",
             },
+            team=ANY,
+            request=ANY,
         )
 
     @patch("posthog.tasks.early_access_feature.send_events_for_early_access_feature_stage_change.delay")
@@ -746,14 +747,12 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         feature_flag2 = FeatureFlag.objects.create(
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket2",
-            rollout_percentage=10,
             created_by=self.user,
         )
         feature = EarlyAccessFeature.objects.create(
@@ -818,7 +817,6 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         feature = EarlyAccessFeature.objects.create(
@@ -865,7 +863,6 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         feature = EarlyAccessFeature.objects.create(
@@ -909,21 +906,18 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         feature_flag2 = FeatureFlag.objects.create(
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket2",
-            rollout_percentage=10,
             created_by=self.user,
         )
         feature_flag3 = FeatureFlag.objects.create(
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket3",
-            rollout_percentage=10,
             created_by=self.user,
         )
         feature = EarlyAccessFeature.objects.create(
@@ -978,7 +972,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, 401)
             self.assertEqual(
                 response.json()["detail"],
-                "Project API key invalid. You can find your project API key in PostHog project settings.",
+                "Project token invalid. You can find your project token in PostHog project settings.",
             )
 
     def test_early_access_features_errors_out_on_no_token(self):
@@ -989,7 +983,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, 401)
             self.assertEqual(
                 response.json()["detail"],
-                "API key not provided. You can find your project API key in PostHog project settings.",
+                "Project token not provided. You can find your project token in PostHog project settings.",
             )
 
     @snapshot_postgres_queries
@@ -1004,7 +998,6 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             team=self.team,
             name=f"Feature Flag for Feature Sprocket",
             key="sprocket",
-            rollout_percentage=0,
             created_by=self.user,
         )
         payload = {"customKey": "customValue", "nested": {"data": 123}}

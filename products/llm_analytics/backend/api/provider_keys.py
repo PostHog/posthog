@@ -67,7 +67,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         return "****"
 
     def validate_api_key(self, value: str) -> str:
-        provider = self.initial_data.get("provider", LLMProvider.OPENAI)
+        provider = self.initial_data.get("provider", self.instance.provider if self.instance else LLMProvider.OPENAI)
 
         if provider == LLMProvider.OPENAI:
             if not value.startswith(("sk-", "sk-proj-")):
@@ -143,7 +143,8 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 "provider_key_id": str(instance.id),
                 "provider": instance.provider,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -164,7 +165,8 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                     "provider": instance.provider,
                     "changed_fields": changed_fields,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
     def perform_destroy(self, instance):
@@ -175,7 +177,8 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 "provider_key_id": str(instance.id),
                 "provider": instance.provider,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
         instance.delete()
 
@@ -205,7 +208,8 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 "provider": instance.provider,
                 "state": instance.state,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
         serializer = self.get_serializer(instance)

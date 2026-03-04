@@ -1,13 +1,13 @@
-import { ParsedMessageData } from '../../session-recording/kafka/types'
 import { TeamForReplay } from '../../session-recording/teams/types'
 import { TeamService } from '../../session-replay/shared/teams/team-service'
+import { EventHeaders } from '../../types'
 import { dlq, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export type TeamTokenResolver = Pick<TeamService, 'getTeamByToken' | 'getRetentionPeriodByTeamId'>
 
 export interface TeamFilterStepInput {
-    parsedMessage: ParsedMessageData
+    headers: EventHeaders
 }
 
 export interface TeamFilterStepOutput {
@@ -27,9 +27,9 @@ export function createTeamFilterStep<T extends TeamFilterStepInput>(
     teamService: TeamTokenResolver
 ): ProcessingStep<T, T & TeamFilterStepOutput> {
     return async function teamFilterStep(input) {
-        const { parsedMessage } = input
+        const { headers } = input
 
-        const token = parsedMessage.token
+        const token = headers.token
         if (!token) {
             // DLQ: Capture should always add a token header. Missing token indicates a bug.
             return dlq('no_token_in_header')

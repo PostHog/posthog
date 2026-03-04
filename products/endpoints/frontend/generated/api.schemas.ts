@@ -7,6 +7,12 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
+ * @nullable
+ */
+export type EndpointRequestApiBucketOverrides = { [key: string]: string } | null | null
+
 export interface DateRangeApi {
     /** @nullable */
     date_from?: string | null
@@ -495,6 +501,14 @@ export const InCohortViaApi = {
     LeftjoinConjoined: 'leftjoin_conjoined',
 } as const
 
+export type InlineCohortCalculationApi = (typeof InlineCohortCalculationApi)[keyof typeof InlineCohortCalculationApi]
+
+export const InlineCohortCalculationApi = {
+    Off: 'off',
+    Auto: 'auto',
+    Always: 'always',
+} as const
+
 export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
 
 export const MaterializationModeApi = {
@@ -580,6 +594,7 @@ export interface HogQLQueryModifiersApi {
     /** @nullable */
     formatCsvAllowDoubleQuotes?: boolean | null
     inCohortVia?: InCohortViaApi | null
+    inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** @nullable */
@@ -1697,6 +1712,7 @@ export const DetailedResultsAggregationTypeApi = {
 export type ChartDisplayTypeApi = (typeof ChartDisplayTypeApi)[keyof typeof ChartDisplayTypeApi]
 
 export const ChartDisplayTypeApi = {
+    Auto: 'Auto',
     ActionsLineGraph: 'ActionsLineGraph',
     ActionsBar: 'ActionsBar',
     ActionsUnstackedBar: 'ActionsUnstackedBar',
@@ -1841,6 +1857,8 @@ export interface TrendsFilterApi {
     goalLines?: GoalLineApi[] | null
     /** @nullable */
     hiddenLegendIndexes?: number[] | null
+    /** @nullable */
+    hideWeekends?: boolean | null
     /** @nullable */
     minDecimalPlaces?: number | null
     /** @nullable */
@@ -2195,6 +2213,7 @@ export const FunnelVizTypeApi = {
     Steps: 'steps',
     TimeToConvert: 'time_to_convert',
     Trends: 'trends',
+    Flow: 'flow',
 } as const
 
 export type FunnelConversionWindowTimeUnitApi =
@@ -2380,6 +2399,8 @@ export const RetentionQueryApiKind = {
 } as const
 
 export interface RetentionValueApi {
+    /** @nullable */
+    aggregation_value?: number | null
     count: number
     /** @nullable */
     label?: string | null
@@ -2417,6 +2438,13 @@ export interface RetentionQueryResponseApi {
      */
     timings?: QueryTimingApi[] | null
 }
+
+export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
+
+export const AggregationPropertyTypeApi = {
+    Event: 'event',
+    Person: 'person',
+} as const
 
 export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
 
@@ -2537,6 +2565,8 @@ export interface RetentionFilterApi {
      * @nullable
      */
     aggregationProperty?: string | null
+    /** The type of property to aggregate on (event or person). Defaults to event. */
+    aggregationPropertyType?: AggregationPropertyTypeApi | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     /** @nullable */
@@ -3392,6 +3422,11 @@ export const DataWarehouseSyncIntervalApi = {
 } as const
 
 export interface EndpointRequestApi {
+    /**
+     * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
+     * @nullable
+     */
+    bucket_overrides?: EndpointRequestApiBucketOverrides
     /** @nullable */
     cache_age_seconds?: number | null
     /** @nullable */
@@ -3499,6 +3534,11 @@ export interface EndpointRunRequestApi {
      * @nullable
      */
     limit?: number | null
+    /**
+     * Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints.
+     * @nullable
+     */
+    offset?: number | null
     refresh?: EndpointRefreshModeApi | null
     /**
    * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.

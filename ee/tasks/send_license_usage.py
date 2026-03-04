@@ -1,12 +1,12 @@
 from django.utils import timezone
 from django.utils.timezone import now
 
-import requests
 import posthoganalytics
 from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import User
+from posthog.security.outbound_proxy import external_requests
 from posthog.settings import SITE_URL
 
 from ee.models.license import License
@@ -31,7 +31,7 @@ def send_license_usage():
             "select count(1) from events where timestamp >= %(date_from)s and timestamp < %(date_to)s and not startsWith(event, '$$')",
             {"date_from": date_from, "date_to": date_to},
         )[0][0]
-        response = requests.post(
+        response = external_requests.post(
             "https://license.posthog.com/licenses/usage",
             data={
                 "date": date_from.strftime("%Y-%m-%d"),

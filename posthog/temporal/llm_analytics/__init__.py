@@ -4,6 +4,7 @@ from posthog.temporal.llm_analytics.run_evaluation import (
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
+    execute_hog_eval_activity,
     execute_llm_judge_activity,
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
@@ -27,6 +28,8 @@ from posthog.temporal.llm_analytics.trace_summarization import (
     summarize_and_save_activity,
 )
 
+from products.signals.backend.temporal.emit_eval_signal import emit_eval_signal_activity
+
 EVAL_WORKFLOWS = [
     RunEvaluationWorkflow,
 ]
@@ -37,8 +40,18 @@ EVAL_ACTIVITIES = [
     disable_evaluation_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
+    execute_hog_eval_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
+    emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
+]
+
+SENTIMENT_WORKFLOWS = [
+    ClassifySentimentWorkflow,
+]
+
+SENTIMENT_ACTIVITIES = [
+    classify_sentiment_activity,
 ]
 
 WORKFLOWS = [
@@ -46,6 +59,7 @@ WORKFLOWS = [
     BatchTraceSummarizationCoordinatorWorkflow,
     DailyTraceClusteringWorkflow,
     TraceClusteringCoordinatorWorkflow,
+    # Keep sentiment workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
     ClassifySentimentWorkflow,
     # Keep eval workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
     RunEvaluationWorkflow,
@@ -64,7 +78,7 @@ ACTIVITIES = [
     perform_clustering_compute_activity,
     generate_cluster_labels_activity,
     emit_cluster_events_activity,
-    # Sentiment activities
+    # Keep sentiment activity registered here temporarily so orphaned workflows on general-purpose queue can complete
     classify_sentiment_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
     fetch_evaluation_activity,
@@ -72,6 +86,8 @@ ACTIVITIES = [
     disable_evaluation_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
+    execute_hog_eval_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
+    emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
 ]

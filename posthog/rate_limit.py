@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import hashlib
 from contextlib import suppress
@@ -369,7 +370,7 @@ class _AIThrottleBase(UserRateThrottle):
     def allow_request(self, request, view):
         request_allowed = super().allow_request(request, view)
         if not request_allowed and request.user.is_authenticated:
-            report_user_action(request.user, self.action_name)
+            report_user_action(request.user, self.action_name, request=request)
         return request_allowed
 
 
@@ -397,6 +398,32 @@ class AIResearchSustainedRateThrottle(_AIThrottleBase):
     action_name = "ai research sustained rate limited"
 
 
+def is_team_exempt_from_ai_rate_limit(team_id: int) -> bool:
+    """Check if a team is exempt from AI rate limits via the posthog-ai-rate-limit-exemptions feature flag."""
+    import posthoganalytics
+
+    from posthog.utils import get_instance_region
+
+    region = get_instance_region()
+    if not region:
+        return False
+
+    raw_payload = posthoganalytics.get_feature_flag_payload("posthog-ai-rate-limit-exemptions", "internal_rate_limits")
+    if raw_payload is None:
+        return False
+
+    try:
+        payload = json.loads(raw_payload) if isinstance(raw_payload, str) else raw_payload
+    except (json.JSONDecodeError, TypeError):
+        return False
+
+    if not isinstance(payload, dict):
+        return False
+
+    exempt_team_ids = payload.get(region, [])
+    return team_id in exempt_team_ids
+
+
 class LLMProxyBurstRateThrottle(UserRateThrottle):
     scope = "llm_proxy_burst"
     rate = "2/minute"
@@ -410,6 +437,21 @@ class LLMProxySustainedRateThrottle(UserRateThrottle):
 class LLMProxyDailyRateThrottle(UserRateThrottle):
     scope = "llm_proxy_daily"
     rate = "20/day"
+
+
+class LLMProxyBYOKBurstRateThrottle(UserRateThrottle):
+    scope = "llm_proxy_byok_burst"
+    rate = "30/minute"
+
+
+class LLMProxyBYOKSustainedRateThrottle(UserRateThrottle):
+    scope = "llm_proxy_byok_sustained"
+    rate = "500/hour"
+
+
+class LLMProxyBYOKDailyRateThrottle(UserRateThrottle):
+    scope = "llm_proxy_byok_daily"
+    rate = "2000/day"
 
 
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
@@ -494,6 +536,16 @@ class LLMAnalyticsSummarizationDailyThrottle(PersonalApiKeyRateThrottle):
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_summarization_daily"
     rate = "500/day"
+
+
+class EventValuesBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "event_values_burst"
+    rate = "60/minute"
+
+
+class EventValuesSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "event_values_sustained"
+    rate = "300/hour"
 
 
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
@@ -636,6 +688,26 @@ class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
     rate = "12000/hour"
 
 
+class MCPOAuthBurstThrottle(UserRateThrottle):
+    scope = "mcp_oauth_burst"
+    rate = "10/minute"
+
+
+class MCPOAuthSustainedThrottle(UserRateThrottle):
+    scope = "mcp_oauth_sustained"
+    rate = "50/hour"
+
+
+class MCPProxyBurstThrottle(UserRateThrottle):
+    scope = "mcp_proxy_burst"
+    rate = "60/minute"
+
+
+class MCPProxySustainedThrottle(UserRateThrottle):
+    scope = "mcp_proxy_sustained"
+    rate = "600/hour"
+
+
 class RestoreRequestThrottle(SimpleRateThrottle):
     """Rate limit restore link requests per email hash to prevent abuse."""
 
@@ -661,3 +733,15 @@ class RestoreRedeemThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         # Throttle by IP
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class CodeInviteRedeemThrottle(UserRateThrottle):
+    scope = "code_invite_redeem"
+    rate = "10/hour"
+
+
+class ToolbarOAuthRefreshThrottle(IPThrottle):
+    """Rate limit the unauthenticated toolbar OAuth refresh endpoint by IP."""
+
+    scope = "toolbar_oauth_refresh"
+    rate = "30/minute"

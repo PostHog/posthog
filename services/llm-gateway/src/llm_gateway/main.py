@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 
 import asyncpg
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
@@ -23,7 +23,11 @@ from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
-from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostThrottle
+from llm_gateway.rate_limiting.cost_throttles import (
+    ProductCostThrottle,
+    UserCostBurstThrottle,
+    UserCostSustainedThrottle,
+)
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.request_context import RequestContext, set_request_context
 
@@ -128,19 +132,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.throttle_runner = ThrottleRunner(
         throttles=[
             ProductCostThrottle(redis=app.state.redis),
-            UserCostThrottle(redis=app.state.redis),
+            UserCostBurstThrottle(redis=app.state.redis),
+            UserCostSustainedThrottle(redis=app.state.redis),
         ]
     )
     logger.info("Throttle runner initialized")
 
     logger.info(
-        "product_cost_limits_configured",
-        limits={
+        "rate_limits_configured",
+        product_cost_limits={
             k: {"limit_usd": v.limit_usd, "window_seconds": v.window_seconds}
             for k, v in settings.product_cost_limits.items()
         },
-        default_user_limit_usd=settings.default_user_cost_limit_usd,
-        default_user_window_seconds=settings.default_user_cost_window_seconds,
+        user_cost_limits={
+            k: {
+                "burst_limit_usd": v.burst_limit_usd,
+                "burst_window_seconds": v.burst_window_seconds,
+                "sustained_limit_usd": v.sustained_limit_usd,
+                "sustained_window_seconds": v.sustained_window_seconds,
+            }
+            for k, v in settings.user_cost_limits.items()
+        },
+        user_cost_limits_disabled=settings.user_cost_limits_disabled,
     )
 
     init_callbacks()
@@ -168,9 +181,24 @@ class ContentSizeLimitMiddleware(BaseHTTPMiddleware):
         if content_length and int(content_length) > self.max_content_size:
             return JSONResponse(
                 status_code=413,
-                content={"detail": "Request body too large"},
+                content={"error": {"message": "Request body too large", "type": "request_too_large"}},
             )
         return await call_next(request)
+
+
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    content = exc.detail
+    if isinstance(content, dict) and "error" in content:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=content,
+            headers=exc.headers,
+        )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": content},
+        headers=exc.headers,
+    )
 
 
 def create_app() -> FastAPI:
@@ -190,6 +218,8 @@ def create_app() -> FastAPI:
         allow_methods=["POST", "GET", "OPTIONS"],
         allow_headers=["*"],
     )
+
+    app.exception_handler(HTTPException)(http_exception_handler)
 
     app.include_router(health_router)
     app.include_router(router)

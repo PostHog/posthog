@@ -3,7 +3,7 @@ import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import { fullName } from 'lib/utils'
 
-import { APIScopeObject, OrganizationMemberType, RoleType } from '~/types'
+import { AccessControlLevel, APIScopeObject, OrganizationMemberType, RoleType } from '~/types'
 
 import { MultiSelectFilterDropdown } from './MultiselectFilterDropdown'
 import { AccessControlFilters as AccessControlFiltersType, AccessControlsTab } from './types'
@@ -17,7 +17,7 @@ export interface AccessControlFiltersProps {
     roles: RoleType[]
     members: OrganizationMemberType[]
     resources: { key: APIScopeObject; label: string }[]
-    ruleOptions: { key: string; label: string }[]
+    ruleOptions: { key: AccessControlLevel; label: string }[]
     canUseRoles: boolean
 }
 
@@ -59,7 +59,7 @@ export function AccessControlFilters(props: AccessControlFiltersProps): JSX.Elem
 
                 <AccessLevelFilter
                     selectedRuleLevels={props.filters.ruleLevels}
-                    setSelectedRuleLevels={(values) => props.setFilters({ ruleLevels: values })}
+                    setSelectedRuleLevels={(values) => props.setFilters({ ruleLevels: values as AccessControlLevel[] })}
                     ruleOptions={props.ruleOptions}
                 />
             </div>
@@ -119,7 +119,7 @@ function MembersFilter(props: {
                     setValues={props.setSelectedMemberIds}
                     options={props.members.map((member) => ({
                         key: member.id,
-                        label: fullName(member.user),
+                        label: fullName(member.user) || member.user.email,
                     }))}
                 />
             }
@@ -158,9 +158,9 @@ function FeaturesFilter(props: {
 }
 
 function AccessLevelFilter(props: {
-    selectedRuleLevels: string[]
-    setSelectedRuleLevels: (values: string[]) => void
-    ruleOptions: { key: string; label: string }[]
+    selectedRuleLevels: AccessControlLevel[]
+    setSelectedRuleLevels: (values: AccessControlLevel[]) => void
+    ruleOptions: { key: AccessControlLevel; label: string }[]
 }): JSX.Element {
     return (
         <LemonDropdown

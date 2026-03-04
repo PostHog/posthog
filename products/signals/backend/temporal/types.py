@@ -24,14 +24,56 @@ class SignalCandidate:
 
 
 @dataclass
+class ReportContext:
+    """Lightweight context about a report for group-aware matching."""
+
+    report_id: str
+    title: str
+    signal_count: int
+
+
+@dataclass
+class SpecificityMetadata:
+    """Result of the PR-specificity verification gate."""
+
+    pr_title: str
+    specific_enough: bool
+    reason: str
+
+
+@dataclass
+class MatchedMetadata:
+    """Metadata when a signal was matched to an existing report via a parent signal."""
+
+    parent_signal_id: str
+    match_query: str
+    reason: str
+    specificity: Optional[SpecificityMetadata] = None
+
+
+@dataclass
+class NoMatchMetadata:
+    """Metadata when no existing signals matched and a new report was created."""
+
+    reason: str
+    rejected_signal_ids: list[str] = field(default_factory=list)
+    specificity_rejection: Optional[SpecificityMetadata] = None
+
+
+MatchMetadata = MatchedMetadata | NoMatchMetadata
+
+
+@dataclass
 class ExistingReportMatch:
     report_id: str
+    match_metadata: MatchedMetadata
 
 
 @dataclass
 class NewReportMatch:
     title: str
     summary: str
+    match_metadata: NoMatchMetadata
 
 
 MatchResult = ExistingReportMatch | NewReportMatch

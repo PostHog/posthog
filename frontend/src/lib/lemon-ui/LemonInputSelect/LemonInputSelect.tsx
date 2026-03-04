@@ -12,9 +12,9 @@ import { IconCheck, IconPencil, IconX } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
-import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -142,7 +142,7 @@ export type LemonInputSelectProps<T = string> = Pick<
     disabled?: boolean
     loading?: boolean
     placeholder?: string
-    title?: string // Title shown at the top of the list. Looks the same as section titles in LemonMenu.
+    title?: React.ReactNode // Title shown at the top of the list. Looks the same as section titles in LemonMenu.
     disableFiltering?: boolean
     disablePrompting?: boolean
     mode: 'multiple' | 'single'
@@ -426,7 +426,9 @@ export function LemonInputSelect<T = string>({
     }
 
     const _addItem = (item: string, atIndex?: number | null, currentValues: T[] = values): void => {
-        setInputValue('')
+        if (mode === 'single') {
+            setInputValue('')
+        }
         // Convert string key back to typed value
         const actualTypedValue = getTypedValue(item)
         if (mode === 'single') {

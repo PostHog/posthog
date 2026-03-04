@@ -3,15 +3,15 @@ import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { Element, PluginEvent, Properties } from '@posthog/plugin-scaffold'
-
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import type { CdpConfig } from './cdp/config'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
 import { InternalCaptureService } from './common/services/internal-capture'
+import { InternalFetchService } from './common/services/internal-fetch'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
@@ -26,7 +26,7 @@ import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositorie
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 
-export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
+export { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
 type Brand<K, T> = K & { __brand: T }
 
@@ -136,6 +136,7 @@ export interface HubServices {
     integrationManager: IntegrationManagerService
     quotaLimiting: QuotaLimiting
     internalCaptureService: InternalCaptureService
+    internalFetchService: InternalFetchService
 }
 
 export interface Hub extends PluginsServerConfig, HubServices {}
@@ -370,6 +371,25 @@ export interface RawKafkaEvent extends RawClickHouseEvent {
      * That's because we need it in `property-defs-rs` and not elsewhere.
      */
     project_id: ProjectId
+}
+
+/** Pre-serialization event produced by create-event, before ClickHouse formatting. */
+export interface ProcessedEvent {
+    uuid: string
+    event: string
+    properties: Record<string, unknown>
+    timestamp: ISOTimestamp
+    team_id: TeamId
+    project_id: ProjectId
+    distinct_id: string
+    elements_chain: string
+    created_at: null
+    captured_at: Date | null
+    person_id: string
+    person_properties: Record<string, unknown>
+    person_created_at: DateTime | null
+    person_mode: PersonMode
+    historical_migration?: boolean
 }
 
 /** Parsed event row from ClickHouse. */

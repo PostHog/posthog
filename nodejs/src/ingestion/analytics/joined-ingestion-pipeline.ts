@@ -7,13 +7,15 @@ import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-re
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
-import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { CookielessManager } from '../cookieless/cookieless-manager'
+import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
+import { EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
+import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
@@ -39,8 +41,8 @@ export interface JoinedIngestionPipelineConfig {
     personsPrefetchEnabled: boolean
     cdpHogWatcherSampleRate: number
     groupId: string
+    outputs: IngestionOutputs<EventOutput>
     perDistinctIdOptions: EventPipelineRunnerOptions & {
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
 }
@@ -58,6 +60,7 @@ export interface JoinedIngestionPipelineDeps {
     teamManager: TeamManager
     cookielessManager: CookielessManager
     groupTypeManager: GroupTypeManager
+    topHog: TopHogRegistry
 }
 
 export interface JoinedIngestionPipelineInput {
@@ -120,6 +123,7 @@ export function createJoinedIngestionPipeline<
         personsPrefetchEnabled,
         cdpHogWatcherSampleRate,
         groupId,
+        outputs,
         perDistinctIdOptions,
     } = config
 
@@ -136,7 +140,10 @@ export function createJoinedIngestionPipeline<
         teamManager,
         cookielessManager,
         groupTypeManager,
+        topHog,
     } = deps
+
+    const topHogWrapper = createTopHogWrapper(topHog)
 
     const pipelineConfig: PipelineConfig = {
         kafkaProducer,
@@ -161,6 +168,7 @@ export function createJoinedIngestionPipeline<
 
     const perEventConfig: PerDistinctIdPipelineConfig = {
         options: perDistinctIdOptions,
+        outputs,
         teamManager,
         groupTypeManager,
         hogTransformer,
@@ -168,6 +176,7 @@ export function createJoinedIngestionPipeline<
         groupStore,
         kafkaProducer,
         groupId,
+        topHog: topHogWrapper,
     }
 
     return builder

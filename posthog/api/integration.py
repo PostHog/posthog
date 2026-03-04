@@ -199,6 +199,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 )
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
+
             return instance
 
         raise ValidationError("Kind not supported")
@@ -242,7 +243,7 @@ class IntegrationViewSet(
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
         elif kind == "github":
-            query_params = urlencode({"state": token})
+            query_params = urlencode({"state": urlencode({"next": next, "token": token})})
             app_slug = get_instance_setting("GITHUB_APP_SLUG")
             installation_url = f"https://github.com/apps/{app_slug}/installations/new?{query_params}"
             response = redirect(installation_url)

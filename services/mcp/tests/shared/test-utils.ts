@@ -1,7 +1,7 @@
 import { ApiClient } from '@/api/client'
+import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { MemoryCache } from '@/lib/cache/MemoryCache'
 import type { InsightQuery } from '@/schema/query'
 import type { Context } from '@/tools/types'
 
@@ -16,6 +16,7 @@ export interface CreatedResources {
     dashboards: number[]
     surveys: string[]
     actions: number[]
+    cohorts: number[]
 }
 
 export function validateEnvironmentVariables(): void {
@@ -109,6 +110,19 @@ export async function cleanupResources(
         }
     }
     resources.actions = []
+
+    for (const cohortId of resources.cohorts) {
+        try {
+            await client.request({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/cohorts/${cohortId}/`,
+                body: { deleted: true },
+            })
+        } catch (error) {
+            console.warn(`Failed to cleanup cohort ${cohortId}:`, error)
+        }
+    }
+    resources.cohorts = []
 }
 
 export function parseToolResponse(result: any): any {

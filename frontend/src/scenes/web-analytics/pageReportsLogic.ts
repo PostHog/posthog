@@ -500,6 +500,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             description,
                         },
                         canOpenModal: true,
+                        canOpenInsight: true,
                     }
                 }
 
@@ -525,6 +526,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                     title: 'Trends over time',
                                     description: 'Key metrics for this page over time',
                                 },
+                                canOpenInsight: true,
                             },
                             queries.avgTimeOnPageTrendQuery &&
                             featureFlags[FEATURE_FLAGS.PAGE_REPORTS_AVERAGE_PAGE_VIEW]
@@ -542,6 +544,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                           description: 'The 90th percentile of time users spent on this page.',
                                       },
                                       canOpenModal: false,
+                                      canOpenInsight: true,
                                   }
                                 : null,
                         ].filter(Boolean) as WebAnalyticsTile[],
@@ -553,7 +556,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_PATHS_SECTION,
                         layout: {
-                            className: 'grid grid-cols-1 @4xl/main-content:grid-cols-3 gap-4 mb-8',
+                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
                         },
                         tiles: [
                             createQueryTile(
@@ -586,7 +589,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_TRAFFIC_SECTION,
                         layout: {
-                            className: 'grid grid-cols-1 @4xl/main-content:grid-cols-3 gap-4 mb-8',
+                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
                         },
                         tiles: [
                             createQueryTile(
@@ -643,7 +646,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_DEVICE_INFORMATION_SECTION,
                         layout: {
-                            className: 'grid grid-cols-1 @4xl/main-content:grid-cols-3 gap-4 mb-8',
+                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
                         },
                         tiles: [
                             createQueryTile(
@@ -670,7 +673,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_GEOGRAPHY_SECTION,
                         layout: {
-                            className: 'grid grid-cols-1 @4xl/main-content:grid-cols-3 gap-4 mb-8',
+                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
                         },
                         tiles: [
                             createQueryTile(

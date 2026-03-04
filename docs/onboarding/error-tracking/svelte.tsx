@@ -61,7 +61,7 @@ export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition
                               import type { HandleServerError } from '@sveltejs/kit';
                               import { PostHog } from 'posthog-node';
                               const client = new PostHog(
-                                '<ph_project_api_key>',
+                                '<ph_project_token>',
                                 { host: 'https://us.i.posthog.com' }
                               )
                               export const handleError = async ({ error, status }: HandleServerError) => {
@@ -93,12 +93,7 @@ export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition
         ),
     }
 
-    return [
-        ...installSteps,
-        clientExceptionCaptureStep,
-        serverExceptionCaptureStep,
-        verifyStep,
-    ]
+    return [...installSteps, clientExceptionCaptureStep, serverExceptionCaptureStep, verifyStep]
 }
 
 export const SvelteInstallation = createInstallation(getSvelteSteps)

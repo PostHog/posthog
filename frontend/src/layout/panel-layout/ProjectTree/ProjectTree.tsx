@@ -29,18 +29,18 @@ import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { MenuItems } from './menus/MenuItems'
+import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
-import { MenuItems } from './menus/MenuItems'
-import { projectTreeLogic } from './projectTreeLogic'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
@@ -177,6 +177,8 @@ export function ProjectTree({
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
+    const isAIFirst = useFeatureFlag('AI_FIRST')
+
     let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
 
     // Filter out Data pipelines item if it's been clicked
@@ -218,7 +220,7 @@ export function ProjectTree({
                     item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
             )
 
-            if (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) {
+            if ((fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) && !isAIFirst) {
                 const CustomIcon = isCustomProductsExperiment ? IconGear : IconPencil
                 treeData.push({
                     id: 'products/custom-products-helper-category',

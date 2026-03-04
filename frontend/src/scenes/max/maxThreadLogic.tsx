@@ -39,7 +39,6 @@ import {
     AgentMode,
     ApprovalDecisionStatus,
     AssistantEventType,
-    AssistantForm,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
@@ -55,7 +54,6 @@ import {
     SubagentUpdateEvent,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
-import { SidePanelTab } from '~/types'
 import {
     Conversation,
     ConversationDetail,
@@ -63,16 +61,17 @@ import {
     ConversationStatus,
     ConversationType,
     PendingApproval,
+    SidePanelTab,
 } from '~/types'
 
-import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
-import { ToolRegistration } from './max-constants'
+import { MODE_DEFINITIONS, ToolRegistration } from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MaxUIContext } from './maxTypes'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
+import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
 import {
     getAgentModeForScene,
     isAssistantMessage,
@@ -336,6 +335,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             {
                 loadQueueDataSuccess: (_, { queueData }) => queueData.limit,
                 setQueueLimit: (_, { limit }) => limit,
+            },
+        ],
+
+        queueSubmitting: [
+            false,
+            {
+                enqueueQueuedMessage: () => true,
+                setQueuedMessages: () => false,
             },
         ],
 
@@ -766,6 +773,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
+                actions.setQueuedMessages(values.queuedMessages)
                 if (error instanceof ApiError && error.status === 409) {
                     lemonToast.error('You can only queue two messages at a time.')
                     return
@@ -1421,12 +1429,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 const hasPendingApproval =
                     pendingApprovalProposalId !== null && !resolvedApprovalStatuses[pendingApprovalProposalId]?.status
 
-                // Input unavailable when:
-                // - Answer must be provided using a form returned by Max only
-                // - Answer must be provided using a multi-question form
-                // - We are awaiting user to approve or reject external AI processing data
-                // - Support agent is viewing an existing conversation without override
-                // - There's a pending approval waiting for user decision
                 return (
                     isSharedThread ||
                     formPending ||
@@ -1587,7 +1589,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 } else if (modeValue === 'plan') {
                     parsedMode = values.featureFlags[FEATURE_FLAGS.PHAI_PLAN_MODE] ? AgentMode.Plan : null
                 } else if ((Object.values(AgentMode) as string[]).includes(modeValue)) {
-                    parsedMode = modeValue as AgentMode
+                    const modeDef = MODE_DEFINITIONS[modeValue as keyof typeof MODE_DEFINITIONS]
+                    if (modeDef?.flag && !values.featureFlags[FEATURE_FLAGS[modeDef.flag]]) {
+                        parsedMode = null
+                    } else {
+                        parsedMode = modeValue as AgentMode
+                    }
                 }
                 if (parsedMode !== undefined) {
                     actions.setAgentMode(parsedMode)
@@ -1629,7 +1636,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 try {
                     // Only auto-set mode when no conversation is active and user hasn't manually set mode (e.g., via URL params)
                     if (!values.conversation && !values.agentModeLockedByUser) {
-                        const suggestedMode = getAgentModeForScene(sceneId)
+                        const suggestedMode = getAgentModeForScene(sceneId, values.featureFlags)
                         if (suggestedMode !== values.agentMode) {
                             // Use sync action to not lock - allows conversation to still update mode if agent changes it
                             actions.syncAgentModeFromConversation(suggestedMode)
@@ -1702,7 +1709,6 @@ function enhanceThreadToolCalls(
     let lastPlanningMessageId: string | undefined
     for (let i = group.length - 1; i >= 0; i--) {
         const message = group[i]
-        const previousMessage = i > 0 ? group[i - 1] : null
         if (lastHumanMessageIndex === -1 && isHumanMessage(message)) {
             lastHumanMessageIndex = i
         }
@@ -1714,16 +1720,6 @@ function enhanceThreadToolCalls(
         ) {
             lastPlanningMessageId = message.id
             break
-        }
-        if (previousMessage && isAssistantMessage(message) && isAssistantMessage(previousMessage)) {
-            const formCarriedOverFromPreviousMessage = getFormToCarryOverFromPreviousMessage(previousMessage)
-            if (formCarriedOverFromPreviousMessage) {
-                // This is safe to do in place, as we're iterating backwards, so we always know previousMessage is untouched
-                message.meta = {
-                    ...message.meta,
-                    form: formCarriedOverFromPreviousMessage,
-                }
-            }
         }
     }
 
@@ -1927,22 +1923,4 @@ function updateMessagesWithCompletedStatus(thread: RootAssistantMessage[]): Thre
         ...message,
         status: 'completed',
     }))
-}
-
-/**
- * Check if a message has a session summary form (with "Open report" button).
- * Used to show the button on the message following a session summarization result.
- * This way, the "Open report" shows up both with the actual tool result AND below the message summarizing the report
- * (which can be quite long).
- */
-function getFormToCarryOverFromPreviousMessage(message: ThreadMessage): AssistantForm | null {
-    if (!isAssistantMessage(message) || !message.meta?.form?.options) {
-        return null
-    }
-
-    // Check if any option has an href to session-summaries
-    const hasSessionSummaryLink = message.meta.form.options.some((option) =>
-        option.href?.startsWith('/session-summaries/')
-    )
-    return hasSessionSummaryLink ? message.meta.form : null
 }

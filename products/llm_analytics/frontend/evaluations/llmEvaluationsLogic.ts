@@ -1,8 +1,12 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -16,10 +20,28 @@ import { EvaluationConfig } from './types'
 const INITIAL_DATE_FROM = '-1h' as string | null
 const INITIAL_DATE_TO = null as string | null
 
+export interface LLMEvaluationsLogicProps {
+    tabId?: string
+}
+
+function redirectToOnlineEvaluations(searchParams: Record<string, unknown>): void {
+    router.actions.replace(
+        combineUrl(urls.llmAnalyticsEvaluations(), {
+            ...searchParams,
+            tab: undefined,
+            experiment: undefined,
+            offline_date_from: undefined,
+            offline_date_to: undefined,
+        }).url
+    )
+}
+
 export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     path(['products', 'llm_analytics', 'evaluations', 'llmEvaluationsLogic']),
+    props({} as LLMEvaluationsLogicProps),
+    key((props) => props.tabId ?? 'default'),
     connect(() => ({
-        values: [llmProviderKeysLogic, ['providerKeys']],
+        values: [featureFlagLogic, ['featureFlags'], llmProviderKeysLogic, ['providerKeys']],
         actions: [teamLogic, ['addProductIntent'], llmProviderKeysLogic, ['loadProviderKeys']],
     })),
 
@@ -57,7 +79,9 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 loadEvaluationsSuccess: (_, { evaluations }) => evaluations,
                 createEvaluationSuccess: (state, { evaluation }) => [...state, evaluation],
                 updateEvaluationSuccess: (state, { id, evaluation }) =>
-                    state.map((e: EvaluationConfig) => (e.id === id ? { ...e, ...evaluation } : e)),
+                    state.map((e: EvaluationConfig) =>
+                        e.id === id ? ({ ...e, ...evaluation } as EvaluationConfig) : e
+                    ),
                 deleteEvaluationSuccess: (state, { id }) => state.filter((e: EvaluationConfig) => e.id !== id),
                 duplicateEvaluationSuccess: (state, { evaluation }) => [...state, evaluation],
                 toggleEvaluationEnabledSuccess: (state, { id }) =>
@@ -206,7 +230,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     (e: EvaluationConfig) =>
                         e.name.toLowerCase().includes(filter.toLowerCase()) ||
                         e.description?.toLowerCase().includes(filter.toLowerCase()) ||
-                        e.evaluation_config.prompt.toLowerCase().includes(filter.toLowerCase())
+                        ('prompt' in e.evaluation_config &&
+                            e.evaluation_config.prompt.toLowerCase().includes(filter.toLowerCase())) ||
+                        ('source' in e.evaluation_config &&
+                            e.evaluation_config.source.toLowerCase().includes(filter.toLowerCase()))
                 )
             },
         ],
@@ -237,8 +264,15 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         ],
     }),
 
-    urlToAction(({ actions, values }) => ({
-        [urls.llmAnalyticsEvaluations()]: (_, searchParams) => {
+    tabAwareUrlToAction(({ actions, values }) => ({
+        [urls.llmAnalyticsEvaluations()]: (_, searchParams, __, { method }) => {
+            const showOfflineEvals = !!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
+
+            if (!showOfflineEvals && (searchParams.tab === 'offline' || searchParams.tab === 'offline-evals')) {
+                redirectToOnlineEvaluations(searchParams)
+                return
+            }
+
             if (searchParams.tab === 'settings') {
                 router.actions.replace(urls.settings('environment-llm-analytics', 'llm-analytics-byok'))
                 return
@@ -250,10 +284,30 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             if (dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo) {
                 actions.setDates(dateFrom, dateTo)
             }
+
+            if (method !== 'REPLACE') {
+                actions.loadEvaluations()
+            }
+        },
+        [urls.llmAnalyticsOfflineEvaluations()]: (_, searchParams) => {
+            const showOfflineEvals = !!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
+            if (showOfflineEvals) {
+                return
+            }
+
+            redirectToOnlineEvaluations(searchParams)
+        },
+        [urls.llmAnalyticsOfflineEvaluationExperiment(':experimentId', false)]: (_, searchParams) => {
+            const showOfflineEvals = !!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
+            if (showOfflineEvals) {
+                return
+            }
+
+            redirectToOnlineEvaluations(searchParams)
         },
     })),
 
-    actionToUrl(() => ({
+    tabAwareActionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }) => [
             urls.llmAnalyticsEvaluations(),
             {

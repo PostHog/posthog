@@ -1,3 +1,5 @@
+import '~/queries/utils'
+
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
@@ -10,7 +12,6 @@ import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
 
-import '~/queries/utils'
 import {
     RecordingSnapshot,
     SessionRecordingId,
@@ -65,12 +66,21 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         setTargetTimestamp: (timestamp: number | null) => ({ timestamp }),
         updatePlaybackPosition: (timestamp: number) => ({ timestamp }),
         setPlayerActive: (active: boolean) => ({ active }),
+        loadAllSources: true,
+        // dispatch after any cache.store mutation to trigger a new Redux notification cycle
+        storeUpdated: true,
     }),
     reducers(() => ({
         snapshotsBySourceSuccessCount: [
             0,
             {
                 loadSnapshotsForSourceSuccess: (state) => state + 1,
+            },
+        ],
+        storeUpdateCount: [
+            0,
+            {
+                storeUpdated: (state: number) => state + 1,
             },
         ],
         loadingSources: [
@@ -233,6 +243,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 cache.playbackPosition = timestamp
 
                 const currentMode = cache.scheduler.currentMode
+                // Don't interrupt load_all (e.g. during export)
+                if (currentMode.kind === 'load_all') {
+                    actions.loadNextSnapshotSource()
+                    return
+                }
                 // Don't re-seek to the same target
                 if (currentMode.kind === 'seek' && currentMode.targetTimestamp === timestamp) {
                     return
@@ -268,6 +283,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         setPlayerActive: ({ active }) => {
             cache.playerActive = active
             if (active && cache.useSnapshotStore) {
+                actions.loadNextSnapshotSource()
+            }
+        },
+
+        loadAllSources: () => {
+            if (cache.useSnapshotStore && cache.scheduler) {
+                cache.scheduler.loadAll()
                 actions.loadNextSnapshotSource()
             }
         },
@@ -386,6 +408,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 for (const se of sourceEntries) {
                     cache.store.markLoaded(se.sourceIndex, buckets.get(se.sourceIndex)!)
                 }
+                actions.storeUpdated()
 
                 actions.loadNextSnapshotSource()
                 return
@@ -557,7 +580,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
 
         allSourcesLoaded: [
-            (s) => [s.snapshotSources, s.snapshotsBySourceSuccessCount],
+            (s) => [s.snapshotSources, s.snapshotsBySourceSuccessCount, s.storeUpdateCount],
             (snapshotSources): boolean => {
                 if (!snapshotSources || snapshotSources.length === 0) {
                     return false
@@ -573,7 +596,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
 
         storeVersion: [
-            (s) => [s.snapshotsBySourceSuccessCount, s.snapshotSources],
+            (s) => [s.storeUpdateCount, s.snapshotSources],
             (): number => {
                 return cache.store?.version ?? 0
             },
@@ -619,6 +642,16 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             (snapshotLoadError): number | null => {
                 if (snapshotLoadError instanceof RecordingDeletedError) {
                     return snapshotLoadError.deletedAt
+                }
+                return null
+            },
+        ],
+
+        recordingDeletedBy: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): string | null => {
+                if (snapshotLoadError instanceof RecordingDeletedError) {
+                    return snapshotLoadError.deletedBy
                 }
                 return null
             },

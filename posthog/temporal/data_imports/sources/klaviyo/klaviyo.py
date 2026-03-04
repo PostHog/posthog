@@ -1,10 +1,10 @@
 from datetime import date, datetime
 from typing import Any, Optional
 
-import requests
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
+from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
@@ -116,7 +116,7 @@ def validate_credentials(api_key: str) -> bool:
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = external_requests.get(url, headers=headers, timeout=10)
         return response.status_code == 200
     except Exception:
         return False

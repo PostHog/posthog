@@ -159,6 +159,8 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
                 cast(User, request.user),
                 "event definition created",
                 {"name": event_definition.name},
+                team=view.team,
+                request=request,
             )
 
         return event_definition
@@ -185,7 +187,7 @@ class EventDefinitionViewSet(
     queryset = EventDefinition.objects.all()
 
     search_fields = ["name"]
-    ordering_fields = ["name", "last_seen_at"]
+    ordering_fields = ["name", "last_seen_at", "created_at"]
 
     def dangerously_get_queryset(self):
         # `type` = 'all' | 'event' | 'action_event'
@@ -253,7 +255,13 @@ class EventDefinitionViewSet(
         orderings = self.request.GET.getlist("ordering")
 
         for ordering in orderings:
-            if ordering and ordering.replace("-", "") in ["name", "last_seen_at", "last_seen_at::date"]:
+            if ordering and ordering.replace("-", "") in [
+                "name",
+                "last_seen_at",
+                "last_seen_at::date",
+                "created_at",
+                "created_at::date",
+            ]:
                 order = ordering.replace("-", "")
                 if "-" in ordering:
                     order_direction = "DESC"
@@ -394,6 +402,8 @@ class EventDefinitionViewSet(
             cast(User, request.user),
             "event definition deleted",
             {"name": instance.name},
+            team=self.team,
+            request=request,
         )
         user = cast(User, request.user)
         log_activity(
@@ -430,6 +440,7 @@ class EventDefinitionViewSet(
             self.request.user,
             self.team_id,
             self.project_id,
+            request=self.request,
         )
 
         return response.Response(

@@ -8,7 +8,7 @@ import { IntegrationManagerService } from '~/cdp/services/managers/integration-m
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
-import { setupCommonRoutes, setupExpressApp } from './api/router'
+import { initializePrometheusLabels, setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
@@ -119,6 +119,7 @@ export class PluginServer {
         const startupTimer = new Date()
         this.setupListeners()
         this.nodeInstrumentation.setupThreadPerformanceInterval()
+        initializePrometheusLabels(this.config)
 
         const capabilities = getPluginServerCapabilities(this.config)
 
