@@ -219,7 +219,7 @@ describe('createXAxisTickCallback', () => {
         it('returns raw value when days are numbers (stickiness insights)', () => {
             const callback = createXAxisTickCallback({
                 interval: 'day',
-                allDays: [1, 2, 3, 4, 5] as unknown as string[],
+                allDays: [1, 2, 3, 4, 5],
                 timezone: 'UTC',
             })
             expect(callback(1, 0)).toBe('1')

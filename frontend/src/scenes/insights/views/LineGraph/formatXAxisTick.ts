@@ -5,7 +5,7 @@ import { IntervalType } from '~/types'
 
 interface CreateXAxisTickCallbackArgs {
     interval?: IntervalType
-    allDays: string[]
+    allDays: (string | number)[]
     timezone: string
 }
 
