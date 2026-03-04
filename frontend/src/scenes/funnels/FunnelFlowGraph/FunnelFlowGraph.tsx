@@ -6,6 +6,7 @@ import {
     Controls,
     EdgeTypes,
     MiniMap,
+    Node,
     NodeTypes,
     ReactFlow,
     ReactFlowInstance,
@@ -20,7 +21,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { isInsightVizNode } from '~/queries/utils'
 
 import { JourneyFlowEdge, ProfileFlowEdge } from './FunnelFlowEdge'
-import { funnelFlowGraphLogic } from './funnelFlowGraphLogic'
+import { funnelFlowGraphLogic, FunnelFlowNodeData } from './funnelFlowGraphLogic'
 import { JourneyFlowNode, ProfileFlowNode } from './FunnelFlowNode'
 
 const NODE_TYPES = {
@@ -46,7 +47,7 @@ function FunnelFlowGraphContent(): JSX.Element {
     const { laidOutNodes, edges, fitViewOptions } = useValues(funnelFlowGraphLogic({ ...insightProps, isProfileMode }))
 
     const onInit = useCallback(
-        (instance: ReactFlowInstance) => {
+        (instance: ReactFlowInstance<Node<FunnelFlowNodeData>>) => {
             instance.fitView(fitViewOptions)
         },
         [fitViewOptions]
