@@ -164,7 +164,7 @@ class PostgresPrinter(HogQLPrinter):
         if existing:
             return existing
 
-        digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:12]
+        digest = hashlib.sha256(name.encode("utf-8")).hexdigest()[:12]
         suffix = f"_{digest}"
         prefix = name[: 63 - len(suffix)]
         candidate = f"{prefix}{suffix}"

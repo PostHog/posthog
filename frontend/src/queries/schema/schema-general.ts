@@ -3598,6 +3598,7 @@ export interface DatabaseSchemaSource {
     status: string
     source_type: string
     prefix: string
+    access_method?: string
     last_synced_at?: string
 }
 

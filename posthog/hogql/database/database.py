@@ -1358,7 +1358,7 @@ def _foreign_key_join_function(
         join_table = join_to_add.lazy_join.resolve_table(context)
 
         if isinstance(join_table.name, str):
-            join_table_chain: list[str | int] = join_table.name.split(".")
+            join_table_chain = cast(list[str | int], join_table.name.split("."))
         else:
             join_table_chain = [join_to_add.to_table]
 

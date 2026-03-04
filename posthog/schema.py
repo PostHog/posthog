@@ -1074,8 +1074,8 @@ class DatabaseSchemaSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    id: str
     access_method: str | None = None
+    id: str
     last_synced_at: str | None = None
     prefix: str
     source_type: str
@@ -15989,15 +15989,16 @@ class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    connectionId: str | None = Field(
+        default=None,
+        description=("Optional direct query connection id for running against a specific source"),
+    )
     explain: bool | None = None
     filters: HogQLFilters | None = None
     kind: Literal["HogQLQuery"] = "HogQLQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
     query: str
-    connectionId: str | None = Field(
-        default=None, description="Optional direct query connection id for running against a specific source"
-    )
     response: HogQLQueryResponse | None = None
     tags: QueryLogTags | None = None
     values: dict[str, Any] | None = Field(
@@ -18479,10 +18480,11 @@ class DatabaseSchemaQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
     connectionId: str | None = Field(
-        default=None, description="Optional direct query connection id for schema introspection"
+        default=None,
+        description="Optional direct query connection id for schema introspection",
     )
+    kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: DatabaseSchemaQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -18999,6 +19001,10 @@ class HogQLAutocomplete(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    connectionId: str | None = Field(
+        default=None,
+        description=("Optional direct query connection id for running against a specific source"),
+    )
     endPosition: int = Field(..., description="End position of the editor word")
     filters: HogQLFilters | None = Field(default=None, description="Table to validate the expression against")
     globals: dict[str, Any] | None = Field(default=None, description="Global values in scope")
@@ -19006,9 +19012,6 @@ class HogQLAutocomplete(BaseModel):
     language: HogLanguage = Field(..., description="Language to validate")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query: str = Field(..., description="Query to validate")
-    connectionId: str | None = Field(
-        default=None, description="Optional direct query connection id for running against a specific source"
-    )
     response: HogQLAutocompleteResponse | None = None
     sourceQuery: (
         EventsNode
@@ -19075,6 +19078,10 @@ class HogQLMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    connectionId: str | None = Field(
+        default=None,
+        description=("Optional direct query connection id for running against a specific source"),
+    )
     debug: bool | None = Field(
         default=None,
         description="Enable more verbose output, usually run from the /debug page",
@@ -19085,9 +19092,6 @@ class HogQLMetadata(BaseModel):
     language: HogLanguage = Field(..., description="Language to validate")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query: str = Field(..., description="Query to validate")
-    connectionId: str | None = Field(
-        default=None, description="Optional direct query connection id for running against a specific source"
-    )
     response: HogQLMetadataResponse | None = None
     sourceQuery: (
         EventsNode
