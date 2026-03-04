@@ -204,7 +204,7 @@ jobs:
 
                   # Retry docker compose up with exponential backoff to handle transient registry errors
                   for i in 1 2 3; do
-                    if docker compose -f ../docker-compose.dev.yml -f ../docker-compose.profiles.yml up -d; then
+                    if docker compose -f ../docker-compose.dev.yml -f ../docker-compose.profiles.yml --profile etcd up -d; then
                       echo "Docker compose up succeeded"
                       break
                     else
