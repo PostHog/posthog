@@ -24,6 +24,24 @@ describe('ApiClient', () => {
         expect(baseUrl).toBe(customUrl)
     })
 
+    it('should handle 204 No Content responses without throwing', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+        vi.stubGlobal('fetch', mockFetch)
+
+        const client = new ApiClient({
+            apiToken: 'test-token',
+            baseUrl: 'https://example.com',
+        })
+
+        const result = await client.request({
+            method: 'DELETE',
+            path: '/api/test/123/',
+        })
+
+        expect(result).toBeUndefined()
+        vi.unstubAllGlobals()
+    })
+
     it('should send correct headers on fetch', async () => {
         const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
         vi.stubGlobal('fetch', mockFetch)
