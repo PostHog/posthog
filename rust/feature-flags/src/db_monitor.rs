@@ -9,7 +9,7 @@ use tracing::error;
 
 use crate::metrics::consts::{
     DB_CONNECTION_POOL_ACTIVE_COUNTER, DB_CONNECTION_POOL_IDLE_COUNTER,
-    DB_CONNECTION_POOL_MAX_COUNTER,
+    DB_CONNECTION_POOL_MAX_COUNTER, DB_CONNECTION_POOL_SIZE_GAUGE,
 };
 
 pub struct DatabasePoolMonitor {
@@ -99,19 +99,26 @@ impl DatabasePoolMonitor {
         let pool_idle = pool.num_idle();
         let pool_max = pool.options().get_max_connections();
 
+        let labels = [("pool".to_string(), pool_name.to_string())];
+
+        gauge(
+            DB_CONNECTION_POOL_SIZE_GAUGE,
+            &labels,
+            pool_size as f64,
+        );
         gauge(
             DB_CONNECTION_POOL_ACTIVE_COUNTER,
-            &[("pool".to_string(), pool_name.to_string())],
+            &labels,
             (pool_size as i32 - pool_idle as i32) as f64,
         );
         gauge(
             DB_CONNECTION_POOL_IDLE_COUNTER,
-            &[("pool".to_string(), pool_name.to_string())],
+            &labels,
             pool_idle as f64,
         );
         gauge(
             DB_CONNECTION_POOL_MAX_COUNTER,
-            &[("pool".to_string(), pool_name.to_string())],
+            &labels,
             pool_max as f64,
         );
 
