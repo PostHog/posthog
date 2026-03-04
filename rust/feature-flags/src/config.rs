@@ -228,10 +228,16 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub redis_connection_timeout_ms: u64,
 
-    // How long to wait for a connection from the pool before timing out
-    // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
-    // - Decrease for faster failure detection (minimum 1s)
-    #[envconfig(default = "5")]
+    // Maximum time for a /flags request before the server aborts it (milliseconds).
+    // Must be below Envoy's route timeout (5s) so the server cleans up resources
+    // (connections, queries) before Envoy kills the downstream connection.
+    #[envconfig(default = "4500")]
+    pub request_timeout_ms: u64,
+
+    // How long to wait for a connection from the pool before timing out.
+    // Must be well under request_timeout_ms so there's still time for query + response.
+    // With Envoy at 5s and request_timeout at 4.5s, 2s leaves room for a query + serialization.
+    #[envconfig(default = "2")]
     pub acquire_timeout_secs: u64,
 
     // Close connections that have been idle for this many seconds
@@ -637,7 +643,8 @@ impl Config {
             min_non_persons_writer_connections: 0,
             min_persons_reader_connections: 0,
             min_persons_writer_connections: 0,
-            acquire_timeout_secs: 3,
+            request_timeout_ms: 30_000,
+            acquire_timeout_secs: 5,
             idle_timeout_secs: 300,
             test_before_acquire: FlexBool(true),
             non_persons_reader_statement_timeout_ms: 2000,

@@ -308,6 +308,7 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
+    personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
     actionStepCount: number
     currentAction?: {
         id: string

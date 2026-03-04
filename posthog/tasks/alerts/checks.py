@@ -11,11 +11,12 @@ import structlog
 from celery import shared_task
 from celery.canvas import chain
 from dateutil.relativedelta import relativedelta
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.schema import AlertCalculationInterval, AlertState, TrendsQuery
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
@@ -180,10 +181,6 @@ def check_alerts_task() -> None:
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.ALERTS.value,
-    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
-    retry_backoff=1,
-    retry_backoff_max=10,
-    max_retries=3,
     expires=60 * 60,
 )
 # @limit_concurrency(5)  Concurrency controlled by CeleryQueue.ALERTS for now
@@ -192,6 +189,17 @@ def check_alert_task(alert_id: str) -> None:
         check_alert(alert_id, capture_ph_event)
 
 
+@retry(
+    retry=retry_if_exception_type(CH_TRANSIENT_ERRORS),
+    stop=stop_after_attempt(4),
+    wait=wait_exponential_jitter(initial=1, max=10),
+    before_sleep=lambda rs: logger.info(
+        "check_alert.retrying",
+        attempt=rs.attempt_number,
+        error=str(rs.outcome.exception()) if rs.outcome else None,
+    ),
+    reraise=True,
+)
 def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwargs: None) -> None:
     try:
         alert = AlertConfiguration.objects.select_related("insight").get(id=alert_id, enabled=True)
@@ -319,9 +327,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
         alert_evaluation_result = check_alert_for_insight(alert)
         value = alert_evaluation_result.value
         breaches = alert_evaluation_result.breaches
-    except CHQueryErrorTooManySimultaneousQueries:
-        # error on our side so we raise
-        # as celery task can be retried according to config
+    except CH_TRANSIENT_ERRORS:
+        # Re-raise so we retry the full flow
         raise
     except Exception as err:
         error_message = f"Alert id = {alert.id}, failed to evaluate"

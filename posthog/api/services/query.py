@@ -143,7 +143,6 @@ def process_query_model(
                         "joining_table_name": join.joining_table_name,
                         "joining_table_key": join.joining_table_key,
                         "field_name": join.field_name,
-                        "configuration": join.configuration,
                         "created_at": join.created_at.isoformat(),
                     }
                 )

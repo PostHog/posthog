@@ -13,6 +13,7 @@ packages:
     - docs/onboarding
     - services/oauth-proxy
     - services/mcp
+    - services/stripe-app
     - rust/cyclotron-node
 
 catalog:
