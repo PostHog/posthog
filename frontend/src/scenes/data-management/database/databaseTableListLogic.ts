@@ -36,6 +36,15 @@ const toMapById = <T extends { id: string }>(items: T[]): Record<string, T> =>
         {} as Record<string, T>
     )
 
+const getInitialConnectionIdFromHash = (): string | null => {
+    if (typeof window === 'undefined') {
+        return null
+    }
+
+    const hashConnectionId = new URLSearchParams(window.location.hash.slice(1)).get('c')
+    return hashConnectionId && hashConnectionId.length > 0 ? hashConnectionId : null
+}
+
 export const databaseTableListLogic = kea<databaseTableListLogicType>([
     path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
     actions({
@@ -58,7 +67,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     })),
     reducers({
         searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
-        connectionId: [null as string | null, { setConnection: (_, { connectionId }) => connectionId }],
+        connectionId: [getInitialConnectionIdFromHash(), { setConnection: (_, { connectionId }) => connectionId }],
     }),
     selectors({
         allPosthogTables: [

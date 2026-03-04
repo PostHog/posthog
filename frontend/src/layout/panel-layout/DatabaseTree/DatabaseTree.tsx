@@ -11,6 +11,8 @@ import { ConnectionSelector } from 'scenes/data-warehouse/editor/ConnectionSelec
 import { DATABASE_TREE_COLLAPSE_THRESHOLD, editorSizingLogic } from 'scenes/data-warehouse/editor/editorSizingLogic'
 import { DatabaseSearchField } from 'scenes/data-warehouse/editor/sidebar/DatabaseSearchField'
 import { QueryDatabase } from 'scenes/data-warehouse/editor/sidebar/QueryDatabase'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
+import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 
 import { SyncMoreNotice } from './SyncMoreNotice'
@@ -22,7 +24,18 @@ export const DatabaseTree = memo(function DatabaseTree({
 }): JSX.Element | null {
     const { databaseTreeWidth, databaseTreeResizerProps, isDatabaseTreeCollapsed, databaseTreeWillCollapse } =
         useValues(editorSizingLogic)
+    const { sourceQuery } = useValues(sqlEditorLogic)
+    const { dataWarehouseSources } = useValues(externalDataSourcesLogic)
     const { toggleDatabaseTreeCollapsed, setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
+
+    const sourceQueryWithConnection = sourceQuery as typeof sourceQuery & { connectionId?: string }
+    const selectedConnectionId = sourceQuery.source.connectionId ?? sourceQueryWithConnection.connectionId
+    const selectedDirectSource = (dataWarehouseSources?.results ?? []).find(
+        (source) => source.id === selectedConnectionId
+    )
+    const searchPlaceholder = selectedConnectionId
+        ? `Search ${selectedDirectSource?.prefix ? selectedDirectSource.prefix.toUpperCase() : 'database'}`
+        : 'Search PostHog Warehouse'
 
     if (isDatabaseTreeCollapsed) {
         return null
@@ -54,7 +67,7 @@ export const DatabaseTree = memo(function DatabaseTree({
                     </ButtonPrimitive>
                     <ConnectionSelector />
                 </div>
-                <DatabaseSearchField placeholder="Search warehouse" />
+                <DatabaseSearchField placeholder={searchPlaceholder} />
             </div>
             <ScrollableShadows
                 direction="vertical"

@@ -51,10 +51,11 @@ export function ConnectionSelector(): JSX.Element {
 
     const sourceQueryWithConnection = sourceQuery as typeof sourceQuery & { connectionId?: string }
     const selectedConnectionId = sourceQuery.source.connectionId ?? sourceQueryWithConnection.connectionId
-    const selectedValue =
-        selectedConnectionId && options.some((option) => option.value === selectedConnectionId)
-            ? selectedConnectionId
-            : POSTHOG_WAREHOUSE
+    const selectedValue = dataWarehouseSourcesLoading
+        ? LOADING_CONNECTIONS
+        : selectedConnectionId && options.some((option) => option.value === selectedConnectionId)
+          ? selectedConnectionId
+          : POSTHOG_WAREHOUSE
 
     return (
         <LemonSelect
