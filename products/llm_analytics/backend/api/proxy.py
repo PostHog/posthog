@@ -9,7 +9,8 @@ Endpoints:
 import json
 import uuid
 import logging
-from collections.abc import Generator
+from collections.abc import Callable, Generator
+from time import perf_counter
 from typing import Any, cast
 
 from django.http import StreamingHttpResponse
@@ -59,6 +60,8 @@ class LLMProxyCompletionSerializer(serializers.Serializer):
     provider = serializers.ChoiceField(choices=LLMProvider.choices)
     thinking = serializers.BooleanField(default=False, required=False)
     temperature = serializers.FloatField(required=False)
+    top_p = serializers.FloatField(required=False)
+    seed = serializers.IntegerField(required=False)
     max_tokens = serializers.IntegerField(required=False)
     tools = serializers.JSONField(required=False)
     reasoning_level = serializers.ChoiceField(
@@ -143,15 +146,25 @@ class LLMProxyViewSet(viewsets.ViewSet):
         return True
 
     def _create_stream_generator(
-        self, client: Client, request_obj: CompletionRequest, http_request
+        self,
+        client: Client,
+        request_obj: CompletionRequest,
+        http_request,
+        on_complete: Callable[[float], None] | None = None,
+        on_error: Callable[[Exception, float], None] | None = None,
     ) -> Generator[bytes, None, None]:
         """Creates a generator that handles client disconnects and encodes responses"""
+        started = perf_counter()
         try:
             for chunk in client.stream(request_obj):
                 if not http_request.META.get("SERVER_NAME"):  # Client disconnected
                     return
                 yield chunk.to_sse().encode()
+            if on_complete:
+                on_complete(perf_counter() - started)
         except Exception as e:
+            if on_error:
+                on_error(e, perf_counter() - started)
             logger.exception(f"Error in LLM proxy stream: {e}")
             yield f"data: {json.dumps({'error': 'An internal error occurred', 'status_code': 500})}\n\n".encode()
 
@@ -229,14 +242,13 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 provider=provider,
                 system=data.get("system"),
                 temperature=data.get("temperature"),
+                top_p=data.get("top_p"),
+                seed=data.get("seed"),
                 max_tokens=data.get("max_tokens"),
                 tools=data.get("tools"),
                 thinking=thinking,
                 reasoning_level=data.get("reasoning_level"),
             )
-
-            # Create stream
-            stream = self._create_stream_generator(client, completion_request, request)
 
             # Track playground completion started
             tracking_properties = self._extract_request_properties(data, model=model)
@@ -249,6 +261,32 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 team=getattr(request.user, "current_team", None),
                 request=request,
             )
+
+            def on_complete(duration_s: float) -> None:
+                report_user_action(
+                    cast(User, request.user),
+                    "llma playground completion completed",
+                    {**tracking_properties, "duration_seconds": duration_s},
+                    team=getattr(request.user, "current_team", None),
+                    request=request,
+                )
+
+            def on_error(error: Exception, duration_s: float) -> None:
+                report_user_action(
+                    cast(User, request.user),
+                    "llma playground completion stream failed",
+                    {
+                        **tracking_properties,
+                        "duration_seconds": duration_s,
+                        "error_type": type(error).__name__,
+                        "error_message": str(error),
+                    },
+                    team=getattr(request.user, "current_team", None),
+                    request=request,
+                )
+
+            # Create stream
+            stream = self._create_stream_generator(client, completion_request, request, on_complete, on_error)
 
             return self._create_streaming_response(stream)
 
@@ -294,6 +332,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
             "thinking_enabled": validated_data.get("thinking", False),
             "has_tools": bool(validated_data.get("tools")),
             "has_temperature": validated_data.get("temperature") is not None,
+            "has_top_p": validated_data.get("top_p") is not None,
+            "has_seed": validated_data.get("seed") is not None,
             "has_max_tokens": validated_data.get("max_tokens") is not None,
             "has_reasoning_level": validated_data.get("reasoning_level") is not None,
             "has_system_prompt": bool(validated_data.get("system")),

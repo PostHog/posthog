@@ -16,7 +16,7 @@ from posthog.rate_limit import (
     LLMProxySustainedRateThrottle,
 )
 
-from products.llm_analytics.backend.api.proxy import LLMProxyViewSet
+from products.llm_analytics.backend.api.proxy import LLMProxyCompletionSerializer, LLMProxyViewSet
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
 TRIAL_THROTTLES = (LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle, LLMProxyDailyRateThrottle)
@@ -132,3 +132,20 @@ class TestLLMProxyThrottles(APIBaseTest):
     def test_models_endpoint_is_never_throttled(self) -> None:
         self._set_request("models", {})
         assert self.viewset.get_throttles() == []
+
+    def test_completion_serializer_accepts_sampling_settings(self) -> None:
+        serializer = LLMProxyCompletionSerializer(
+            data={
+                "system": "You are helpful.",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "model": "gpt-5-mini",
+                "provider": "openai",
+                "temperature": 0.4,
+                "top_p": 0.9,
+                "seed": 42,
+            }
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["temperature"] == 0.4
+        assert serializer.validated_data["top_p"] == 0.9
+        assert serializer.validated_data["seed"] == 42
