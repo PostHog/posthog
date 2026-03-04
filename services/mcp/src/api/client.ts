@@ -156,11 +156,13 @@ export class ApiClient {
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
             'User-Agent': getUserAgent(this.config.clientUserAgent),
-...(this.config.clientUserAgent && {
-    // Forward the originating client's User-Agent as a custom header so the
-    // PostHog API can attach it to analytics events for MCP source attribution.
-    'x-posthog-mcp-user-agent': this.config.clientUserAgent,
-}),
+            ...(this.config.clientUserAgent
+                ? {
+                      // Forward the originating client's User-Agent as a custom header so the
+                      // PostHog API can attach it to analytics events for MCP source attribution.
+                      'x-posthog-mcp-user-agent': this.config.clientUserAgent,
+                  }
+                : {}),
         }
         if (options?.body) {
             defaultHeaders['Content-Type'] = 'application/json'
