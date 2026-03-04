@@ -362,7 +362,7 @@ class TestTimestampFiltering:
             mock_post.return_value.status_code = 200
             mock_post.return_value.json.return_value = {"results": [], "columns": []}
 
-            client._fetch_events_by_person_id("test-person-id", expected_count=1)
+            client._fetch_events_by_person_id("test-person-id", expected_event_uuids={"some-uuid"})
 
             mock_post.assert_called_once()
             call_kwargs = mock_post.call_args[1]

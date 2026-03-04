@@ -218,6 +218,10 @@ class TaskRunAppendLogRequestSerializer(serializers.Serializer):
         return value
 
 
+class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
+    text = serializers.CharField(max_length=10000)
+
+
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
     ARTIFACT_TYPE_CHOICES = ["plan", "context", "reference", "output", "artifact"]
 
@@ -383,6 +387,10 @@ class TaskRunCommandResponseSerializer(serializers.Serializer):
     id = serializers.JSONField(required=False, default=None, help_text="Request ID echoed back (string or number)")
     result = serializers.DictField(required=False, help_text="Command result on success")
     error = serializers.DictField(required=False, help_text="Error details on failure")
+
+
+class CodeInviteRedeemRequestSerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=50)
 
 
 class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
