@@ -1,7 +1,10 @@
 import { useValues } from 'kea'
 
+import { IconInfo } from '@posthog/icons'
+
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { dayjs } from 'lib/dayjs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventToIcon } from 'scenes/session-recordings/player/inspector/components/PlayerInspectorListItem'
 import { urls } from 'scenes/urls'
 
@@ -35,8 +38,16 @@ export function NewEvents(): JSX.Element {
 
     return (
         <CompactList
-            title="New events"
+            title={
+                <div className="flex items-center gap-1">
+                    New events
+                    <Tooltip title="Events that have been seen for the first time recently.">
+                        <IconInfo className="text-muted text-base" />
+                    </Tooltip>
+                </div>
+            }
             viewAllURL={urls.eventDefinitions()}
+            viewAllDataAttr="insights-home-tab-new-events-view-all"
             loading={newEventsLoading}
             emptyMessage={{
                 title: 'No events found',

@@ -485,7 +485,7 @@ class TestUserAPI(APIBaseTest):
             self.assertFalse(result)
 
             # Should call report_user_action with correct parameters
-            mock_report_user_action.assert_called_once_with(self.user, "ai burst rate limited")
+            mock_report_user_action.assert_called_once_with(self.user, "ai burst rate limited", request=mock_request)
 
     @patch("posthog.rate_limit.report_user_action")
     def test_ai_sustained_rate_throttle_calls_report_user_action(self, mock_report_user_action):
@@ -505,7 +505,9 @@ class TestUserAPI(APIBaseTest):
             self.assertFalse(result)
 
             # Should call report_user_action with correct parameters
-            mock_report_user_action.assert_called_once_with(self.user, "ai sustained rate limited")
+            mock_report_user_action.assert_called_once_with(
+                self.user, "ai sustained rate limited", request=mock_request
+            )
 
     @patch("posthog.rate_limit.report_user_action")
     def test_ai_research_burst_rate_throttle_calls_report_user_action(self, mock_report_user_action):
@@ -525,7 +527,9 @@ class TestUserAPI(APIBaseTest):
             self.assertFalse(result)
 
             # Should call report_user_action with correct parameters
-            mock_report_user_action.assert_called_once_with(self.user, "ai research burst rate limited")
+            mock_report_user_action.assert_called_once_with(
+                self.user, "ai research burst rate limited", request=mock_request
+            )
 
     @patch("posthog.rate_limit.report_user_action")
     def test_ai_research_sustained_rate_throttle_calls_report_user_action(self, mock_report_user_action):
@@ -545,7 +549,9 @@ class TestUserAPI(APIBaseTest):
             self.assertFalse(result)
 
             # Should call report_user_action with correct parameters
-            mock_report_user_action.assert_called_once_with(self.user, "ai research sustained rate limited")
+            mock_report_user_action.assert_called_once_with(
+                self.user, "ai research sustained rate limited", request=mock_request
+            )
 
     def test_ai_research_burst_rate_throttle_has_correct_scope_and_rate(self):
         """Test that AIResearchBurstRateThrottle has correct scope and rate"""

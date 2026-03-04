@@ -548,6 +548,28 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
 
+    def test_cant_sign_up_with_too_long_password(self):
+        count: int = User.objects.count()
+        team_count: int = Team.objects.count()
+
+        response = self.client.post(
+            "/api/signup/",
+            {"first_name": "Jane", "email": "failed@posthog.com", "password": "a" * 73},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "max_length",
+                "detail": "Ensure this field has no more than 72 characters.",
+                "attr": "password",
+            },
+        )
+
+        self.assertEqual(User.objects.count(), count)
+        self.assertEqual(Team.objects.count(), team_count)
+
     def test_cant_sign_up_with_weak_passwords(self):
         cases = [
             ["password", "Add another word or two. Uncommon words are better."],

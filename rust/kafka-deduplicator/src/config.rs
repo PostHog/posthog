@@ -282,6 +282,17 @@ pub struct Config {
     pub checkpoint_partition_import_timeout_secs: u64,
 
     //// End checkpoint configuration ////
+    //// Kafka-assigner mode configuration ////
+    /// gRPC endpoint for the kafka-assigner service (e.g. "http://kafka-assigner:50051").
+    /// When set, the consumer uses externally-driven partition assignment instead of
+    /// Kafka's consumer group protocol.
+    pub kafka_assigner_endpoint: Option<String>,
+
+    /// Consumer name for registration with the kafka-assigner.
+    /// Defaults to HOSTNAME (pod name) if not set.
+    pub consumer_name: Option<String>,
+
+    //// End kafka-assigner mode configuration ////
     /// Fail-open mode: bypass all deduplication and forward events directly to output topic.
     /// When enabled, the deduplicator skips store operations, checkpoint import/export,
     /// and treats all events as unique. Use as an emergency kill switch when the
@@ -494,6 +505,26 @@ impl Config {
             .with_max_poll_interval_ms(self.kafka_max_poll_interval_ms)
             .with_session_timeout_ms(self.kafka_session_timeout_ms)
             .with_heartbeat_interval_ms(self.kafka_heartbeat_interval_ms)
+            .build()
+    }
+
+    /// Build Kafka consumer configuration for the assigner-driven consumer.
+    /// Uses manual `assign()` with offset commits via the consumer group, but no
+    /// group-coordination settings (session, heartbeat, max.poll, sticky assignment).
+    pub fn build_assigner_consumer_config(&self) -> rdkafka::ClientConfig {
+        use crate::kafka::config::ConsumerConfigBuilder;
+
+        ConsumerConfigBuilder::for_assigner_consumer(&self.kafka_hosts, &self.kafka_consumer_group)
+            .with_tls(self.kafka_tls)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_topic_metadata_refresh_interval_ms(self.kafka_topic_metadata_refresh_interval_ms)
+            .with_metadata_max_age_ms(self.kafka_metadata_max_age_ms)
+            .with_offset_reset(&self.kafka_consumer_offset_reset)
+            .with_fetch_min_bytes(self.kafka_consumer_fetch_min_bytes)
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
+            .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
             .build()
     }
 

@@ -9,11 +9,13 @@
  */
 /**
  * * `llm_judge` - LLM as a judge
+ * `hog` - Hog
  */
 export type EvaluationTypeEnumApi = (typeof EvaluationTypeEnumApi)[keyof typeof EvaluationTypeEnumApi]
 
 export const EvaluationTypeEnumApi = {
     LlmJudge: 'llm_judge',
+    Hog: 'hog',
 } as const
 
 /**
@@ -139,6 +141,48 @@ export interface PaginatedEvaluationListApi {
     /** @nullable */
     previous?: string | null
     results: EvaluationApi[]
+}
+
+/**
+ * * `trace` - trace
+ * `generation` - generation
+ */
+export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
+
+export const AnalysisLevelEnumApi = {
+    Trace: 'trace',
+    Generation: 'generation',
+} as const
+
+export interface ClusteringJobApi {
+    readonly id: string
+    /** @maxLength 100 */
+    name: string
+    analysis_level: AnalysisLevelEnumApi
+    event_filters?: unknown
+    enabled?: boolean
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedClusteringJobListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ClusteringJobApi[]
+}
+
+export interface PatchedClusteringJobApi {
+    readonly id?: string
+    /** @maxLength 100 */
+    name?: string
+    analysis_level?: AnalysisLevelEnumApi
+    event_filters?: unknown
+    enabled?: boolean
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
 export type ClusteringRunRequestApiEventFiltersItem = { [key: string]: unknown }
@@ -268,6 +312,11 @@ export interface ClusteringRunRequestApi {
     visualization_method?: VisualizationMethodEnumApi
     /** Property filters to scope which traces are included in clustering (PostHog standard format) */
     event_filters?: ClusteringRunRequestApiEventFiltersItem[]
+    /**
+     * If provided, use this clustering job's analysis_level and event_filters instead of request params
+     * @nullable
+     */
+    clustering_job_id?: string | null
 }
 
 /**
@@ -746,6 +795,17 @@ export type EvaluationsListParams = {
      * Search in name or description
      */
     search?: string
+}
+
+export type LlmAnalyticsClusteringJobsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown }
