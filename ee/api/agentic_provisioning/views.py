@@ -618,6 +618,73 @@ def provisioning_resource_detail(request: Request, resource_id: str) -> Response
 
 
 # ---------------------------------------------------------------------------
+# POST /provisioning/resources/:id/rotate_credentials
+# ---------------------------------------------------------------------------
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+def provisioning_rotate_credentials(request: Request, resource_id: str) -> Response:
+    error = verify_stripe_signature(request)
+    if error:
+        return error
+
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+
+    scoped_teams = access_token.scoped_teams or []
+
+    try:
+        team_id = int(resource_id)
+    except (ValueError, TypeError):
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "invalid_resource_id", "message": "Invalid resource ID"},
+            },
+            status=400,
+        )
+
+    if team_id not in scoped_teams:
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "forbidden", "message": "Resource not accessible with this token"},
+            },
+            status=403,
+        )
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.warning("stripe_app.rotate_credentials.team_not_found", team_id=team_id)
+        capture_exception(Exception("Stripe APP rotate credentials: team not found"))
+        return Response(
+            {"status": "error", "id": resource_id, "error": {"code": "not_found", "message": "Resource not found"}},
+            status=404,
+        )
+
+    host = _get_instance_host()
+
+    return Response(
+        {
+            "status": "complete",
+            "id": resource_id,
+            "complete": {
+                "access_configuration": {
+                    "api_key": team.api_token,
+                    "host": host,
+                },
+            },
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
 # POST /provisioning/deep_links
 # ---------------------------------------------------------------------------
 

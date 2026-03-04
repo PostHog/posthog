@@ -86,7 +86,20 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         assert res.json()["status"] == "complete"
         assert res.json()["id"] == resource_id
 
-        # 7. Deep link
+        # 7. Rotate credentials (returns current secrets without regenerating)
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{resource_id}/rotate_credentials",
+            token=access_token,
+        )
+        assert res.status_code == 200
+        assert res.json()["status"] == "complete"
+        assert res.json()["id"] == resource_id
+        assert (
+            res.json()["complete"]["access_configuration"]["api_key"]
+            == resource_data["complete"]["access_configuration"]["api_key"]
+        )
+
+        # 8. Deep link
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/deep_links",
             data={"purpose": "dashboard"},
@@ -96,7 +109,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         assert "url" in res.json()
         assert "expires_at" in res.json()
 
-        # 8. Refresh the token
+        # 9. Refresh the token
         refresh_body = urlencode({"grant_type": "refresh_token", "refresh_token": refresh_token}).encode()
         ts = int(time.time())
         sig = compute_signature(HMAC_SECRET, ts, refresh_body)
@@ -112,7 +125,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         assert new_access_token != access_token
         assert new_access_token.startswith("pha_")
 
-        # 9. Verify new token works on resource endpoint
+        # 10. Verify new token works on resource endpoint
         res = self._get_signed_with_bearer(
             f"/api/agentic/provisioning/resources/{resource_id}",
             token=new_access_token,
@@ -120,7 +133,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         assert res.status_code == 200
         assert res.json()["status"] == "complete"
 
-        # 10. Old token should no longer work (it was deleted during refresh)
+        # 11. Old token should no longer work (it was deleted during refresh)
         res = self._get_signed_with_bearer(
             f"/api/agentic/provisioning/resources/{resource_id}",
             token=access_token,

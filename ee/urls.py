@@ -265,6 +265,11 @@ urlpatterns: list[Any] = [
         name="agentic_provisioning_resources_create",
     ),
     path(
+        "api/agentic/provisioning/resources/<str:resource_id>/rotate_credentials",
+        csrf_exempt(agentic_provisioning_views.provisioning_rotate_credentials),
+        name="agentic_provisioning_rotate_credentials",
+    ),
+    path(
         "api/agentic/provisioning/resources/<str:resource_id>",
         csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
         name="agentic_provisioning_resource_detail",
