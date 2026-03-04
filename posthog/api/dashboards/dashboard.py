@@ -40,7 +40,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
-from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -48,7 +48,7 @@ from posthog.models import Dashboard, DashboardTile, Insight, Text
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import GroupTypeMapping, invalidate_group_types_cache
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
@@ -400,12 +400,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "dashboard created",
             {
                 **dashboard.get_analytics_metadata(),
-                **get_request_analytics_properties(request),
                 "from_template": bool(use_template),
                 "template_key": use_template,
                 "duplicated": bool(use_dashboard),
                 "dashboard_id": use_dashboard,
             },
+            team=dashboard.team,
+            request=request,
         )
 
         return dashboard
@@ -485,6 +486,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if group_type_mapping:
                 group_type_mapping.detail_dashboard_id = None
                 group_type_mapping.save()
+                invalidate_group_types_cache(instance.team.project_id)
 
         request_filters = initial_data.get("filters")
         if request_filters:
@@ -516,10 +518,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
             report_user_action(
                 user,
                 "dashboard updated",
-                {
-                    **instance.get_analytics_metadata(),
-                    **get_request_analytics_properties(self.context["request"]),
-                },
+                instance.get_analytics_metadata(),
+                team=instance.team,
+                request=self.context["request"],
             )
 
         self.user_permissions.reset_insights_dashboard_cached_results()
@@ -1066,13 +1067,14 @@ class DashboardsViewSet(
                 "dashboard created",
                 {
                     **dashboard.get_analytics_metadata(),
-                    **get_request_analytics_properties(request),
                     "from_template": True,
                     "template_key": dashboard_template.template_name,
                     "duplicated": False,
                     "dashboard_id": dashboard.pk,
                     "creation_context": creation_context,
                 },
+                team=dashboard.team,
+                request=request,
             )
         except Exception:
             dashboard.delete()

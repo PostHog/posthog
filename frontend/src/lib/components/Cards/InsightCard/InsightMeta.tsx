@@ -23,6 +23,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -114,6 +115,7 @@ export function InsightMeta({
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { updateInsightDirect } = useActions(insightsModel)
+    const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showCompactTile =
@@ -274,6 +276,8 @@ export function InsightMeta({
                           if (updates.description && !tile?.show_description && toggleShowDescription) {
                               toggleShowDescription()
                           }
+                          const attribute = updates.name !== undefined ? 'name' : 'description'
+                          reportDashboardInsightMetaUpdated(dashboardId, insight.id, attribute)
                       }
                     : undefined
             }

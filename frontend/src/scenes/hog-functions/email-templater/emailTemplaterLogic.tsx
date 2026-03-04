@@ -12,6 +12,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
+// eslint-disable-next-line import/no-cycle
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 
 import { EmailTemplaterType } from './EmailTemplater'

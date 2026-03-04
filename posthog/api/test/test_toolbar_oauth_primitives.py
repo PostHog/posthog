@@ -666,10 +666,10 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
 
-    def _authorize_and_get_state(self) -> str:
+    def _authorize_and_get_state(self, redirect_url: str = "https://example.com/page") -> str:
         response = self.client.get(
             "/toolbar_oauth/authorize/",
-            {"redirect": "https://example.com/page", "code_challenge": "test_challenge_value"},
+            {"redirect": redirect_url, "code_challenge": "test_challenge_value"},
         )
         assert response.status_code == 302
 
@@ -686,6 +686,14 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
         assert redirect_url.startswith("https://example.com/page#")
         assert "__posthog_toolbar=code:auth_code_123" in redirect_url
         assert "client_id:" in redirect_url
+
+    def test_callback_preserves_original_url_fragment(self):
+        state = self._authorize_and_get_state(redirect_url="https://example.com/page#section1")
+        response = self.client.get(f"/toolbar_oauth/callback?code=auth_code_123&state={state}")
+
+        assert response.status_code == 302
+        redirect_url = response["Location"]
+        assert "#section1&__posthog_toolbar=code:auth_code_123" in redirect_url
 
     def test_callback_without_redirect_flow_relays_code_and_state(self):
         response = self.client.get("/toolbar_oauth/callback?code=test_code&state=test_state")
