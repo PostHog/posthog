@@ -4907,6 +4907,7 @@ dependencies = [
     { name = "tenacity" },
     { name = "tiktoken" },
     { name = "tldextract" },
+    { name = "types-cachetools" },
     { name = "umap-learn" },
     { name = "user-agents" },
     { name = "webauthn" },
@@ -5158,6 +5159,7 @@ requires-dist = [
     { name = "tenacity", specifier = "==9.1.2" },
     { name = "tiktoken", specifier = "==0.9.*" },
     { name = "tldextract", specifier = "~=5.1" },
+    { name = "types-cachetools", specifier = "==5.5.0.20240820" },
     { name = "umap-learn", specifier = "~=0.5.0" },
     { name = "user-agents", specifier = "~=2.2.0" },
     { name = "webauthn", specifier = ">=2.1.0,<2.3.0" },
@@ -7490,6 +7492,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ee/cf/2d6b90fb0dab9b3200ad357f9851c09de99072bcf3129fa7b89c113bcd54/types_boto3_sqs-1.37.0.tar.gz", hash = "sha256:37bd73d2a0810f9b685a3230aac87543d88e55e92d0b26a142c7d220c375bfd3", size = 23366, upload-time = "2025-02-24T22:35:21.858Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ec/c1/79ca53904b8452ba2519b3480b0bf9068f46e68776ff7c8299ef18dd1a61/types_boto3_sqs-1.37.0-py3-none-any.whl", hash = "sha256:3de05af6afeb77cefbe816556cec12c46a436f31a63cf2647cb7a09892a0d39b", size = 33410, upload-time = "2025-02-24T22:35:19.361Z" },
+]
+
+[[package]]
+name = "types-cachetools"
+version = "5.5.0.20240820"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c2/7e/ad6ba4a56b2a994e0f0a04a61a50466b60ee88a13d10a18c83ac14a66c61/types-cachetools-5.5.0.20240820.tar.gz", hash = "sha256:b888ab5c1a48116f7799cd5004b18474cd82b5463acb5ffb2db2fc9c7b053bc0", size = 4198, upload-time = "2024-08-20T02:30:07.525Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/27/4d/fd7cc050e2d236d5570c4d92531c0396573a1e14b31735870e849351c717/types_cachetools-5.5.0.20240820-py3-none-any.whl", hash = "sha256:efb2ed8bf27a4b9d3ed70d33849f536362603a90b8090a328acf0cd42fda82e2", size = 4149, upload-time = "2024-08-20T02:30:06.461Z" },
 ]
 
 [[package]]

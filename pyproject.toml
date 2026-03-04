@@ -137,6 +137,7 @@ dependencies = [
     "tenacity==9.1.2",
     "tiktoken==0.9.*",
     "tldextract~=5.1",
+    "types-cachetools==5.5.0.20240820",
     "css-inline==0.18.0",
     "click~=8.0",
     "umap-learn~=0.5.0",
