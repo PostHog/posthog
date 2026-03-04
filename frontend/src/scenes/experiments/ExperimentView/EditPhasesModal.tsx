@@ -614,7 +614,7 @@ export function EditPhasesModal(): JSX.Element | null {
                                 return row.phase.end_date ? (
                                     <TZLabel time={row.phase.end_date} formatDate="MMM D, YYYY" formatTime="h:mm A" />
                                 ) : (
-                                    <span className="text-secondary">now</span>
+                                    <span className="text-secondary">–</span>
                                 )
                             },
                         },
