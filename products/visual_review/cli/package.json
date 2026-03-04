@@ -11,6 +11,7 @@
         "dev": "tsx src/index.ts"
     },
     "dependencies": {
+        "@napi-rs/blake-hash": "^1.3.6",
         "commander": "^12.0.0",
         "pngjs": "^7.0.0",
         "yaml": "^2.3.0"

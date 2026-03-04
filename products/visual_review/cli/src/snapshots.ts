@@ -6,11 +6,12 @@
  *   config:
  *     api: https://app.posthog.com
  *     team: "12345"
+ *     repo: "5b6c3630-3e94-4cd0-a1c7-81c34d40a30c"
  *   snapshots:
  *     button--primary:
  *       hash: "v1.k1.3f2a...9c10.2S8h...Q"
  *
- * The hash value is an HMAC-signed token: v1.<kid>.<sha256hex>.<mac_b64url>
+ * The hash value is an HMAC-signed token: v1.<kid>.<blake3hex>.<mac_b64url>
  * Produced exclusively by the backend on approval.
  */
 import { existsSync, readFileSync } from 'node:fs'
@@ -19,6 +20,7 @@ import { parse } from 'yaml'
 export interface SnapshotConfig {
     api: string
     team: string
+    repo: string
 }
 
 export interface SnapshotsFile {

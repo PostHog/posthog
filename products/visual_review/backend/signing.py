@@ -1,14 +1,14 @@
 """
 HMAC-SHA256 signing for snapshot baseline hashes.
 
-Format: ``v1.<kid>.<sha256hex>.<mac_b64url>``
+Format: ``v1.<kid>.<contenthex>.<mac_b64url>``
 
 - ``v1``: format version (literal)
 - ``kid``: key ID, matches ``[A-Za-z0-9_-]{1,32}``
-- ``sha256hex``: SHA-256 hex digest of image pixel bytes (64 chars)
+- ``contenthex``: BLAKE3 hex digest of image RGBA pixel bytes (64 chars)
 - ``mac_b64url``: base64url-encoded HMAC-SHA256 tag, no padding (43 chars)
 
-MAC input: ``"v1|{repo_id}|{identifier}|{sha256hex}"``
+MAC input: ``"v1|{repo_id}|{identifier}|{contenthex}"``
 
 Key rotation: ``kid`` identifies which key was used. Backend stores multiple
 keys per repo and accepts any valid ``kid`` during verification, issuing

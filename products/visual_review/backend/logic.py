@@ -287,9 +287,10 @@ def create_run(
     # Unsigned or invalid hashes are silently dropped (treated as no baseline → NEW).
     verified_baselines = _verify_baseline_hashes(repo, baseline_hashes)
 
-    # Supersede old runs before inserting the new one. The unique constraint
-    # on (repo, branch, run_type) WHERE superseded_by IS NULL fires per-
-    # statement, so the slot must be free before the insert.
+    # Supersede ALL old runs before inserting the new one. The unique constraint
+    # on (repo, branch, run_type) WHERE superseded_by IS NULL requires the slot
+    # to be free before the insert — regardless of the old run's approval or
+    # completion status. A new CI push always replaces the previous run.
     #
     # We don't have the new run's ID yet, so we use a self-referencing
     # sentinel: each superseded run points to itself temporarily.
@@ -299,13 +300,6 @@ def create_run(
         branch=branch,
         run_type=run_type,
         superseded_by__isnull=True,
-        approved=False,
-    ).exclude(
-        # Don't supersede clean completed runs (no changes to review)
-        status=RunStatus.COMPLETED,
-        changed_count=0,
-        new_count=0,
-        removed_count=0,
     )
     # Collect IDs before mutating, then self-reference to clear the slot
     superseded_ids = list(supersede_filter.values_list("id", flat=True))
@@ -702,7 +696,7 @@ def _build_snapshots_yaml(
 ) -> str:
     """Build updated snapshots.yml with HMAC-signed hashes.
 
-    Each snapshot value is ``{hash: "v1.<kid>.<sha256hex>.<mac>"}``
+    Each snapshot value is ``{hash: "v1.<kid>.<blake3hex>.<mac>"}``
     where the MAC binds the hash to the repo and identifier.
 
     *current_baselines* maps identifier to ``{hash: signed_hash_str}``.

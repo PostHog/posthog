@@ -15,6 +15,11 @@ from celery import shared_task
 
 logger = structlog.get_logger(__name__)
 
+# Snapshots with diff below this percentage are reclassified as unchanged.
+# Matches jest-image-snapshot's default 1% threshold — sub-pixel rendering
+# noise (anti-aliasing, font hinting) should not cause baseline churn.
+DIFF_THRESHOLD_PERCENT = 1.0
+
 
 @shared_task(name="products.visual_review.backend.tasks.process_run_diffs", ignore_result=True)
 def process_run_diffs(run_id: str) -> None:
@@ -41,6 +46,9 @@ def process_run_diffs(run_id: str) -> None:
 def _process_diffs(run_id: UUID) -> None:
     """
     Process diffs for all changed snapshots in a run.
+
+    After computing pixel diffs, snapshots below DIFF_THRESHOLD_PERCENT
+    are reclassified as UNCHANGED to avoid baseline churn from rendering noise.
     """
     from .. import logic
     from ..facade.enums import SnapshotResult
@@ -69,14 +77,17 @@ def _diff_snapshot(snapshot) -> None:
     """
     Compute diff between baseline and current artifact.
 
-    Downloads both images, computes pixel diff, uploads diff image.
+    Downloads both images, computes pixel diff via pixelmatch, uploads
+    diff image. If the diff is below the threshold, reclassifies the
+    snapshot as UNCHANGED — the old baseline hash is preserved and no
+    churn occurs.
     """
     from .. import logic
     from ..diff import compute_diff
+    from ..facade.enums import SnapshotResult
 
     repo_id = snapshot.run.repo_id
 
-    # Download images from storage
     baseline_bytes = logic.read_artifact_bytes(repo_id, snapshot.baseline_artifact.content_hash)
     current_bytes = logic.read_artifact_bytes(repo_id, snapshot.current_artifact.content_hash)
 
@@ -90,10 +101,22 @@ def _diff_snapshot(snapshot) -> None:
         )
         return
 
-    # Compute diff
     result = compute_diff(baseline_bytes, current_bytes)
 
-    # Upload diff image
+    if result.diff_percentage < DIFF_THRESHOLD_PERCENT:
+        snapshot.result = SnapshotResult.UNCHANGED
+        snapshot.diff_percentage = result.diff_percentage
+        snapshot.diff_pixel_count = result.diff_pixel_count
+        snapshot.save(update_fields=["result", "diff_percentage", "diff_pixel_count"])
+        logger.info(
+            "visual_review.diff_below_threshold",
+            snapshot_id=str(snapshot.id),
+            identifier=snapshot.identifier,
+            diff_percentage=result.diff_percentage,
+            threshold=DIFF_THRESHOLD_PERCENT,
+        )
+        return
+
     diff_artifact = logic.write_artifact_bytes(
         repo_id=repo_id,
         content_hash=result.diff_hash,
@@ -102,7 +125,6 @@ def _diff_snapshot(snapshot) -> None:
         height=result.height,
     )
 
-    # Update snapshot with diff results
     logic.update_snapshot_diff(
         snapshot_id=snapshot.id,
         diff_artifact=diff_artifact,

@@ -1,12 +1,13 @@
 """Seed visual review with dummy runs using real repo data."""
 
 import random
-import hashlib
 import subprocess
 from pathlib import Path
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
+
+from blake3 import blake3
 
 from posthog.models.team import Team
 
@@ -249,7 +250,7 @@ class Command(BaseCommand):
                 removed_count += 1
             elif result == SnapshotResult.CHANGED:
                 # Use same artifact but different hash to simulate change
-                baseline_hash = hashlib.sha256(content_hash.encode() + b"baseline").hexdigest()
+                baseline_hash = blake3(content_hash.encode() + b"baseline").hexdigest()
                 baseline_artifact = artifact
                 changed_count += 1
             else:  # UNCHANGED
@@ -301,8 +302,8 @@ class Command(BaseCommand):
             return SnapshotResult.REMOVED
 
     def _hash_file(self, path: Path) -> str:
-        """Get SHA256 hash of file contents."""
-        h = hashlib.sha256()
+        """Get BLAKE3 hash of file contents."""
+        h = blake3()
         with open(path, "rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
                 h.update(chunk)

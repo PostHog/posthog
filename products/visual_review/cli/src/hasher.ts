@@ -1,14 +1,14 @@
 /**
  * Canonical bitmap hashing.
  *
- * Decodes PNG to raw RGBA pixel buffer, then hashes the pixels.
+ * Decodes PNG to raw RGBA pixel buffer, then hashes the pixels with BLAKE3.
  * This ensures identical visual content = identical hash,
  * regardless of PNG compression settings or metadata.
  *
  * Uses pngjs (pure JS) instead of sharp to avoid native binary issues
  * when the CLI is distributed as a tarball across platforms.
  */
-import { createHash } from 'node:crypto'
+import { Blake3Hasher } from '@napi-rs/blake-hash'
 import { PNG } from 'pngjs'
 
 function decodePng(pngData: Buffer): { data: Buffer; width: number; height: number } {
@@ -18,13 +18,13 @@ function decodePng(pngData: Buffer): { data: Buffer; width: number; height: numb
 
 /**
  * Hash PNG image data by decoding to RGBA and hashing the pixel buffer.
- * Returns hex-encoded SHA256 hash.
+ * Returns hex-encoded BLAKE3 hash.
  */
 export async function hashImage(pngData: Buffer): Promise<string> {
     const { data } = decodePng(pngData)
-    const hash = createHash('sha256')
-    hash.update(data)
-    return hash.digest('hex')
+    const hasher = new Blake3Hasher()
+    hasher.update(data)
+    return hasher.digest('hex')
 }
 
 /**
@@ -43,11 +43,11 @@ export async function hashImageWithDimensions(
 ): Promise<{ hash: string; width: number; height: number }> {
     const { data, width, height } = decodePng(pngData)
 
-    const hash = createHash('sha256')
-    hash.update(data)
+    const hasher = new Blake3Hasher()
+    hasher.update(data)
 
     return {
-        hash: hash.digest('hex'),
+        hash: hasher.digest('hex'),
         width,
         height,
     }

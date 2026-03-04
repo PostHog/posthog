@@ -208,8 +208,8 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function waitForCompletion(client: VisualReviewClient, runId: string): Promise<Run> {
-    const maxAttempts = 60
-    const intervalMs = 2000
+    const maxAttempts = 120
+    const intervalMs = 5000
 
     for (let i = 0; i < maxAttempts; i++) {
         const run = await client.getRun(runId)
