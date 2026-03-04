@@ -28,7 +28,10 @@ from products.batch_exports.backend.temporal.pipeline.producer import Producer
 from products.batch_exports.backend.temporal.pipeline.transformer import JSONLStreamTransformer
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
+from products.batch_exports.backend.temporal.utils import (
+    handle_non_retryable_errors,
+    make_retryable_with_exponential_backoff,
+)
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -66,6 +69,22 @@ def workflows_default_fields(batch_export_id: str) -> list[BatchExportField]:
     ]
 
 
+class TooManyRequests(aiohttp.ClientResponseError):
+    pass
+
+
+class NotFound(aiohttp.ClientResponseError):
+    pass
+
+
+class BadRequest(aiohttp.ClientResponseError):
+    pass
+
+
+class InternalServerError(aiohttp.ClientResponseError):
+    pass
+
+
 class WorkflowsConsumer(Consumer):
     def __init__(
         self,
@@ -82,12 +101,39 @@ class WorkflowsConsumer(Consumer):
         self.session = session
 
     async def consume_chunk(self, data: bytes):
-        await self.session.post(
+        post = make_retryable_with_exponential_backoff(
+            self.post, retryable_exceptions=(InternalServerError, TooManyRequests)
+        )
+        await post(data)
+
+    async def post(self, data: bytes):
+        async with await self.session.post(
             self.url,
             # Data is already JSON encoded, so we can't use json=data.
             data=b'{"clickhouse_event":' + data + b"}",
             headers={"Content-Type": "application/json"},
-        )
+        ) as response:
+            try:
+                response.raise_for_status()
+            except aiohttp.ClientResponseError as err:
+                self.logger.exception("Request failed", status=err.status)
+
+                args = (err.request_info, err.history)
+                kwargs = {
+                    "status": err.status,
+                    "message": err.message,
+                    "headers": err.headers,
+                }
+
+                match err.status:
+                    case 404:
+                        raise NotFound(*args, **kwargs)
+                    case 429:
+                        raise TooManyRequests(*args, **kwargs)
+                    case n if n >= 400 and n < 500:
+                        raise BadRequest(*args, **kwargs)
+                    case n if n >= 500:
+                        raise InternalServerError(*args, **kwargs)
 
     async def finalize_file(self):
         """Required by consumer interface."""
