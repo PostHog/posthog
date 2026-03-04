@@ -13,7 +13,12 @@ type ProcessAiEventInput = {
 export function createProcessAiEventStep<TInput extends ProcessAiEventInput>(): ProcessingStep<TInput, TInput> {
     return function processAiEventStep(input: TInput) {
         if (!AI_EVENT_TYPES.has(input.normalizedEvent.event)) {
-            return Promise.resolve(dlq('non-AI event routed to AI subpipeline', input.normalizedEvent.event))
+            return Promise.resolve(
+                dlq(
+                    'non-AI event routed to AI subpipeline',
+                    new Error(`unexpected event type: ${input.normalizedEvent.event}`)
+                )
+            )
         }
 
         try {
