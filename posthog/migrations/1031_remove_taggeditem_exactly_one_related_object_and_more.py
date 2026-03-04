@@ -12,14 +12,12 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # Remove old check constraint first
         migrations.RemoveConstraint(
             model_name="taggeditem",
             name="exactly_one_related_object",
         ),
-        migrations.AlterUniqueTogether(
-            name="taggeditem",
-            unique_together=set(),
-        ),
+        # Add the ticket field
         migrations.AddField(
             model_name="taggeditem",
             name="ticket",
@@ -31,22 +29,63 @@ class Migration(migrations.Migration):
                 to="conversations.ticket",
             ),
         ),
-        migrations.AlterUniqueTogether(
-            name="taggeditem",
-            unique_together={
-                (
-                    "tag",
-                    "dashboard",
-                    "insight",
-                    "event_definition",
-                    "property_definition",
-                    "action",
-                    "feature_flag",
-                    "experiment_saved_metric",
-                    "ticket",
-                )
-            },
+        # Update unique_together to include ticket - use SeparateDatabaseAndState
+        # because the old unique_together constraint name varies based on migration history
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AlterUniqueTogether(
+                    name="taggeditem",
+                    unique_together={
+                        (
+                            "tag",
+                            "dashboard",
+                            "insight",
+                            "event_definition",
+                            "property_definition",
+                            "action",
+                            "feature_flag",
+                            "experiment_saved_metric",
+                            "ticket",
+                        )
+                    },
+                ),
+            ],
+            database_operations=[
+                # Drop the old unique constraint if it exists
+                migrations.RunSQL(
+                    sql="""
+                        DO $$
+                        BEGIN
+                            IF EXISTS (
+                                SELECT 1 FROM pg_constraint
+                                WHERE conname = 'posthog_taggeditem_tag_id_dashboard_id_insi_d90686d0_uniq'
+                            ) THEN
+                                ALTER TABLE posthog_taggeditem
+                                DROP CONSTRAINT posthog_taggeditem_tag_id_dashboard_id_insi_d90686d0_uniq;
+                            END IF;
+                        END $$;
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE posthog_taggeditem
+                        ADD CONSTRAINT posthog_taggeditem_tag_id_dashboard_id_insi_d90686d0_uniq
+                        UNIQUE (tag_id, dashboard_id, insight_id, event_definition_id, property_definition_id, action_id, feature_flag_id, experiment_saved_metric_id);
+                    """,
+                ),
+                # Create the new unique constraint with ticket
+                migrations.RunSQL(
+                    sql="""
+                        ALTER TABLE posthog_taggeditem
+                        ADD CONSTRAINT posthog_taggeditem_tag_id_dashboard_id_insi_d90686d0_uniq
+                        UNIQUE (tag_id, dashboard_id, insight_id, event_definition_id, property_definition_id, action_id, feature_flag_id, experiment_saved_metric_id, ticket_id);
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE posthog_taggeditem
+                        DROP CONSTRAINT posthog_taggeditem_tag_id_dashboard_id_insi_d90686d0_uniq;
+                    """,
+                ),
+            ],
         ),
+        # Add unique constraint for ticket tags
         migrations.AddConstraint(
             model_name="taggeditem",
             constraint=models.UniqueConstraint(
@@ -55,6 +94,7 @@ class Migration(migrations.Migration):
                 name="unique_ticket_tagged_item",
             ),
         ),
+        # Add the new check constraint with ticket included
         migrations.AddConstraint(
             model_name="taggeditem",
             constraint=models.CheckConstraint(
