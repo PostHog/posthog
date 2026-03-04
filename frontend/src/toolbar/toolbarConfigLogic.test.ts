@@ -106,13 +106,17 @@ describe('toolbar toolbarConfigLogic', () => {
         })
     })
 
-    it('normalizes uiHost to not end with a slash', () => {
+    it.each([
+        ['strips trailing slash', 'https://us.posthog.com/', 'https://us.posthog.com'],
+        ['maps EU ingestion host to UI host', 'https://eu.i.posthog.com', 'https://eu.posthog.com'],
+        ['maps US ingestion host to UI host', 'https://us.i.posthog.com', 'https://us.posthog.com'],
+        ['leaves non-cloud host unchanged', 'https://posthog.mycompany.com', 'https://posthog.mycompany.com'],
+    ])('uiHost %s', (_label, uiHostInput, expected) => {
         const logic = toolbarConfigLogic.build({
-            posthog: { config: { ui_host: 'https://us.posthog.com/' } } as any,
+            posthog: { config: { ui_host: uiHostInput } } as any,
         } as any)
         logic.mount()
-        expect(logic.values.uiHost.endsWith('/')).toBe(false)
-        expect(logic.values.uiHost).toBe('https://us.posthog.com')
+        expect(logic.values.uiHost).toBe(expected)
     })
 
     describe('OAuth localStorage restoration', () => {
@@ -273,6 +277,11 @@ describe('toolbar toolbarConfigLogic', () => {
                 '/#/dashboard&tab=1',
             ],
             ['handles percent-encoded delimiters', '#__posthog_toolbar=code%3Aabc%2Cclient_id%3Axyz', '/'],
+            [
+                'cleans hash with server-provided redirect_uri and token_endpoint',
+                '#__posthog_toolbar=code:abc,client_id:xyz,redirect_uri:https%3A%2F%2Fexample.com%2Fcallback,token_endpoint:https%3A%2F%2Fexample.com%2Ftoken',
+                '/',
+            ],
         ])('%s', (_label, hash, expectedUrl) => {
             window.history.pushState({}, '', `/${hash}`)
 
@@ -280,6 +289,53 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
 
             expect(replaceStateSpy).toHaveBeenCalledWith(null, '', expectedUrl)
+        })
+
+        it('uses server-provided token_endpoint and redirect_uri for token exchange', async () => {
+            const serverTokenEndpoint = 'https://internal.posthog.com/oauth/token/'
+            const serverRedirectUri = 'https://internal.posthog.com/toolbar_oauth/callback'
+            const encodedEndpoint = encodeURIComponent(serverTokenEndpoint)
+            const encodedRedirectUri = encodeURIComponent(serverRedirectUri)
+
+            window.history.pushState(
+                {},
+                '',
+                `/#__posthog_toolbar=code:abc,client_id:xyz,redirect_uri:${encodedRedirectUri},token_endpoint:${encodedEndpoint}`
+            )
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://external-proxy.com' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                accessToken: 'new-access',
+                isAuthenticated: true,
+            })
+
+            const fetchCall = (global.fetch as jest.Mock).mock.calls[0]
+            expect(fetchCall[0]).toBe(serverTokenEndpoint)
+            const body = new URLSearchParams(fetchCall[1].body)
+            expect(body.get('redirect_uri')).toBe(serverRedirectUri)
+        })
+
+        it('falls back to uiHost-derived URLs when server does not provide them', async () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({
+                posthog: { config: { ui_host: 'https://us.posthog.com' } } as any,
+            } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                accessToken: 'new-access',
+                isAuthenticated: true,
+            })
+
+            const fetchCall = (global.fetch as jest.Mock).mock.calls[0]
+            expect(fetchCall[0]).toBe('https://us.posthog.com/oauth/token/')
+            const body = new URLSearchParams(fetchCall[1].body)
+            expect(body.get('redirect_uri')).toBe('https://us.posthog.com/toolbar_oauth/callback')
         })
 
         it('uses localStorage PKCE fallback when sessionStorage is empty', async () => {
@@ -389,10 +445,28 @@ describe('toolbar toolbarConfigLogic', () => {
             window.history.pushState({}, '', '/')
         })
 
-        it('returns code and clientId when hash matches', () => {
+        it('returns code and clientId when hash has no server-provided URLs', () => {
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
             const result = cleanToolbarAuthHash()
-            expect(result).toEqual({ code: 'abc', clientId: 'xyz' })
+            expect(result).toEqual({ code: 'abc', clientId: 'xyz', redirectUri: undefined, tokenEndpoint: undefined })
+            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/')
+        })
+
+        it('parses redirect_uri and token_endpoint from hash', () => {
+            const redirectUri = encodeURIComponent('https://internal.example.com/toolbar_oauth/callback')
+            const tokenEndpoint = encodeURIComponent('https://internal.example.com/oauth/token/')
+            window.history.pushState(
+                {},
+                '',
+                `/#__posthog_toolbar=code:abc,client_id:xyz,redirect_uri:${redirectUri},token_endpoint:${tokenEndpoint}`
+            )
+            const result = cleanToolbarAuthHash()
+            expect(result).toEqual({
+                code: 'abc',
+                clientId: 'xyz',
+                redirectUri: 'https://internal.example.com/toolbar_oauth/callback',
+                tokenEndpoint: 'https://internal.example.com/oauth/token/',
+            })
             expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/')
         })
 

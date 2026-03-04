@@ -20,27 +20,58 @@ export const OAUTH_LOCALSTORAGE_KEY = '_postHogToolbarOAuth'
 export const PKCE_STORAGE_KEY = '_postHogToolbarPKCE'
 
 /**
- * Clean `__posthog_toolbar=code:…,client_id:…` from the URL hash.
- * Returns the matched {code, clientId} if found, or null.
+ * Cloud ingestion hosts (e.g. eu.i.posthog.com) don't serve the UI or OAuth
+ * endpoints. Map them to the corresponding UI host (eu.posthog.com).
+ * Non-cloud hosts pass through unchanged.
  */
-export function cleanToolbarAuthHash(): { code: string; clientId: string } | null {
+export function normalizeCloudHost(host: string): string {
+    return host.replace(/^(https?:\/\/\w+)\.i\.posthog\.com/, '$1.posthog.com')
+}
+
+export interface ToolbarAuthParams {
+    code: string
+    clientId: string
+    redirectUri?: string
+    tokenEndpoint?: string
+}
+
+/**
+ * Clean `__posthog_toolbar=code:…,client_id:…[,redirect_uri:…][,token_endpoint:…]` from the URL hash.
+ * Returns the matched params if found, or null.
+ *
+ * The server may include redirect_uri and token_endpoint so the frontend
+ * doesn't need to derive them from uiHost (fixes reverse proxy mismatches).
+ */
+export function cleanToolbarAuthHash(): ToolbarAuthParams | null {
     let hash: string
     try {
         hash = decodeURIComponent(window.location.hash)
     } catch {
         hash = window.location.hash
     }
-    const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^&#]+)/)
+    const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^,&#]+)/)
     if (!codeMatch) {
         return null
     }
+
+    // Extract the full toolbar param value for optional fields
+    const fullMatch = hash.match(/__posthog_toolbar=([^&#]+)/)
+    const paramStr = fullMatch ? fullMatch[1] : ''
+    const redirectUriMatch = paramStr.match(/redirect_uri:([^,&#]+)/)
+    const tokenEndpointMatch = paramStr.match(/token_endpoint:([^,&#]+)/)
+
     const cleanHash = hash
         .replace(/__posthog_toolbar=[^&#]*/, '')
         .replace(/&$/, '')
         .replace(/^#&/, '#')
         .replace(/^#$/, '')
     history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
-    return { code: codeMatch[1], clientId: codeMatch[2] }
+    return {
+        code: codeMatch[1],
+        clientId: codeMatch[2],
+        redirectUri: redirectUriMatch ? decodeURIComponent(redirectUriMatch[1]) : undefined,
+        tokenEndpoint: tokenEndpointMatch ? decodeURIComponent(tokenEndpointMatch[1]) : undefined,
+    }
 }
 
 export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {

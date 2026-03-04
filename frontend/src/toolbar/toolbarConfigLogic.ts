@@ -8,7 +8,14 @@ import { ToolbarProps } from '~/types'
 
 import { withTokenRefresh } from './toolbarAuth'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
-import { cleanToolbarAuthHash, generatePKCE, LOCALSTORAGE_KEY, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY } from './utils'
+import {
+    cleanToolbarAuthHash,
+    generatePKCE,
+    LOCALSTORAGE_KEY,
+    normalizeCloudHost,
+    OAUTH_LOCALSTORAGE_KEY,
+    PKCE_STORAGE_KEY,
+} from './utils'
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
@@ -70,17 +77,15 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         uiHost: [
             (s) => [s.props],
             (props: ToolbarProps): string => {
+                let host: string
                 if (props.posthog?.config?.ui_host) {
-                    return props.posthog.config.ui_host.replace(/\/+$/, '')
+                    host = props.posthog.config.ui_host
+                } else if (props.apiURL) {
+                    host = props.apiURL
+                } else {
+                    return window.location.origin
                 }
-
-                // Fallback: if apiURL prop is set, use it (backwards compatibility)
-                if (props.apiURL) {
-                    return props.apiURL.replace(/\/+$/, '')
-                }
-
-                // Final fallback: current origin
-                return window.location.origin
+                return normalizeCloudHost(host.replace(/\/+$/, ''))
             },
         ],
         // API host for JS and static assets (CSS)
@@ -188,7 +193,13 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         const authParams = cleanToolbarAuthHash()
         const pendingCodeExchange = !!authParams
         if (authParams) {
-            exchangeCodeForTokens(values.uiHost, authParams.code, authParams.clientId, actions)
+            exchangeCodeForTokens(
+                authParams.tokenEndpoint || `${values.uiHost}/oauth/token/`,
+                authParams.redirectUri || `${values.uiHost}/toolbar_oauth/callback`,
+                authParams.code,
+                authParams.clientId,
+                actions
+            )
             // Defensive retry: some SPAs re-apply the original URL on initial render,
             // undoing the replaceState above. Re-clean after a short delay.
             cache.hashRetryTimeout = setTimeout(cleanToolbarAuthHash, 500)
@@ -242,7 +253,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 const PKCE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
 async function exchangeCodeForTokens(
-    uiHost: string,
+    tokenEndpoint: string,
+    redirectUri: string,
     code: string,
     clientId: string,
     actions: { setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => void }
@@ -270,19 +282,16 @@ async function exchangeCodeForTokens(
         return
     }
 
-    // TODO(@fcgomes): Have the backend embed redirect_uri and token_endpoint
-    // in the callback hash so the frontend doesn't derive these from uiHost.
-    // This will fix reverse proxy mismatches where uiHost differs from SITE_URL.
     const body = new URLSearchParams({
         grant_type: 'authorization_code',
         client_id: clientId,
         code,
-        redirect_uri: `${uiHost}/toolbar_oauth/callback`,
+        redirect_uri: redirectUri,
         code_verifier: pkceData.verifier,
     })
 
     try {
-        const res = await fetch(`${uiHost}/oauth/token/`, {
+        const res = await fetch(tokenEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: body.toString(),
