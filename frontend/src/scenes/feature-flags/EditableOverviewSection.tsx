@@ -1,37 +1,61 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { featureFlagLogic } from './featureFlagLogic'
+import { FeatureFlagEditableSection, featureFlagLogic } from './featureFlagLogic'
 
 interface EditableOverviewSectionProps {
-    children: JSX.Element
+    section: FeatureFlagEditableSection
+    children: (props: { isEditing: boolean }) => JSX.Element
     className?: string
     /** Override to disable editing for this section (e.g. experiment-linked flags) */
     disabledReason?: string
-    /** Options passed to editFeatureFlag when the pencil is clicked */
-    editOptions?: { expandAdvanced?: boolean }
 }
 
 export function EditableOverviewSection({
+    section,
     children,
     className,
     disabledReason,
-    editOptions,
 }: EditableOverviewSectionProps): JSX.Element {
-    const { featureFlag } = useValues(featureFlagLogic)
-    const { editFeatureFlag } = useActions(featureFlagLogic)
+    const { featureFlag, editingSection, sectionDraft, featureFlagLoading } = useValues(featureFlagLogic)
+    const { setSectionEditing, cancelSectionEdit, saveSectionEdit } = useActions(featureFlagLogic)
 
-    const canShowEditButton = !featureFlag.deleted
+    const isEditing = editingSection === section
+    const anotherSectionEditing = editingSection !== null && editingSection !== section
+    const canShowEditButton = !featureFlag.deleted && !anotherSectionEditing
+
+    const handleCancel = (): void => {
+        if (sectionDraft) {
+            LemonDialog.open({
+                title: 'Discard changes?',
+                description: 'You have unsaved changes that will be lost.',
+                primaryButton: {
+                    children: 'Discard',
+                    status: 'danger',
+                    onClick: cancelSectionEdit,
+                },
+                secondaryButton: {
+                    children: 'Keep editing',
+                },
+            })
+        } else {
+            cancelSectionEdit()
+        }
+    }
 
     return (
-        <div className={`group relative rounded border p-4 bg-bg-light ${className ?? ''}`}>
-            {canShowEditButton && (
+        <div
+            className={`group relative rounded border p-4 bg-bg-light transition-colors ${
+                !isEditing && canShowEditButton && !disabledReason ? 'hover:border-primary/30' : ''
+            } ${className ?? ''}`}
+        >
+            {!isEditing && canShowEditButton && (
                 <div className="absolute top-3 right-3 z-10 opacity-0 transition-opacity group-hover:opacity-100">
                     <AccessControlAction
                         resourceType={AccessControlResourceType.FeatureFlag}
@@ -44,14 +68,31 @@ export function EditableOverviewSection({
                                 size="xsmall"
                                 type="secondary"
                                 disabledReason={disabledReason ?? accessDisabledReason}
-                                onClick={() => editFeatureFlag(true, editOptions)}
+                                onClick={() => setSectionEditing(section)}
                             />
                         )}
                     </AccessControlAction>
                 </div>
             )}
 
-            {children}
+            {children({ isEditing })}
+
+            {isEditing && (
+                <div className="flex justify-end gap-2 mt-3 pt-3 border-t border-border-light">
+                    <LemonButton type="secondary" size="small" disabled={featureFlagLoading} onClick={handleCancel}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        disabled={featureFlagLoading}
+                        icon={featureFlagLoading ? <Spinner textColored /> : undefined}
+                        onClick={saveSectionEdit}
+                    >
+                        Save
+                    </LemonButton>
+                </div>
+            )}
         </div>
     )
 }
