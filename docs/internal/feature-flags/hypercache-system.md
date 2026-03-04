@@ -93,6 +93,20 @@ else:
 
 ETags are computed as SHA256 hashes of the JSON content.
 
+### Rust `/flags/definitions` ETag support
+
+The Rust `/flags/definitions` endpoint also supports ETag-based conditional requests. Rather than computing its own hash, the Rust implementation reads the ETag that Django stores in Redis (`{cache_key}:etag`, pickle-serialized). This guarantees consistency between Django's `/api/feature_flag/local_evaluation` and Rust's `/flags/definitions` during the migration.
+
+Behavior:
+
+1. Parse the `If-None-Match` header (handles both `W/"..."` and `"..."` formats per RFC 7232)
+2. Read the stored ETag from Redis
+3. If match → return 304 Not Modified with `ETag` + `Cache-Control: private, must-revalidate` headers, skipping the full data fetch
+4. If no match → return 200 with full data and the same headers
+5. If ETag read fails → graceful degradation to 200 with full data (no ETag header)
+
+Tracked via the `flags_flag_definitions_etag_total` Prometheus counter with a `result` label: `hit` (304 returned), `miss` (stale ETag, 200 returned), `none` (no `If-None-Match` header), `redis_error` (ETag read failed).
+
 ## Local evaluation caching
 
 Feature flag local evaluation uses two separate HyperCache instances in `posthog/models/feature_flag/local_evaluation.py`:
