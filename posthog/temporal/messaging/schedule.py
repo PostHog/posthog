@@ -61,9 +61,9 @@ async def create_realtime_cohort_calculation_p0_p50_schedule(client: Client):
         duration_percentile_min=0.0,
         duration_percentile_max=50.0,
         interval_minutes=REALTIME_COHORT_CALCULATION_P0_P50_INTERVAL_MINUTES,
-        parallelism=REALTIME_COHORT_CALCULATION_P0_P50_PARALLELISM,  # Higher parallelism for fastest cohorts
-        workflows_per_batch=5,  # Start 5 workflows at once as requested
-        batch_delay_minutes=REALTIME_COHORT_CALCULATION_P0_P50_BATCH_DELAY_MINUTES,  # 1 minute between batches
+        parallelism=REALTIME_COHORT_CALCULATION_P0_P50_PARALLELISM,
+        workflows_per_batch=5,
+        batch_delay_minutes=REALTIME_COHORT_CALCULATION_P0_P50_BATCH_DELAY_MINUTES,
     )
 
 
@@ -75,9 +75,9 @@ async def create_realtime_cohort_calculation_p50_p80_schedule(client: Client):
         duration_percentile_min=50.0,
         duration_percentile_max=80.0,
         interval_minutes=REALTIME_COHORT_CALCULATION_P50_P80_INTERVAL_MINUTES,
-        parallelism=REALTIME_COHORT_CALCULATION_P50_P80_PARALLELISM,  # Moderate parallelism for fast-medium cohorts
-        workflows_per_batch=5,  # More than default but less than p0-p50
-        batch_delay_minutes=REALTIME_COHORT_CALCULATION_P50_P80_BATCH_DELAY_MINUTES,  # 2 minutes between batches
+        parallelism=REALTIME_COHORT_CALCULATION_P50_P80_PARALLELISM,
+        workflows_per_batch=5,
+        batch_delay_minutes=REALTIME_COHORT_CALCULATION_P50_P80_BATCH_DELAY_MINUTES,
     )
 
 
