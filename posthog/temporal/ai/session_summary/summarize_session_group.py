@@ -778,24 +778,24 @@ async def _start_session_group_summary_workflow(
 
             # Diff structured progress and yield SESSION_PROGRESS if anything changed
             has_changes = previous_progress is None or (
-                current_progress.session_statuses != previous_progress.session_statuses
-                or current_progress.phase != previous_progress.phase
+                current_progress["session_statuses"] != previous_progress["session_statuses"]
+                or current_progress["phase"] != previous_progress["phase"]
             )
             if has_changes:
                 # Collect status changes since last poll
                 status_changes: list[dict[str, str]] = []
-                for sid, status in current_progress.session_statuses.items():
-                    if previous_progress is None or previous_progress.session_statuses.get(sid) != status:
+                for sid, status in current_progress["session_statuses"].items():
+                    if previous_progress is None or previous_progress["session_statuses"].get(sid) != status:
                         status_changes.append({"id": sid, "status": status})
                 completed_count = sum(
-                    1 for s in current_progress.session_statuses.values() if s in ("summarized", "failed")
+                    1 for s in current_progress["session_statuses"].values() if s in ("summarized", "failed")
                 )
                 progress_dict: dict = {
                     "type": "progress",
                     "status_changes": status_changes,
-                    "phase": current_progress.phase,
+                    "phase": current_progress["phase"],
                     "completed_count": completed_count,
-                    "total_count": current_progress.total_sessions,
+                    "total_count": current_progress["total_sessions"],
                     "patterns_found": pattern_names,
                 }
                 yield (SessionSummaryStreamUpdate.SESSION_PROGRESS, progress_dict)

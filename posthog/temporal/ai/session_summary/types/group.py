@@ -1,6 +1,6 @@
 import dataclasses
 from enum import Enum
-from typing import Literal
+from typing import Literal, TypedDict
 
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
@@ -57,10 +57,7 @@ class SessionGroupSummaryOfSummariesInputs:
     extra_summary_context: ExtraSummaryContext | None = None
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class WorkflowProgress:
-    """Structured progress data from the session group summarization workflow."""
-
+class WorkflowProgress(TypedDict):
     session_statuses: dict[str, str]  # session_id → status
     phase: str
     total_sessions: int

@@ -234,6 +234,19 @@ class SummarizeSessionsTool(MaxTool):
         """Push structured JSON update directly, bypassing prepare_reasoning_progress_message truncation."""
         self.dispatcher.update(json.dumps(data))
 
+    def _dispatch_session_progress(self, session_id: str, status: str, completed: int, total: int) -> None:
+        """Push a per-session progress update to the frontend widget."""
+        self._dispatch_structured_update(
+            {
+                "type": "progress",
+                "status_changes": [{"id": session_id, "status": status}],
+                "phase": "watching_sessions",
+                "completed_count": completed,
+                "total_count": total,
+                "patterns_found": [],
+            }
+        )
+
     def _get_session_metadata(self, session_ids: list[str]) -> dict[str, dict]:
         """Fetch per-session metadata from ClickHouse for the progress widget."""
         from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -294,16 +307,7 @@ class SummarizeSessionsTool(MaxTool):
 
         async def _summarize(session_id: str) -> dict[str, Any] | None:
             nonlocal completed
-            self._dispatch_structured_update(
-                {
-                    "type": "progress",
-                    "status_changes": [{"id": session_id, "status": "summarizing"}],
-                    "phase": "watching_sessions",
-                    "completed_count": completed,
-                    "total_count": total,
-                    "patterns_found": [],
-                }
-            )
+            self._dispatch_session_progress(session_id, "summarizing", completed, total)
             try:
                 result = await execute_summarize_session(
                     session_id=session_id,
@@ -313,29 +317,11 @@ class SummarizeSessionsTool(MaxTool):
                     video_validation_enabled=video_validation_enabled,
                 )
                 completed += 1
-                self._dispatch_structured_update(
-                    {
-                        "type": "progress",
-                        "status_changes": [{"id": session_id, "status": "summarized"}],
-                        "phase": "watching_sessions",
-                        "completed_count": completed,
-                        "total_count": total,
-                        "patterns_found": [],
-                    }
-                )
+                self._dispatch_session_progress(session_id, "summarized", completed, total)
                 return result
             except Exception:
                 completed += 1
-                self._dispatch_structured_update(
-                    {
-                        "type": "progress",
-                        "status_changes": [{"id": session_id, "status": "failed"}],
-                        "phase": "watching_sessions",
-                        "completed_count": completed,
-                        "total_count": total,
-                        "patterns_found": [],
-                    }
-                )
+                self._dispatch_session_progress(session_id, "failed", completed, total)
                 logger.warning(
                     f"Session summarization failed for session {session_id}",
                     exc_info=True,

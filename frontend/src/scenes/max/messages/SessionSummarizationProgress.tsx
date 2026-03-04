@@ -207,17 +207,6 @@ export function SessionSummarizationProgress({ updates }: { updates: SessionSumm
                 {etaText && <span className="text-xs text-muted">{etaText}</span>}
             </div>
 
-            {patternsFound.length > 0 && (phase === 'extracting_patterns' || phase === 'assigning_patterns') && (
-                <div className="text-xs text-secondary">
-                    <span className="font-medium">Patterns found:</span>
-                    <ul className="list-disc list-inside mt-0.5">
-                        {patternsFound.map((p) => (
-                            <li key={p}>{p}</li>
-                        ))}
-                    </ul>
-                </div>
-            )}
-
             {sessionEntries.length > 0 && (
                 <div>
                     {showCollapse && (
@@ -269,6 +258,17 @@ export function SessionSummarizationProgress({ updates }: { updates: SessionSumm
                             ))}
                         </div>
                     )}
+                </div>
+            )}
+
+            {patternsFound.length > 0 && (phase === 'extracting_patterns' || phase === 'assigning_patterns') && (
+                <div className="text-xs text-secondary">
+                    <span className="font-medium">Patterns found:</span>
+                    <ul className="list-disc list-inside mt-0.5">
+                        {patternsFound.map((p) => (
+                            <li key={p}>{p}</li>
+                        ))}
+                    </ul>
                 </div>
             )}
         </div>
