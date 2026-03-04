@@ -1,4 +1,68 @@
 import { buildIntegerMatcher, buildStringMatcher, getDefaultConfig, overrideWithEnv } from '../src/config/config'
+import { defineConfig } from '../src/config/define-config'
+
+describe('defineConfig', () => {
+    test('defaults evaluates factory functions', () => {
+        const section = defineConfig({
+            HOST: () => 'localhost',
+            PORT: () => 8080,
+            ENABLED: () => true,
+        })
+
+        expect(section.defaults()).toEqual({
+            HOST: 'localhost',
+            PORT: 8080,
+            ENABLED: true,
+        })
+    })
+
+    test('defaults calls factories lazily on each invocation', () => {
+        let counter = 0
+        const section = defineConfig({
+            VALUE: () => ++counter,
+        })
+
+        expect(section.defaults().VALUE).toBe(1)
+        expect(section.defaults().VALUE).toBe(2)
+    })
+
+    test('nullable types preserve null and undefined defaults', () => {
+        const section = defineConfig({
+            NULLABLE: (): string | null => null,
+            OPTIONAL: (): string | undefined => undefined,
+        })
+        const defaults = section.defaults()
+
+        expect(defaults.NULLABLE).toBeNull()
+        expect(defaults.OPTIONAL).toBeUndefined()
+    })
+
+    test('overrideWithEnv works with defineConfig-produced defaults', () => {
+        const section = defineConfig({
+            SESSION_RECORDING_API_REDIS_HOST: () => '127.0.0.1',
+            SESSION_RECORDING_API_REDIS_PORT: () => 6379,
+        })
+        const fullConfig = { ...getDefaultConfig(), ...section.defaults() }
+        const env = {
+            SESSION_RECORDING_API_REDIS_HOST: 'redis.prod',
+            SESSION_RECORDING_API_REDIS_PORT: '6380',
+        }
+        const config = overrideWithEnv(fullConfig, env)
+
+        expect(config.SESSION_RECORDING_API_REDIS_HOST).toBe('redis.prod')
+        expect(config.SESSION_RECORDING_API_REDIS_PORT).toBe(6380)
+    })
+
+    test('session recording config is included in getDefaultConfig', () => {
+        const config = getDefaultConfig()
+
+        expect(config.SESSION_RECORDING_API_REDIS_HOST).toBe('127.0.0.1')
+        expect(config.SESSION_RECORDING_API_REDIS_PORT).toBe(6379)
+        expect(config.SESSION_RECORDING_LOCAL_DIRECTORY).toBe('.tmp/sessions')
+        expect(config.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS).toBe(600)
+        expect(config.SESSION_RECORDING_OVERFLOW_ENABLED).toBe(false)
+    })
+})
 
 describe('config', () => {
     test('overrideWithEnv 1', () => {

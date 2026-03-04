@@ -1,4 +1,4 @@
-import { KAFKA_CONSUMER_GROUP_ID as SESSION_RECORDING_DEFAULT_GROUP_ID } from '../session-recording/constants'
+import { sessionRecordingApiConfigDefs, sessionRecordingConfigDefs } from '../session-recording/config'
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
 import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import {
@@ -13,9 +13,6 @@ import {
     KAFKA_LOGS_INGESTION_DLQ,
     KAFKA_LOGS_INGESTION_OVERFLOW,
     KAFKA_LOG_ENTRIES,
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from './kafka-topics'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
@@ -164,28 +161,8 @@ export function getDefaultConfig(): PluginsServerConfig {
             : 'http://localhost:8000',
         INTERNAL_API_SECRET: isProdEnv() ? '' : 'posthog123',
 
-        SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
-        // NOTE: 10 minutes
-        SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
-        SESSION_RECORDING_BUFFER_AGE_JITTER: 0.3,
-        SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER: 1.2,
-        SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024 * 50, // 50MB
-        SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
-        SESSION_RECORDING_REDIS_PREFIX: '@posthog/replay/',
-        SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: false,
-        SESSION_RECORDING_PARALLEL_CONSUMPTION: false,
-        POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
-        POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
-        SESSION_RECORDING_API_REDIS_HOST: '127.0.0.1',
-        SESSION_RECORDING_API_REDIS_PORT: 6379,
-        SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true,
-        SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: true,
-        SESSION_RECORDING_DEBUG_PARTITION: '',
-        SESSION_RECORDING_MAX_PARALLEL_FLUSHES: 10,
-        SESSION_RECORDING_OVERFLOW_ENABLED: false,
-        SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: 5_000_000, // 5MB/second uncompressed, sustained
-        SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: 200_000_000, // 200MB burst
-        SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
+        ...sessionRecordingConfigDefs.defaults(),
+        ...sessionRecordingApiConfigDefs.defaults(),
 
         ENCRYPTION_SALT_KEYS: isDevEnv() || isTestEnv() ? '00beef0000beef0000beef0000beef00' : '',
 
@@ -279,36 +256,6 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         // temporary: enable, rate limit expensive measurement in persons processing; value in [0,1]
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0, // defaults to off
-
-        // Session recording V2
-        SESSION_RECORDING_MAX_BATCH_SIZE_KB: isDevEnv() ? 2 * 1024 : 100 * 1024, // 2MB on dev, 100MB on prod and test
-        SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
-        SESSION_RECORDING_V2_S3_BUCKET: 'posthog',
-        SESSION_RECORDING_V2_S3_PREFIX: 'session_recordings',
-        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:8333',
-        SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
-        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any',
-        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any',
-        SESSION_RECORDING_V2_S3_TIMEOUT_MS: isDevEnv() ? 120000 : 30000,
-        SESSION_RECORDING_KMS_ENDPOINT: undefined,
-        SESSION_RECORDING_DYNAMODB_ENDPOINT: undefined,
-        SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
-        SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
-        SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
-        SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: Number.MAX_SAFE_INTEGER,
-        SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: 3000, // Max burst of new sessions per team
-        SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE: 300, // Sessions per second sustained rate
-        SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED: false, // When true, drop messages that exceed limit. When false, dry run mode (metrics only)
-        SESSION_RECORDING_SESSION_FILTER_ENABLED: true, // When false, skip all Redis calls for session filtering
-        SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
-        SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
-        SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: 0.01, // 1% of encrypted blocks
-
-        // Session replay ingestion consumer config
-        INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-        INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: SESSION_RECORDING_DEFAULT_GROUP_ID,
-        INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
-        INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,
