@@ -20,7 +20,7 @@ Each eval has three parts:
 
 - Use `@pytest.mark.django_db` on test functions
 - Pass `posthog_distinct_id="llma_eval"` to all `client.chat.completions.create()` calls
-- Use a cheap model for the task, a stronger model for the judge
+- Use different model families for generation and judging to avoid self-evaluation bias
 - `experiment_name` and `EvalCase.name` must be unique
 - Judge LLM must return JSON — parse with `json.loads()`
 - Judge JSON must put `"reasoning"` before the score field (e.g. `{"reasoning": "...", "correct": true}`) — this forces the model to analyze before committing to a score
