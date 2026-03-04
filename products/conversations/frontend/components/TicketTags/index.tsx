@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
-import { tagsModel } from 'models/tagsModel'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+
+import { tagsModel } from '~/models/tagsModel'
 
 export interface TicketTagsProps {
     tags: string[]
