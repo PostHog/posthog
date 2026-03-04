@@ -43,6 +43,10 @@ services:
     seaweedfs:
         profiles: [replay]
 
+    # Duckgres - DuckDB with Postgres wire protocol
+    duckgres:
+        profiles: [duckgres]
+
     # Cloud provider emulators
     localstack:
         profiles: [localstack]
