@@ -112,16 +112,14 @@ pub async fn flags_definitions(
     let current_etag = get_etag_from_redis(&state, &team_key).await;
 
     // If client sent a matching ETag, short-circuit with 304 (skip full data fetch)
-    if let Some(ref client_val) = client_etag {
-        if let Some(ref current_val) = current_etag {
-            if client_val == current_val {
-                inc(
-                    FLAG_DEFINITIONS_ETAG_COUNTER,
-                    &[("result".to_string(), "hit".to_string())],
-                    1,
-                );
-                return Ok(not_modified_response(current_val));
-            }
+    if let (Some(ref client_val), Some(ref current_val)) = (&client_etag, &current_etag) {
+        if client_val == current_val {
+            inc(
+                FLAG_DEFINITIONS_ETAG_COUNTER,
+                &[("result".to_string(), "hit".to_string())],
+                1,
+            );
+            return Ok(not_modified_response(current_val));
         }
     }
 
