@@ -103,9 +103,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         selected_source_id: str | None = None
         if self.query.connectionId:
-            source = ExternalDataSource.objects.filter(
-                team_id=self.team.pk, connection_id=self.query.connectionId
-            ).first()
+            source = ExternalDataSource.objects.filter(team_id=self.team.pk, id=self.query.connectionId).first()
             if source is None:
                 raise ValueError("Invalid connectionId for this team")
             selected_source_id = str(source.id)
