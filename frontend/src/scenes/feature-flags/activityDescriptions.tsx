@@ -25,6 +25,16 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+const getChangedPayloadKeys = (
+    filtersBefore: FeatureFlagFilters | undefined,
+    filtersAfter: FeatureFlagFilters
+): string[] =>
+    Object.keys(filtersAfter.payloads ?? {}).filter((key) => {
+        const before = filtersBefore?.payloads?.[key]?.toString() || null
+        const after = filtersAfter.payloads?.[key]?.toString() || null
+        return before !== after
+    })
+
 const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefined): string | JSX.Element => {
     const displayName = name || '(empty string)'
     return id ? <Link to={urls.featureFlag(id)}>{displayName}</Link> : displayName
@@ -81,17 +91,10 @@ const featureFlagActionsMapping: Record<
                 // there are no rollout groups or all are at 0%
                 changes.push(<>changed the filter conditions to apply to no users</>)
             } else {
-                filtersAfter.payloads &&
-                    Object.keys(filtersAfter.payloads)
-                        .filter((key) => {
-                            const before = filtersBefore?.payloads?.[key]?.toString() || null
-                            const after = filtersAfter.payloads?.[key]?.toString() || null
-                            return before !== after
-                        })
-                        .forEach((key: string) => {
-                            const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
-                            changes.push(<SentenceList listParts={[changedPayload]} prefix="changed payload to" />)
-                        })
+                getChangedPayloadKeys(filtersBefore, filtersAfter).forEach((key) => {
+                    const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
+                    changes.push(<SentenceList listParts={[changedPayload]} prefix="changed payload to" />)
+                })
 
                 const groupAdditions: (string | JSX.Element | null)[] = []
                 const groupRemovals: (string | JSX.Element | null)[] = []
@@ -182,30 +185,23 @@ const featureFlagActionsMapping: Record<
                 />
             )
         } else if (isMultivariateFlag) {
-            filtersAfter.payloads &&
-                Object.keys(filtersAfter.payloads)
-                    .filter((key) => {
-                        const before = filtersBefore?.payloads?.[key]?.toString() || null
-                        const after = filtersAfter.payloads?.[key]?.toString() || null
-                        return before !== after
-                    })
-                    .forEach((key: string) => {
-                        const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
-                        changes.push(
-                            <SentenceList
-                                listParts={[
-                                    <span key={key} className="highlighted-activity">
-                                        {changedPayload}
-                                    </span>,
-                                ]}
-                                prefix={
-                                    <span>
-                                        changed payload on <b>variant: {key}</b> to
-                                    </span>
-                                }
-                            />
-                        )
-                    })
+            getChangedPayloadKeys(filtersBefore, filtersAfter).forEach((key) => {
+                const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
+                changes.push(
+                    <SentenceList
+                        listParts={[
+                            <span key={key} className="highlighted-activity">
+                                {changedPayload}
+                            </span>,
+                        ]}
+                        prefix={
+                            <span>
+                                changed payload on <b>variant: {key}</b> to
+                            </span>
+                        }
+                    />
+                )
+            })
 
             // Identify removed variants
             const beforeVariants = new Set((filtersBefore?.multivariate?.variants || []).map((v) => v.key))
