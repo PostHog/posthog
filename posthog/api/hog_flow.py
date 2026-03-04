@@ -1,5 +1,4 @@
 import json
-import uuid as uuid_mod
 from typing import Optional, cast
 
 from django.db.models import QuerySet
@@ -8,6 +7,7 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema_view
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
+from posthog.api.documentation import extend_schema, extend_schema_field
 from posthog.api.hog_flow_batch_job import HogFlowBatchJobSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -40,6 +41,215 @@ from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
 logger = structlog.get_logger(__name__)
+
+_HOG_FLOW_EDGE_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "from": {"type": "string", "description": "ID of the source action node."},
+        "to": {"type": "string", "description": "ID of the target action node."},
+        "type": {"type": "string", "enum": ["continue", "branch"], "description": "Edge type."},
+        "index": {
+            "type": "integer",
+            "nullable": True,
+            "description": "Branch index (0-based) for ordered branching across multiple outgoing edges.",
+        },
+    },
+    "required": ["from", "to", "type"],
+}
+
+_HOG_FLOW_VARIABLE_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "key": {"type": "string", "description": "Variable name. Referenced in action configs as {variables.key}."},
+        "value": {"type": "string", "default": "", "description": "Default value for this variable."},
+    },
+    "required": ["key"],
+}
+
+_HOG_FLOW_CONVERSION_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "window_minutes": {
+            "type": "integer",
+            "nullable": True,
+            "description": "Time window in minutes within which a conversion is counted. Null means no limit.",
+        },
+        "filters": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": True},
+            "nullable": True,
+            "description": "Array of PostHog property filter objects that define the conversion event.",
+        },
+        "bytecode": {
+            "type": "array",
+            "items": {},
+            "nullable": True,
+            "description": "Compiled bytecode for the conversion filter. Auto-generated; do not set manually.",
+        },
+    },
+}
+
+_HOG_FLOW_OUTPUT_VARIABLE_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "key": {"type": "string", "description": "Variable name to store the action output in."},
+        "result_path": {
+            "type": "string",
+            "nullable": True,
+            "description": "JSONPath expression into the action result to extract a specific value.",
+        },
+        "spread": {
+            "type": "boolean",
+            "nullable": True,
+            "description": "When true, spreads all result keys as separate top-level variables.",
+        },
+    },
+    "required": ["key"],
+}
+_HOG_FLOW_ACTION_CONFIG_SCHEMA: dict = {
+    "description": "Action-specific configuration. Structure is determined by the action type.",
+    "oneOf": [
+        {
+            "title": "Event trigger",
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "enum": ["event"]},
+                "filters": {
+                    "type": "object",
+                    "additionalProperties": True,
+                    "description": "PostHog event and property filters.",
+                },
+                "filter_test_accounts": {"type": "boolean"},
+            },
+            "required": ["type"],
+        },
+        {
+            "title": "Function-backed trigger (webhook / manual / schedule / tracking_pixel)",
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "enum": ["webhook", "manual", "schedule", "tracking_pixel"]},
+                "template_id": {"type": "string", "description": "HogFunction template ID."},
+                "inputs": {
+                    "type": "object",
+                    "additionalProperties": True,
+                    "description": "Input values keyed by schema item name.",
+                },
+                "scheduled_at": {"type": "string", "description": "ISO 8601 datetime for one-time scheduling."},
+            },
+            "required": ["type", "template_id"],
+        },
+        {
+            "title": "Batch trigger",
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "enum": ["batch"]},
+                "filters": {
+                    "type": "object",
+                    "additionalProperties": True,
+                    "description": "PostHog property filters selecting persons to process.",
+                },
+            },
+            "required": ["type", "filters"],
+        },
+        {
+            "title": "Delay",
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "enum": ["delay"]},
+                "delay_duration": {"type": "string", "description": "ISO 8601 duration string, e.g. 'PT1H'."},
+            },
+            "required": ["type", "delay_duration"],
+        },
+        {
+            "title": "Wait until condition",
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "enum": ["wait_until_condition"]},
+                "condition": {
+                    "type": "object",
+                    "additionalProperties": True,
+                    "description": "Single condition with a filters object.",
+                },
+                "max_wait_duration": {"type": "string", "description": "ISO 8601 maximum wait duration."},
+            },
+            "required": ["type", "condition", "max_wait_duration"],
+        },
+        {
+            "title": "Conditional branch",
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "enum": ["conditional_branch"]},
+                "conditions": {
+                    "type": "array",
+                    "items": {"type": "object", "additionalProperties": True},
+                    "description": "Ordered list of conditions with filters objects.",
+                },
+            },
+            "required": ["type", "conditions"],
+        },
+        {
+            "title": "Random cohort branch",
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "enum": ["random_cohort_branch"]},
+                "cohorts": {
+                    "type": "array",
+                    "items": {"type": "object", "additionalProperties": True},
+                    "description": "Cohort percentage splits, each with a percentage and optional name.",
+                },
+            },
+            "required": ["type", "cohorts"],
+        },
+        {
+            "title": "CDP function",
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "enum": ["function", "function_email", "function_sms", "function_push"]},
+                "template_id": {"type": "string", "description": "HogFunction template ID."},
+                "inputs": {
+                    "type": "object",
+                    "additionalProperties": True,
+                    "description": "Input values keyed by schema item name.",
+                },
+            },
+            "required": ["template_id"],
+        },
+        {
+            "title": "Exit",
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "enum": ["exit"]},
+                "reason": {"type": "string", "description": "Human-readable exit reason."},
+            },
+            "required": ["type"],
+        },
+    ],
+}
+
+
+@extend_schema_field(_HOG_FLOW_ACTION_CONFIG_SCHEMA)
+class HogFlowActionConfigField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(_HOG_FLOW_OUTPUT_VARIABLE_SCHEMA)
+class HogFlowOutputVariableField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field({"type": "array", "items": _HOG_FLOW_EDGE_SCHEMA})
+class HogFlowEdgesField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(_HOG_FLOW_CONVERSION_SCHEMA)
+class HogFlowConversionField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field({"type": "array", "items": _HOG_FLOW_VARIABLE_SCHEMA})
+class HogFlowVariablesField(serializers.JSONField):
+    pass
 
 
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
@@ -67,8 +277,8 @@ class HogFlowActionSerializer(serializers.Serializer):
     )
     filters = HogFunctionFiltersSerializer(required=False, default=None, allow_null=True)
     type = serializers.CharField(max_length=100)
-    config = serializers.JSONField()
-    output_variable = serializers.JSONField(required=False, allow_null=True)
+    config = HogFlowActionConfigField()
+    output_variable = HogFlowOutputVariableField(required=False, allow_null=True)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
@@ -184,9 +394,22 @@ class HogFlowVariableSerializer(serializers.ListSerializer):
 
 
 class HogFlowMaskingSerializer(serializers.Serializer):
-    ttl = serializers.IntegerField(required=False, min_value=60, max_value=60 * 60 * 24 * 365 * 3, allow_null=True)
-    threshold = serializers.IntegerField(required=False, allow_null=True)
-    hash = serializers.CharField(required=True)
+    ttl = serializers.IntegerField(
+        required=False,
+        min_value=60,
+        max_value=60 * 60 * 24 * 365 * 3,
+        allow_null=True,
+        help_text="How long (in seconds) a masked person is remembered before they can re-enter the flow.",
+    )
+    threshold = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Minimum number of persons that must accumulate before the flow proceeds, for k-anonymity.",
+    )
+    hash = serializers.CharField(
+        required=True,
+        help_text="HogQL expression that determines the masking group identity.",
+    )
     bytecode = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, attrs):
@@ -197,6 +420,23 @@ class HogFlowMaskingSerializer(serializers.Serializer):
 
 class HogFlowMinimalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    trigger = serializers.JSONField(
+        read_only=True,
+        help_text="Trigger configuration derived from the trigger action's config.",
+    )
+    trigger_masking = HogFlowMaskingSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="K-anonymity masking settings applied before the flow starts processing.",
+    )
+    abort_action = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the action node to execute when the flow is aborted due to an error.",
+    )
+    edges = HogFlowEdgesField(required=False)
+    conversion = HogFlowConversionField(required=False, allow_null=True)
+    variables = HogFlowVariablesField(required=False, allow_null=True)
 
     class Meta:
         model = HogFlow
@@ -224,8 +464,12 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
     actions = serializers.ListField(child=HogFlowActionSerializer(), required=True)
-    trigger_masking = HogFlowMaskingSerializer(required=False, allow_null=True)
-    variables = HogFlowVariableSerializer(required=False)
+    trigger_masking = HogFlowMaskingSerializer(
+        required=False,
+        allow_null=True,
+        help_text="K-anonymity masking settings applied before the flow starts processing.",
+    )
+    variables = HogFlowVariableSerializer(required=False)  # type: ignore[assignment]
 
     def to_internal_value(self, data):
         status = data.get("status")
@@ -352,6 +596,42 @@ class HogFlowFilterSet(FilterSet):
         fields = ["id", "created_by", "created_at", "updated_at"]
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List workflows",
+        description=(
+            "Returns all workflows for the team, ordered by most recently updated. "
+            "Use the HogQL hog_flows table for richer filtering and aggregation."
+        ),
+    ),
+    retrieve=extend_schema(
+        summary="Get a workflow",
+        description="Returns the full workflow definition including trigger, edges, actions, exit condition, and variables.",
+    ),
+    create=extend_schema(
+        summary="Create a workflow",
+        description=(
+            "Create a new workflow. The actions array must contain exactly one action with type='trigger'. "
+            "All other actions define the flow steps; connect them via the edges array. "
+            "The workflow is created in 'draft' status; set status='active' to activate it."
+        ),
+    ),
+    partial_update=extend_schema(
+        summary="Update a workflow",
+        description=(
+            "Update workflow fields. "
+            "Set status='active' to activate a draft workflow, or status='archived' to archive it. "
+            "Only changed fields need to be included."
+        ),
+    ),
+    destroy=extend_schema(
+        summary="Delete a workflow",
+        description=(
+            "Permanently delete an archived workflow. "
+            "Prefer archiving (status='archived' via partial update) over deletion to preserve audit history."
+        ),
+    ),
+)
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "hog_flow"
     queryset = HogFlow.objects.all()
@@ -374,7 +654,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                 if trigger:
                     queryset = queryset.filter(trigger__contains=trigger)
             except (ValueError, KeyError, TypeError):
-                raise exceptions.ValidationError({"trigger": f"Invalid trigger"})
+                raise exceptions.ValidationError({"trigger": "Invalid trigger"})
 
         return queryset
 
