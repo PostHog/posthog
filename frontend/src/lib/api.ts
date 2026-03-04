@@ -2637,6 +2637,7 @@ const api = {
             teamId?: TeamType['id']
             event_type?: EventDefinitionType
             search?: string
+            ordering?: string
         }): Promise<CountedPaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -2660,6 +2661,7 @@ const api = {
             teamId?: TeamType['id']
             event_type?: EventDefinitionType
             search?: string
+            ordering?: string
         }): string {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -3183,6 +3185,17 @@ const api = {
                         distinct_id: distinctId,
                     },
                 })
+        },
+        async getByDistinctIds(distinctIds: string[]): Promise<Record<string, PersonType>> {
+            const response = await new ApiRequest()
+                .persons()
+                .withAction('batch_by_distinct_ids')
+                .create({
+                    data: {
+                        distinct_ids: distinctIds,
+                    },
+                })
+            return response.results
         },
     },
 
@@ -4390,6 +4403,7 @@ const api = {
                 limit?: number
                 offset?: number
                 search?: string
+                archived?: boolean
             } = {
                 limit: SURVEY_PAGE_SIZE,
             }
@@ -5265,6 +5279,9 @@ const api = {
         async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).delete()
         },
+        async bulkDeleteHogFlows(ids: string[]): Promise<{ deleted: number }> {
+            return await new ApiRequest().hogFlows().withAction('bulk_delete').create({ data: { ids } })
+        },
         async createTestInvocation(
             hogFlowId: HogFlow['id'],
             data: {
@@ -5298,6 +5315,15 @@ const api = {
         },
         async getHogFlowBatchJobs(hogFlowId: HogFlow['id']): Promise<HogFlowBatchJob[]> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').get()
+        },
+        async saveDraft(hogFlowId: HogFlow['id'], data: Partial<HogFlow>): Promise<HogFlow> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('draft').update({ data })
+        },
+        async publishDraft(hogFlowId: HogFlow['id']): Promise<HogFlow> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('publish').create()
+        },
+        async discardDraft(hogFlowId: HogFlow['id']): Promise<HogFlow> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('discard_draft').create()
         },
     },
     hogFlowTemplates: {
@@ -5595,6 +5621,10 @@ const api = {
 
         async unreadCount(): Promise<{ count: number }> {
             return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
+        },
+
+        async suggestReply(ticketId: string): Promise<{ suggestion: string }> {
+            return await new ApiRequest().conversationsTicket(ticketId).withAction('suggest_reply').create({ data: {} })
         },
     },
 

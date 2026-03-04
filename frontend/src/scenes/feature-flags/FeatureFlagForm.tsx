@@ -66,6 +66,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         showImplementation,
         openVariants,
         payloadExpanded,
+        expandAdvancedOnEdit,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
@@ -279,9 +280,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
                             </div>
 
-                            {/* Advanced options - collapsed by default */}
+                            {/* Advanced options - collapsed by default unless opened via overview pencil */}
                             <LemonCollapse
                                 className="bg-bg-light"
+                                defaultActiveKey={expandAdvancedOnEdit ? 'advanced' : undefined}
                                 panels={[
                                     {
                                         key: 'advanced',

@@ -1035,10 +1035,15 @@ def toolbar_oauth_callback(request):
         # validated against the team's app_urls allowlist by validate_and_consume_toolbar_oauth_state.
         app_url = state_payload["app_url"]
         parsed = urllib.parse.urlparse(app_url)
+        original_fragment = parsed.fragment
         base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
         quoted_code = urllib.parse.quote(code, safe="")
         quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
-        fragment = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
+        toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
+        if original_fragment:
+            fragment = f"{original_fragment}&{toolbar_param}"
+        else:
+            fragment = toolbar_param
         return redirect(f"{base_url}#{fragment}")  # nosemgrep: open-redirect
 
     # posthog-js flow: relay code/state for client-side exchange

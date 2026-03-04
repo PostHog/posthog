@@ -12,8 +12,8 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
 
 import { MessageSentimentBar } from '../components/SentimentTag'
+import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
 import { LLMInputOutput } from '../LLMInputOutput'
-import { llmSentimentLazyLoaderLogic } from '../llmSentimentLazyLoaderLogic'
 import { SearchHighlight } from '../SearchHighlight'
 import { containsSearchQuery } from '../searchUtils'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
@@ -35,7 +35,7 @@ import { HighlightedXMLViewer } from './HighlightedXMLViewer'
 import { MessageActionsMenu } from './MessageActionsMenu'
 import { XMLViewer } from './XMLViewer'
 
-type ConversationDisplayOption = 'expand_all' | 'collapse_except_output_and_last_input' | 'text_view'
+export type ConversationDisplayOption = 'expand_all' | 'collapse_except_output_and_last_input' | 'text_view'
 type MessageType = 'input' | 'output'
 
 function getInitialMessageShowStates(
@@ -87,10 +87,9 @@ export function ConversationMessagesDisplay({
     const previousSearchQueryRef = React.useRef('')
     const inputMessageShowStates = messageShowStates.input
     const outputMessageShowStates = messageShowStates.output
-    const { getGenerationSentiment } = useValues(llmSentimentLazyLoaderLogic)
+    const { getGenerationSentiment } = useValues(llmGenerationSentimentLazyLoaderLogic)
 
-    const generationSentiment =
-        traceId && generationEventId ? getGenerationSentiment(traceId, generationEventId) : undefined
+    const generationSentiment = generationEventId ? getGenerationSentiment(generationEventId) : undefined
 
     // Sentiment is only available for user messages that have a known original
     // index in $ai_input (sourceIndex). System/assistant messages and messages
@@ -726,8 +725,8 @@ export const LLMMessageDisplay = React.memo(
                         {renderMessageContent(content, searchQuery)}
                     </div>
                 )}
-                {show && !minimal && Object.keys(additionalKwargsEntries).length > 0 && (
-                    <div className="p-2 text-xs border-t">
+                {show && (!minimal || !content) && Object.keys(additionalKwargsEntries).length > 0 && (
+                    <div className={clsx(!minimal ? 'p-2 text-xs border-t' : 'p-1 text-xs')}>
                         <HighlightedJSONViewer
                             src={additionalKwargsEntries}
                             name={null}

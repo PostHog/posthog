@@ -461,6 +461,82 @@ export const columnTileConfig: {
     ])
 ) as any
 
+function buildNativeCostExpr(mappings: SourceColumnMappings): string {
+    return mappings.costNeedsDivision ? `toFloat(${mappings.cost} / 1000000)` : `toFloat(${mappings.cost})`
+}
+
+function buildNativeTileNode(
+    table: any,
+    integrationConfig: (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource],
+    tileConfig: SourceTileConfig,
+    tileColumnSelection: validColumnsForTiles,
+    mathHogql: string
+): DataWarehouseNode {
+    return {
+        kind: NodeKind.DataWarehouseNode,
+        id: table.id,
+        name: integrationConfig.primarySource,
+        custom_name: `${table.name} ${tileColumnSelection}`,
+        id_field: tileConfig.idField,
+        distinct_id_field: tileConfig.idField,
+        timestamp_field: tileConfig.timestampField,
+        table_name: table.name,
+        math: HogQLMathType.HogQL,
+        math_hogql: mathHogql,
+    }
+}
+
+function wrapWithCurrencyConversion(
+    valueExpr: string,
+    mappings: SourceColumnMappings,
+    table: any,
+    baseCurrency: string
+): string {
+    const currencyColumn = mappings.currencyColumn
+    const fallbackCurrency = mappings.fallbackCurrency
+    const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
+
+    if (hasCurrencyColumn) {
+        return `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr})))`
+    }
+    if (fallbackCurrency) {
+        return `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', SUM(${valueExpr})))`
+    }
+    return `SUM(${valueExpr})`
+}
+
+function wrapAggregatedWithCurrencyConversion(
+    aggregatedExpr: string,
+    mappings: SourceColumnMappings,
+    table: any,
+    baseCurrency: string
+): string {
+    const currencyColumn = mappings.currencyColumn
+    const fallbackCurrency = mappings.fallbackCurrency
+    const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
+
+    if (hasCurrencyColumn) {
+        return `toFloat(convertCurrency(any(coalesce(${currencyColumn}, '${baseCurrency}')), '${baseCurrency}', ${aggregatedExpr}))`
+    }
+    if (fallbackCurrency) {
+        return `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', ${aggregatedExpr}))`
+    }
+    return aggregatedExpr
+}
+
+function resolveConversionExpr(
+    tileConfig: SourceTileConfig,
+    table: any,
+    columnType: validColumnsForTiles,
+    fallbackColumn: string
+): string {
+    const specialResult = tileConfig.specialConversionLogic?.(table, columnType)
+    if (specialResult?.math_hogql) {
+        return specialResult.math_hogql
+    }
+    return table.fields && fallbackColumn in table.fields ? sumSafeFloat(fallbackColumn) : '0'
+}
+
 export function createMarketingTile(
     source: NativeSource,
     tileColumnSelection: validColumnsForTiles,
@@ -481,81 +557,28 @@ export function createMarketingTile(
 
     // Handle ROAS (Return on Ad Spend) - calculated as conversion_value / cost
     if (tileColumnSelection === 'roas') {
-        const mappings = tileConfig.columnMappings
-        const costColumn = mappings.cost
-        const needsDivision = mappings.costNeedsDivision
-
-        // Build cost expression
-        const costExpr = needsDivision ? `toFloat(${costColumn} / 1000000)` : `toFloat(${costColumn})`
-
-        // Build conversion value numerator: use specialConversionLogic if available
-        let conversionValueExpr: string
-        const specialResult = tileConfig.specialConversionLogic?.(
+        const costExpr = buildNativeCostExpr(tileConfig.columnMappings)
+        const conversionValueExpr = resolveConversionExpr(
+            tileConfig,
             table,
-            MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue
+            MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
+            tileConfig.columnMappings.reportedConversionValue
         )
-        if (specialResult?.math_hogql) {
-            conversionValueExpr = specialResult.math_hogql
-        } else {
-            const conversionValueColumn = mappings.reportedConversionValue
-            const hasConversionValueColumn = table.fields && conversionValueColumn in table.fields
-            if (!hasConversionValueColumn) {
-                conversionValueExpr = '0'
-            } else {
-                conversionValueExpr = sumSafeFloat(conversionValueColumn)
-            }
-        }
-
         const mathHogql = conversionValueExpr === '0' ? '0' : `${conversionValueExpr} / nullIf(SUM(${costExpr}), 0)`
-
-        return {
-            kind: NodeKind.DataWarehouseNode,
-            id: table.id,
-            name: integrationConfig.primarySource,
-            custom_name: `${table.name} roas`,
-            id_field: tileConfig.idField,
-            distinct_id_field: tileConfig.idField,
-            timestamp_field: tileConfig.timestampField,
-            table_name: table.name,
-            math: HogQLMathType.HogQL,
-            math_hogql: mathHogql,
-        }
+        return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
 
     // Handle Cost per Reported Conversion - calculated as cost / reported_conversions
     if (tileColumnSelection === 'cost_per_reported_conversion') {
-        const mappings = tileConfig.columnMappings
-        const costColumn = mappings.cost
-        const needsDivision = mappings.costNeedsDivision
-
-        const costExpr = needsDivision ? `toFloat(${costColumn} / 1000000)` : `toFloat(${costColumn})`
-
-        let conversionExpr: string
-        const specialResult = tileConfig.specialConversionLogic?.(
+        const costExpr = buildNativeCostExpr(tileConfig.columnMappings)
+        const conversionExpr = resolveConversionExpr(
+            tileConfig,
             table,
-            MarketingAnalyticsColumnsSchemaNames.ReportedConversion
+            MarketingAnalyticsColumnsSchemaNames.ReportedConversion,
+            tileConfig.columnMappings.reportedConversion
         )
-        if (specialResult?.math_hogql) {
-            conversionExpr = specialResult.math_hogql
-        } else {
-            const conversionColumn = mappings.reportedConversion
-            conversionExpr = table.fields && conversionColumn in table.fields ? sumSafeFloat(conversionColumn) : '0'
-        }
-
         const mathHogql = conversionExpr === '0' ? '0' : `SUM(${costExpr}) / nullIf(${conversionExpr}, 0)`
-
-        return {
-            kind: NodeKind.DataWarehouseNode,
-            id: table.id,
-            name: integrationConfig.primarySource,
-            custom_name: `${table.name} cost_per_reported_conversion`,
-            id_field: tileConfig.idField,
-            distinct_id_field: tileConfig.idField,
-            timestamp_field: tileConfig.timestampField,
-            table_name: table.name,
-            math: HogQLMathType.HogQL,
-            math_hogql: mathHogql,
-        }
+        return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
 
     const column = columnTileConfig[sourceType].columns[tileColumnSelection as rawColumnsForTiles]
@@ -563,41 +586,33 @@ export function createMarketingTile(
         return null
     }
 
-    const displayName = integrationConfig.primarySource
-
     // Check for special conversion logic first
     if (tileConfig.specialConversionLogic) {
         const specialLogic = tileConfig.specialConversionLogic(table, tileColumnSelection)
         if (specialLogic) {
             let finalMathHogql = specialLogic.math_hogql
 
-            // Apply currency conversion for monetary conversion values
             if (
                 tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue &&
                 finalMathHogql &&
                 finalMathHogql !== '0'
             ) {
-                const mappings = tileConfig.columnMappings
-                const currencyColumn = mappings.currencyColumn
-                const fallbackCurrency = mappings.fallbackCurrency
-                const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
-
-                if (hasCurrencyColumn) {
-                    finalMathHogql = `toFloat(convertCurrency(any(coalesce(${currencyColumn}, '${baseCurrency}')), '${baseCurrency}', ${finalMathHogql}))`
-                } else if (fallbackCurrency) {
-                    finalMathHogql = `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', ${finalMathHogql}))`
-                }
+                finalMathHogql = wrapAggregatedWithCurrencyConversion(
+                    finalMathHogql,
+                    tileConfig.columnMappings,
+                    table,
+                    baseCurrency
+                )
             }
 
             return {
-                kind: NodeKind.DataWarehouseNode,
-                id: table.id,
-                name: displayName,
-                custom_name: `${table.name} ${tileColumnSelection}`,
-                id_field: tileConfig.idField,
-                distinct_id_field: tileConfig.idField,
-                timestamp_field: tileConfig.timestampField,
-                table_name: table.name,
+                ...buildNativeTileNode(
+                    table,
+                    integrationConfig,
+                    tileConfig,
+                    tileColumnSelection,
+                    finalMathHogql ?? '0'
+                ),
                 ...specialLogic,
                 math_hogql: finalMathHogql,
             }
@@ -605,85 +620,19 @@ export function createMarketingTile(
     }
 
     if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost) {
-        const mappings = tileConfig.columnMappings
-        const costColumn = mappings.cost
-        const currencyColumn = mappings.currencyColumn
-        const fallbackCurrency = mappings.fallbackCurrency
-        const needsDivision = mappings.costNeedsDivision
-
-        let costExpr = needsDivision ? `toFloat(${costColumn} / 1000000)` : `toFloat(${costColumn})`
-
-        let mathHogql: string
-
-        const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
-
-        if (hasCurrencyColumn) {
-            mathHogql = `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${costExpr})))`
-        } else if (fallbackCurrency) {
-            mathHogql = `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', SUM(${costExpr})))`
-        } else {
-            mathHogql = `SUM(${costExpr})`
-        }
-
-        return {
-            kind: NodeKind.DataWarehouseNode,
-            id: table.id,
-            name: displayName,
-            custom_name: `${table.name} ${tileColumnSelection}`,
-            id_field: tileConfig.idField,
-            distinct_id_field: tileConfig.idField,
-            timestamp_field: tileConfig.timestampField,
-            table_name: table.name,
-            math: HogQLMathType.HogQL,
-            math_hogql: mathHogql,
-        }
+        const costExpr = buildNativeCostExpr(tileConfig.columnMappings)
+        const mathHogql = wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
+        return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
 
-    // Apply currency conversion for reported_conversion_value (monetary column)
     if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
-        const mappings = tileConfig.columnMappings
-        const currencyColumn = mappings.currencyColumn
-        const fallbackCurrency = mappings.fallbackCurrency
-        const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
-
         const valueExpr = safeFloat(column.name)
-        let mathHogql: string
-
-        if (hasCurrencyColumn) {
-            mathHogql = `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr})))`
-        } else if (fallbackCurrency) {
-            mathHogql = `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', SUM(${valueExpr})))`
-        } else {
-            mathHogql = `SUM(${valueExpr})`
-        }
-
-        return {
-            kind: NodeKind.DataWarehouseNode,
-            id: table.id,
-            name: displayName,
-            custom_name: `${table.name} ${tileColumnSelection}`,
-            id_field: tileConfig.idField,
-            distinct_id_field: tileConfig.idField,
-            timestamp_field: tileConfig.timestampField,
-            table_name: table.name,
-            math: HogQLMathType.HogQL,
-            math_hogql: mathHogql,
-        }
+        const mathHogql = wrapWithCurrencyConversion(valueExpr, tileConfig.columnMappings, table, baseCurrency)
+        return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
 
     // Default tile configuration for non-monetary columns
-    return {
-        kind: NodeKind.DataWarehouseNode,
-        id: table.id,
-        name: displayName,
-        custom_name: `${table.name} ${tileColumnSelection}`,
-        id_field: tileConfig.idField,
-        distinct_id_field: tileConfig.idField,
-        timestamp_field: tileConfig.timestampField,
-        table_name: table.name,
-        math: HogQLMathType.HogQL,
-        math_hogql: sumSafeFloat(column.name),
-    }
+    return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, sumSafeFloat(column.name))
 }
 
 export function rowMatchesSearch(record: unknown, searchTerm: string): boolean {

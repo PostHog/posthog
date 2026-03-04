@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 
 from dateutil import parser
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team, WebExperiment
@@ -2796,6 +2797,52 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
         self.assertFalse(restore_response.json()["deleted"])
+
+    @parameterized.expand(
+        [
+            ("flag_deleted", True, status.HTTP_400_BAD_REQUEST),
+            ("flag_alive", False, status.HTTP_200_OK),
+        ]
+    )
+    def test_restore_with_flag_state(self, _name, delete_flag, expected_status):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Restore Flag State Test",
+                "feature_flag_key": f"restore-flag-state-{_name}",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+            format="json",
+        )
+        experiment = create_response.json()
+        feature_flag_id = experiment["feature_flag"]["id"]
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"deleted": True},
+            format="json",
+        )
+
+        if delete_flag:
+            self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}/",
+                {"deleted": True},
+                format="json",
+            )
+
+        restore_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"deleted": False, "name": experiment["name"]},
+            format="json",
+        )
+
+        self.assertEqual(restore_response.status_code, expected_status)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertIn("linked feature flag has been deleted", restore_response.json()["detail"])
+        else:
+            self.assertFalse(restore_response.json()["deleted"])
 
     def test_create_experiment_with_missing_parameters(self):
         ff_key = "a-b-tests"

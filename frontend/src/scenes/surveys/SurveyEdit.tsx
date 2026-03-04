@@ -71,7 +71,6 @@ import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
-import { surveysLogic } from './surveysLogic'
 
 function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
@@ -258,7 +257,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         loadSurvey,
     } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { guidedEditorEnabled } = useValues(surveysLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     useMountedLogic(actionsModel)
@@ -311,7 +309,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     forceEdit
                     actions={
                         <>
-                            {guidedEditorEnabled && survey.type === SurveyType.Popover && (
+                            {survey.type === SurveyType.Popover && (
                                 <LemonButton
                                     data-attr="switch-to-wizard"
                                     type="tertiary"

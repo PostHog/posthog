@@ -109,14 +109,14 @@ export type SearchableEntity = z.infer<typeof SearchableEntitySchema>
 export const SearchResultSchema = z.object({
     type: z.string(),
     result_id: z.string(),
-    extra_fields: z.record(z.any()),
+    extra_fields: z.record(z.string(), z.any()),
     rank: z.number().optional(),
 })
 export type SearchResult = z.infer<typeof SearchResultSchema>
 
 export const SearchResponseSchema = z.object({
     results: z.array(SearchResultSchema),
-    counts: z.record(z.number().nullable()).optional(),
+    counts: z.record(z.string(), z.number().nullable()).optional(),
 })
 export type SearchResponse = z.infer<typeof SearchResponseSchema>
 
@@ -125,7 +125,7 @@ export type Result<T, E = Error> = { success: true; data: T } | { success: false
 export interface ApiConfig {
     apiToken: string
     baseUrl: string
-    clientIdentifier?: string | undefined
+    clientUserAgent?: string | undefined
 }
 
 type Endpoint = Record<string, any>
@@ -155,7 +155,14 @@ export class ApiClient {
         // TODO: should we move rate limiting from `fetchWithSchema` to here?
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
-            'User-Agent': getUserAgent(this.config.clientIdentifier),
+            'User-Agent': getUserAgent(this.config.clientUserAgent),
+            ...(this.config.clientUserAgent
+                ? {
+                      // Forward the originating client's User-Agent as a custom header so the
+                      // PostHog API can attach it to analytics events for MCP source attribution.
+                      'x-posthog-mcp-user-agent': this.config.clientUserAgent,
+                  }
+                : {}),
         }
         if (options?.body) {
             defaultHeaders['Content-Type'] = 'application/json'
@@ -1309,7 +1316,7 @@ export class ApiClient {
                         tiles: z.array(
                             z.object({
                                 id: z.number(),
-                                layouts: z.record(z.any()).nullish(),
+                                layouts: z.record(z.string(), z.any()).nullish(),
                             })
                         ),
                     }),

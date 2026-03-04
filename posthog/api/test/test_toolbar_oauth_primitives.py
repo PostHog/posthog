@@ -11,6 +11,7 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.oauth.toolbar_service import (
     CALLBACK_PATH,
     ToolbarOAuthError,
@@ -21,6 +22,7 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.models import Organization, Team, User
 
 
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestToolbarOAuthPrimitives(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -660,16 +662,17 @@ class TestTokenEndpointStatusRemapping(APIBaseTest):
         assert cm.exception.status_code == expected_status
 
 
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestToolbarOAuthCallbackExchange(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.team.app_urls = ["https://example.com"]
         self.team.save()
 
-    def _authorize_and_get_state(self) -> str:
+    def _authorize_and_get_state(self, redirect_url: str = "https://example.com/page") -> str:
         response = self.client.get(
             "/toolbar_oauth/authorize/",
-            {"redirect": "https://example.com/page", "code_challenge": "test_challenge_value"},
+            {"redirect": redirect_url, "code_challenge": "test_challenge_value"},
         )
         assert response.status_code == 302
 
@@ -686,6 +689,14 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
         assert redirect_url.startswith("https://example.com/page#")
         assert "__posthog_toolbar=code:auth_code_123" in redirect_url
         assert "client_id:" in redirect_url
+
+    def test_callback_preserves_original_url_fragment(self):
+        state = self._authorize_and_get_state(redirect_url="https://example.com/page#section1")
+        response = self.client.get(f"/toolbar_oauth/callback?code=auth_code_123&state={state}")
+
+        assert response.status_code == 302
+        redirect_url = response["Location"]
+        assert "#section1&__posthog_toolbar=code:auth_code_123" in redirect_url
 
     def test_callback_without_redirect_flow_relays_code_and_state(self):
         response = self.client.get("/toolbar_oauth/callback?code=test_code&state=test_state")
