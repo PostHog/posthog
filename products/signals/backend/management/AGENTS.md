@@ -7,6 +7,8 @@ Use these to test grouping strategies against real signal data end-to-end.
 
 Always clean up before re-ingesting to avoid stale data mixing with new results.
 
+### From pre-processed signals (Signals format)
+
 ```bash
 # 1. Clean up — removes all signal data and terminates Temporal workflows
 python manage.py cleanup_signals --team-id 1 --yes
@@ -21,8 +23,6 @@ python manage.py signal_pipeline_status --team-id 1 --wait --expected-signals 3 
 # 4. Inspect the grouping results
 python manage.py list_signal_reports --team-id 1 --signals --json
 ```
-
-Processing 3 signals typically takes 1-3 minutes depending on LLM response times.
 
 ## What happens during processing
 

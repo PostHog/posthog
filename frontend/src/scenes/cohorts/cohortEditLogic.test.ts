@@ -860,32 +860,25 @@ describe('cohortEditLogic', () => {
 
             // Set custom columns via setQuery
             const customColumns = ['person_display_name -- Person', 'id', 'created_at', 'properties.$browser']
+            const testQuery: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.ActorsQuery,
+                    fixedProperties: [
+                        { type: PropertyFilterType.Cohort, key: 'id', value: 1, operator: PropertyOperator.In },
+                    ],
+                    select: customColumns,
+                },
+                full: true,
+                showPropertyFilter: false,
+                showEventFilter: false,
+            }
             await expectLogic(logic, () => {
-                logic.actions.setQuery({
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.ActorsQuery,
-                        fixedProperties: [{ type: PropertyFilterType.Cohort, key: 'id', value: 1 }],
-                        select: customColumns,
-                    },
-                    full: true,
-                    showPropertyFilter: false,
-                    showEventFilter: false,
-                } as DataTableNode)
+                logic.actions.setQuery(testQuery)
             })
                 .toDispatchActions(['setQuery'])
                 .toMatchValues({
-                    query: {
-                        kind: NodeKind.DataTableNode,
-                        source: {
-                            kind: NodeKind.ActorsQuery,
-                            fixedProperties: [{ type: PropertyFilterType.Cohort, key: 'id', value: 1 }],
-                            select: customColumns,
-                        },
-                        full: true,
-                        showPropertyFilter: false,
-                        showEventFilter: false,
-                    },
+                    query: testQuery,
                 })
 
             // Now call setCohort (simulating what happens after saving)
@@ -928,22 +921,25 @@ describe('cohortEditLogic', () => {
 
             // User configures custom columns via the "Configure columns" UI
             const customColumns = ['person_display_name -- Person', 'id', 'properties.$browser', 'properties.$os']
+            const testQuery: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.ActorsQuery,
+                    fixedProperties: [
+                        { type: PropertyFilterType.Cohort, key: 'id', value: 1, operator: PropertyOperator.In },
+                    ],
+                    select: customColumns,
+                },
+                full: true,
+                showPropertyFilter: false,
+                showEventFilter: false,
+            }
             await expectLogic(logic, () => {
-                logic.actions.setQuery({
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.ActorsQuery,
-                        fixedProperties: [{ type: PropertyFilterType.Cohort, key: 'id', value: 1 }],
-                        select: customColumns,
-                    },
-                    full: true,
-                    showPropertyFilter: false,
-                    showEventFilter: false,
-                } as DataTableNode)
+                logic.actions.setQuery(testQuery)
             }).toDispatchActions(['setQuery'])
 
             // Verify custom columns are set
-            expect(((logic.values.query as DataTableNode).source as ActorsQuery).select).toEqual(customColumns)
+            expect((logic.values.query.source as ActorsQuery).select).toEqual(customColumns)
 
             // User saves the cohort - this triggers setCohort with the updated cohort from API
             // (simulating what happens in saveCohort loader after API call)
@@ -956,7 +952,7 @@ describe('cohortEditLogic', () => {
             }).toDispatchActions(['setCohort'])
 
             // Custom columns should still be preserved after save
-            expect(((logic.values.query as DataTableNode).source as ActorsQuery).select).toEqual(customColumns)
+            expect((logic.values.query.source as ActorsQuery).select).toEqual(customColumns)
         })
     })
 

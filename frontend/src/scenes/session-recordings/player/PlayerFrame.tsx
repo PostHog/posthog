@@ -10,9 +10,11 @@ import { Handler, viewportResizeDimension } from '@posthog/rrweb-types'
 
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+const BASE_CLICK_INDICATOR_DURATION_S = 1 / 3
+
 export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
-    const { player, sessionRecordingId, maskingWindow } = useValues(sessionRecordingPlayerLogic)
+    const { player, sessionRecordingId, maskingWindow, speed } = useValues(sessionRecordingPlayerLogic)
     const { setScale, setRootFrame } = useActions(sessionRecordingPlayerLogic)
 
     const frameRef = useRef<HTMLDivElement | null>(null)
@@ -85,7 +87,16 @@ export const PlayerFrame = (): JSX.Element => {
     return (
         // Adding the LLM highlight class to override clicks animation, in case we decide to make it conditional.
         // The initial approach was conditional, but everyone liked how it looked, so we decided to make it the default.
-        <div ref={containerRef} className={clsx('PlayerFrame ph-no-capture PlayerFrame--llm-highlight')}>
+        // Click indicator duration scales with playback speed: 1/3s at 1x, 1/6s at 2x, etc.
+        <div
+            ref={containerRef}
+            className={clsx('PlayerFrame ph-no-capture PlayerFrame--llm-highlight')}
+            style={
+                {
+                    '--player-frame-click-duration': `${BASE_CLICK_INDICATOR_DURATION_S / speed}s`,
+                } as React.CSSProperties
+            }
+        >
             <div
                 className={clsx('PlayerFrame__content', maskingWindow && 'PlayerFrame__content--masking-window')}
                 ref={frameRef}
