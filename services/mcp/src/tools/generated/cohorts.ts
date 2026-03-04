@@ -98,8 +98,8 @@ const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema> => ({
     },
 })
 
-const CohortsPartialUpdateSchema = CohortsPartialUpdateParams.omit({ project_id: true }).merge(
-    CohortsPartialUpdateBody.omit({ groups: true, _create_in_folder: true, _create_static_person_ids: true })
+const CohortsPartialUpdateSchema = CohortsPartialUpdateParams.omit({ project_id: true }).extend(
+    CohortsPartialUpdateBody.omit({ groups: true, _create_in_folder: true, _create_static_person_ids: true }).shape
 )
 
 const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema> => ({
@@ -143,7 +143,7 @@ const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema> => 
 
 const CohortsAddPersonsToStaticCohortPartialUpdateSchema = CohortsAddPersonsToStaticCohortPartialUpdateParams.omit({
     project_id: true,
-}).merge(CohortsAddPersonsToStaticCohortPartialUpdateBody)
+}).extend(CohortsAddPersonsToStaticCohortPartialUpdateBody.shape)
 
 const cohortsAddPersonsToStaticCohortPartialUpdate = (): ToolBase<
     typeof CohortsAddPersonsToStaticCohortPartialUpdateSchema
@@ -169,8 +169,8 @@ const cohortsAddPersonsToStaticCohortPartialUpdate = (): ToolBase<
 })
 
 const CohortsRemovePersonFromStaticCohortPartialUpdateSchema =
-    CohortsRemovePersonFromStaticCohortPartialUpdateParams.omit({ project_id: true }).merge(
-        CohortsRemovePersonFromStaticCohortPartialUpdateBody
+    CohortsRemovePersonFromStaticCohortPartialUpdateParams.omit({ project_id: true }).extend(
+        CohortsRemovePersonFromStaticCohortPartialUpdateBody.shape
     )
 
 const cohortsRemovePersonFromStaticCohortPartialUpdate = (): ToolBase<
