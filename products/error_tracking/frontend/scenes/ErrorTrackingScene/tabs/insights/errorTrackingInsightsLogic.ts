@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 
 import { HogQLQueryResponse, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, UniversalFiltersGroup } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
 import { issueFiltersLogic } from '../../../../components/IssueFilters/issueFiltersLogic'
 import { ERROR_TRACKING_SCENE_LOGIC_KEY } from '../../errorTrackingSceneLogic'
@@ -43,10 +43,25 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
     })),
 
     selectors({
+        insightsFilterGroup: [
+            (s) => [s.mergedFilterGroup],
+            (mergedFilterGroup): UniversalFiltersGroup => {
+                const inner = mergedFilterGroup.values[0] as UniversalFiltersGroup
+                return {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            ...inner,
+                            values: inner.values.filter((f: any) => f.type !== PropertyFilterType.ErrorTrackingIssue),
+                        },
+                    ],
+                } as UniversalFiltersGroup
+            },
+        ],
         insightQueryFilters: [
-            (s) => [s.mergedFilterGroup, s.filterTestAccounts],
-            (mergedFilterGroup, filterTestAccounts): InsightQueryFilters => ({
-                filterGroup: mergedFilterGroup,
+            (s) => [s.insightsFilterGroup, s.filterTestAccounts],
+            (insightsFilterGroup, filterTestAccounts): InsightQueryFilters => ({
+                filterGroup: insightsFilterGroup,
                 filterTestAccounts,
             }),
         ],
@@ -81,7 +96,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                         filters: {
                             dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
-                            properties: (values.mergedFilterGroup.values[0] as UniversalFiltersGroup)
+                            properties: (values.insightsFilterGroup.values[0] as UniversalFiltersGroup)
                                 .values as AnyPropertyFilter[],
                         },
                     })
@@ -114,7 +129,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
     })),
 
     subscriptions(({ actions }) => ({
-        mergedFilterGroup: () => {
+        insightsFilterGroup: () => {
             actions.loadSummaryStats(null)
         },
     })),
