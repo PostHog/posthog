@@ -19,6 +19,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
+import { SlaDisplay } from '../../components/SlaDisplay'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
@@ -281,6 +282,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     )}
                                 </AssigneeSelect>
                             </div>
+                            {ticket?.sla_due_at && (
+                                <div className="flex justify-between items-center">
+                                    <span className="text-muted-alt">SLA</span>
+                                    <SlaDisplay slaDueAt={ticket.sla_due_at} />
+                                </div>
+                            )}
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">
                             <LemonButton

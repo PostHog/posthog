@@ -109,7 +109,6 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
 interface GetModeOptionsParams {
     planModeEnabled: boolean
     researchEnabled: boolean
-    webSearchEnabled: boolean
     featureFlags: Record<string, boolean | string>
     hasExistingMessages: boolean
 }
@@ -117,7 +116,6 @@ interface GetModeOptionsParams {
 function getModeOptions({
     planModeEnabled,
     researchEnabled,
-    webSearchEnabled,
     featureFlags,
     hasExistingMessages,
 }: GetModeOptionsParams): LemonSelectSection<ModeValue>[] {
@@ -126,7 +124,7 @@ function getModeOptions({
             value: null as ModeValue,
             label: SPECIAL_MODES.auto.name as string | JSX.Element,
             icon: SPECIAL_MODES.auto.icon,
-            tooltip: buildModeTooltip(SPECIAL_MODES.auto.description, getDefaultTools({ webSearchEnabled })),
+            tooltip: buildModeTooltip(SPECIAL_MODES.auto.description, getDefaultTools()),
         },
     ]
     if (planModeEnabled) {
@@ -143,7 +141,7 @@ function getModeOptions({
                 </span>
             ),
             icon: SPECIAL_MODES.plan.icon,
-            tooltip: buildModeTooltip(SPECIAL_MODES.plan.description, getDefaultTools({ webSearchEnabled })),
+            tooltip: buildModeTooltip(SPECIAL_MODES.plan.description, getDefaultTools()),
         })
     }
 
@@ -200,7 +198,6 @@ export function ModeSelector(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const researchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
     const planModeEnabled = useFeatureFlag('PHAI_PLAN_MODE')
-    const webSearchEnabled = useFeatureFlag('PHAI_WEB_SEARCH')
 
     const hasExistingMessages = threadMessageCount > 0
     const modeOptions = useMemo(
@@ -208,11 +205,10 @@ export function ModeSelector(): JSX.Element | null {
             getModeOptions({
                 planModeEnabled,
                 researchEnabled,
-                webSearchEnabled,
                 featureFlags,
                 hasExistingMessages,
             }),
-        [planModeEnabled, researchEnabled, webSearchEnabled, featureFlags, hasExistingMessages]
+        [planModeEnabled, researchEnabled, featureFlags, hasExistingMessages]
     )
 
     const handleChange = useCallback(
@@ -242,7 +238,7 @@ export function ModeSelector(): JSX.Element | null {
             }
             tooltip={buildGeneralTooltip(
                 'Select a mode to focus PostHog AI on a specific product or task. Each mode unlocks specialized capabilities, tools, and expertise.',
-                getDefaultTools({ webSearchEnabled })
+                getDefaultTools()
             )}
             dropdownPlacement="top-start"
             dropdownMatchSelectWidth={false}

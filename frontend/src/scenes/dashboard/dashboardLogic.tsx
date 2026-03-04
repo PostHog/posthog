@@ -656,6 +656,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         insight: {
                             ...(tiles[tileIndex].insight as QueryBasedInsightModel),
                             name: item.name,
+                            description: item.description,
                             last_modified_at: item.last_modified_at,
                         },
                     }
@@ -1549,10 +1550,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             if (withAnalysis) {
                 try {
+                    // Gather current data from the frontend store
+                    const clientResults: Record<number, any> = {}
+                    values.insightTiles.forEach((tile) => {
+                        if (tile.insight && tile.insight.result) {
+                            clientResults[tile.id] = {
+                                insight_name: tile.insight.name || tile.insight.derived_name,
+                                data: tile.insight.result,
+                            }
+                        }
+                    })
+
                     // Snapshot the current cached state ("before") before any refresh happens
                     const snapshotResponse = await api.create(
                         `api/environments/${values.currentTeamId}/dashboards/${props.id}/snapshot`,
-                        {}
+                        { client_results: clientResults }
                     )
                     const { cache_key: cacheKey } = snapshotResponse
 

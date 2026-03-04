@@ -13,6 +13,7 @@ import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
+import { EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
@@ -40,8 +41,8 @@ export interface JoinedIngestionPipelineConfig {
     personsPrefetchEnabled: boolean
     cdpHogWatcherSampleRate: number
     groupId: string
+    outputs: IngestionOutputs<EventOutput>
     perDistinctIdOptions: EventPipelineRunnerOptions & {
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
 }
@@ -122,6 +123,7 @@ export function createJoinedIngestionPipeline<
         personsPrefetchEnabled,
         cdpHogWatcherSampleRate,
         groupId,
+        outputs,
         perDistinctIdOptions,
     } = config
 
@@ -166,6 +168,7 @@ export function createJoinedIngestionPipeline<
 
     const perEventConfig: PerDistinctIdPipelineConfig = {
         options: perDistinctIdOptions,
+        outputs,
         teamManager,
         groupTypeManager,
         hogTransformer,

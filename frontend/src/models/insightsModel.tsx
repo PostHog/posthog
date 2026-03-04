@@ -16,6 +16,10 @@ export const insightsModel = kea<insightsModelType>([
     connect(() => ({ logic: [teamLogic] })),
     actions(() => ({
         renameInsight: (item: QueryBasedInsightModel) => ({ item }),
+        updateInsightDirect: (item: QueryBasedInsightModel, updates: { name?: string; description?: string }) => ({
+            item,
+            updates,
+        }),
         renameInsightSuccess: (item: QueryBasedInsightModel) => ({ item }),
         // TODO: this duplicates the insight but not the dashboard tile (e.g. if duplicated from dashboard you lose tile color
         duplicateInsight: (item: QueryBasedInsightModel) => ({ item }),
@@ -48,6 +52,16 @@ export const insightsModel = kea<insightsModelType>([
                     actions.renameInsightSuccess(updatedItem)
                 },
             })
+        },
+        updateInsightDirect: async ({ item, updates }) => {
+            try {
+                const updatedItem = await insightsApi.update(item.id, updates)
+                actions.renameInsightSuccess(updatedItem)
+                lemonToast.success('Insight updated')
+            } catch (e) {
+                lemonToast.error('Failed to update insight')
+                throw e
+            }
         },
         duplicateInsight: async ({ item }) => {
             // get the insight, to ensure we duplicate it without any changes that might have been made to it
