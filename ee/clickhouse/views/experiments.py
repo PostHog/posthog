@@ -881,9 +881,7 @@ class EnterpriseExperimentsViewSet(
         # If so, we need to update parameters.feature_flag_variants to match the new flag
         parameters = deepcopy(source_experiment.parameters) or {}
         if feature_flag_key != source_experiment.feature_flag.key:
-            existing_flag = FeatureFlag.objects.filter(
-                key=feature_flag_key, team_id=self.team_id, deleted=False
-            ).first()
+            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team_id).first()
             if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
                 parameters["feature_flag_variants"] = existing_flag.filters["multivariate"]["variants"]
 
@@ -1053,7 +1051,7 @@ class EnterpriseExperimentsViewSet(
         except ValueError:
             return Response({"error": "Invalid limit or offset"}, status=400)
 
-        queryset = FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False)
+        queryset = FeatureFlag.objects.filter(team__project_id=self.project_id)
 
         # Filter for multivariate flags with at least 2 variants and first variant is "control"
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)

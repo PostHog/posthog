@@ -625,9 +625,6 @@ importers:
       '@radix-ui/react-accordion':
         specifier: ^1.2.2
         version: 1.2.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-collapsible':
-        specifier: ^1.1.12
-        version: 1.1.12(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-context-menu':
         specifier: ^2.2.6
         version: 2.2.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -671,8 +668,8 @@ importers:
         specifier: 4.0.11
         version: 4.0.11
       '@testing-library/dom':
-        specifier: '>=7.21.4'
-        version: 8.19.0
+        specifier: '>=9.3.4'
+        version: 9.3.4
       '@tiptap/core':
         specifier: ^3.19.0
         version: 3.19.0(@tiptap/pm@3.19.0)
@@ -1113,14 +1110,14 @@ importers:
         specifier: ^3.0.0
         version: 3.0.0(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.4.5)))(sucrase@3.34.0)
       '@testing-library/jest-dom':
-        specifier: ^5.16.2
-        version: 5.16.5
+        specifier: ^5.17.0
+        version: 5.17.0
       '@testing-library/react':
-        specifier: ^13.4.0
-        version: 13.4.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@testing-library/user-event':
-        specifier: ^13.5.0
-        version: 13.5.0(@testing-library/dom@8.19.0)
+        specifier: ^14.6.1
+        version: 14.6.1(@testing-library/dom@9.3.4)
       '@types/bintrees':
         specifier: ^1.0.6
         version: 1.0.6
@@ -2829,19 +2826,19 @@ importers:
     dependencies:
       '@modelcontextprotocol/ext-apps':
         specifier: ^1.0.1
-        version: 1.0.1(@modelcontextprotocol/sdk@1.26.0(@cfworker/json-schema@4.1.1)(zod@3.25.76))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@3.25.76)
+        version: 1.0.1(@modelcontextprotocol/sdk@1.26.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@4.3.6)
       '@modelcontextprotocol/sdk':
         specifier: ^1.26.0
-        version: 1.26.0(@cfworker/json-schema@4.1.1)(zod@3.25.76)
+        version: 1.26.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       '@toon-format/toon':
         specifier: ^2.1.0
         version: 2.1.0
       agents:
         specifier: ^0.3.6
-        version: 0.3.10(@cloudflare/ai-chat@0.0.6)(@cloudflare/codemode@0.0.6)(@cloudflare/workers-types@4.20260207.0)(ai@6.0.77(zod@3.25.76))(react@18.3.1)(zod@3.25.76)
+        version: 0.3.10(@cloudflare/ai-chat@0.0.6)(@cloudflare/codemode@0.0.6)(@cloudflare/workers-types@4.20260207.0)(ai@6.0.77(zod@4.3.6))(react@18.3.1)(zod@4.3.6)
       ai:
         specifier: ^6.0.0
-        version: 6.0.77(zod@3.25.76)
+        version: 6.0.77(zod@4.3.6)
       fflate:
         specifier: ^0.8.2
         version: 0.8.2
@@ -2855,8 +2852,8 @@ importers:
         specifier: ^11.1.0
         version: 11.1.0
       zod:
-        specifier: ^3.24.4
-        version: 3.25.76
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20260120.0
@@ -2927,9 +2924,6 @@ importers:
       yaml:
         specifier: ^2.8.2
         version: 2.8.2
-      zod-to-json-schema:
-        specifier: ^3.24.6
-        version: 3.25.0(zod@3.25.76)
 
   services/oauth-proxy:
     devDependencies:
@@ -8023,19 +8017,6 @@ packages:
       '@types/react-dom':
         optional: true
 
-  '@radix-ui/react-collapsible@1.1.12':
-    resolution: {integrity: sha512-Uu+mSh4agx2ib1uIGPP4/CKNULyajb3p92LsVXmH2EHVMTfZWpll88XJ0j4W0z3f8NK1eYl1+Mf/szHPmcHzyA==}
-    peerDependencies:
-      '@types/react': 18.3.27
-      '@types/react-dom': 18.3.7
-      react: 18.3.1
-      react-dom: 18.3.1
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-      '@types/react-dom':
-        optional: true
-
   '@radix-ui/react-collapsible@1.1.2':
     resolution: {integrity: sha512-PliMB63vxz7vggcyq0IxNYk8vGDrLXVWw4+W4B8YnwI1s18x7YZYqlG9PLX7XxAJUi0g2DxP4XKJMFHh/iVh9A==}
     peerDependencies:
@@ -10242,9 +10223,20 @@ packages:
     resolution: {integrity: sha512-N5ixQ2qKpi5OLYfwQmUb/5mSV9LneAcaUfp32pn4yCnpb8r/Yz0pXFPck21dIicKmi+ta5WRAknkZCfA8refMA==}
     engines: {node: '>=8', npm: '>=6', yarn: '>=1'}
 
+  '@testing-library/jest-dom@5.17.0':
+    resolution: {integrity: sha512-ynmNeT7asXyH3aSVv4vvX4Rb+0qjOhdNHnO/3vuZNqPmhDpV/+rCSGwQ7bLcmU2cJ4dvoheIO85LQj0IbJHEtg==}
+    engines: {node: '>=8', npm: '>=6', yarn: '>=1'}
+
   '@testing-library/react@13.4.0':
     resolution: {integrity: sha512-sXOGON+WNTh3MLE9rve97ftaZukN3oNf2KjDy7YTx6hcTO2uuLHuCGynMDhFwGw/jYf4OJ2Qk0i4i79qMNNkyw==}
     engines: {node: '>=12'}
+    peerDependencies:
+      react: 18.3.1
+      react-dom: 18.3.1
+
+  '@testing-library/react@14.3.1':
+    resolution: {integrity: sha512-H99XjUhWQw0lTgyMN05W3xQG1Nh4lq574D8keFf1dDoNTJgp66VbJozRaczoF+wsiaPJNt/TcnfpLGufGxSrZQ==}
+    engines: {node: '>=14'}
     peerDependencies:
       react: 18.3.1
       react-dom: 18.3.1
@@ -16809,10 +16801,6 @@ packages:
     resolution: {integrity: sha512-rh+Zjr6DNfUYR3bPwJEnuwDdqMbxZW7LOQfUN4B54+Cl+0o5zaU9RJ6bcidfDtC1cWCZXQ+nvX8bf6bAji37QQ==}
     engines: {node: '>=12'}
 
-  lz-string@1.4.4:
-    resolution: {integrity: sha512-0ckx7ZHRPqb0oUm8zNr+90mtf9DQB60H1wMCjBtfi62Kl3a7JbHob6gA2bC+xRvZoOL+1hzUK8jeuEIQE8svEQ==}
-    hasBin: true
-
   lz-string@1.5.0:
     resolution: {integrity: sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==}
     hasBin: true
@@ -22073,11 +22061,6 @@ packages:
   youch@4.1.0-beta.10:
     resolution: {integrity: sha512-rLfVLB4FgQneDr0dv1oddCVZmKjcJ6yX6mS4pU82Mq/Dt9a3cLZQ62pDBL4AUO+uVrCvtWz3ZFUL2HFAFJ/BXQ==}
 
-  zod-to-json-schema@3.25.0:
-    resolution: {integrity: sha512-HvWtU2UG41LALjajJrML6uQejQhNJx+JBO9IflpSja4R03iNWfKXrj6W2h7ljuLyc1nKS+9yDyL/9tD1U/yBnQ==}
-    peerDependencies:
-      zod: ^3.25 || ^4
-
   zod-to-json-schema@3.25.1:
     resolution: {integrity: sha512-pM/SU9d3YAggzi6MtR4h7ruuQlqKtad8e9S0fmxcMi+ueAK5Korys/aWcV9LIIHTVbj01NdzxcnXSN+O74ZIVA==}
     peerDependencies:
@@ -22095,8 +22078,8 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
-  zod@4.2.0:
-    resolution: {integrity: sha512-Bd5fw9wlIhtqCCxotZgdTOMwGm1a0u75wARVEY9HMs1X17trvA/lMi4+MGK5EUfYkXVTbX8UDiDKW4OgzHVUZw==}
+  zod@4.3.6:
+    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
 
   zustand@4.5.6:
     resolution: {integrity: sha512-ibr/n1hBzLLj5Y+yUcU7dYw8p6WnIVzdJbnX+1YpaScvZVF2ziugqHs+LAmHw4lWO9c/zRj+K1ncgWDQuthEdQ==}
@@ -22128,19 +22111,19 @@ snapshots:
 
   '@adobe/css-tools@4.0.1': {}
 
-  '@ai-sdk/gateway@3.0.39(zod@3.25.76)':
+  '@ai-sdk/gateway@3.0.39(zod@4.3.6)':
     dependencies:
       '@ai-sdk/provider': 3.0.8
-      '@ai-sdk/provider-utils': 4.0.14(zod@3.25.76)
+      '@ai-sdk/provider-utils': 4.0.14(zod@4.3.6)
       '@vercel/oidc': 3.1.0
-      zod: 3.25.76
+      zod: 4.3.6
 
-  '@ai-sdk/provider-utils@4.0.14(zod@3.25.76)':
+  '@ai-sdk/provider-utils@4.0.14(zod@4.3.6)':
     dependencies:
       '@ai-sdk/provider': 3.0.8
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.0.6
-      zod: 3.25.76
+      zod: 4.3.6
 
   '@ai-sdk/provider@3.0.8':
     dependencies:
@@ -25482,19 +25465,19 @@ snapshots:
     dependencies:
       '@clickhouse/client-common': 1.12.0
 
-  '@cloudflare/ai-chat@0.0.6(agents@0.3.10)(ai@6.0.77(zod@3.25.76))(react@18.3.1)(zod@3.25.76)':
+  '@cloudflare/ai-chat@0.0.6(agents@0.3.10)(ai@6.0.77(zod@4.3.6))(react@18.3.1)(zod@4.3.6)':
     dependencies:
-      agents: 0.3.10(@cloudflare/ai-chat@0.0.6)(@cloudflare/codemode@0.0.6)(@cloudflare/workers-types@4.20260207.0)(ai@6.0.77(zod@3.25.76))(react@18.3.1)(zod@3.25.76)
-      ai: 6.0.77(zod@3.25.76)
+      agents: 0.3.10(@cloudflare/ai-chat@0.0.6)(@cloudflare/codemode@0.0.6)(@cloudflare/workers-types@4.20260207.0)(ai@6.0.77(zod@4.3.6))(react@18.3.1)(zod@4.3.6)
+      ai: 6.0.77(zod@4.3.6)
       react: 18.3.1
-      zod: 3.25.76
+      zod: 4.3.6
 
-  '@cloudflare/codemode@0.0.6(agents@0.3.10)(ai@6.0.77(zod@3.25.76))(typescript@5.4.5)(zod@3.25.76)':
+  '@cloudflare/codemode@0.0.6(agents@0.3.10)(ai@6.0.77(zod@4.3.6))(typescript@5.4.5)(zod@4.3.6)':
     dependencies:
-      agents: 0.3.10(@cloudflare/ai-chat@0.0.6)(@cloudflare/codemode@0.0.6)(@cloudflare/workers-types@4.20260207.0)(ai@6.0.77(zod@3.25.76))(react@18.3.1)(zod@3.25.76)
-      ai: 6.0.77(zod@3.25.76)
-      zod: 3.25.76
-      zod-to-ts: 2.0.0(typescript@5.4.5)(zod@3.25.76)
+      agents: 0.3.10(@cloudflare/ai-chat@0.0.6)(@cloudflare/codemode@0.0.6)(@cloudflare/workers-types@4.20260207.0)(ai@6.0.77(zod@4.3.6))(react@18.3.1)(zod@4.3.6)
+      ai: 6.0.77(zod@4.3.6)
+      zod: 4.3.6
+      zod-to-ts: 2.0.0(typescript@5.4.5)(zod@4.3.6)
     transitivePeerDependencies:
       - typescript
 
@@ -27248,10 +27231,10 @@ snapshots:
       '@lezer/lr': 1.4.2
       json5: 2.2.3
 
-  '@modelcontextprotocol/ext-apps@1.0.1(@modelcontextprotocol/sdk@1.26.0(@cfworker/json-schema@4.1.1)(zod@3.25.76))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@3.25.76)':
+  '@modelcontextprotocol/ext-apps@1.0.1(@modelcontextprotocol/sdk@1.26.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@4.3.6)':
     dependencies:
-      '@modelcontextprotocol/sdk': 1.26.0(@cfworker/json-schema@4.1.1)(zod@3.25.76)
-      zod: 3.25.76
+      '@modelcontextprotocol/sdk': 1.26.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+      zod: 4.3.6
     optionalDependencies:
       '@oven/bun-darwin-aarch64': 1.3.9
       '@oven/bun-darwin-x64': 1.3.9
@@ -27273,7 +27256,7 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@modelcontextprotocol/sdk@1.26.0(@cfworker/json-schema@4.1.1)(zod@3.25.76)':
+  '@modelcontextprotocol/sdk@1.26.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)':
     dependencies:
       '@hono/node-server': 1.19.9(hono@4.11.8)
       ajv: 8.17.1
@@ -27290,8 +27273,8 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.0
       raw-body: 3.0.1
-      zod: 3.25.76
-      zod-to-json-schema: 3.25.1(zod@3.25.76)
+      zod: 4.3.6
+      zod-to-json-schema: 3.25.1(zod@4.3.6)
     optionalDependencies:
       '@cfworker/json-schema': 4.1.1
     transitivePeerDependencies:
@@ -29471,22 +29454,6 @@ snapshots:
       '@types/react': 18.3.27
       '@types/react-dom': 18.3.7(@types/react@18.3.27)
 
-  '@radix-ui/react-collapsible@1.1.12(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
-    dependencies:
-      '@radix-ui/primitive': 1.1.3
-      '@radix-ui/react-compose-refs': 1.1.2(@types/react@18.3.27)(react@18.3.1)
-      '@radix-ui/react-context': 1.1.2(@types/react@18.3.27)(react@18.3.1)
-      '@radix-ui/react-id': 1.1.1(@types/react@18.3.27)(react@18.3.1)
-      '@radix-ui/react-presence': 1.1.5(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-primitive': 2.1.3(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-use-controllable-state': 1.2.2(@types/react@18.3.27)(react@18.3.1)
-      '@radix-ui/react-use-layout-effect': 1.1.1(@types/react@18.3.27)(react@18.3.1)
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
-    optionalDependencies:
-      '@types/react': 18.3.27
-      '@types/react-dom': 18.3.7(@types/react@18.3.27)
-
   '@radix-ui/react-collapsible@1.1.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@radix-ui/primitive': 1.1.1
@@ -30667,7 +30634,7 @@ snapshots:
 
   '@scalar/openapi-types@0.5.3':
     dependencies:
-      zod: 4.2.0
+      zod: 4.3.6
 
   '@scalar/openapi-upgrader@0.1.6':
     dependencies:
@@ -32361,13 +32328,13 @@ snapshots:
 
   '@testing-library/dom@8.19.0':
     dependencies:
-      '@babel/code-frame': 7.26.2
-      '@babel/runtime': 7.24.0
+      '@babel/code-frame': 7.27.1
+      '@babel/runtime': 7.28.6
       '@types/aria-query': 4.2.2
       aria-query: 5.1.3
       chalk: 4.1.2
       dom-accessibility-api: 0.5.14
-      lz-string: 1.4.4
+      lz-string: 1.5.0
       pretty-format: 27.5.1
 
   '@testing-library/dom@9.3.4':
@@ -32393,6 +32360,18 @@ snapshots:
       lodash: 4.17.21
       redent: 3.0.0
 
+  '@testing-library/jest-dom@5.17.0':
+    dependencies:
+      '@adobe/css-tools': 4.0.1
+      '@babel/runtime': 7.28.6
+      '@types/testing-library__jest-dom': 5.14.5
+      aria-query: 5.1.3
+      chalk: 3.0.0
+      css.escape: 1.5.1
+      dom-accessibility-api: 0.5.14
+      lodash: 4.17.23
+      redent: 3.0.0
+
   '@testing-library/react@13.4.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@babel/runtime': 7.28.4
@@ -32403,10 +32382,15 @@ snapshots:
     transitivePeerDependencies:
       - '@types/react'
 
-  '@testing-library/user-event@13.5.0(@testing-library/dom@8.19.0)':
+  '@testing-library/react@14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@babel/runtime': 7.28.4
-      '@testing-library/dom': 8.19.0
+      '@babel/runtime': 7.28.6
+      '@testing-library/dom': 9.3.4
+      '@types/react-dom': 18.3.7(@types/react@18.3.27)
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+    transitivePeerDependencies:
+      - '@types/react'
 
   '@testing-library/user-event@13.5.0(@testing-library/dom@9.3.4)':
     dependencies:
@@ -34028,13 +34012,13 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  agents@0.3.10(@cloudflare/ai-chat@0.0.6)(@cloudflare/codemode@0.0.6)(@cloudflare/workers-types@4.20260207.0)(ai@6.0.77(zod@3.25.76))(react@18.3.1)(zod@3.25.76):
+  agents@0.3.10(@cloudflare/ai-chat@0.0.6)(@cloudflare/codemode@0.0.6)(@cloudflare/workers-types@4.20260207.0)(ai@6.0.77(zod@4.3.6))(react@18.3.1)(zod@4.3.6):
     dependencies:
       '@cfworker/json-schema': 4.1.1
-      '@cloudflare/ai-chat': 0.0.6(agents@0.3.10)(ai@6.0.77(zod@3.25.76))(react@18.3.1)(zod@3.25.76)
-      '@cloudflare/codemode': 0.0.6(agents@0.3.10)(ai@6.0.77(zod@3.25.76))(typescript@5.4.5)(zod@3.25.76)
-      '@modelcontextprotocol/sdk': 1.26.0(@cfworker/json-schema@4.1.1)(zod@3.25.76)
-      ai: 6.0.77(zod@3.25.76)
+      '@cloudflare/ai-chat': 0.0.6(agents@0.3.10)(ai@6.0.77(zod@4.3.6))(react@18.3.1)(zod@4.3.6)
+      '@cloudflare/codemode': 0.0.6(agents@0.3.10)(ai@6.0.77(zod@4.3.6))(typescript@5.4.5)(zod@4.3.6)
+      '@modelcontextprotocol/sdk': 1.26.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+      ai: 6.0.77(zod@4.3.6)
       cron-schedule: 6.0.0
       escape-html: 1.0.3
       json-schema: 0.4.0
@@ -34045,7 +34029,7 @@ snapshots:
       partysocket: 1.1.11
       react: 18.3.1
       yargs: 18.0.0
-      zod: 3.25.76
+      zod: 4.3.6
     transitivePeerDependencies:
       - '@cloudflare/workers-types'
       - supports-color
@@ -34055,13 +34039,13 @@ snapshots:
       clean-stack: 2.2.0
       indent-string: 4.0.0
 
-  ai@6.0.77(zod@3.25.76):
+  ai@6.0.77(zod@4.3.6):
     dependencies:
-      '@ai-sdk/gateway': 3.0.39(zod@3.25.76)
+      '@ai-sdk/gateway': 3.0.39(zod@4.3.6)
       '@ai-sdk/provider': 3.0.8
-      '@ai-sdk/provider-utils': 4.0.14(zod@3.25.76)
+      '@ai-sdk/provider-utils': 4.0.14(zod@4.3.6)
       '@opentelemetry/api': 1.9.0
-      zod: 3.25.76
+      zod: 4.3.6
 
   ajv-draft-04@1.0.0(ajv@8.17.1):
     optionalDependencies:
@@ -40759,8 +40743,6 @@ snapshots:
 
   luxon@3.5.0: {}
 
-  lz-string@1.4.4: {}
-
   lz-string@1.5.0: {}
 
   magic-string@0.30.19:
@@ -47222,24 +47204,20 @@ snapshots:
       cookie: 1.1.1
       youch-core: 0.3.3
 
-  zod-to-json-schema@3.25.0(zod@3.25.76):
+  zod-to-json-schema@3.25.1(zod@4.3.6):
     dependencies:
-      zod: 3.25.76
+      zod: 4.3.6
 
-  zod-to-json-schema@3.25.1(zod@3.25.76):
-    dependencies:
-      zod: 3.25.76
-
-  zod-to-ts@2.0.0(typescript@5.4.5)(zod@3.25.76):
+  zod-to-ts@2.0.0(typescript@5.4.5)(zod@4.3.6):
     dependencies:
       typescript: 5.4.5
-      zod: 3.25.76
+      zod: 4.3.6
 
   zod@3.24.1: {}
 
   zod@3.25.76: {}
 
-  zod@4.2.0: {}
+  zod@4.3.6: {}
 
   zustand@4.5.6(@types/react@18.3.27)(immer@9.0.21)(react@18.3.1):
     dependencies:

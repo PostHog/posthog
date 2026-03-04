@@ -60,7 +60,7 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return response.Response({"error": "Invalid flag ID - must be a valid integer"}, status=400)
 
         try:
-            flag = FeatureFlag.objects.get(team=self.team, id=flag_id_int, deleted=False)
+            flag = FeatureFlag.objects.get(team=self.team, id=flag_id_int)
         except FeatureFlag.DoesNotExist:
             return response.Response({"error": "Feature flag not found"}, status=404)
 
