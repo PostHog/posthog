@@ -157,6 +157,36 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
         )
     }
 
+    /** Referring URL is displayed with query params stripped, so use regex to match the raw value */
+    if (breakdownBy === WebStatsBreakdown.InitialReferringURL) {
+        const escapedValue = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const filters: Partial<RecordingUniversalFilters> = {
+            date_from,
+            date_to,
+            filter_group: {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                key: '$session_entry_referrer',
+                                type: PropertyFilterType.Event,
+                                value: [`^${escapedValue}($|\\?|#)`],
+                                operator: PropertyOperator.Regex,
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+        return (
+            <div onClick={handleClick}>
+                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
+            </div>
+        )
+    }
+
     const type = BREAKDOWN_TYPE_MAP[breakdownBy] || PropertyFilterType.Person
     const key = BREAKDOWN_KEY_MAP[breakdownBy]
     if (!key || !type) {
