@@ -136,8 +136,20 @@ pub async fn handle_event_payload(
     };
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "processing complete");
 
+    // Apply global rate limit per token if enabled
+    if let Some(limiter) = &state.global_rate_limiter_token {
+        let cache_key = GlobalRateLimitKey::Token(&context.token).to_cache_key();
+        if let Some(limited) = limiter.is_limited(&cache_key, events.len() as u64).await {
+            debug_or_info!(chatty_debug_enabled,
+                context=?context,
+                details=?limited,
+                "global token rate limit applied");
+            return Err(CaptureError::GlobalRateLimitExceeded());
+        }
+    }
+
     // Apply global rate limit per (token, distinct_id) if enabled
-    if let Some(global_rate_limiter) = &state.global_rate_limiter {
+    if let Some(limiter) = &state.global_rate_limiter_token_distinctid {
         let mut is_rate_limited = false;
         for event in &events {
             let maybe_distinct_id = event
@@ -148,12 +160,12 @@ pub async fn handle_event_payload(
             if let Some(distinct_id) = maybe_distinct_id {
                 let cache_key =
                     GlobalRateLimitKey::TokenDistinctId(&context.token, distinct_id).to_cache_key();
-                if let Some(limited) = global_rate_limiter.is_limited(&cache_key, 1).await {
+                if let Some(limited) = limiter.is_limited(&cache_key, 1).await {
                     debug_or_info!(chatty_debug_enabled,
                         context=?context,
                         distinct_id,
                         details=?limited,
-                        "global rate limit applied");
+                        "global token+distinct_id rate limit applied");
                     is_rate_limited = true;
                 }
             }

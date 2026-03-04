@@ -129,7 +129,6 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
         FeatureFlag.objects.filter(
             ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
             team__in=teams,
-            deleted=False,
         ).annotate(
             evaluation_tag_names_agg=ArrayAgg(
                 "evaluation_tags__tag__name",
@@ -384,7 +383,7 @@ def _get_team_ids_with_flags() -> set[int]:
     {"flags": []}.
     """
     start_time = time.time()
-    result = set(FeatureFlag.objects.filter(active=True, deleted=False).values_list("team_id", flat=True).distinct())
+    result = set(FeatureFlag.objects.filter(active=True).values_list("team_id", flat=True).distinct())
     duration_ms = (time.time() - start_time) * 1000
 
     logger.info(
@@ -421,7 +420,7 @@ def _get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
 
     cutoff = timezone.now() - timedelta(minutes=grace_period_minutes)
     return set(
-        FeatureFlag.objects.filter(team_id__in=team_ids, updated_at__gte=cutoff, active=True, deleted=False)
+        FeatureFlag.objects.filter(team_id__in=team_ids, updated_at__gte=cutoff, active=True)
         .values_list("team_id", flat=True)
         .distinct()
     )

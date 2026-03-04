@@ -28,7 +28,7 @@ catalog:
     kea-waitfor: ^0.2.1
     kea-window-values: ^3.0.1
     # PostHog packages
-    posthog-js: ^1.357.0
+    posthog-js: ^1.358.0
     # Build tools
     '@parcel/packager-ts': 2.13.3
     '@parcel/transformer-typescript-types': 2.13.3

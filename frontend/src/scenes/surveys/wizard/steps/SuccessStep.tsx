@@ -47,7 +47,7 @@ export function SuccessStep({ survey }: SuccessStepProps): JSX.Element {
                 <LemonButton type="primary" to={urls.survey(survey.id)}>
                     View survey now
                 </LemonButton>
-                <LemonButton to={urls.surveyTemplates()}>Create another survey</LemonButton>
+                <LemonButton to={urls.surveyWizard()}>Create another survey</LemonButton>
             </div>
 
             <div className="flex justify-center">

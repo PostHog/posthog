@@ -315,15 +315,16 @@ where
         .expect("failed to create redis client"),
     );
 
-    let global_rate_limiter = if config.global_rate_limit_enabled {
-        Some(Arc::new(
-            GlobalRateLimiter::try_from_config(&config, redis_client.clone())
-                .await
-                .expect("failed to create global rate limiter"),
-        ))
-    } else {
-        None
-    };
+    let (global_rate_limiter_token_distinctid, global_rate_limiter_token) =
+        if config.global_rate_limit_enabled {
+            let (td_limiter, token_limiter) =
+                GlobalRateLimiter::try_from_config(&config, redis_client.clone())
+                    .await
+                    .expect("failed to create global rate limiters");
+            (Some(Arc::new(td_limiter)), Some(Arc::new(token_limiter)))
+        } else {
+            (None, None)
+        };
 
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
@@ -416,7 +417,8 @@ where
         liveness,
         sink,
         redis_client,
-        global_rate_limiter,
+        global_rate_limiter_token_distinctid,
+        global_rate_limiter_token,
         quota_limiter,
         token_dropper,
         event_restriction_service,

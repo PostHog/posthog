@@ -533,7 +533,6 @@ def _get_flags_response_for_local_evaluation_batch(
         .filter(
             ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
             team_id__in=team_ids,
-            deleted=False,
         )
         .exclude(id__in=survey_flag_ids)
         .annotate(
