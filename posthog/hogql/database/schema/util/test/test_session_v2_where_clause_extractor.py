@@ -82,6 +82,10 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
         )
         assert actual is None
 
+    def test_no_default_bound_with_limit_when_not_select_star(self):
+        actual = self.inliner.get_inner_where(parse("SELECT event FROM sessions LIMIT 10"))
+        assert actual is None
+
     def assert_limit_bound_edge_case(self, query: str, expected: str):
         EventDefinition.objects.create(
             team=self.team,
@@ -103,11 +107,9 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
             "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= (toDateTime('2099-01-15 00:00:00') - toIntervalDay(30))",
         )
 
-    def test_limit_bound_with_group_by(self):
-        self.assert_limit_bound_edge_case(
-            "SELECT event, count() FROM sessions GROUP BY event LIMIT 10",
-            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= (toDateTime('2099-01-15 00:00:00') - toIntervalDay(30))",
-        )
+    def test_no_limit_bound_with_group_by(self):
+        actual = self.inliner.get_inner_where(parse("SELECT event, count() FROM sessions GROUP BY event LIMIT 10"))
+        assert actual is None
 
     def test_handles_select_with_eq(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp = '2021-01-01'")))
