@@ -185,13 +185,10 @@ class TestPrinter(BaseTest):
             f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
-    def test_intersect_all(self):
-        expr = parse_select("""select 1 as id intersect all select 2 as id""")
-        response = to_printed_hogql(expr, self.team)
-        self.assertEqual(
-            response,
-            f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT ALL\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
+    def test_intersect_all_raises_in_clickhouse(self):
+        with self.assertRaises(ImpossibleASTError) as context:
+            self._select("select 1 as id intersect all select 2 as id")
+        self.assertIn("INTERSECT ALL is not supported", str(context.exception))
 
     def test_intersect_distinct(self):
         expr = parse_select("""select 1 as id intersect distinct select 2 as id""")
@@ -209,13 +206,10 @@ class TestPrinter(BaseTest):
             f"SELECT\n    1 AS id\nLIMIT 50000\nEXCEPT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
-    def test_except_all(self):
-        expr = parse_select("""select 1 as id except all select 2 as id""")
-        response = to_printed_hogql(expr, self.team)
-        self.assertEqual(
-            response,
-            f"SELECT\n    1 AS id\nLIMIT 50000\nEXCEPT ALL\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
+    def test_except_all_raises_in_clickhouse(self):
+        with self.assertRaises(ImpossibleASTError) as context:
+            self._select("select 1 as id except all select 2 as id")
+        self.assertIn("EXCEPT ALL is not supported", str(context.exception))
 
     # these share the same priority, should stay in order
     def test_except_and_union(self):
@@ -4519,3 +4513,11 @@ class TestPostgresPrinter(BaseTest):
         query = "WITH RECURSIVE x USING KEY (a) AS (SELECT 1 AS a UNION ALL SELECT a + 1 FROM x WHERE a < 5) SELECT * FROM x"
         result = self._select(query)
         self.assertIn("USING KEY (a) AS", result)
+
+    def test_intersect_all(self):
+        result = self._select("select 1 as id intersect all select 2 as id")
+        self.assertIn("INTERSECT ALL", result)
+
+    def test_except_all(self):
+        result = self._select("select 1 as id except all select 2 as id")
+        self.assertIn("EXCEPT ALL", result)
