@@ -69,6 +69,7 @@ depends_on = [
     "products.event_definitions",
     "products.error_tracking",
     "products.experiments",
+    "products.feature_flags",
     "products.links",
     "products.live_debugger",
     "products.llm_analytics",

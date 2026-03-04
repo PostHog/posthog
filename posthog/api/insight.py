@@ -1093,7 +1093,7 @@ class InsightViewSet(
     @action(methods=["GET"], detail=False)
     def trending(self, request: request.Request, *args, **kwargs) -> Response:
         """
-        Returns trending insights based on view count in the last 24 hours.
+        Returns trending insights based on view count in the last N days (default 7).
         Defaults to returning top 10 insights.
         """
         try:
@@ -1144,8 +1144,11 @@ class InsightViewSet(
             if len(viewers_by_insight[iid]) < 3:
                 viewers_by_insight[iid].append(viewer.user)
 
+        instance_map = {instance.pk: instance for instance in queryset}
         for item in data:
             item["viewers"] = UserBasicSerializer(viewers_by_insight.get(item["id"], []), many=True).data
+            instance = instance_map.get(item["id"])
+            item["view_count"] = getattr(instance, "view_count", 0) if instance else 0
 
         return Response(data=data, status=status.HTTP_200_OK)
 

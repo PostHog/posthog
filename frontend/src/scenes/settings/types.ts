@@ -110,6 +110,7 @@ export type SettingId =
     | 'feature-flag-confirmation'
     | 'feature-flag-require-evaluation-contexts'
     | 'feature-flag-default-evaluation-contexts'
+    | 'feature-flag-default-release-conditions'
     | 'feature-flag-secure-api-key'
     | 'environment-experiment-stats-method'
     | 'environment-experiment-confidence-level'

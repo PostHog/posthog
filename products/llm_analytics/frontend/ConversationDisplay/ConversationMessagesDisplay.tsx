@@ -35,7 +35,7 @@ import { HighlightedXMLViewer } from './HighlightedXMLViewer'
 import { MessageActionsMenu } from './MessageActionsMenu'
 import { XMLViewer } from './XMLViewer'
 
-type ConversationDisplayOption = 'expand_all' | 'collapse_except_output_and_last_input' | 'text_view'
+export type ConversationDisplayOption = 'expand_all' | 'collapse_except_output_and_last_input' | 'text_view'
 type MessageType = 'input' | 'output'
 
 function getInitialMessageShowStates(
@@ -726,8 +726,8 @@ export const LLMMessageDisplay = React.memo(
                         {renderMessageContent(content, searchQuery)}
                     </div>
                 )}
-                {show && !minimal && Object.keys(additionalKwargsEntries).length > 0 && (
-                    <div className="p-2 text-xs border-t">
+                {show && (!minimal || !content) && Object.keys(additionalKwargsEntries).length > 0 && (
+                    <div className={clsx(!minimal ? 'p-2 text-xs border-t' : 'p-1 text-xs')}>
                         <HighlightedJSONViewer
                             src={additionalKwargsEntries}
                             name={null}

@@ -54,7 +54,8 @@ impl GlobalRateLimiter {
         let grl_config = GlobalRateLimiterConfig {
             global_threshold: config.global_rate_limit_threshold,
             window_interval: Duration::from_secs(config.global_rate_limit_window_interval_secs),
-            bucket_interval: Duration::from_secs(config.global_rate_limit_bucket_interval_secs),
+            sync_interval: Duration::from_secs(config.global_rate_limit_sync_interval_secs),
+            tick_interval: Duration::from_millis(config.global_rate_limit_tick_interval_ms),
             redis_key_prefix: redis_prefix,
             custom_keys: Self::format_custom_keys(config.global_rate_limit_overrides_csv.as_ref()),
             local_cache_max_entries: config.global_rate_limit_local_cache_max_entries,
@@ -276,15 +277,12 @@ mod tests {
     }
 
     fn make_limited_response(is_custom: bool) -> EvalResult {
-        let now = Utc::now();
         EvalResult::Limited(GlobalRateLimitResponse {
             key: "test".to_string(),
-            current_count: 100,
+            current_count: 100.0,
             threshold: 10,
-            window_start: now - chrono::Duration::seconds(60),
-            window_end: now,
             window_interval: Duration::from_secs(60),
-            update_interval: Duration::from_secs(10),
+            sync_interval: Duration::from_secs(15),
             is_custom_limited: is_custom,
         })
     }
