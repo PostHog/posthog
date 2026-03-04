@@ -10,6 +10,7 @@ import {
     SnapshotEventSchema,
 } from '../../session-recording/kafka/types'
 import { parseJSON } from '../../utils/json-parse'
+import { normalizeSessionId } from '../../utils/utils'
 import { dlq, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
@@ -125,6 +126,8 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
             return dlq('received_non_snapshot_message')
         }
 
+        const sessionId = normalizeSessionId($session_id)
+
         const result = getValidEvents($snapshot_items)
         if (!result) {
             return drop(
@@ -172,7 +175,7 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
             },
             headers: message.headers,
             distinct_id: messageResult.data.distinct_id,
-            session_id: $session_id,
+            session_id: sessionId,
             token: token ?? null,
             eventsByWindowId: {
                 [$window_id ?? '']: validEvents,

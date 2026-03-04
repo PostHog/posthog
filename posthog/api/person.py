@@ -583,6 +583,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 resp["Cache-Control"] = "max-age=10"
                 return resp
 
+            force_refresh = request.GET.get("force_refresh", "false").lower() == "true"
             runner = PropertyValuesQueryRunner(
                 team=self.team,
                 query=PropertyValuesQuery(
@@ -591,7 +592,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     search_value=value,
                 ),
             )
-            result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            execution_mode = (
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                if force_refresh
+                else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
+            result = runner.run(execution_mode)
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (
                 isinstance(result, CachedPropertyValuesQueryResponse)

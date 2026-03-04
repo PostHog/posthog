@@ -3,6 +3,7 @@ from typing import Optional
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -1285,3 +1286,108 @@ class TestHogFlowAPI(APIBaseTest):
             {"status": "active"},
         )
         assert response.status_code == 400, response.json()
+
+    def _create_flow(self, name: str = "Test Flow", flow_status: str = "draft") -> str:
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        )
+        hog_flow["name"] = name
+        hog_flow["status"] = flow_status
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        return response.json()["id"]
+
+    def _archive_flow(self, flow_id: str) -> None:
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"status": "archived"},
+        )
+        assert response.status_code == 200, response.json()
+
+    def test_bulk_delete_archived_workflows(self):
+        ids = [self._create_flow(name=f"Flow {i}") for i in range(3)]
+        for fid in ids:
+            self._archive_flow(fid)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {"ids": ids},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["deleted"] == 3
+        assert HogFlow.objects.filter(id__in=ids).count() == 0
+
+    @parameterized.expand(
+        [
+            ("draft",),
+            ("active",),
+        ]
+    )
+    def test_bulk_delete_skips_non_archived_workflows(self, flow_status):
+        flow_id = self._create_flow(flow_status=flow_status)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {"ids": [flow_id]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["deleted"] == 0
+        assert HogFlow.objects.filter(id=flow_id).exists()
+
+    def test_bulk_delete_mixed_statuses_only_deletes_archived(self):
+        draft_id = self._create_flow(name="Draft", flow_status="draft")
+        archived_id = self._create_flow(name="Archived", flow_status="draft")
+        self._archive_flow(archived_id)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {"ids": [draft_id, archived_id]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["deleted"] == 1
+        assert HogFlow.objects.filter(id=draft_id).exists()
+        assert not HogFlow.objects.filter(id=archived_id).exists()
+
+    def test_bulk_delete_rejects_empty_ids(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {"ids": []},
+        )
+        assert response.status_code == 400
+
+    def test_bulk_delete_rejects_missing_ids(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {},
+        )
+        assert response.status_code == 400
+
+    def test_bulk_delete_rejects_invalid_uuids(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {"ids": ["not-a-uuid", "also-bad"]},
+        )
+        assert response.status_code == 400
+
+    def test_bulk_delete_does_not_leak_between_teams(self):
+        another_org = Organization.objects.create(name="other org")
+        another_team = Team.objects.create(organization=another_org)
+        another_user = User.objects.create_and_join(another_org, "other-bulk-delete@example.com", password="")
+
+        self.client.force_login(another_user)
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        )
+        create_response = self.client.post(f"/api/projects/{another_team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201
+        flow_id = create_response.json()["id"]
+        self.client.patch(f"/api/projects/{another_team.id}/hog_flows/{flow_id}", {"status": "archived"})
+
+        self.client.force_login(self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {"ids": [flow_id]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["deleted"] == 0
+        assert HogFlow.objects.filter(id=flow_id).exists()
