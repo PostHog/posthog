@@ -8,6 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
@@ -20,6 +21,15 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
+
+from products.data_warehouse.backend.models import ExternalDataSource
+
+
+def _source_for_connection(team: Team, connection_id: str | None) -> ExternalDataSource | None:
+    if not connection_id:
+        return None
+
+    return ExternalDataSource.objects.filter(team_id=team.pk, id=connection_id).first()
 
 
 def get_hogql_metadata(
@@ -40,11 +50,22 @@ def get_hogql_metadata(
     )
 
     query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
+    source = _source_for_connection(team, query.connectionId)
+    database = None
+    if source and source.source_id:
+        database = Database.create_for(
+            team=team,
+            modifiers=query_modifiers,
+            direct_query_source_id=str(source.id)
+            if source.access_method == ExternalDataSource.AccessMethod.DIRECT
+            else None,
+        )
 
     try:
         context = HogQLContext(
             team_id=team.pk,
             user=user,
+            database=database,
             modifiers=query_modifiers,
             enable_select_queries=True,
             debug=query.debug or False,

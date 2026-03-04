@@ -1,6 +1,7 @@
 from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -183,6 +184,34 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
         metadata = self._expr("is_identified", "persons")
         self.assertEqual(metadata.isValid, True)
+
+    @patch("posthog.hogql.metadata.Database.create_for")
+    def test_metadata_resolves_database_from_connection_id(self, mock_create_for):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+
+        get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="SELECT 1",
+                response=None,
+                connectionId="selected-connection",
+            ),
+            team=self.team,
+        )
+
+        self.assertEqual(mock_create_for.call_count, 1)
+        self.assertEqual(mock_create_for.call_args.kwargs["team"], self.team)
+        self.assertEqual(mock_create_for.call_args.kwargs["direct_query_source_id"], str(source.id))
+        self.assertIn("modifiers", mock_create_for.call_args.kwargs)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_metadata_in_cohort(self):
