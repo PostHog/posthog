@@ -147,11 +147,13 @@ class PostHogClient:
             sdk_host=self.config.api_host,
         )
 
+        all_properties = {"$ignore_sent_at": True, **(properties or {})}
+
         self._retry_on_error(
             lambda: self._posthog.capture(
                 distinct_id=distinct_id,
                 event=event_name,
-                properties=properties or {},
+                properties=all_properties,
                 uuid=event_uuid,
             ),
             description=f"capture event {event_uuid}",
@@ -208,7 +210,7 @@ class PostHogClient:
             lambda: self._posthog.capture(
                 distinct_id=merge_into_distinct_id,
                 event="$merge_dangerously",
-                properties={"alias": merge_from_distinct_id},
+                properties={"alias": merge_from_distinct_id, "$ignore_sent_at": True},
                 uuid=event_uuid,
             ),
             description=f"merge dangerously {merge_from_distinct_id} -> {merge_into_distinct_id}",
@@ -268,7 +270,7 @@ class PostHogClient:
 
     # Polling configuration
     POLL_BACKOFF_FACTOR = 1.5
-    POLL_MAX_INTERVAL_SECONDS = 300.0
+    POLL_MAX_INTERVAL_SECONDS = 60.0
 
     def _poll_until_found(
         self,
