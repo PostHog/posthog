@@ -15,19 +15,21 @@ export function getNextSorting(
     currentSorting: Sorting | null,
     selectedColumnKey: string,
     disableSortingCancellation: boolean,
-    defaultOrder: 1 | -1 = 1
+    defaultOrder?: 1 | -1
 ): Sorting | null {
-    const oppositeOrder = (defaultOrder === 1 ? -1 : 1) as 1 | -1
+    const resolvedDefaultOrder = defaultOrder ?? 1
+    const oppositeOrder = (resolvedDefaultOrder === 1 ? -1 : 1) as 1 | -1
     if (
         !currentSorting ||
         currentSorting.columnKey !== selectedColumnKey ||
         (currentSorting.order === oppositeOrder && disableSortingCancellation)
     ) {
-        return { columnKey: selectedColumnKey, order: defaultOrder }
-    } else if (currentSorting.order === defaultOrder) {
+        return { columnKey: selectedColumnKey, order: resolvedDefaultOrder }
+    } else if (currentSorting.order === resolvedDefaultOrder) {
         return { columnKey: selectedColumnKey, order: oppositeOrder }
     }
     return null
+}
 }
 
 export const SortingIndicator: React.FunctionComponent<
