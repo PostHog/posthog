@@ -659,7 +659,9 @@ class SendGridSourceConfig(config.Config):
 
 @config.config
 class SentrySourceConfig(config.Config):
-    pass
+    auth_token: str
+    organization_slug: str
+    api_base_url: str | None = None
 
 
 @config.config
