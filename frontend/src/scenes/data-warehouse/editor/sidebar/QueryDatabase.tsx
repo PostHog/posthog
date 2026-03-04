@@ -196,12 +196,31 @@ export const QueryDatabase = (): JSX.Element => {
 
         sourceData.forEach((item) => {
             if (item.record?.type === 'sources') {
-                flattenedTables.push(...(item.children ?? []))
+                const sourceChildren = item.children ?? []
+                sourceChildren.forEach((sourceChild) => {
+                    if (sourceChild.record?.type === 'source-folder') {
+                        flattenedTables.push(...(sourceChild.children ?? []))
+                        return
+                    }
+
+                    flattenedTables.push(sourceChild)
+                })
                 return
             }
 
-            if (item.record?.type === 'views' || item.record?.type === 'managed-views') {
-                flattenedViews.push(...(item.children ?? []))
+            if (item.record?.type === 'views') {
+                // In direct-connection mode, hide saved-query and managed view sections,
+                // and only keep DB-backed view nodes if they are present in schema.
+                const viewChildren = item.children ?? []
+                viewChildren.forEach((viewChild) => {
+                    if (viewChild.record?.type === 'view-table') {
+                        flattenedViews.push(viewChild)
+                    }
+                })
+                return
+            }
+
+            if (item.record?.type === 'managed-views') {
                 return
             }
 
