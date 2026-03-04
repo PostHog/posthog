@@ -183,7 +183,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                     : {
                           type: PropertyFilterType.Event,
                           key: `$group_${groupTypeIndex}`,
-                          value: [groupKey],
+                          value: [String(groupKey)],
                           operator: PropertyOperator.Exact,
                       }
                 return {
