@@ -1,0 +1,46 @@
+[
+  {
+    "id": "00001",
+    "subject": "Bug Report: Product analytics (incl. insights, dashboards, etc.) (00000000-0000-0000-0000-000000000010)",
+    "description": "Where can I see the history of a Dashboard? \nI need to step back a dashboard, The AI deleted everything on the dashboard. instead of \"adding\" two new insights, it did a replace. I had Text cards in place, The AI tool can't create Text Cards or Organize the Dashboard. around those cards. Can I see a history of and revert back to before the step where the AI replaced all my work?\n\n-----\nKind: bug\nTarget area: analytics\nReport event: http://go/ticketByUUID/00000000-0000-0000-0000-000000000010\nSession: https://us.posthog.com/project/sTMFPsFhdP1Ssg/replay/00000000-0000-0000-0000-000000000011?t=5888\nExceptions: https://us.posthog.com/project/2/error_tracking?filterGroup=%7B%22type%22%3A%22AND%22%2C%22values%22%3A%5B%7B%22type%22%3A%22AND%22%2C%22values%22%3A%5B%7B%22key%22%3A%22%24session_id%22%2C%22value%22%3A%5B%2200000000-0000-0000-0000-000000000011%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D%7D%5D%7D\nLocation: https://us.posthog.com/project/00000/dashboard/000000?query_filters=%7B%22date_from%22%3A%222026-01-01T13%3A50%3A00%22%2C%22date_to%22%3Anull%2C%22explicitDate%22%3Atrue%7D%20\nAdmin: https://us.posthog.com/admin/posthog/user/000000/change/ (organization ID 00000000-0000-0000-0000-000000000001: Acme Corp, project ID 00000: Production)\nPersons-on-events mode for project: person_id_override_properties_on_events",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00001.json",
+    "type": null,
+    "tags": "[\"ack_email_sent\",\"escalated\",\"medium\",\"org-checked\",\"owner_unassigned\",\"plan_teams_legacy\",\"priority_customer\",\"priority_e_scale\",\"priority_support\",\"sla_warning2_sent\",\"sla_warning3_sent\",\"sla_warning_sent\"]",
+    "created_at": "2026-01-28T16:24:44+00:00",
+    "priority": "normal",
+    "status": "new"
+  },
+  {
+    "id": "00002",
+    "subject": "Support Ticket: PostHog AI (00000000-0000-0000-0000-000000000020)",
+    "description": "I asked posthog ai to add an insight to a dashboard. it then proceeded to add the insights, and deleted everything that was already on the dashboard\n\n-----\nKind: support\nTarget area: max-ai\nReport event: http://go/ticketByUUID/00000000-0000-0000-0000-000000000020\nSession: https://us.posthog.com/project/sTMFPsFhdP1Ssg/replay/00000000-0000-0000-0000-000000000021?t=4375\nExceptions: https://us.posthog.com/project/2/error_tracking?filterGroup=%7B%22type%22%3A%22AND%22%2C%22values%22%3A%5B%7B%22type%22%3A%22AND%22%2C%22values%22%3A%5B%7B%22key%22%3A%22%24session_id%22%2C%22value%22%3A%5B%2200000000-0000-0000-0000-000000000021%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D%7D%5D%7D\nLocation: https://us.posthog.com/project/000000/home\nAdmin: https://us.posthog.com/admin/posthog/user/000001/change/ (organization ID 00000000-0000-0000-0000-000000000002: Globex, project ID 000000: Globex Production)\nPersons-on-events mode for project: person_id_override_properties_on_events",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00002.json",
+    "type": null,
+    "tags": "[\"ack_email_sent\",\"dashboards\",\"email_support\",\"escalated\",\"max_ai\",\"medium\",\"org-checked\",\"owner_unassigned\",\"plan_pay-as-you-go_paying\",\"priority_f_paying\"]",
+    "created_at": "2026-01-29T19:56:07+00:00",
+    "priority": "normal",
+    "status": "open"
+  },
+  {
+    "id": "00003",
+    "subject": "<@U00000000AA>  We're facing some issue with posthog.",
+    "description": "\n\n•    Slowness in creating or viewing dashboard insights \n•    Auto deletes some dashboard which I created recently \n\nPls check and fix this or Let's connect for this\n\nCC: <@U00000000BB>\n **John Smith** (@John Smith) from Widget Inc\n\n@U00000000AA We're facing some issue with posthog.\n\n• Slowness in creating or viewing dashboard insights\n• Auto deletes some dashboard which I created recently\nPls check and fix this or Let's connect for this\n\nCC: @U00000000BB",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00003.json",
+    "type": null,
+    "tags": "[\"csm_managed\",\"escalated\",\"low\",\"org-checked\",\"pending_solved\",\"plan_enterprise\",\"priority_c_enterprise\",\"priority_customer\",\"pylon\",\"slack\"]",
+    "created_at": "2026-01-28T09:31:16+00:00",
+    "priority": "low",
+    "status": "pending"
+  },
+  {
+    "id": "00004",
+    "subject": "Community question: GDPR compliant consent not being remembered in NextJS",
+    "description": "Reply here: https://posthog.com/questions/gdpr-compliant-consent-not-being-remembered-in-next-js\n* * *\n\nI am implementing a GDPR-compliant consent flow in a Next.js (App Router) project using posthog-js, but I’m running into a persistence issue. Even after calling `opt_in_capturing()` or `opt_out_capturing()`, the choice is lost upon page refresh, causing the consent banner to reappear every time.\n\nHere is the init:\n\n    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {\n      api_host: '/ph',\n      ui_host: 'https://eu.posthog.com',\n      defaults: '2025-11-30',\n      opt_out_capturing_by_default: true,\n      cookieless_mode: 'on_reject',\n      autocapture: false,\n      capture_pageview: true,\n      opt_out_capturing_persistence_type: 'localStorage',\n      persistence: 'localStorage',\n    })\n\nThe Issue:\n\n- User arrives → `get_explicit_consent_status()` is pending (Banner shows).\n- User clicks \"Accept\" or \"Decline\" → I call `opt_in_capturing()` or `opt_out_capturing()`.\n- I can see the state change in LocalStorage.\n- On Page Refresh, the LocalStorage KV has disappeared, and the banner shows again.\n\nIs there something wrong with my configuration or something else I am missing? Thanks",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00004.json",
+    "type": null,
+    "tags": "[\"community\",\"low\",\"low-prio\",\"priority_i_community\",\"question\"]",
+    "created_at": "2026-01-28T00:48:51+00:00",
+    "priority": "low",
+    "status": "open"
+  }
+]
