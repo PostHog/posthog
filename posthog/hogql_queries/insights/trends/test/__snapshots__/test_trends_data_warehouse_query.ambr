@@ -1,20 +1,6 @@
 # serializer version: 1
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown
   '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_breakdown.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_breakdown.2
-  '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -45,7 +31,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -60,27 +46,13 @@
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view
   '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view.2
-  '''
   SELECT posthog_test_test_table_1.id AS id,
          toTimeZone(posthog_test_test_table_1.created, 'UTC') AS created,
          posthog_test_test_table_1.prop_1 AS prop_2,
          1 AS boolfield
   FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1
   LIMIT 101
-  OFFSET 0 SETTINGS format_csv_allow_double_quotes=0,
+  OFFSET 0 SETTINGS format_csv_allow_double_quotes=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -94,7 +66,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view.3
+# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
@@ -131,7 +103,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -146,27 +118,13 @@
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view_with_date_timestamp
   '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view_with_date_timestamp.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view_with_date_timestamp.2
-  '''
   SELECT posthog_test_test_table_1.id AS id,
          toDate(toTimeZone(posthog_test_test_table_1.created, 'UTC')) AS timestamp,
          posthog_test_test_table_1.prop_1 AS prop_2,
          1 AS boolfield
   FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1
   LIMIT 101
-  OFFSET 0 SETTINGS format_csv_allow_double_quotes=0,
+  OFFSET 0 SETTINGS format_csv_allow_double_quotes=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -180,7 +138,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view_with_date_timestamp.3
+# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view_with_date_timestamp.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
@@ -217,7 +175,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -231,20 +189,6 @@
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown_with_property
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_with_property.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_with_property.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
@@ -276,7 +220,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -291,20 +235,6 @@
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse
   '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse.2
-  '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
@@ -320,7 +250,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -335,23 +265,9 @@
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse_all_time
   '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse_all_time.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse_all_time.2
-  '''
   SELECT min(toTimeZone(posthog_test_test_table_1.created, 'UTC')) AS `min(toTimeZone(created, 'UTC'))`
   FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -364,7 +280,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse_all_time.3
+# name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse_all_time.1
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -381,7 +297,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -395,20 +311,6 @@
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_entity_property
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_entity_property.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_entity_property.2
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -425,7 +327,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -440,23 +342,9 @@
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time
   '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.2
-  '''
   SELECT min(toTimeZone(posthog_test_test_table_1.created, 'UTC')) AS `min(toTimeZone(created, 'UTC'))`
   FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -469,7 +357,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.3
+# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.1
   '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
@@ -487,7 +375,7 @@
                    use_hive_partitioning=0
   '''
 # ---
-# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.4
+# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.2
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -504,7 +392,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -517,7 +405,7 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.5
+# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.3
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -548,20 +436,6 @@
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_events_filtering_on_warehouse_person_property
   '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_events_filtering_on_warehouse_person_property.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_events_filtering_on_warehouse_person_property.2
-  '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
@@ -578,7 +452,7 @@
                    use_hive_partitioning=0
   '''
 # ---
-# name: TestTrendsDataWarehouseQuery.test_trends_events_filtering_on_warehouse_person_property.3
+# name: TestTrendsDataWarehouseQuery.test_trends_events_filtering_on_warehouse_person_property.1
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -616,7 +490,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -630,20 +504,6 @@
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_query_properties
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_query_properties.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_query_properties.2
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -660,7 +520,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -674,20 +534,6 @@
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_with_multiple_property_types
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_with_multiple_property_types.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_with_multiple_property_types.2
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -704,7 +550,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

@@ -1,20 +1,6 @@
 # serializer version: 1
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_continuous_metric
   '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_continuous_metric.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_continuous_metric.2
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -54,7 +40,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -69,20 +55,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_count_metric
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_count_metric.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_count_metric.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -123,7 +95,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -138,20 +110,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_both_properties_and_fixed_properties
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_both_properties_and_fixed_properties.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_both_properties_and_fixed_properties.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -192,7 +150,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -207,20 +165,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_fixed_properties
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_fixed_properties.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_fixed_properties.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -261,7 +205,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -276,20 +220,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_no_properties
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_no_properties.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_no_properties.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -330,7 +260,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -345,20 +275,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_0_single_property_filter
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_0_single_property_filter.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_0_single_property_filter.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -399,7 +315,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -414,20 +330,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_1_multiple_property_filters
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_1_multiple_property_filters.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_1_multiple_property_filters.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -468,7 +370,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -483,20 +385,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_2_numeric_property_filter
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_2_numeric_property_filter.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_2_numeric_property_filter.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -537,7 +425,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -552,20 +440,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_3_mixed_property_filters
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_3_mixed_property_filters.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_3_mixed_property_filters.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -606,7 +480,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -621,20 +495,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_group_aggregation_data_warehouse_mean_metric
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_group_aggregation_data_warehouse_mean_metric.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_group_aggregation_data_warehouse_mean_metric.2
   '''
   WITH exposures AS
     (SELECT events.`$group_0` AS entity_id,
@@ -668,7 +528,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -683,20 +543,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -747,7 +593,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -761,7 +607,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties.3
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -802,7 +648,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -817,20 +663,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -871,7 +703,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -885,7 +717,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties.3
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -926,7 +758,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -941,20 +773,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -995,7 +813,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -1009,7 +827,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags.3
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1050,7 +868,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -1065,20 +883,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1122,7 +926,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -1136,7 +940,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.3
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1177,7 +981,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -1193,20 +997,6 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic
   '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.2
-  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
@@ -1215,7 +1005,7 @@
     AND version = 0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.3
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1259,7 +1049,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -1273,7 +1063,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.4
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1314,7 +1104,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -1329,20 +1119,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1391,7 +1167,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -1405,7 +1181,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group.3
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1446,7 +1222,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -1461,20 +1237,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1515,7 +1277,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -1529,7 +1291,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element.3
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1570,7 +1332,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -1585,34 +1347,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_subscriptions_table
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_subscriptions/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_subscriptions_table.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_subscriptions/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_subscriptions_table.2
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_subscriptions_table.3
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_subscriptions_table.4
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1669,7 +1403,7 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
@@ -1684,48 +1418,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_ratio_metric_with_different_join_keys
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_ratio_metric_with_different_join_keys.1
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_ratio_metric_with_different_join_keys.2
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_subscriptions/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_ratio_metric_with_different_join_keys.3
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_subscriptions/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_ratio_metric_with_different_join_keys.4
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_ratio_metric_with_different_join_keys.5
-  '''
-  SELECT 1
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames')
-  LIMIT 100
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_ratio_metric_with_different_join_keys.6
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1809,7 +1501,7 @@
          sum(multiply(entity_metrics.numerator_value, entity_metrics.denominator_value)) AS numerator_denominator_sum_product
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS format_csv_allow_double_quotes=0,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
