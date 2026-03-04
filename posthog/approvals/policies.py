@@ -110,6 +110,7 @@ class PolicyEngine:
         except PolicyEvaluationError:
             raise
         except Exception as e:
+            logger.exception("Unexpected error evaluating policy %s", policy.id)
             raise PolicyEvaluationError(f"Failed to evaluate policy {policy.id}: {e}") from e
 
     def _evaluate_policy(self, policy, actor, intent: dict, context: dict) -> PolicyDecision:
