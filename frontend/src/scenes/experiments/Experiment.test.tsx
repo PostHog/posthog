@@ -158,9 +158,8 @@ describe('Experiment component', () => {
             })
             expect(screen.getByText('Add secondary metric')).toBeInTheDocument()
 
-            // No creation form should be shown
+            // No creation form should be shown in view mode
             expect(screen.queryByTestId('experiment-wizard')).not.toBeInTheDocument()
-            expect(screen.queryByTestId('experiment-classic-form')).not.toBeInTheDocument()
 
             if (expectLaunchButton) {
                 const launchButton = document.querySelector('[data-attr="launch-experiment"]')
