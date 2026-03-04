@@ -8,15 +8,23 @@ import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { Breadcrumb, DashboardPlacement, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
+import {
+    Breadcrumb,
+    DashboardBasicType,
+    DashboardPlacement,
+    DashboardType,
+    InsightModel,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import type { projectHomepageLogicType } from './projectHomepageLogicType'
 
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
     path(['scenes', 'project-homepage', 'projectHomepageLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam'], projectLogic, ['currentProjectId']],
+        values: [teamLogic, ['currentTeam'], projectLogic, ['currentProjectId'], dashboardsModel, ['rawDashboards']],
     })),
 
     actions({
@@ -68,6 +76,17 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                     return []
                 }
                 return [createMaxContextHelpers.dashboard(dashboard)]
+            },
+        ],
+        recentDashboards: [
+            (s) => [s.rawDashboards],
+            (rawDashboards): DashboardBasicType[] => {
+                return Object.values(rawDashboards)
+                    .filter((d) => d.last_viewed_at && !d.deleted)
+                    .sort((a, b) => {
+                        return new Date(b.last_viewed_at!).getTime() - new Date(a.last_viewed_at!).getTime()
+                    })
+                    .slice(0, 5)
             },
         ],
         breadcrumbs: [
