@@ -116,7 +116,9 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         selfManagedTables: [
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables): DatabaseSchemaDataWarehouseTable[] => {
-                return dataWarehouseTables.filter((table) => !table.source)
+                return dataWarehouseTables.filter(
+                    (table) => !table.source || table.source.access_method?.toLowerCase() === 'direct'
+                )
             },
         ],
         filteredSelfManagedTables: [
@@ -135,7 +137,9 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         filteredManagedSources: [
             (s) => [s.dataWarehouseSources, s.managedSearchTerm],
             (dataWarehouseSources, managedSearchTerm): ExternalDataSource[] => {
-                const sources = dataWarehouseSources?.results ?? []
+                const sources = (dataWarehouseSources?.results ?? []).filter(
+                    (source) => source.access_method?.toLowerCase() !== 'direct'
+                )
                 if (!managedSearchTerm?.trim()) {
                     return sources
                 }
