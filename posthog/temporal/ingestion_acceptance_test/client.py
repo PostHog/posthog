@@ -147,7 +147,7 @@ class PostHogClient:
             sdk_host=self.config.api_host,
         )
 
-        all_properties = {"$ignore_sent_at": True, **(properties or {})}
+        all_properties = {**(properties or {}), "$ignore_sent_at": True}
 
         self._retry_on_error(
             lambda: self._posthog.capture(
