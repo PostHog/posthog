@@ -59,8 +59,12 @@ class HogFlowActionSerializer(serializers.Serializer):
     on_error = serializers.ChoiceField(
         choices=["continue", "abort", "complete", "branch"], required=False, allow_null=True
     )
-    created_at = serializers.IntegerField(required=False)
-    updated_at = serializers.IntegerField(required=False)
+    created_at = serializers.IntegerField(
+        help_text="Unix epoch timestamp (milliseconds) when this action was first added to the workflow.",
+    )
+    updated_at = serializers.IntegerField(
+        help_text="Unix epoch timestamp (milliseconds) when this action was last modified.",
+    )
     filters = HogFunctionFiltersSerializer(required=False, default=None, allow_null=True)
     type = serializers.CharField(max_length=100)
     config = serializers.JSONField()

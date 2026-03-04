@@ -14,6 +14,8 @@ from posthog.models.hog_flow.hog_flow import HogFlow
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
+_ACTION_TIMESTAMP = 1700000000000
+
 
 class TestHogFlowAPI(APIBaseTest):
     def setUp(self):
@@ -27,6 +29,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "event",
                 "filters": {
@@ -38,6 +42,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "action_1",
             "name": "action_1",
             "type": "function",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": action_config,
         }
 
@@ -68,6 +74,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "webhook",
                 "template_id": "template-webhook",
@@ -90,6 +98,8 @@ class TestHogFlowAPI(APIBaseTest):
             "name": "trigger_1",
             "description": "",
             "on_error": None,
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "filters": None,
             "type": "trigger",
             "config": {
@@ -305,6 +315,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "cond_1",
             "name": "cond_1",
             "type": "function",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "template_id": "template-webhook",
                 "inputs": {"url": {"value": "https://example.com"}},
@@ -329,6 +341,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "event",
                 "filters": {
@@ -356,6 +370,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "event",
                 "filters": {
@@ -368,6 +384,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "wait_1",
             "name": "wait_1",
             "type": "wait_until_condition",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "template_id": "template-webhook",
                 "inputs": {"url": {"value": "https://example.com"}},
@@ -405,6 +423,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "event",
                 "filters": {
@@ -417,6 +437,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "wait_1",
             "name": "wait_1",
             "type": "wait_until_condition",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "template_id": "template-webhook",
                 "inputs": {"url": {"value": "https://example.com"}},
@@ -490,6 +512,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "cond_1",
             "name": "cond_1",
             "type": "function",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "template_id": "template-webhook",
                 "inputs": {"url": {"value": "https://example.com"}},
@@ -507,6 +531,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "event",
                 "filters": {
@@ -535,6 +561,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "batch",
                 "filters": {
@@ -558,6 +586,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "batch",
             },
@@ -577,6 +607,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "batch",
                 "filters": "not a dict",
@@ -603,6 +635,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "batch",
                 "filters": {
@@ -652,6 +686,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "event",
                 "filters": {
@@ -666,18 +702,24 @@ class TestHogFlowAPI(APIBaseTest):
                 "id": "a1",
                 "name": "webhook1",
                 "type": "function",
+                "created_at": _ACTION_TIMESTAMP,
+                "updated_at": _ACTION_TIMESTAMP,
                 "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
             },
             {
                 "id": "delay1",
                 "name": "delay_action",
                 "type": "delay",
+                "created_at": _ACTION_TIMESTAMP,
+                "updated_at": _ACTION_TIMESTAMP,
                 "config": {"duration": 60},
             },  # Non-billable action type
             {
                 "id": "a2",
                 "name": "webhook2",
                 "type": "function",
+                "created_at": _ACTION_TIMESTAMP,
+                "updated_at": _ACTION_TIMESTAMP,
                 "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example2.com"}}},
             },  # Duplicate function type
         ]
@@ -711,6 +753,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "event",
                 "filters": {
@@ -726,6 +770,8 @@ class TestHogFlowAPI(APIBaseTest):
                 "id": "a1",
                 "name": "webhook",
                 "type": "function",
+                "created_at": _ACTION_TIMESTAMP,
+                "updated_at": _ACTION_TIMESTAMP,
                 "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
             },
         ]
@@ -751,18 +797,24 @@ class TestHogFlowAPI(APIBaseTest):
                 "id": "a1",
                 "name": "webhook",
                 "type": "function",
+                "created_at": _ACTION_TIMESTAMP,
+                "updated_at": _ACTION_TIMESTAMP,
                 "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
             },
             {
                 "id": "delay1",
                 "name": "delay_action",
                 "type": "delay",
+                "created_at": _ACTION_TIMESTAMP,
+                "updated_at": _ACTION_TIMESTAMP,
                 "config": {"duration": 30},
             },  # Non-billable action
             {
                 "id": "a2",
                 "name": "webhook2",
                 "type": "function",
+                "created_at": _ACTION_TIMESTAMP,
+                "updated_at": _ACTION_TIMESTAMP,
                 "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example2.com"}}},
             },
         ]
@@ -887,6 +939,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "event",
                 "filters": {
@@ -913,6 +967,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "event",
                 "filters": {
@@ -1082,6 +1138,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "event",
                 "filters": {
@@ -1093,6 +1151,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "action_1",
             "name": "action_1",
             "type": "function",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {},
         }
 
@@ -1111,6 +1171,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "event",
                 "filters": {
@@ -1122,6 +1184,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "action_1",
             "name": "action_1",
             "type": "function",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {},
         }
 
@@ -1220,6 +1284,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "event",
                 "filters": {
@@ -1231,6 +1297,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "action_1",
             "name": "action_1",
             "type": "function",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {},
         }
 
@@ -1257,6 +1325,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {
                 "type": "event",
                 "filters": {
@@ -1268,6 +1338,8 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "action_1",
             "name": "action_1",
             "type": "function",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
             "config": {},
         }
 
@@ -1391,3 +1463,69 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["deleted"] == 0
         assert HogFlow.objects.filter(id=flow_id).exists()
+
+    @parameterized.expand(
+        [
+            ("created_at",),
+            ("updated_at",),
+        ]
+    )
+    def test_action_rejects_missing_timestamp(self, field):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
+            "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        }
+        del action[field]
+
+        hog_flow = {"name": "Test Flow", "actions": [trigger_action, action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == f"actions__1__{field}"
+
+    def test_action_accepts_valid_timestamps(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": _ACTION_TIMESTAMP,
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "created_at": _ACTION_TIMESTAMP,
+            "updated_at": 1700000001000,
+            "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        }
+
+        hog_flow = {"name": "Test Flow", "actions": [trigger_action, action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["actions"][1]["created_at"] == _ACTION_TIMESTAMP
+        assert response.json()["actions"][1]["updated_at"] == 1700000001000
