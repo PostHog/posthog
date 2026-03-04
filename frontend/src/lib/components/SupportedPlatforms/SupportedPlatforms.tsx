@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, memo } from 'react'
 
 import { IconCheck, IconInfo, IconX } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
@@ -54,7 +54,9 @@ function SupportedPlatform({ label, platform }: { label: string; platform: Platf
     return node
 }
 
-export function SupportedPlatforms({ config }: SupportedPlatformProps): JSX.Element | null {
+export const SupportedPlatforms = memo(function SupportedPlatforms({
+    config,
+}: SupportedPlatformProps): JSX.Element | null {
     const platforms = Object.keys(config) as Array<keyof PlatformSupportConfig>
     if (platforms.length === 0) {
         return null
@@ -65,13 +67,12 @@ export function SupportedPlatforms({ config }: SupportedPlatformProps): JSX.Elem
             <Tooltip delayMs={200} title="We support lots of platforms! But not every feature works everywhere (yet)">
                 <span className="px-1 py-0.5 font-semibold cursor-help">Supported platforms:</span>
             </Tooltip>
-            <LemonDivider vertical className="h-full" />
-            {platforms.map((platform, index) => (
+            {platforms.map((platform) => (
                 <Fragment key={platform}>
-                    {index > 0 && <LemonDivider vertical className="h-full" />}
+                    <LemonDivider vertical className="h-full" />
                     <SupportedPlatform platform={config[platform]} label={PLATFORM_LABELS[platform] || platform} />
                 </Fragment>
             ))}
         </div>
     )
-}
+})
