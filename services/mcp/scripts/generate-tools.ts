@@ -732,4 +732,22 @@ ${spreads}
     })
 }
 
-main()
+// Export for testing
+export {
+    composeToolSchema,
+    extractPathParams,
+    generateCategoryFile,
+    generateCustomSchemaToolCode,
+    generateToolCode,
+}
+export type { OpenApiSpec, ResolvedOperation }
+
+// Run main when executed directly
+const isDirectRun =
+    typeof process !== 'undefined' &&
+    process.argv[1] &&
+    (process.argv[1].endsWith('generate-tools.ts') || process.argv[1].endsWith('generate-tools'))
+
+if (isDirectRun) {
+    main()
+}
