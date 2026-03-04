@@ -101,7 +101,6 @@ def query_new_feature_flags(period_start: datetime, period_end: datetime) -> Que
         FeatureFlag.objects.filter(
             created_at__gt=period_start,
             created_at__lte=period_end,
-            deleted=False,
         )
         .exclude(name__contains="Feature Flag for Experiment")
         .exclude(name__contains="Targeting flag for survey")
