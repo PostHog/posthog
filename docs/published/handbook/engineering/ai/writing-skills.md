@@ -1,4 +1,7 @@
 ---
+title: Writing skills
+sidebar: Docs
+showTitle: true
 docs: true
 ---
 

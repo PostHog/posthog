@@ -1,4 +1,7 @@
 ---
+title: Implementing MCP tools
+sidebar: Docs
+showTitle: true
 docs: true
 ---
 
