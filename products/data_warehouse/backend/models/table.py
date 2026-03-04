@@ -183,8 +183,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
 
     def save(self, *args, **kwargs):
-        if self._is_csv_format():
-            self.csv_allow_double_quotes = self._detect_csv_double_quotes_setting()
+        if self._is_csv_format() and self.csv_allow_double_quotes is not None:
+            self._validate_csv_double_quotes_setting()
         super().save(*args, **kwargs)
 
     def get_columns(
@@ -215,6 +215,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
             # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
             # See https://github.com/chdb-io/chdb/pull/374 for the fix
+            if self._is_csv_format() and self.csv_allow_double_quotes is not None:
+                chdb_query = (
+                    f"SET format_csv_allow_double_quotes = {1 if self.csv_allow_double_quotes else 0}; {chdb_query}"
+                )
             chdb_result = chdb.query(chdb_query, output_format="CSV")
             reader = csv.reader(StringIO(str(chdb_result)))
             result = [tuple(row) for row in reader]
@@ -237,9 +241,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             attempts = 5
             for i in range(attempts):
                 try:
+                    get_columns_settings: dict[str, int] = {}
+                    if self._is_csv_format() and self.csv_allow_double_quotes is not None:
+                        get_columns_settings["format_csv_allow_double_quotes"] = (
+                            1 if self.csv_allow_double_quotes else 0
+                        )
                     result = sync_execute(
                         f"""DESCRIBE TABLE {s3_table_func}""",
                         args=placeholder_context.values,
+                        settings=get_columns_settings,
                     )
                     break
                 except Exception as err:
@@ -463,7 +473,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     # ClickHouse error codes from CSV double-quote parse mismatches.
     # Wrong quoting causes ClickHouse to mis-split fields, producing
     # type errors on the mangled values.
-    _CSV_PARSE_ERROR_CODES = frozenset({117})  # INCORRECT_DATA ("Expected end of line")
+    _CSV_PARSE_ERROR_CODES = frozenset(
+        {
+            27,  # CANNOT_PARSE_INPUT ("expected ',' at end of stream")
+            117,  # INCORRECT_DATA ("Expected end of line")
+        }
+    )
 
     def _detect_csv_double_quotes_setting(self) -> Optional[bool]:
         """Detect whether the CSV uses RFC 4180 quoting by trying to parse data rows
@@ -536,6 +551,41 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # Both succeeded — default to False (legacy behavior, avoids silent corruption
         # from stray quotes in non-RFC files)
         return False
+
+    def _validate_csv_double_quotes_setting(self) -> None:
+        """Validate the user-chosen csv_allow_double_quotes setting by trying to parse data rows.
+        Raises Exception with a helpful message if parsing fails."""
+        setting = self.csv_allow_double_quotes
+        tag_queries(
+            team_id=self.team.pk,
+            table_id=self.id,
+            warehouse_query=True,
+            name="validate_csv_double_quotes",
+            product=Product.WAREHOUSE,
+        )
+        try:
+            ctx = HogQLContext(team_id=self.team.pk)
+            func = build_function_call(
+                url=self.url_pattern,
+                queryable_folder=self.queryable_folder,
+                format=self.format,
+                access_key=self.credential.access_key if self.credential else None,
+                access_secret=self.credential.access_secret if self.credential else None,
+                context=ctx,
+                table_size_mib=0,
+            )
+            sync_execute(
+                f"SELECT 1 FROM {func} LIMIT 100",
+                args=ctx.values,
+                settings={"format_csv_allow_double_quotes": 1 if setting else 0},
+            )
+        except ClickHouseServerException as e:
+            if e.code in self._CSV_PARSE_ERROR_CODES:
+                other_label = "Literal quotes" if setting else "RFC 4180 double quotes"
+                raise Exception(
+                    f"CSV parsing failed with the selected quote setting. Try selecting '{other_label}' instead."
+                )
+            raise
 
     def _safe_expose_ch_error(self, err):
         err = wrap_clickhouse_query_error(err)
