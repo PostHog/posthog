@@ -26,12 +26,9 @@ import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueue
 export class CyclotronJobQueuePostgres {
     private cyclotronWorker?: CyclotronWorker
     private cyclotronManager?: CyclotronManager
+    private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
 
-    constructor(
-        private config: PluginsServerConfig,
-        private queue: CyclotronJobQueueKind,
-        private consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
-    ) {}
+    constructor(private config: PluginsServerConfig) {}
 
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
@@ -55,7 +52,12 @@ export class CyclotronJobQueuePostgres {
         await this.cyclotronManager.connect()
     }
 
-    public async startAsConsumer() {
+    public async startAsConsumer(
+        queue: CyclotronJobQueueKind,
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+    ) {
+        this.consumeBatch = consumeBatch
+
         if (!this.config.CYCLOTRON_DATABASE_URL) {
             throw new Error('Cyclotron database URL not set! This is required for the CDP services to work.')
         }
@@ -66,7 +68,7 @@ export class CyclotronJobQueuePostgres {
             pool: {
                 dbUrl: this.config.CYCLOTRON_DATABASE_URL,
             },
-            queueName: this.queue,
+            queueName: queue,
             includeVmState: true, // NOTE: We used to omit the vmstate but given we can requeue to kafka we need it
             batchMaxSize: this.config.CONSUMER_BATCH_SIZE, // Use the common value
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
@@ -211,7 +213,7 @@ export class CyclotronJobQueuePostgres {
             invocations.push(invocation)
         }
 
-        await Promise.all([this.consumeBatch!(invocations)])
+        await this.consumeBatch!(invocations)
         // TODO: Ensure that all jobs eventually get acked!!!
     }
 }
@@ -303,10 +305,7 @@ function cyclotronJobToInvocation(job: CyclotronJob): CyclotronJobInvocation {
 export class CyclotronJobQueuePostgresShadow {
     private cyclotronManager?: CyclotronShadowManager
 
-    constructor(
-        private config: PluginsServerConfig,
-        private queue: CyclotronJobQueueKind
-    ) {}
+    constructor(private config: PluginsServerConfig) {}
 
     public async startAsProducer() {
         if (!this.config.CYCLOTRON_DATABASE_URL) {

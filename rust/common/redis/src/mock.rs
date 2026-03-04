@@ -501,10 +501,9 @@ impl Client for MockRedisClient {
 
     async fn batch_set_nx_ex(
         &self,
-        items: Vec<(String, String)>,
-        _ttl_seconds: usize,
+        items: Vec<(String, String, usize)>,
     ) -> Result<Vec<bool>, CustomRedisError> {
-        let keys: Vec<String> = items.iter().map(|(k, _)| k.clone()).collect();
+        let keys: Vec<String> = items.iter().map(|(k, _, _)| k.clone()).collect();
         self.lock_calls().push(MockRedisCall {
             op: "batch_set_nx_ex".to_string(),
             key: format!("items={}", items.len()),

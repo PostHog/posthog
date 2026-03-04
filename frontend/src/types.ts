@@ -2229,6 +2229,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     last_modified_by: UserBasicType | null
     last_viewed_at?: string | null
     viewers?: UserBasicType[]
+    view_count?: number
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
@@ -2238,6 +2239,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     alerts?: AlertType[]
     query?: Node | null
     query_status?: QueryStatus
+    is_cached?: boolean
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }
@@ -4049,6 +4051,10 @@ export interface PreflightStatus {
     opt_out_capture?: boolean
     email_service_available: boolean
     slack_service: {
+        available: boolean
+        client_id?: string
+    }
+    twig_slack_service: {
         available: boolean
         client_id?: string
     }

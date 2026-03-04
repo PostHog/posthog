@@ -278,6 +278,28 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             ),
     },
     {
+        feature: 'Survey wait period',
+        sdkVersions: { 'posthog-js': '1.105.7' },
+        unsupportedSdks: [
+            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3192' },
+            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/498' },
+            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/447' },
+            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/321' },
+        ],
+        check: (s) => (s.conditions?.seenSurveyWaitPeriodInDays ?? 0) > 0,
+    },
+    {
+        feature: 'Delay survey popup',
+        sdkVersions: { 'posthog-js': '1.141.0' },
+        unsupportedSdks: [
+            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3193' },
+            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/499' },
+            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/448' },
+            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/322' },
+        ],
+        check: (s) => (s.appearance?.surveyPopupDelaySeconds ?? 0) > 0,
+    },
+    {
         feature: 'Response length validation',
         sdkVersions: { 'posthog-js': '1.344.0', 'posthog-react-native': '4.31.0' },
         unsupportedSdks: [

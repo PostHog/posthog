@@ -1,10 +1,12 @@
 from typing import Optional
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from tenacity import wait_none
 
 from posthog.schema import (
     AlertConditionType,
@@ -19,6 +21,7 @@ from posthog.schema import (
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.fetch_from_cache import InsightResult
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
 from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck, AlertSubscription
 from posthog.models.instance_setting import set_instance_setting
@@ -848,6 +851,75 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             assert alert_check.error is not None
         else:
             assert alert_check.calculated_value == 0
+
+    @parameterized.expand(
+        [
+            ("cannot_schedule", CHQueryErrorCannotScheduleTask),
+            ("too_many_queries", CHQueryErrorTooManySimultaneousQueries),
+            ("s3_error", CHQueryErrorS3Error),
+        ]
+    )
+    @patch.object(check_alert.retry, "wait", wait_none())  # type: ignore[attr-defined]
+    def test_transient_ch_errors_retry_and_succeed(
+        self,
+        _name: str,
+        error_class: type[Exception],
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
+            mock_calculate.side_effect = [
+                error_class("transient failure"),
+                error_class("transient failure"),
+                InsightResult(result=[], last_refresh=None, cache_key=None, is_cached=False, timezone=None),
+            ]
+
+            check_alert(self.alert["id"])
+
+        assert mock_calculate.call_count == 3
+
+        # Alert evaluated successfully after retries
+        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        assert mock_send_notifications_for_breaches.call_count == 1
+        assert mock_send_errors.call_count == 0
+        assert alert_check.state == AlertState.FIRING
+
+    @parameterized.expand(
+        [
+            ("cannot_schedule", CHQueryErrorCannotScheduleTask),
+            ("too_many_queries", CHQueryErrorTooManySimultaneousQueries),
+            ("s3_error", CHQueryErrorS3Error),
+        ]
+    )
+    @patch.object(check_alert.retry, "wait", wait_none())  # type: ignore[attr-defined]
+    def test_transient_ch_errors_exhaust_retries(
+        self,
+        _name: str,
+        error_class: type[Exception],
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate:
+            mock_calculate.side_effect = error_class("transient failure")
+
+            with pytest.raises(error_class):
+                check_alert(self.alert["id"])
+
+        # 4 attempts (1 initial + 3 retries)
+        assert mock_calculate.call_count == 4
+        assert mock_send_notifications_for_breaches.call_count == 0
+        assert mock_send_errors.call_count == 0
+        # No ERRORED alert check; this so that it will be picked up at the next cycle
+        alert_checks = AlertCheck.objects.filter(alert_configuration=self.alert["id"])
+        assert alert_checks.count() == 0
+
+        # is_calculating cleared by the finally block so alert doesn't get stuck
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+        assert alert.is_calculating is False
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")

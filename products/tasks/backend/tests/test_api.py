@@ -15,7 +15,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, Task, TaskRun
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 
 # Test RSA private key for JWT tests (RS256)
@@ -1205,6 +1205,20 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         for url, method in endpoints:
             response = getattr(self.client, method.lower())(url, format="json")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
+
+    def test_invite_redemption_grants_access_when_flag_disabled(self):
+        self.set_tasks_feature_flag(False)
+        invite = CodeInvite.objects.create(code="TESTCODE", max_redemptions=0, is_active=True)
+        CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_no_flag_no_redemption_blocked(self):
+        self.set_tasks_feature_flag(False)
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_authentication_required(self):
         task = self.create_task()
