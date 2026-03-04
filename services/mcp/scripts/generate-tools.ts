@@ -303,15 +303,34 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
 // Code generation for a single tool
 // ------------------------------------------------------------------
 
+/** Extract path parameter names from a URL pattern (e.g., {id} from /api/projects/{project_id}/actions/{id}/) */
+function extractPathParams(urlPattern: string): string[] {
+    const matches = urlPattern.match(/\{(\w+)\}/g) ?? []
+    return matches.map((m) => m.slice(1, -1)).filter((name) => name !== 'project_id')
+}
+
 function generateToolCode(
     toolName: string,
     config: ToolConfig,
     resolved: ResolvedOperation,
     category: CategoryConfig,
     spec: OpenApiSpec
-): { code: string; orvalImports: string[] } {
+): { code: string; orvalImports: string[]; toolInputsImport: string | undefined } {
     const schemaName = `${toPascalCase(toolName)}Schema`
     const factoryName = toCamelCase(toolName)
+
+    // When input_schema is set, use the named export from tool-inputs instead of Orval
+    if (config.input_schema) {
+        return generateCustomSchemaToolCode(
+            toolName,
+            config,
+            resolved,
+            category,
+            schemaName,
+            factoryName
+        )
+    }
+
     const composition = composeToolSchema(config, resolved, spec)
 
     const schemaDecl = `const ${schemaName} = ${composition.schemaExpr}`
@@ -379,7 +398,84 @@ ${handlerBody}    },
 })
 `
 
-    return { code, orvalImports: composition.orvalImports }
+    return { code, orvalImports: composition.orvalImports, toolInputsImport: undefined }
+}
+
+function generateCustomSchemaToolCode(
+    toolName: string,
+    config: ToolConfig,
+    resolved: ResolvedOperation,
+    category: CategoryConfig,
+    schemaName: string,
+    factoryName: string
+): { code: string; orvalImports: string[]; toolInputsImport: string | undefined } {
+    const pathParamNames = extractPathParams(resolved.path)
+
+    // Build path interpolation
+    let pathExpr = `\`${resolved.path.replace('{project_id}', '${projectId}')}\``
+    for (const pn of pathParamNames) {
+        pathExpr = pathExpr.replace(`{${pn}}`, `\${params.${pn}}`)
+    }
+
+    const useBody = ['POST', 'PATCH', 'PUT'].includes(resolved.method)
+
+    let handlerBody = ''
+    handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
+
+    if (pathParamNames.length > 0) {
+        if (useBody) {
+            handlerBody += `        const { ${pathParamNames.map((p) => `${p}: _${p}, `).join('')}...body } = params\n`
+        } else {
+            handlerBody += `        const { ${pathParamNames.map((p) => `${p}: _${p}, `).join('')}...query } = params\n`
+        }
+    }
+
+    handlerBody += `        const result = await context.api.request({\n`
+    handlerBody += `            method: '${resolved.method}',\n`
+    handlerBody += `            path: ${pathExpr},\n`
+    if (pathParamNames.length > 0) {
+        if (useBody) {
+            handlerBody += `            body,\n`
+        } else {
+            handlerBody += `            query,\n`
+        }
+    } else if (useBody) {
+        handlerBody += `            body: params,\n`
+    } else {
+        handlerBody += `            query: params,\n`
+    }
+    handlerBody += `        })\n`
+
+    // Response enrichment
+    if (config.list && config.enrich_url) {
+        const field = config.enrich_url.replace(/[{}]/g, '')
+        handlerBody += `        const items = (result as any).results ?? result\n`
+        handlerBody += `        return (items as any[]).map((item: any) => ({\n`
+        handlerBody += `            ...item,\n`
+        handlerBody += `            url: \`\${context.api.getProjectBaseUrl(projectId)}${category.url_prefix}/\${item.${field}}\`,\n`
+        handlerBody += `        }))\n`
+    } else if (config.enrich_url) {
+        const field = config.enrich_url.replace(/[{}]/g, '')
+        handlerBody += `        return {\n`
+        handlerBody += `            ...result as any,\n`
+        handlerBody += `            url: \`\${context.api.getProjectBaseUrl(projectId)}${category.url_prefix}/\${(result as any).${field}}\`,\n`
+        handlerBody += `        }\n`
+    } else {
+        handlerBody += `        return result\n`
+    }
+
+    const code = `
+const ${schemaName} = ${config.input_schema}
+
+const ${factoryName} = (): ToolBase<typeof ${schemaName}> => ({
+    name: '${toolName}',
+    schema: ${schemaName},
+    handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
+${handlerBody}    },
+})
+`
+
+    return { code, orvalImports: [], toolInputsImport: config.input_schema }
 }
 
 // ------------------------------------------------------------------
@@ -417,13 +513,17 @@ function generateCategoryFile(
     }
 
     const allOrvalImports = new Set<string>()
+    const allToolInputsImports = new Set<string>()
     const toolCodes: string[] = []
 
     for (const [name, config, resolved] of enabledTools) {
-        const { code, orvalImports } = generateToolCode(name, config, resolved, category, spec)
+        const { code, orvalImports, toolInputsImport } = generateToolCode(name, config, resolved, category, spec)
         toolCodes.push(code)
         for (const imp of orvalImports) {
             allOrvalImports.add(imp)
+        }
+        if (toolInputsImport) {
+            allToolInputsImports.add(toolInputsImport)
         }
     }
 
@@ -434,11 +534,16 @@ function generateCategoryFile(
             ? `\nimport { ${[...allOrvalImports].sort().join(', ')} } from '@/generated/${moduleName}/api'\n`
             : ''
 
+    const toolInputsImportLine =
+        allToolInputsImports.size > 0
+            ? `import { ${[...allToolInputsImports].sort().join(', ')} } from '@/schema/tool-inputs'\n`
+            : ''
+
     const code = `// AUTO-GENERATED from ${fileName} + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${orvalImportLine}${toolCodes.join('')}
+${toolInputsImportLine}${orvalImportLine}${toolCodes.join('')}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }

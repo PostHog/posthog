@@ -20,6 +20,7 @@ export const ToolConfigSchema = z
             })
             .strict()
             .optional(),
+        input_schema: z.string().optional(),
         enrich_url: z.string().optional(),
         list: z.boolean().optional(),
         title: z.string().optional(),
