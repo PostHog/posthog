@@ -31,8 +31,15 @@ jobs:
             - name: Fetch base branch
               run: |
                   if [ "${{ github.event_name }}" = "pull_request" ]; then
-                    git fetch origin refs/heads/${GITHUB_BASE_REF}:refs/heads/${GITHUB_BASE_REF} --depth=1
-                    echo "TURBO_SCM_BASE=${GITHUB_BASE_REF}" >> $GITHUB_ENV
+                    # Try to fetch the base branch; fall back to master for Graphite virtual branches
+                    # (e.g. graphite-base/49227) which don't exist as real remote refs
+                    if git fetch origin refs/heads/${GITHUB_BASE_REF}:refs/heads/${GITHUB_BASE_REF} --depth=1 2>/dev/null; then
+                      echo "TURBO_SCM_BASE=${GITHUB_BASE_REF}" >> $GITHUB_ENV
+                    else
+                      echo "::warning::Base branch ${GITHUB_BASE_REF} not found as remote ref, falling back to master"
+                      git fetch origin refs/heads/master:refs/heads/master --depth=1
+                      echo "TURBO_SCM_BASE=master" >> $GITHUB_ENV
+                    fi
                   else
                     git fetch origin refs/heads/master:refs/heads/master --depth=1
                     echo "TURBO_SCM_BASE=master" >> $GITHUB_ENV

@@ -59,7 +59,7 @@ jobs:
         if: needs.changes.outputs.nodejs == 'true'
         name: Node.js Code quality
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: depot-ubuntu-latest
         steps:
             - uses: actions/checkout@v6
               with:
@@ -96,7 +96,7 @@ jobs:
         if: needs.changes.outputs.nodejs == 'true'
         name: Node.js Build
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: depot-ubuntu-latest
         steps:
             - uses: actions/checkout@v6
               with:
@@ -141,7 +141,7 @@ jobs:
         if: needs.changes.outputs.nodejs == 'true'
         name: Node.js Tests (${{matrix.shard}}/3)
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 30 # We know tests don't take this long
 
         strategy:

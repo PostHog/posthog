@@ -10,7 +10,7 @@ from django.test import override_settings
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models import User
+from posthog.models import Organization, User
 
 
 class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
@@ -270,3 +270,21 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data["code"], "max_length")
         self.assertEqual(response_data["detail"], "Text body cannot exceed 4000 characters")
         self.assertEqual(response_data["attr"], "text__body")
+
+    @freeze_time("2022-04-01 12:45")
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_created_by_cannot_be_set_to_user_outside_organization(self) -> None:
+        other_org = Organization.objects.create(name="other org")
+        other_org_user = User.objects.create_and_join(other_org, "other@example.com", "password")
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="hello world")
+
+        tile = dashboard_json["tiles"][0]
+        tile["text"]["created_by"] = {"id": other_org_user.id}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [tile]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

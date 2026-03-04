@@ -16,6 +16,7 @@ from posthog.schema import (
 from posthog.hogql.metadata import get_hogql_metadata
 
 from posthog.models import Cohort, PropertyDefinition
+from posthog.models.insight_variable import InsightVariable
 
 from products.data_warehouse.backend.models import ExternalDataSource, ExternalDataSourceType
 
@@ -40,6 +41,21 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         return get_hogql_metadata(
             query=HogQLMetadata(
                 kind="HogQLMetadata", language=HogLanguage.HOG_QL, query=query, response=None, modifiers=modifiers
+            ),
+            team=self.team,
+        )
+
+    def _select_with_variables(
+        self, query: str, variables: Optional[dict[str, dict]] = None, globals: Optional[dict] = None
+    ) -> HogQLMetadataResponse:
+        return get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query=query,
+                response=None,
+                variables=variables,
+                globals=globals,
             ),
             team=self.team,
         )
@@ -250,6 +266,34 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 ],
             },
         )
+
+    def test_metadata_replaces_variable_placeholders(self):
+        insight_variable = InsightVariable.objects.create(
+            team=self.team,
+            name="Company",
+            code_name="company_name",
+            type=InsightVariable.Type.STRING,
+        )
+        metadata = self._select_with_variables(
+            "SELECT {variables.company_name}",
+            variables={
+                "company_name": {
+                    "code_name": "company_name",
+                    "value": "Acme",
+                    "variableId": str(insight_variable.id),
+                }
+            },
+        )
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(metadata.errors, [])
+
+    def test_metadata_variable_placeholder_without_variables(self):
+        metadata = self._select_with_variables("SELECT {variables.company_name}")
+
+        self.assertFalse(metadata.isValid)
+        self.assertEqual(len(metadata.errors), 1)
+        self.assertIn("company_name", metadata.errors[0].message)
 
     def test_metadata_property_type_notice_no_debug(self):
         try:

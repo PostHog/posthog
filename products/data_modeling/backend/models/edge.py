@@ -65,9 +65,6 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     class Meta:
         db_table = "posthog_datamodelingedge"
-        constraints = [
-            models.UniqueConstraint(fields=["dag_id", "source", "target"], name="unique_within_dag"),
-        ]
 
     def save(self, *args, skip_validation: bool = False, **kwargs):
         self.dag_id = self.dag_id_text

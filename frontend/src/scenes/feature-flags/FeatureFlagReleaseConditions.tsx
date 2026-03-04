@@ -356,7 +356,9 @@ export function FeatureFlagReleaseConditions({
                                 allowRelativeDateOptions
                                 excludedProperties={
                                     featureFlagKey
-                                        ? { [TaxonomicFilterGroupType.FeatureFlags]: [featureFlagKey] }
+                                        ? {
+                                              [TaxonomicFilterGroupType.FeatureFlags]: [featureFlagKey],
+                                          }
                                         : undefined
                                 }
                                 errorMessages={
@@ -474,6 +476,17 @@ export function FeatureFlagReleaseConditions({
                                     return ''
                                 })()}{' '}
                                 <span>of total {aggregationTargetName}.</span>
+                                {filters.aggregation_group_type_index == null && (
+                                    <div>
+                                        A user may have multiple{' '}
+                                        <Link
+                                            to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
+                                            target="_blank"
+                                        >
+                                            profiles
+                                        </Link>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}

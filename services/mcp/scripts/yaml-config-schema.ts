@@ -26,7 +26,7 @@ export const ToolConfigSchema = z
         description: z.string().optional(),
         exclude_params: z.array(z.string()).optional(),
         include_params: z.array(z.string()).optional(),
-        param_overrides: z.record(z.object({ description: z.string().optional() }).strict()).optional(),
+        param_overrides: z.record(z.string(), z.object({ description: z.string().optional() }).strict()).optional(),
         mcp_version: z.number().int().positive().optional(),
     })
     .strict()
@@ -44,7 +44,7 @@ export const CategoryConfigSchema = z
         category: z.string(),
         feature: z.string(),
         url_prefix: z.string(),
-        tools: z.record(ToolConfigSchema),
+        tools: z.record(z.string(), ToolConfigSchema),
     })
     .strict()
 

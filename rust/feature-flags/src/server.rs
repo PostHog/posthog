@@ -11,6 +11,7 @@ use crate::db_monitor::DatabasePoolMonitor;
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
 use crate::tokio_monitor::TokioRuntimeMonitor;
+use common_cache::NegativeCache;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
@@ -313,6 +314,16 @@ pub async fn serve<F>(
             }
         };
 
+    let team_negative_cache = NegativeCache::new(
+        config.team_negative_cache_capacity,
+        config.team_negative_cache_ttl_seconds,
+    );
+    tracing::info!(
+        capacity = config.team_negative_cache_capacity,
+        ttl_seconds = config.team_negative_cache_ttl_seconds,
+        "Created team negative cache for invalid API tokens"
+    );
+
     if *config.skip_writes {
         tracing::warn!(
             "SKIP_WRITES is enabled: all writes to PostgreSQL and Redis are disabled. \
@@ -349,6 +360,7 @@ pub async fn serve<F>(
         team_hypercache_reader,
         config_hypercache_reader,
         rayon_dispatcher,
+        team_negative_cache,
         config,
     );
 

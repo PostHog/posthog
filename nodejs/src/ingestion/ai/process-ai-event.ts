@@ -4,12 +4,13 @@
  * This module coordinates all AI event enrichment:
  * - Trace property normalization (for all AI events)
  * - Error normalization (for AI events with errors)
- * - Cost calculation (for generation/embedding events)
- * - Model parameter extraction (for generation/embedding events)
+ * - Cost calculation (for generation/embedding/evaluation events)
+ * - Model parameter extraction (for generation/embedding/evaluation events)
  */
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
+import { convertRawEvent } from './convert-raw-event'
 import { EventWithProperties, extractCoreModelParams, processCost } from './costs'
 import { processAiErrorNormalization } from './errors'
 import { processAiToolCallExtraction } from './tools'
@@ -23,6 +24,7 @@ const isEventWithProperties = (event: PluginEvent): event is EventWithProperties
 export const AI_EVENT_TYPES = new Set([
     '$ai_generation',
     '$ai_embedding',
+    '$ai_evaluation',
     '$ai_span',
     '$ai_trace',
     '$ai_metric',
@@ -40,6 +42,9 @@ export const AI_EVENT_TYPES = new Set([
  * 5. Extract tool calls (generation events only)
  */
 export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithProperties => {
+    // Map OTel attribute names to PostHog property names before any other processing.
+    convertRawEvent(event)
+
     // If the event doesn't carry properties, there's nothing to do.
     if (!isEventWithProperties(event)) {
         return event
@@ -51,9 +56,11 @@ export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithPrope
     // Normalize error messages for all AI events with errors.
     const withErrorNormalization = processAiErrorNormalization(normalized)
 
-    // Only generation/embedding events get cost processing and model param extraction.
+    // Only generation/embedding/evaluation events get cost processing and model param extraction.
     const isCosted =
-        withErrorNormalization.event === '$ai_generation' || withErrorNormalization.event === '$ai_embedding'
+        withErrorNormalization.event === '$ai_generation' ||
+        withErrorNormalization.event === '$ai_embedding' ||
+        withErrorNormalization.event === '$ai_evaluation'
 
     if (!isCosted) {
         return withErrorNormalization
