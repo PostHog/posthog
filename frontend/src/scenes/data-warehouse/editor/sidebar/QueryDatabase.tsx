@@ -442,7 +442,15 @@ export const QueryDatabase = (): JSX.Element => {
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    sceneLogic.actions.newTab(urls.sqlEditor({ query: `SELECT * FROM ${item.name}` }))
+                                    sceneLogic.actions.newTab(
+                                        urls.sqlEditor({
+                                            query: `SELECT * FROM ${item.name}`,
+                                            connectionId:
+                                                connectionId && connectionId !== POSTHOG_WAREHOUSE
+                                                    ? connectionId
+                                                    : undefined,
+                                        })
+                                    )
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
@@ -488,7 +496,13 @@ export const QueryDatabase = (): JSX.Element => {
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     sceneLogic.actions.newTab(
-                                        urls.sqlEditor({ query: `SELECT * FROM \`${tableName}\`` })
+                                        urls.sqlEditor({
+                                            query: `SELECT * FROM \`${tableName}\``,
+                                            connectionId:
+                                                connectionId && connectionId !== POSTHOG_WAREHOUSE
+                                                    ? connectionId
+                                                    : undefined,
+                                        })
                                     )
                                 }}
                             >
