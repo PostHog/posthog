@@ -43,25 +43,8 @@ class SentryPaginator(BasePaginator):
 
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         link_header = response.headers.get("Link", "")
-
-        self._next_url = None
-        self._has_next_page = False
-
-        if not link_header:
-            return
-
-        for part in link_header.split(","):
-            part = part.strip()
-            next_match = re.search(r'<([^>]+)>;\s*rel="next"', part)
-            if not next_match:
-                continue
-
-            results_match = re.search(r'results="(true|false)"', part)
-            has_results = results_match and results_match.group(1) == "true"
-            if has_results:
-                self._next_url = next_match.group(1)
-                self._has_next_page = True
-            break
+        self._next_url = _parse_next_link(link_header)
+        self._has_next_page = self._next_url is not None
 
     def update_request(self, request: Request) -> None:
         if self._next_url:
@@ -92,7 +75,7 @@ def _request_with_retry(
             if attempt == max_retries:
                 raise
 
-        backoff = 2**attempt
+        backoff = min(2**attempt, 30)
         time.sleep(backoff)
 
     if last_response is not None:
@@ -102,7 +85,7 @@ def _request_with_retry(
     raise RuntimeError("Unexpected request retry state")
 
 
-def _extract_next_url(link_header: str) -> str | None:
+def _parse_next_link(link_header: str) -> str | None:
     if not link_header:
         return None
 
@@ -112,8 +95,7 @@ def _extract_next_url(link_header: str) -> str | None:
         if not next_match:
             continue
         results_match = re.search(r'results="(true|false)"', part)
-        has_results = results_match and results_match.group(1) == "true"
-        if has_results:
+        if results_match and results_match.group(1) == "true":
             return next_match.group(1)
         return None
     return None
@@ -168,7 +150,7 @@ def _iter_endpoint_rows(
         yield from rows
 
         pages_read += 1
-        next_url = _extract_next_url(response.headers.get("Link", ""))
+        next_url = _parse_next_link(response.headers.get("Link", ""))
         if not next_url:
             break
         url = urljoin(f"{base_api_url}/", next_url)
@@ -499,7 +481,7 @@ def sentry_source(
 
     resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
     assert len(resources) == 1
-    resource = resources[0].add_map(lambda row: _add_common_fields(row, organization_slug, endpoint))
+    resource = resources[0]
 
     return SourceResponse(
         name=endpoint,

@@ -1,12 +1,16 @@
 from datetime import datetime
 
+import pytest
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.sentry.sentry import (
     SentryPaginator,
+    _coerce_positive_int,
+    _extract_rows,
     _normalize_api_base_url,
+    _parse_next_link,
     get_resource,
     sentry_source,
     validate_credentials,
@@ -125,15 +129,12 @@ class TestSentryTransport:
         ]
     )
     def test_get_resource_rejects_fanout_endpoints(self, endpoint) -> None:
-        try:
+        with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(
                 endpoint=endpoint,
                 organization_slug="acme",
                 should_use_incremental_field=False,
             )
-            raise AssertionError("Expected ValueError for fan-out endpoint")
-        except ValueError as exc:
-            assert "Fan-out endpoint" in str(exc)
 
     @parameterized.expand(
         [
@@ -162,8 +163,6 @@ class TestSentryTransport:
     @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resources")
     def test_sentry_source_builds_response(self, mock_rest_api_resources) -> None:
         mock_resource = Mock()
-        mapped_resource = Mock()
-        mock_resource.add_map.return_value = mapped_resource
         mock_rest_api_resources.return_value = [mock_resource]
 
         response = sentry_source(
@@ -267,3 +266,41 @@ class TestSentryTransport:
         assert row["source_endpoint"] == endpoint
         if endpoint == "issue_tag_values":
             assert row["tag_key"] == "browser"
+
+
+class TestHelpers:
+    @parameterized.expand(
+        [
+            ("has_next", '<https://a.io/next>; rel="next"; results="true"', "https://a.io/next"),
+            ("no_results", '<https://a.io/next>; rel="next"; results="false"', None),
+            ("empty", "", None),
+            ("only_prev", '<https://a.io/prev>; rel="previous"; results="true"', None),
+        ]
+    )
+    def test_parse_next_link(self, _name, link_header, expected) -> None:
+        assert _parse_next_link(link_header) == expected
+
+    @parameterized.expand(
+        [
+            ("list_payload", [{"id": 1}, {"id": 2}], 2),
+            ("dict_with_data", {"data": [{"id": 1}]}, 1),
+            ("bare_dict", {"id": 1}, 1),
+            ("empty_list", [], 0),
+            ("non_dict_items", [1, "str", None], 0),
+        ]
+    )
+    def test_extract_rows(self, _name, payload, expected_count) -> None:
+        rows = _extract_rows(payload)
+        assert len(rows) == expected_count
+        assert all(isinstance(r, dict) for r in rows)
+
+    @parameterized.expand(
+        [
+            ("none_returns_fallback", None, 42, 42),
+            ("zero_returns_fallback", 0, 42, 42),
+            ("negative_returns_fallback", -1, 42, 42),
+            ("positive_returns_value", 10, 42, 10),
+        ]
+    )
+    def test_coerce_positive_int(self, _name, value, fallback, expected) -> None:
+        assert _coerce_positive_int(value, fallback) == expected

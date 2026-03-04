@@ -66,43 +66,9 @@ Create a token in Sentry and make sure it includes:
                         placeholder="https://sentry.io",
                         caption="Optional. Use for regional domains like https://us.sentry.io or https://de.sentry.io.",
                     ),
-                    SourceFieldInputConfig(
-                        name="max_projects_to_sync",
-                        label="Max projects to fan out per run",
-                        type=SourceFieldInputConfigType.NUMBER,
-                        required=False,
-                        placeholder="200",
-                    ),
-                    SourceFieldInputConfig(
-                        name="max_issues_to_fanout",
-                        label="Max issues to fan out per run",
-                        type=SourceFieldInputConfigType.NUMBER,
-                        required=False,
-                        placeholder="500",
-                    ),
-                    SourceFieldInputConfig(
-                        name="max_pages_per_parent",
-                        label="Max pages per parent entity",
-                        type=SourceFieldInputConfigType.NUMBER,
-                        required=False,
-                        placeholder="10",
-                    ),
-                    SourceFieldInputConfig(
-                        name="request_timeout_seconds",
-                        label="Request timeout (seconds)",
-                        type=SourceFieldInputConfigType.NUMBER,
-                        required=False,
-                        placeholder="30",
-                    ),
-                    SourceFieldInputConfig(
-                        name="max_retries",
-                        label="Retry attempts for retryable HTTP errors",
-                        type=SourceFieldInputConfigType.NUMBER,
-                        required=False,
-                        placeholder="3",
-                    ),
                 ],
             ),
+            unreleasedSource=True,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -145,9 +111,4 @@ Create a token in Sentry and make sure it includes:
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
-            max_projects_to_sync=config.max_projects_to_sync,
-            max_issues_to_fanout=config.max_issues_to_fanout,
-            max_pages_per_parent=config.max_pages_per_parent,
-            request_timeout_seconds=config.request_timeout_seconds,
-            max_retries=config.max_retries,
         )

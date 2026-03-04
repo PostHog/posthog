@@ -22,11 +22,6 @@ class TestSentrySource:
             auth_token="test-token",
             organization_slug="acme",
             api_base_url="https://sentry.io",
-            max_projects_to_sync=150,
-            max_issues_to_fanout=250,
-            max_pages_per_parent=6,
-            request_timeout_seconds=20,
-            max_retries=4,
         )
 
     def test_source_type(self) -> None:
@@ -37,23 +32,14 @@ class TestSentrySource:
 
         assert config.name.value == "Sentry"
         assert config.label == "Sentry"
-        assert len(config.fields) == 8
+        assert config.unreleasedSource is True
+        assert len(config.fields) == 3
 
-        auth_field = config.fields[0]
-        assert auth_field.name == "auth_token"
-        assert auth_field.required is True
-
-        org_field = config.fields[1]
-        assert org_field.name == "organization_slug"
-        assert org_field.required is True
-
-        base_url_field = config.fields[2]
-        assert base_url_field.name == "api_base_url"
-        assert base_url_field.required is False
-
-        max_projects_field = config.fields[3]
-        assert max_projects_field.name == "max_projects_to_sync"
-        assert max_projects_field.required is False
+        field_names = [f.name for f in config.fields]
+        assert field_names == ["auth_token", "organization_slug", "api_base_url"]
+        assert config.fields[0].required is True
+        assert config.fields[1].required is True
+        assert config.fields[2].required is False
 
     def test_get_non_retryable_errors(self) -> None:
         errors = self.source.get_non_retryable_errors()
@@ -142,9 +128,4 @@ class TestSentrySource:
             should_use_incremental_field=True,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             incremental_field="lastSeen",
-            max_projects_to_sync=150,
-            max_issues_to_fanout=250,
-            max_pages_per_parent=6,
-            request_timeout_seconds=20,
-            max_retries=4,
         )
