@@ -264,7 +264,7 @@ class TestBillingManager(BaseTest):
         billing_post_request_mock.assert_called_once()
 
         call_args = billing_post_request_mock.call_args
-        assert call_args[0][0].endswith("/api/billing/uninstall")
+        assert call_args[0][0].endswith("/api/activate/authorize/uninstall")
         assert call_args[1]["json"] == {"billing_provider": "vercel"}
         assert "Authorization" in call_args[1]["headers"]
 
@@ -290,7 +290,7 @@ class TestBillingManager(BaseTest):
         assert "400" in str(context.exception)
 
     @patch(
-        "ee.billing.billing_manager.requests.post",
+        "ee.billing.billing_manager.external_requests.post",
         return_value=MagicMock(
             status_code=404,
             json=MagicMock(return_value={"detail": "Not found."}),
