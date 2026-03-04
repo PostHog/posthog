@@ -6,7 +6,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-import requests
+from posthog.security.outbound_proxy import external_requests
 
 OUTPUT_BASE = Path(__file__).resolve().parent.parent.parent / "github_issues"
 
@@ -121,7 +121,7 @@ class Command(BaseCommand):
                 params["labels"] = ",".join(labels)
 
             self.stdout.write(f"Fetching page {page}...")
-            resp = requests.get(api_url, headers=headers, params=params, timeout=30)
+            resp = external_requests.get(api_url, headers=headers, params=params, timeout=30)
 
             # Handle rate limiting
             if resp.status_code == 403 or resp.status_code == 429:

@@ -1,9 +1,12 @@
 """Alias test - verifies that alias links two distinct IDs to the same person."""
 
-import time
 import uuid
 
+import structlog
+
 from ..runner import AcceptanceTest
+
+logger = structlog.get_logger(__name__)
 
 
 class TestAlias(AcceptanceTest):
@@ -12,38 +15,42 @@ class TestAlias(AcceptanceTest):
     def test_alias_merges_events_from_different_distinct_ids(self) -> None:
         """Send events with two distinct IDs, alias them, and verify both events belong to the same person."""
         event_name = "$test_alias"
-        distinct_id_1 = str(uuid.uuid4())
-        distinct_id_2 = str(uuid.uuid4())
+        distinct_id_a = str(uuid.uuid4())  # Person A - will be aliased to
+        distinct_id_b = str(uuid.uuid4())  # Person B - will be aliased from
 
-        # First event with distinct_id_1
-        first_timestamp = time.time()
+        # Capture both events before polling to reduce wall-clock time
+        logger.info("test_alias: capturing event for Person A", distinct_id=distinct_id_a)
         first_event_uuid = self.client.capture_event(
-            event_name, distinct_id_1, {"$set": {"source": "first", "$test_timestamp": first_timestamp}}
+            event_name, distinct_id_a, {"$set": {"source": "first", "$test_version": 1}}
         )
-        found_first = self.client.query_event_by_uuid(first_event_uuid)
-        self.assert_event(found_first, first_event_uuid, event_name, distinct_id_1)
 
-        # Second event with distinct_id_2
-        second_timestamp = time.time()
+        logger.info("test_alias: capturing event for Person B", distinct_id=distinct_id_b)
         second_event_uuid = self.client.capture_event(
-            event_name, distinct_id_2, {"$set": {"source": "second", "$test_timestamp": second_timestamp}}
+            event_name, distinct_id_b, {"$set": {"source": "second", "$test_version": 2}}
         )
+
+        # Poll for both events
+        logger.info("test_alias: querying for Person A event", event_uuid=first_event_uuid)
+        found_first = self.client.query_event_by_uuid(first_event_uuid)
+        self.assert_event(found_first, first_event_uuid, event_name, distinct_id_a)
+
+        logger.info("test_alias: querying for Person B event", event_uuid=second_event_uuid)
         found_second = self.client.query_event_by_uuid(second_event_uuid)
-        self.assert_event(found_second, second_event_uuid, event_name, distinct_id_2)
+        self.assert_event(found_second, second_event_uuid, event_name, distinct_id_b)
 
-        # Create alias: link distinct_id_2 to distinct_id_1
-        self.client.alias(distinct_id_2, distinct_id_1)
+        # Create alias: link Person B to Person A
+        logger.info(
+            "test_alias: creating alias from Person B to Person A", alias=distinct_id_b, distinct_id=distinct_id_a
+        )
+        alias_event_uuid = self.client.alias(distinct_id_b, distinct_id_a)
 
-        # Wait for alias to propagate and query person by distinct_id_1
-        person = self.client.query_person_by_distinct_id(distinct_id_1, min_timestamp=second_timestamp)
-        assert person is not None, "Person not found after alias"
+        # Wait for alias to propagate and query person by Person A's distinct_id
+        logger.info("test_alias: querying for Person A after alias", distinct_id=distinct_id_a)
+        person = self.client.query_person_by_distinct_id(distinct_id_a, min_version=2)
+        assert person is not None, "Alias not propagated within time budget"
 
-        # Query all events for this person - should have both events and the alias creation event
-        events = self.client.query_events_by_person_id(person.id, expected_count=3)
-        assert events is not None, "Expected 3 events for person after alias"
-        assert len(events) == 3, f"Expected 3 events, got {len(events)}"
-
-        # Verify both event UUIDs are present
-        event_uuids = {e.uuid for e in events}
-        assert first_event_uuid in event_uuids, "First event not found in person's events"
-        assert second_event_uuid in event_uuids, "Second event not found in person's events"
+        # Query all events for this person - should have all 3 specific events
+        logger.info("test_alias: querying events by person", person_id=person.id)
+        expected_uuids = {first_event_uuid, second_event_uuid, alias_event_uuid}
+        events = self.client.query_events_by_person_id(person.id, expected_event_uuids=expected_uuids)
+        assert events is not None, "Expected events not found for person after alias within time budget"

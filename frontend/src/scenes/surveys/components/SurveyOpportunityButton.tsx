@@ -81,7 +81,7 @@ export function SurveyOpportunityButton({
             insight_id: insight.id,
             ...funnelContext,
         },
-        callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
+        callback: (toolOutput: { survey_id?: string; survey_name?: string; survey_type?: string; error?: string }) => {
             addProductIntent({
                 product_type: ProductKey.SURVEYS,
                 intent_context: ProductIntentContext.SURVEY_CREATED,
@@ -96,7 +96,11 @@ export function SurveyOpportunityButton({
                 return captureMaxAISurveyCreationException(toolOutput.error, source)
             }
 
-            router.actions.push(urls.survey(toolOutput.survey_id))
+            if (toolOutput.survey_type === 'popover') {
+                router.actions.push(urls.surveyWizard(toolOutput.survey_id))
+            } else {
+                router.actions.push(urls.survey(toolOutput.survey_id) + '?edit=true')
+            }
         },
     })
 

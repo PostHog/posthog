@@ -29,7 +29,14 @@ export function SessionRecordingsPlaylist({
     }
 
     const { isWindowLessThan } = useWindowSize()
-    const isVerticalLayout = isWindowLessThan('xl')
+    const windowSaysVertical = isWindowLessThan('xl')
+
+    // Don't switch layout while in fullscreen — it would unmount the fullscreen element
+    const layoutRef = useRef(windowSaysVertical)
+    if (!document.fullscreenElement) {
+        layoutRef.current = windowSaysVertical
+    }
+    const isVerticalLayout = layoutRef.current
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
@@ -211,7 +218,7 @@ function PlayerWrapper({
                               }
                             : undefined
                     }
-                    playNextRecording={onPlayNextRecording}
+                    playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
                 />
             ) : (
                 <div className="mt-20">

@@ -142,7 +142,7 @@ export type LemonInputSelectProps<T = string> = Pick<
     disabled?: boolean
     loading?: boolean
     placeholder?: string
-    title?: string // Title shown at the top of the list. Looks the same as section titles in LemonMenu.
+    title?: React.ReactNode // Title shown at the top of the list. Looks the same as section titles in LemonMenu.
     disableFiltering?: boolean
     disablePrompting?: boolean
     mode: 'multiple' | 'single'
@@ -426,7 +426,9 @@ export function LemonInputSelect<T = string>({
     }
 
     const _addItem = (item: string, atIndex?: number | null, currentValues: T[] = values): void => {
-        setInputValue('')
+        if (mode === 'single') {
+            setInputValue('')
+        }
         // Convert string key back to typed value
         const actualTypedValue = getTypedValue(item)
         if (mode === 'single') {

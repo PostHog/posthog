@@ -20,7 +20,7 @@ import {
 } from '~/types'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
-    sm: 1024,
+    sm: 768,
     xs: 0,
 }
 export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { sm: 12, xs: 1 }

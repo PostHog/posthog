@@ -86,7 +86,7 @@ class TestEmail(BaseTest):
             )
 
     @patch("posthoganalytics.capture")
-    @patch("requests.post")
+    @patch("posthog.email.external_requests.post")
     def test_send_via_http_success(self, mock_post, mock_capture) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -126,7 +126,7 @@ class TestEmail(BaseTest):
                 },
             )
 
-    @patch("requests.post")
+    @patch("posthog.email.external_requests.post")
     def test_send_via_http_handles_decimal_values(self, mock_post) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -160,7 +160,7 @@ class TestEmail(BaseTest):
                 },
             )
 
-    @patch("requests.post")
+    @patch("posthog.email.external_requests.post")
     def test_send_via_http_api_error(self, mock_post) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 400

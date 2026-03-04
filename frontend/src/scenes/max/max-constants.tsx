@@ -8,6 +8,8 @@ import {
     IconGlobe,
     IconMemory,
     IconNotebook,
+    IconNotification,
+    IconPlug,
     IconSearch,
     IconShuffle,
 } from '@posthog/icons'
@@ -112,6 +114,8 @@ export interface ModeDefinition {
     /** Scenes that should trigger this agent mode */
     scenes?: Set<Scene>
     beta?: boolean
+    /** Feature flag key that gates this mode. When set, the mode is only available if the flag is enabled. */
+    flag?: keyof typeof FEATURE_FLAGS
 }
 
 /** Default tools available in all modes */
@@ -124,6 +128,17 @@ export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
 ]
 
 export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
+    call_mcp_server: {
+        name: 'Call an MCP server',
+        description: 'Call an MCP server',
+        icon: <IconPlug />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Called an MCP server'
+            }
+            return 'Calling an MCP server...'
+        },
+    },
     todo_write: {
         name: 'Write a todo',
         description: 'Write a todo to remember a task',
@@ -912,7 +927,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             }
             return toolCall.args.query ? `Searching the web for **${toolCall.args.query}**...` : 'Searching the web...'
         },
-        flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
     },
     manage_memories: {
         name: 'Manage memories',
@@ -936,6 +950,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating a document...'
         },
     },
+    upsert_alert: {
+        name: 'Manage alerts',
+        description: 'Manage alerts to monitor insight metrics',
+        icon: <IconNotification />,
+        product: Scene.Insight,
+        modes: [AgentMode.ProductAnalytics],
+        displayFormatter: (toolCall) => {
+            if (isObject(toolCall.args?.action) && 'alert_id' in toolCall.args.action) {
+                return toolCall.status === 'completed' ? 'Updated alert' : 'Updating alert...'
+            }
+            return toolCall.status === 'completed' ? 'Created alert' : 'Creating alert...'
+        },
+    },
     finalize_plan: {
         name: 'Finalize plan',
         description: 'Finalize plan',
@@ -956,6 +983,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Recommended products'
             }
             return 'Recommending products...'
+        },
+    },
+    search_llm_traces: {
+        name: 'Search LLM traces',
+        description: 'Search LLM traces to analyze model usage, costs, latency, and errors',
+        icon: iconForType('llm_analytics'),
+        modes: [AgentMode.LLMAnalytics],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Searched LLM traces'
+            }
+            return 'Searching LLM traces...'
         },
     },
 }
@@ -993,12 +1032,14 @@ export const MODE_DEFINITIONS: Record<
         description: 'Searches and analyzes error tracking issues to help you understand and fix bugs.',
         icon: iconForType('error_tracking'),
         scenes: new Set([Scene.ErrorTracking]),
+        flag: 'PHAI_ERROR_TRACKING_MODE',
     },
     [AgentMode.Survey]: {
         name: 'Surveys',
         description: 'Creates and analyzes surveys to collect user feedback.',
         icon: iconForType('survey'),
         scenes: new Set([Scene.Surveys, Scene.Survey]),
+        flag: 'PHAI_SURVEY_MODE',
     },
     [AgentMode.Onboarding]: {
         name: 'Onboarding',
@@ -1020,6 +1061,23 @@ export const MODE_DEFINITIONS: Record<
             Scene.ExperimentsSharedMetric,
             Scene.ExperimentsSharedMetrics,
         ]),
+        flag: 'POSTHOG_AI_FLAGS_MODE',
+    },
+    [AgentMode.LLMAnalytics]: {
+        name: 'LLM analytics',
+        description: 'Analyzes LLM traces.',
+        icon: iconForType('llm_analytics'),
+        scenes: new Set([
+            Scene.LLMAnalytics,
+            Scene.LLMAnalyticsTrace,
+            Scene.LLMAnalyticsEvaluation,
+            Scene.LLMAnalyticsEvaluations,
+            Scene.LLMAnalyticsDataset,
+            Scene.LLMAnalyticsDatasets,
+            Scene.LLMAnalyticsPlayground,
+            Scene.LLMAnalyticsUsers,
+        ]),
+        flag: 'PHAI_LLM_ANALYTICS_MODE',
     },
 }
 
@@ -1052,12 +1110,10 @@ export function getToolsForMode(mode: AgentMode): ToolDefinition[] {
 }
 
 /** Get default tools available in auto mode */
-export function getDefaultTools({ webSearchEnabled }: { webSearchEnabled: boolean }): ToolDefinition[] {
+export function getDefaultTools(): ToolDefinition[] {
     const defaultTools = DEFAULT_TOOL_KEYS.map((key) => TOOL_DEFINITIONS[key])
-    if (webSearchEnabled) {
-        // Add web search after `search`
-        defaultTools.splice(defaultTools.indexOf(TOOL_DEFINITIONS.search) + 1, 0, TOOL_DEFINITIONS.web_search)
-    }
+    // Add web search after `search`
+    defaultTools.splice(defaultTools.indexOf(TOOL_DEFINITIONS.search) + 1, 0, TOOL_DEFINITIONS.web_search)
     return defaultTools
 }
 

@@ -3,6 +3,7 @@ import type { MaxUIContext } from 'scenes/max/maxTypes'
 
 import type { Category, InsightShortId, NotebookInfo } from '~/types'
 
+// eslint-disable-next-line import/no-cycle
 import { DocumentBlock } from './schema-assistant-artifacts'
 import type {
     AssistantFunnelsQuery,
@@ -435,8 +436,11 @@ export type AssistantTool =
     | 'manage_memories'
     | 'create_notebook'
     | 'list_data'
+    | 'upsert_alert'
     | 'finalize_plan'
+    | 'call_mcp_server'
     | 'recommend_products'
+    | 'search_llm_traces'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -449,6 +453,7 @@ export enum AgentMode {
     Onboarding = 'onboarding',
     Research = 'research',
     Flags = 'flags',
+    LLMAnalytics = 'llm_analytics',
 }
 
 export enum SlashCommandName {

@@ -3,6 +3,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DEFAULT_QUERY } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 
@@ -15,8 +16,8 @@ export const DEFAULT_PERSON_PROFILE_SIDEBAR: JSONContent[] = [
     { type: NotebookNodeType.Person, attrs: { title: 'Info' } },
     // FIXME: Map bg image is broken
     // { type: NotebookNodeType.Map, attrs: { title: 'Map' } },
-    { type: NotebookNodeType.PersonProperties, attrs: { title: 'Properties' } },
     { type: NotebookNodeType.RelatedGroups, attrs: { title: 'Related groups' } },
+    { type: NotebookNodeType.PersonProperties, attrs: { title: 'Properties' } },
 ]
 
 export const DEFAULT_PERSON_PROFILE_CONTENT: JSONContent[] = [
@@ -29,8 +30,8 @@ export const DEFAULT_PERSON_PROFILE_CONTENT: JSONContent[] = [
 
 export const DEFAULT_GROUP_PROFILE_SIDEBAR: JSONContent[] = [
     { type: NotebookNodeType.Group, attrs: { title: 'Info' } },
-    { type: NotebookNodeType.GroupProperties, attrs: { title: 'Properties' } },
     { type: NotebookNodeType.RelatedGroups, attrs: { title: 'Related people', type: 'person' } },
+    { type: NotebookNodeType.GroupProperties, attrs: { title: 'Properties' } },
 ]
 
 export const DEFAULT_GROUP_PROFILE_CONTENT: JSONContent[] = [
@@ -359,6 +360,22 @@ export function addGroupAttrsToNode({ attrs, node, children = [] }: AddAttrsToNo
                     nodeId,
                 },
             }
+        case NotebookNodeType.Query:
+            return {
+                ...node,
+                attrs: {
+                    ...node.attrs,
+                    query: {
+                        ...DEFAULT_QUERY,
+                        contextKey: 'group-profile-events',
+                        showTableViews: true,
+                        embedded: true,
+                    },
+                },
+                nodeId,
+                children,
+            }
+
         default:
             return {
                 ...node,

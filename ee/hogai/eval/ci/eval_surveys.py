@@ -8,17 +8,9 @@ from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
 from braintrust import EvalCase, Score
 
-from posthog.schema import (
-    SurveyCreationSchema,
-    SurveyDisplayConditionsSchema,
-    SurveyQuestionSchema,
-    SurveyQuestionType,
-    SurveyType,
-)
-
 from posthog.models import FeatureFlag, Survey
 
-from products.surveys.backend.max_tools import CreateSurveyTool
+from products.surveys.backend.max_tools import CreateSurveyTool, SimpleSurveyQuestion
 
 from ee.hogai.eval.base import MaxPublicEval
 from ee.models.assistant import Conversation
@@ -126,25 +118,29 @@ async def eval_surveys(pytestconfig, demo_org_team_user):
             },
         )
 
-        # Build the survey schema from test case with unique name to avoid duplicates
-        survey_schema = SurveyCreationSchema(
-            name=unique_name(test_case["name"]),
-            description=test_case.get("description", ""),
-            type=test_case.get("type", SurveyType.POPOVER),
-            questions=test_case["questions"],
-            should_launch=test_case.get("should_launch", False),
-            linked_flag_id=test_case.get("linked_flag_id"),
-            conditions=test_case.get("conditions"),
-        )
+        kwargs: dict = {
+            "name": unique_name(test_case["name"]),
+            "description": test_case.get("description", ""),
+            "questions": test_case["questions"],
+            "should_launch": test_case.get("should_launch", False),
+        }
+        if test_case.get("linked_flag_id") is not None:
+            kwargs["linked_flag_id"] = test_case["linked_flag_id"]
+        if test_case.get("linked_flag_variant") is not None:
+            kwargs["linked_flag_variant"] = test_case["linked_flag_variant"]
+        if test_case.get("target_url") is not None:
+            kwargs["target_url"] = test_case["target_url"]
+        if test_case.get("target_url_match") is not None:
+            kwargs["target_url_match"] = test_case["target_url_match"]
+        if test_case.get("survey_type") is not None:
+            kwargs["survey_type"] = test_case["survey_type"]
 
-        result_message, artifact = await tool._arun_impl(survey=survey_schema)
+        result_message, artifact = await tool._arun_impl(**kwargs)
 
-        # Initialize result
         result: dict = {
             "message": result_message,
         }
 
-        # Check if survey was created
         if artifact and "survey_id" in artifact:
             # nosemgrep: idor-lookup-without-team (CI eval script, IDs from test fixtures)
             survey_exists = await Survey.objects.filter(id=artifact["survey_id"], archived=False).aexists()
@@ -152,7 +148,6 @@ async def eval_surveys(pytestconfig, demo_org_team_user):
             result["survey_id"] = artifact["survey_id"]
             result["survey_name"] = artifact.get("survey_name")
 
-            # Fetch the created survey for detailed checks
             if survey_exists:
                 # nosemgrep: idor-lookup-without-team (CI eval script, IDs from test fixtures)
                 survey = await Survey.objects.aget(id=artifact["survey_id"])
@@ -179,13 +174,11 @@ async def eval_surveys(pytestconfig, demo_org_team_user):
                     "name": "NPS Survey",
                     "description": "Net Promoter Score survey",
                     "questions": [
-                        SurveyQuestionSchema(
-                            type=SurveyQuestionType.RATING,
+                        SimpleSurveyQuestion(
+                            type="nps",
                             question="How likely are you to recommend us to a friend or colleague?",
-                            scale=10,
-                            display="number",
-                            lowerBoundLabel="Not likely at all",
-                            upperBoundLabel="Extremely likely",
+                            lower_bound_label="Not likely at all",
+                            upper_bound_label="Extremely likely",
                         )
                     ],
                 },
@@ -202,11 +195,9 @@ async def eval_surveys(pytestconfig, demo_org_team_user):
                     "name": "CSAT Survey",
                     "description": "Customer satisfaction survey",
                     "questions": [
-                        SurveyQuestionSchema(
-                            type=SurveyQuestionType.RATING,
+                        SimpleSurveyQuestion(
+                            type="csat",
                             question="How satisfied are you with our product?",
-                            scale=5,
-                            display="number",
                         )
                     ],
                     "should_launch": True,
@@ -224,14 +215,12 @@ async def eval_surveys(pytestconfig, demo_org_team_user):
                     "name": "NPS with Follow-up",
                     "description": "NPS survey with optional follow-up question",
                     "questions": [
-                        SurveyQuestionSchema(
-                            type=SurveyQuestionType.RATING,
+                        SimpleSurveyQuestion(
+                            type="nps",
                             question="How likely are you to recommend us?",
-                            scale=10,
-                            display="number",
                         ),
-                        SurveyQuestionSchema(
-                            type=SurveyQuestionType.OPEN,
+                        SimpleSurveyQuestion(
+                            type="open",
                             question="What could we improve?",
                             optional=True,
                         ),
@@ -250,8 +239,8 @@ async def eval_surveys(pytestconfig, demo_org_team_user):
                     "name": "PMF Survey",
                     "description": "Product-market fit survey",
                     "questions": [
-                        SurveyQuestionSchema(
-                            type=SurveyQuestionType.SINGLE_CHOICE,
+                        SimpleSurveyQuestion(
+                            type="single_choice",
                             question="How would you feel if you could no longer use our product?",
                             choices=["Very disappointed", "Somewhat disappointed", "Not disappointed"],
                         )
@@ -270,8 +259,8 @@ async def eval_surveys(pytestconfig, demo_org_team_user):
                     "name": "Checkout Feedback",
                     "description": "Feedback for new checkout flow users",
                     "questions": [
-                        SurveyQuestionSchema(
-                            type=SurveyQuestionType.OPEN,
+                        SimpleSurveyQuestion(
+                            type="open",
                             question="How was your checkout experience?",
                         )
                     ],
@@ -290,14 +279,13 @@ async def eval_surveys(pytestconfig, demo_org_team_user):
                     "name": "A/B Test Treatment Survey",
                     "description": "Survey for users in treatment variant",
                     "questions": [
-                        SurveyQuestionSchema(
-                            type=SurveyQuestionType.RATING,
+                        SimpleSurveyQuestion(
+                            type="csat",
                             question="How do you like the new design?",
-                            scale=5,
                         )
                     ],
                     "linked_flag_id": ab_test_flag.id,
-                    "conditions": SurveyDisplayConditionsSchema(linkedFlagVariant="treatment"),
+                    "linked_flag_variant": "treatment",
                 },
                 expected={
                     "survey_created": True,
@@ -313,16 +301,14 @@ async def eval_surveys(pytestconfig, demo_org_team_user):
                     "name": "Pricing Page Feedback",
                     "description": "Feedback from pricing page visitors",
                     "questions": [
-                        SurveyQuestionSchema(
-                            type=SurveyQuestionType.SINGLE_CHOICE,
+                        SimpleSurveyQuestion(
+                            type="single_choice",
                             question="Is our pricing clear?",
                             choices=["Yes, very clear", "Somewhat clear", "Not clear at all"],
                         )
                     ],
-                    "conditions": SurveyDisplayConditionsSchema(
-                        url="/pricing",
-                        urlMatchType="icontains",
-                    ),
+                    "target_url": "/pricing",
+                    "target_url_match": "contains",
                 },
                 expected={
                     "survey_created": True,
@@ -337,8 +323,8 @@ async def eval_surveys(pytestconfig, demo_org_team_user):
                     "name": "Feature Usage Survey",
                     "description": "Survey about feature usage",
                     "questions": [
-                        SurveyQuestionSchema(
-                            type=SurveyQuestionType.MULTIPLE_CHOICE,
+                        SimpleSurveyQuestion(
+                            type="multiple_choice",
                             question="Which features do you use most?",
                             choices=["Dashboard", "Insights", "Session Replay", "Feature Flags", "Experiments"],
                         )
@@ -355,10 +341,10 @@ async def eval_surveys(pytestconfig, demo_org_team_user):
                 input={
                     "name": "Widget Feedback",
                     "description": "Widget-based feedback survey",
-                    "type": SurveyType.WIDGET,
+                    "survey_type": "widget",
                     "questions": [
-                        SurveyQuestionSchema(
-                            type=SurveyQuestionType.OPEN,
+                        SimpleSurveyQuestion(
+                            type="open",
                             question="What do you think of our product?",
                         )
                     ],

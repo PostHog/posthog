@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-02-26 10:15:28 UTC
+// Generated at: 2026-03-04 10:10:04 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -14,7 +14,6 @@ export type CanonicalProvider =
     | 'arcee-ai-bf16'
     | 'arcee-ai-modal'
     | 'arcee-ai-prime'
-    | 'atlas-cloud-bf16'
     | 'atlas-cloud-fast'
     | 'atlas-cloud-fp16'
     | 'atlas-cloud-fp8'
@@ -81,7 +80,6 @@ export type CanonicalProvider =
     | 'morph'
     | 'nebius'
     | 'nebius-base'
-    | 'nebius-bf16'
     | 'nebius-fast'
     | 'nebius-fp4'
     | 'nebius-fp8'
