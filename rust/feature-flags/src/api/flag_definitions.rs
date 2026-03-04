@@ -143,12 +143,16 @@ pub async fn flags_definitions(
     ))
 }
 
+fn format_weak_etag(raw: &str) -> String {
+    format!("W/\"{}\"", raw)
+}
+
 /// Build a 304 Not Modified response with ETag and Cache-Control headers.
 fn not_modified_response(etag: &str) -> Response {
     (
         StatusCode::NOT_MODIFIED,
         [
-            ("etag", format!("W/\"{}\"", etag)),
+            ("etag", format_weak_etag(etag)),
             ("cache-control", "private, must-revalidate".to_string()),
         ],
     )
@@ -162,7 +166,7 @@ fn ok_response_with_etag(data: Value, etag: Option<&str>) -> Response {
             StatusCode::OK,
             [
                 ("content-type", "application/json".to_string()),
-                ("etag", format!("W/\"{}\"", etag_val)),
+                ("etag", format_weak_etag(etag_val)),
                 ("cache-control", "private, must-revalidate".to_string()),
             ],
             Json(data),
