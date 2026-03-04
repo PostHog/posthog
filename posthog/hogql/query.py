@@ -43,6 +43,51 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 tracer = trace.get_tracer(__name__)
 
+POSTGRES_OID_TO_CLICKHOUSE_TYPE: dict[int, str] = {
+    16: "Bool",  # bool
+    20: "Int64",  # int8
+    21: "Int16",  # int2
+    23: "Int32",  # int4
+    26: "UInt32",  # oid
+    700: "Float32",  # float4
+    701: "Float64",  # float8
+    1082: "Date",  # date
+    1114: "DateTime",  # timestamp
+    1184: "DateTime64(6, 'UTC')",  # timestamptz
+    1700: "Decimal",  # numeric
+    17: "String",  # bytea
+    19: "String",  # name
+    25: "String",  # text
+    1042: "String",  # bpchar
+    1043: "String",  # varchar
+    114: "String",  # json
+    3802: "String",  # jsonb
+    2950: "UUID",  # uuid
+    1083: "String",  # time
+    1266: "String",  # timetz
+    1186: "String",  # interval
+    1000: "Array(Bool)",  # bool[]
+    1005: "Array(Int16)",  # int2[]
+    1007: "Array(Int32)",  # int4[]
+    1016: "Array(Int64)",  # int8[]
+    1021: "Array(Float32)",  # float4[]
+    1022: "Array(Float64)",  # float8[]
+    1115: "Array(DateTime)",  # timestamp[]
+    1185: "Array(DateTime64(6, 'UTC'))",  # timestamptz[]
+    1182: "Array(Date)",  # date[]
+    1231: "Array(Decimal)",  # numeric[]
+    1009: "Array(String)",  # text[]
+    1015: "Array(String)",  # varchar[]
+    2951: "Array(UUID)",  # uuid[]
+}
+
+
+def postgres_oid_to_clickhouse_type(oid: int | None) -> str:
+    if oid is None:
+        return "String"
+
+    return POSTGRES_OID_TO_CLICKHOUSE_TYPE.get(oid, "String")
+
 
 @dataclasses.dataclass
 class HogQLQueryExecutor:
@@ -367,7 +412,9 @@ class HogQLQueryExecutor:
                 description = cursor.description or []
 
         self.results = results
-        self.types = [(column.name, "String") for column in description]
+        self.types = [
+            (column.name, postgres_oid_to_clickhouse_type(getattr(column, "type_code", None))) for column in description
+        ]
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self):

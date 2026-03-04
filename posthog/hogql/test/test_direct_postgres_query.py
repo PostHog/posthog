@@ -6,13 +6,26 @@ from posthog.hogql import ast
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.query import HogQLQueryExecutor, postgres_oid_to_clickhouse_type
 
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 
 class TestDirectPostgresQuery(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("timestamp", 1114, "DateTime"),
+            ("timestamptz", 1184, "DateTime64(6, 'UTC')"),
+            ("int4", 23, "Int32"),
+            ("int8", 20, "Int64"),
+            ("unknown", 999999, "String"),
+            ("none", None, "String"),
+        ]
+    )
+    def test_postgres_oid_to_clickhouse_type(self, _name: str, oid: int | None, expected: str):
+        self.assertEqual(postgres_oid_to_clickhouse_type(oid), expected)
+
     def _build_direct_table_type(self) -> ast.TableType:
         return ast.TableType(
             table=DirectPostgresTable(
