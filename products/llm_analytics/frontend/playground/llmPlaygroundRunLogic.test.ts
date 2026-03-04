@@ -75,7 +75,6 @@ describe('llmPlaygroundRunLogic', () => {
         llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
         llmPlaygroundPromptsLogic.actions.setTemperature(0.4)
         llmPlaygroundPromptsLogic.actions.setTopP(0.9)
-        llmPlaygroundPromptsLogic.actions.setSeed(42)
         llmPlaygroundRunLogic.actions.submitPrompt()
 
         await expectLogic(logic).toFinishAllListeners()
@@ -84,7 +83,6 @@ describe('llmPlaygroundRunLogic', () => {
         expect(streamSpy.mock.calls[0][1]?.data).toMatchObject({
             temperature: 0.4,
             top_p: 0.9,
-            seed: 42,
         })
 
         logic.unmount()

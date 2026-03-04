@@ -339,7 +339,6 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                                 : {}),
                             ...(typeof prompt.temperature === 'number' ? { temperature: prompt.temperature } : {}),
                             ...(typeof prompt.topP === 'number' ? { top_p: prompt.topP } : {}),
-                            ...(typeof prompt.seed === 'number' ? { seed: prompt.seed } : {}),
                             ...(prompt.reasoningLevel ? { reasoning_level: prompt.reasoningLevel } : {}),
                         }
 

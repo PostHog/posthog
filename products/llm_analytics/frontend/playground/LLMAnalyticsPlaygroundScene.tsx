@@ -509,7 +509,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
 
 function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { setMaxTokens, setTemperature, setTopP, setSeed, setThinking, setReasoningLevel } =
+    const { setMaxTokens, setTemperature, setTopP, setThinking, setReasoningLevel } =
         useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
@@ -561,19 +561,6 @@ function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Elemen
             </div>
 
             <div>
-                <label className="text-xs font-medium mb-1 block">Seed</label>
-                <LemonInput
-                    type="number"
-                    value={prompt.seed ?? undefined}
-                    onChange={(val) => setSeed(val ?? null, promptId)}
-                    min={1}
-                    step={1}
-                    placeholder="Random"
-                    size="small"
-                />
-            </div>
-
-            <div>
                 <label className="text-xs font-medium mb-1 block">Reasoning effort</label>
                 <LemonSelect<'minimal' | 'low' | 'medium' | 'high' | null>
                     size="small"
@@ -615,7 +602,6 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
         prompt.maxTokens !== null ||
         prompt.temperature !== null ||
         prompt.topP !== null ||
-        prompt.seed !== null ||
         prompt.thinking ||
         prompt.reasoningLevel !== 'medium'
 

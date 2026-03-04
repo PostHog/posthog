@@ -25,7 +25,6 @@ export interface PromptConfig {
     maxTokens: number | null
     temperature: number | null
     topP: number | null
-    seed: number | null
     thinking: boolean
     reasoningLevel: ReasoningLevel
     tools: Record<string, unknown>[] | null
@@ -58,7 +57,6 @@ export function createPromptConfig(partial: Partial<PromptConfig> = {}): PromptC
         maxTokens: partial.maxTokens ?? null,
         temperature: partial.temperature ?? null,
         topP: partial.topP ?? null,
-        seed: partial.seed ?? null,
         thinking: partial.thinking ?? false,
         reasoningLevel: partial.reasoningLevel ?? 'medium',
         tools: partial.tools ?? null,
@@ -173,7 +171,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         setMaxTokens: (maxTokens: number | null, promptId?: string) => ({ maxTokens, promptId }),
         setTemperature: (temperature: number | null, promptId?: string) => ({ temperature, promptId }),
         setTopP: (topP: number | null, promptId?: string) => ({ topP, promptId }),
-        setSeed: (seed: number | null, promptId?: string) => ({ seed, promptId }),
         setThinking: (thinking: boolean, promptId?: string) => ({ thinking, promptId }),
         setReasoningLevel: (reasoningLevel: ReasoningLevel, promptId?: string) => ({ reasoningLevel, promptId }),
         setTools: (tools: Record<string, unknown>[] | null, promptId?: string) => ({ tools, promptId }),
@@ -252,8 +249,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 ) => updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, temperature })),
                 setTopP: (state: PromptConfig[], { topP, promptId }: { topP: number | null; promptId?: string }) =>
                     updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, topP })),
-                setSeed: (state: PromptConfig[], { seed, promptId }: { seed: number | null; promptId?: string }) =>
-                    updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, seed })),
                 setThinking: (
                     state: PromptConfig[],
                     { thinking, promptId }: { thinking: boolean; promptId?: string }
@@ -509,10 +504,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         topP: [
             (s) => [s.activePromptConfig],
             (activePromptConfig: PromptConfig): number | null => activePromptConfig.topP,
-        ],
-        seed: [
-            (s) => [s.activePromptConfig],
-            (activePromptConfig: PromptConfig): number | null => activePromptConfig.seed,
         ],
         reasoningLevel: [
             (s) => [s.activePromptConfig],
