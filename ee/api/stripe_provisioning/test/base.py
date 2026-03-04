@@ -21,7 +21,7 @@ class StripeProvisioningTestBase(APIBaseTest):
         self.client = APIClient()
 
     def _sign_body(self, body: bytes, timestamp: int | None = None) -> str:
-        ts = timestamp or int(time.time())
+        ts = timestamp if timestamp is not None else int(time.time())
         sig = compute_signature(self.HMAC_SECRET, ts, body)
         return f"t={ts},v1={sig}"
 
