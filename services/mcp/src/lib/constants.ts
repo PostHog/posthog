@@ -84,6 +84,7 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'feature_flag:read',
     'feature_flag:write',
     'hog_flow:read',
+    'hog_flow:write',
     'insight:read',
     'insight:write',
     'llm_prompt:read',

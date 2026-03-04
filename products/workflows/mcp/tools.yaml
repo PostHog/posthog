@@ -38,3 +38,75 @@ tools:
             Get a specific workflow by ID. Returns the full workflow definition
             including trigger, edges, actions, exit condition, and variables.
         mcp_version: 1
+    workflows-create:
+        operation: hog_flows_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create workflow
+        description: >
+            Create a new workflow. The actions array must contain exactly one action with
+            type='trigger'; all other actions define the flow steps connected via the
+            edges array. Workflows are created in 'draft' status; set status='active' to
+            activate.
+        exclude_params:
+            - trigger
+            - abort_action
+            - billable_action_types
+            - version
+            - created_at
+            - created_by
+            - updated_at
+        enrich_url: '{id}'
+    workflows-partial-update:
+        operation: hog_flows_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update workflow
+        description: >
+            Update workflow fields. Set status='active' to activate a draft workflow, or
+            status='archived' to archive it. Only changed fields need to be included.
+        exclude_params:
+            - trigger
+            - abort_action
+            - billable_action_types
+            - version
+            - created_at
+            - created_by
+            - updated_at
+        enrich_url: '{id}'
+    workflows-bulk-delete:
+        operation: hog_flows_bulk_delete_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Bulk delete workflows
+        description: >
+            Permanently delete multiple archived workflows by their IDs. Only
+            archived workflows can be deleted. Returns the count of deleted workflows.
+    workflows-destroy:
+        operation: hog_flows_destroy
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete workflow
+        description: >
+            Permanently delete a workflow by ID. Prefer archiving via
+            workflows-partial-update (status='archived') to preserve audit history.
