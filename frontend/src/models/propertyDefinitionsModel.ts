@@ -154,7 +154,8 @@ const constructValuesEndpoint = (
     eventNames: string[] | undefined,
     newInput: string | undefined,
     properties?: { key: string; values: string | string[] }[],
-    forceRefresh?: boolean
+    forceRefresh?: boolean,
+    isPolling?: boolean
 ): string => {
     let basePath: string
 
@@ -186,6 +187,7 @@ const constructValuesEndpoint = (
         path +
         (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
         (forceRefresh ? '&force_refresh=true' : '') +
+        (isPolling ? '&is_polling=true' : '') +
         eventParams
     )
 }
@@ -214,6 +216,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             eventNames?: string[]
             properties?: { key: string; values: string | string[] }[]
             forceRefresh?: boolean
+            isPolling?: boolean
         }) => payload,
         setOptionsLoading: (key: string) => ({ key }),
         setOptions: (key: string, values: PropValue[], allowCustomValues: boolean, refreshing?: boolean) => ({
@@ -401,7 +404,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         },
 
         loadPropertyValues: async (
-            { endpoint, type, newInput, propertyKey, eventNames, properties, forceRefresh },
+            { endpoint, type, newInput, propertyKey, eventNames, properties, forceRefresh, isPolling },
             breakpoint
         ) => {
             if (['cohort'].includes(type)) {
@@ -438,7 +441,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     eventNames,
                     newInput,
                     properties,
-                    forceRefresh
+                    forceRefresh,
+                    isPolling
                 ),
                 methodOptions
             )
@@ -457,7 +461,15 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     clearTimeout(cache.pollingTimeouts[propertyKey])
                 }
                 cache.pollingTimeouts[propertyKey] = setTimeout(() => {
-                    actions.loadPropertyValues({ endpoint, type, newInput, propertyKey, eventNames, properties })
+                    actions.loadPropertyValues({
+                        endpoint,
+                        type,
+                        newInput,
+                        propertyKey,
+                        eventNames,
+                        properties,
+                        isPolling: true,
+                    })
                 }, 2000)
             } else if (cache.pollingTimeouts[propertyKey]) {
                 clearTimeout(cache.pollingTimeouts[propertyKey])

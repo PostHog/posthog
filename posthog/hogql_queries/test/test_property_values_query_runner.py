@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -197,3 +198,24 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(second, CachedPropertyValuesQueryResponse)
         assert second.is_cached is True
         assert [r.name for r in second.results] == [r.name for r in first.results]
+
+    @parameterized.expand(
+        [
+            ("not_polling", False),
+            ("is_polling", True),
+        ]
+    )
+    def test_is_polling_propagated_to_query_executed_event(self, _name, is_polling):
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
+        flush_persons_and_events()
+
+        runner = PropertyValuesQueryRunner(
+            team=self.team,
+            query=PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"),
+        )
+        with patch("posthog.hogql_queries.query_runner.posthoganalytics.capture") as mock_capture:
+            runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, is_polling=is_polling)
+
+        mock_capture.assert_called_once()
+        captured_props = mock_capture.call_args.kwargs["properties"]
+        assert captured_props["is_polling"] is is_polling

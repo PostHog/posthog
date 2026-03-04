@@ -456,7 +456,36 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             return_value=PropertyValuesQueryResponse(results=[]),
         ) as mock_run:
             self.client.get(url)
-            mock_run.assert_called_once_with(ExecutionMode[expected_mode_name])
+            mock_run.assert_called_once_with(ExecutionMode[expected_mode_name], is_polling=False)
+
+    @parameterized.expand(
+        [
+            ("not_set", "", False),
+            ("false", "is_polling=false", False),
+            ("true", "is_polling=true", True),
+        ]
+    )
+    @freeze_time("2020-01-10")
+    def test_event_property_values_is_polling(self, _name, param, expected_is_polling):
+        from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryResponse
+        from posthog.hogql_queries.query_runner import ExecutionMode
+
+        _create_event(distinct_id="u1", event="pageview", team=self.team, properties={"browser": "Chrome"})
+        flush_persons_and_events()
+
+        url = f"/api/projects/{self.team.id}/events/values/?key=browser"
+        if param:
+            url += f"&{param}"
+
+        with patch(
+            "posthog.hogql_queries.property_values_query_runner.PropertyValuesQueryRunner.run",
+            return_value=PropertyValuesQueryResponse(results=[]),
+        ) as mock_run:
+            self.client.get(url)
+            mock_run.assert_called_once_with(
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                is_polling=expected_is_polling,
+            )
 
     @also_test_with_materialized_columns(["test_prop"])
     @freeze_time("2020-01-20 20:00:00")
