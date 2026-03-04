@@ -166,6 +166,13 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(search=f"id-{self.random_uuid}-9"))
         self.assertEqual(len(runner.calculate().results), 1)
 
+    def test_persons_query_search_trims_whitespace(self):
+        self.random_uuid = self._create_random_persons()
+        runner = self._create_runner(ActorsQuery(search=f"  jacob4@{self.random_uuid}.posthog  "))
+        self.assertEqual(len(runner.calculate().results), 1)
+        runner = self._create_runner(ActorsQuery(search=f"\tjacob4@{self.random_uuid}.posthog\n"))
+        self.assertEqual(len(runner.calculate().results), 1)
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_persons_query_search_snapshot(self):
         runner = self._create_runner(ActorsQuery(search="SEARCHSTRING"))

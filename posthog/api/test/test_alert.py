@@ -71,6 +71,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "next_check_at": None,
             "snoozed_until": None,
             "skip_weekend": False,
+            "last_value": None,
         }
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json() == expected_alert_json

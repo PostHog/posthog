@@ -124,6 +124,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "ApprovalRequest",
         "BatchExportLogEntry",
         "BatchExportRun",
+        "CodeInvite",
+        "CodeInviteRedemption",
         "EndpointVersion",
         "ErrorTrackingIssueAssignment",
         "TicketAssignment",

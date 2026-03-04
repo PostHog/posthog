@@ -147,7 +147,10 @@ export const ExperimentUpdateInputSchema = z.object({
 
     conclusion_comment: z.string().optional().describe('Comment about experiment conclusion'),
 
-    restart: z.boolean().optional().describe('Restart concluded experiment (clears end_date and conclusion)'),
+    restart: z
+        .boolean()
+        .optional()
+        .describe('Restart concluded experiment as draft (clears start_date, end_date, and conclusion)'),
 
     archive: z.boolean().optional().describe('Archive or unarchive experiment'),
 })
@@ -266,7 +269,7 @@ export const ExperimentCreateSchema = z.object({
     filter_test_accounts: z.boolean().default(true).describe('Whether to filter out internal test accounts'),
 
     target_properties: z
-        .record(z.any())
+        .record(z.string(), z.any())
         .optional()
         .describe('Properties to target specific user segments (e.g., country, subscription type)'),
 
@@ -356,7 +359,7 @@ export const OrganizationGetDetailsSchema = z.object({})
 export const OrganizationGetAllSchema = z.object({})
 
 export const OrganizationSetActiveSchema = z.object({
-    orgId: z.string().uuid(),
+    orgId: z.string(),
 })
 
 export const ProjectGetAllSchema = z.object({})

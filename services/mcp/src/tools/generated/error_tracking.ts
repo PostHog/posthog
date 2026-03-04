@@ -43,8 +43,8 @@ const errorTrackingIssuesRetrieve = (): ToolBase<typeof ErrorTrackingIssuesRetri
     },
 })
 
-const ErrorTrackingIssuesPartialUpdateSchema = ErrorTrackingIssuesPartialUpdateParams.omit({ project_id: true }).merge(
-    ErrorTrackingIssuesPartialUpdateBody
+const ErrorTrackingIssuesPartialUpdateSchema = ErrorTrackingIssuesPartialUpdateParams.omit({ project_id: true }).extend(
+    ErrorTrackingIssuesPartialUpdateBody.shape
 )
 
 const errorTrackingIssuesPartialUpdate = (): ToolBase<typeof ErrorTrackingIssuesPartialUpdateSchema> => ({

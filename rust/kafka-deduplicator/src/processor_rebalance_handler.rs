@@ -233,6 +233,7 @@ where
                 metrics::counter!(
                     PARTITION_STORE_SETUP_SKIPPED,
                     "reason" => if cancel_token.is_cancelled() { "cancelled" } else { "not_owned" },
+                    "assignment_mode" => "consumer_group",
                 )
                 .increment(1);
                 fallback_reasons.insert(partition.clone(), "import_cancelled");
@@ -248,6 +249,7 @@ where
                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                     "result" => "skipped",
                     "reason" => "store_exists",
+                    "assignment_mode" => "consumer_group",
                 )
                 .increment(1);
                 return;
@@ -280,6 +282,7 @@ where
                             metrics::counter!(
                                 PARTITION_STORE_SETUP_SKIPPED,
                                 "reason" => reason,
+                                "assignment_mode" => "consumer_group",
                             )
                             .increment(1);
                             fallback_reasons.insert(partition.clone(), "import_cancelled");
@@ -293,6 +296,7 @@ where
                                         metrics::counter!(
                                             CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
                                             "result" => "success",
+                                            "assignment_mode" => "consumer_group",
                                         )
                                         .increment(1);
                                         info!(
@@ -307,6 +311,7 @@ where
                                         metrics::counter!(
                                             CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
                                             "result" => "failed",
+                                            "assignment_mode" => "consumer_group",
                                         )
                                         .increment(1);
                                         warn!(
@@ -343,6 +348,7 @@ where
                                 metrics::counter!(
                                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                                     "result" => "success",
+                                    "assignment_mode" => "consumer_group",
                                 )
                                 .increment(1);
                                 info!(
@@ -357,6 +363,7 @@ where
                                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                                     "result" => "failed",
                                     "reason" => "restore",
+                                    "assignment_mode" => "consumer_group",
                                 )
                                 .increment(1);
                                 error!(
@@ -376,6 +383,7 @@ where
                                 REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                                 "result" => "failed",
                                 "reason" => "import",
+                                "assignment_mode" => "consumer_group",
                             )
                             .increment(1);
                             warn!(
@@ -395,6 +403,7 @@ where
                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                     "result" => "skipped",
                     "reason" => "disabled",
+                    "assignment_mode" => "consumer_group",
                 )
                 .increment(1);
                 fallback_reasons.insert(partition.clone(), "no_importer");
@@ -462,7 +471,7 @@ where
                     .await
                 {
                     Ok(_) => {
-                        metrics::counter!(PARTITION_STORE_FALLBACK_EMPTY, "reason" => reason)
+                        metrics::counter!(PARTITION_STORE_FALLBACK_EMPTY, "reason" => reason, "assignment_mode" => "consumer_group")
                             .increment(1);
                         warn!(
                             topic = partition.topic(),
@@ -549,6 +558,7 @@ where
                 "topic" => partition.topic().to_string(),
                 "partition" => partition.partition_number().to_string(),
                 "op" => "assign",
+                "assignment_mode" => "consumer_group",
             )
             .increment(1);
         }
@@ -597,6 +607,7 @@ where
                 "topic" => partition.topic().to_string(),
                 "partition" => partition.partition_number().to_string(),
                 "op" => "revoke",
+                "assignment_mode" => "consumer_group",
             )
             .increment(1);
         }
