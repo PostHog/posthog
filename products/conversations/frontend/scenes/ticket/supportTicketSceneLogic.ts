@@ -398,6 +398,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const isUuid = props.id.toString().includes('-')
                 if (isUuid && ticket.ticket_number) {
                     router.actions.replace(urls.supportTicketDetail(ticket.ticket_number))
+                    return
                 }
 
                 actions.setTicket(ticket)

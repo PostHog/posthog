@@ -236,7 +236,10 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Support looking up tickets by either UUID or ticket_number.
         This allows URLs like /tickets/123/ (ticket_number) alongside /tickets/<uuid>/ for backward compatibility.
         """
-        lookup_value = self.kwargs.get("pk")
+        lookup_value: str | None = self.kwargs.get("pk")
+
+        if not lookup_value:
+            raise Http404("Ticket not found")
 
         # Try to parse as UUID first
         try:
@@ -254,7 +257,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     return queryset.get(ticket_number=ticket_num)
                 except Ticket.DoesNotExist:
                     raise Http404("Ticket not found")
-            except ValueError:
+            except (ValueError, TypeError):
                 # Neither UUID nor integer
                 raise Http404("Ticket not found")
 
