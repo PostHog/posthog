@@ -71,12 +71,12 @@ test.describe('Insight side panel actions', () => {
         await test.step('open side panel and click favorite', async () => {
             await insight.openInfoPanel()
             const favoriteButton = page.getByTestId('insight-favorite-button')
-            await expect(favoriteButton).toBeVisible()
+            // After saving a new insight the URL changes and insightLogic remounts,
+            // which triggers a GET to load the insight. Until that completes,
+            // short_id is null and the button is disabled. Waiting for enabled
+            // ensures the insight is fully loaded so the click triggers the PATCH.
+            await expect(favoriteButton).toBeEnabled()
 
-            // Wait for the API response to complete before asserting the button state.
-            // The favorite state only updates after the PATCH call resolves + a 300ms
-            // breakpoint in insightLogic, so we need to ensure the full round-trip
-            // finishes before checking data-active.
             const responsePromise = page.waitForResponse(
                 (resp) => resp.url().includes('/api/environments/') && resp.request().method() === 'PATCH'
             )
