@@ -2,8 +2,6 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { EventHeaders, ISOTimestamp, PreIngestionEvent, Team } from '../../types'
 import { sanitizeEventName } from '../../utils/db/utils'
-import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
 import { invalidTimestampCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
