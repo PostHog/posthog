@@ -3003,6 +3003,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "kind": "InsightVizNode",
                 "source": {
                     "kind": "TrendsQuery",
+                    "aggregation_group_type_index": None,
                     "series": [
                         {
                             "kind": "EventsNode",
@@ -3054,6 +3055,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "kind": "InsightVizNode",
                 "source": {
                     "kind": "TrendsQuery",
+                    "aggregation_group_type_index": None,
                     "series": [
                         {
                             "kind": "EventsNode",
@@ -3339,6 +3341,153 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             },
         )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_feature_flag_dashboard_for_group_flag(self, mock_capture):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            group_type="organization",
+            group_type_index=0,
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Group flag",
+                "key": "group-flag-key",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        feature_flag = FeatureFlag.objects.get(id=response.json()["id"])
+        assert feature_flag.usage_dashboard is not None
+        insights = list(
+            feature_flag.usage_dashboard.insights.filter(
+                name__in=[
+                    "Feature Flag Called Total Volume",
+                    "Feature Flag calls made by unique users per variant",
+                ]
+            ).order_by("name")
+        )
+        self.assertEqual(len(insights), 2)
+        for insight in insights:
+            source = insight.query["source"]
+            self.assertEqual(
+                source.get("aggregation_group_type_index"),
+                0,
+                f"Insight {insight.name} should have aggregation_group_type_index=0",
+            )
+            prop_values = source.get("properties", {}).get("values", [])
+            self.assertEqual(len(prop_values), 1)
+            filters = prop_values[0].get("values", [])
+            keys = [f.get("key") for f in filters]
+            self.assertIn("$feature_flag", keys)
+            self.assertIn("$groups", keys)
+            feature_flag_filter = next(f for f in filters if f.get("key") == "$feature_flag")
+            self.assertEqual(feature_flag_filter.get("value"), "group-flag-key")
+            groups_filter = next(f for f in filters if f.get("key") == "$groups")
+            self.assertEqual(groups_filter.get("operator"), "is_set")
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_feature_flag_dashboard_for_user_flag(self, mock_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "User flag",
+                "key": "user-flag-key",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        feature_flag = FeatureFlag.objects.get(id=response.json()["id"])
+        assert feature_flag.usage_dashboard is not None
+        insights = list(
+            feature_flag.usage_dashboard.insights.filter(
+                name__in=[
+                    "Feature Flag Called Total Volume",
+                    "Feature Flag calls made by unique users per variant",
+                ]
+            ).order_by("name")
+        )
+        self.assertEqual(len(insights), 2)
+        for insight in insights:
+            source = insight.query["source"]
+            self.assertIsNone(
+                source.get("aggregation_group_type_index"),
+                f"Insight {insight.name} should have aggregation_group_type_index=None",
+            )
+            prop_values = source.get("properties", {}).get("values", [])
+            self.assertEqual(len(prop_values), 1)
+            filters = prop_values[0].get("values", [])
+            self.assertEqual(len(filters), 1)
+            self.assertEqual(filters[0].get("key"), "$feature_flag")
+            self.assertEqual(filters[0].get("value"), "user-flag-key")
+            self.assertEqual(filters[0].get("operator"), "exact")
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_key_for_group_flag(self, mock_capture):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            group_type="organization",
+            group_type_index=0,
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Group flag to rename",
+                "key": "old-group-flag-key",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+        feature_flag = FeatureFlag.objects.get(id=flag_id)
+        assert feature_flag.usage_dashboard is not None
+        insights = list(
+            feature_flag.usage_dashboard.insights.filter(
+                name__in=[
+                    "Feature Flag Called Total Volume",
+                    "Feature Flag calls made by unique users per variant",
+                ]
+            )
+        )
+        for insight in insights:
+            filters = insight.query["source"]["properties"]["values"][0]["values"]
+            feature_flag_filter = next(f for f in filters if f.get("key") == "$feature_flag")
+            self.assertEqual(feature_flag_filter["value"], "old-group-flag-key")
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            {"key": "new-group-flag-key"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        feature_flag.refresh_from_db()
+        insights = list(
+            feature_flag.usage_dashboard.insights.filter(
+                name__in=[
+                    "Feature Flag Called Total Volume",
+                    "Feature Flag calls made by unique users per variant",
+                ]
+            )
+        )
+        for insight in insights:
+            filters = insight.query["source"]["properties"]["values"][0]["values"]
+            feature_flag_filter = next(f for f in filters if f.get("key") == "$feature_flag")
+            self.assertEqual(
+                feature_flag_filter["value"],
+                "new-group-flag-key",
+                "Dashboard insight should be updated with new key after PATCH",
+            )
+            groups_filter = next(f for f in filters if f.get("key") == "$groups")
+            self.assertEqual(groups_filter.get("operator"), "is_set", "$groups filter should remain")
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.api.feature_flag.report_user_action")
