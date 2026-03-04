@@ -729,6 +729,7 @@ class ChartSettingsDisplay(BaseModel):
 class Style(StrEnum):
     NONE = "none"
     NUMBER = "number"
+    SHORT = "short"
     PERCENT = "percent"
 
 

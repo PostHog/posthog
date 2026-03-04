@@ -8238,7 +8238,7 @@
                     "type": "string"
                 },
                 "style": {
-                    "enum": ["none", "number", "percent"],
+                    "enum": ["none", "number", "short", "percent"],
                     "type": "string"
                 },
                 "suffix": {
