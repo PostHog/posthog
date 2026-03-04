@@ -46,7 +46,7 @@ export const RichContentEditor = ({
       editor={editor}
       className={cn("RichContentEditor", className)}
       autoFocus={autoFocus}
-      spellCheck={editor?.isFocused}
+      spellCheck={editor?.isFocused ?? false}
     >
       {editor && (
         <BindLogic logic={richContentEditorLogic} props={{ logicKey, editor }}>
@@ -64,7 +64,7 @@ export const useRichContentEditor = ({
   onCreate = () => {},
   onUpdate = () => {},
   onSelectionUpdate = () => {},
-}: RichContentEditorProps): TTEditor => {
+}: RichContentEditorProps): TTEditor | null => {
   const editor = useEditor({
     shouldRerenderOnTransaction: false,
     extensions,
@@ -79,7 +79,9 @@ export const useRichContentEditor = ({
           return false;
         }
 
-        const looksLikeMarkdown = /(^|\n)#\s|```|\n[-*]\s|(^|\n)>\s/.test(text);
+        const looksLikeMarkdown = /(^|\n)#\s|```|(^|\n)[-*]\s|(^|\n)>\s/.test(
+          text,
+        );
 
         if (!looksLikeMarkdown) {
           return false;
@@ -104,7 +106,7 @@ export const useRichContentEditor = ({
   }, [editor, disabled]);
 
   if (!editor) {
-    return editor as unknown as TTEditor;
+    return null;
   }
 
   return editor;
