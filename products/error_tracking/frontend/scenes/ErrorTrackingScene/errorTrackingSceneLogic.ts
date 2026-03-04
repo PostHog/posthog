@@ -26,7 +26,7 @@ export const ERROR_TRACKING_SCENE_LOGIC_KEY = 'ErrorTrackingScene'
 
 const DEFAULT_ACTIVE_TAB = 'issues'
 
-export type ErrorTrackingSceneActiveTab = 'issues' | 'impact'
+export type ErrorTrackingSceneActiveTab = 'issues' | 'impact' | 'insights'
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'errorTrackingSceneLogic']),
@@ -156,6 +156,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             })
 
         return {
+            setActiveTab: buildURL,
             setDateRange: buildURL,
             setFilterGroup: buildURL,
             setSearchQuery: buildURL,

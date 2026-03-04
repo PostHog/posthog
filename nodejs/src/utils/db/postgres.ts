@@ -1,5 +1,6 @@
 // Postgres
-import { Client, DatabaseError, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+import { DateTime } from 'luxon'
+import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow, types as pgTypes } from 'pg'
 
 import { withSpan } from '~/common/tracing/tracing-utils'
 
@@ -9,6 +10,27 @@ import { createPostgresPool } from '../utils'
 import { DependencyUnavailableError } from './error'
 import { postgresErrorCounter } from './metrics'
 import { timeoutGuard } from './utils'
+
+// By default node-postgres returns dates as JS Date objects using the local timezone.
+// We need UTC ISO strings instead. This must be called before creating any Pool.
+// Idempotent — safe to call multiple times (e.g. from both hub.ts and PostgresRouter).
+let typeParsersInstalled = false
+export function installPostgresTypeParsers(): void {
+    if (typeParsersInstalled) {
+        return
+    }
+    typeParsersInstalled = true
+
+    pgTypes.setTypeParser(1083 /* types.TypeId.TIME */, (timeStr) =>
+        timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
+    )
+    pgTypes.setTypeParser(1114 /* types.TypeId.TIMESTAMP */, (timeStr) =>
+        timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
+    )
+    pgTypes.setTypeParser(1184 /* types.TypeId.TIMESTAMPTZ */, (timeStr) =>
+        timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
+    )
+}
 
 const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'connection to server at',
@@ -21,6 +43,7 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'ECONNREFUSED',
     'ETIMEDOUT',
     'query_wait_timeout', // Waiting on PG bouncer to give us a slot
+    'server login has been failing', // PgBouncer cannot authenticate with upstream PG
 ]
 
 export enum PostgresUse {
@@ -46,6 +69,8 @@ export class PostgresRouter {
     private pools: Map<PostgresUse, Pool>
 
     constructor(serverConfig: PluginsServerConfig) {
+        installPostgresTypeParsers()
+
         const app_name = serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
         logger.info('🤔', `Connecting to common Postgresql...`)
         const commonClient = createPostgresPool(
@@ -166,9 +191,7 @@ export class PostgresRouter {
                 await client.query('ROLLBACK')
 
                 // if Postgres is down the ROLLBACK above won't work, but the transaction shouldn't be committed either
-                if (e.message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => e.message.includes(message))) {
-                    handlePostgresUnavailableError(e, usage)
-                }
+                handlePostgresError(e, usage)
 
                 throw e
             } finally {
@@ -214,12 +237,7 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
         try {
             return await client.query(queryConfig, values)
         } catch (error) {
-            if (
-                error.message &&
-                POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => error.message.includes(message))
-            ) {
-                handlePostgresUnavailableError(error, databaseUse)
-            }
+            handlePostgresError(error, databaseUse)
 
             logger[queryFailureLogLevel]('🔴', 'Postgres query error', {
                 query: queryConfig.text,
@@ -231,17 +249,13 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
     })
 }
 
-function handlePostgresUnavailableError(error: DatabaseError, databaseUse: PostgresUse) {
-    const databaseUseLabel = PostgresUse[databaseUse]
-    let errorType = 'other'
-
-    const matchedError = POSTGRES_UNAVAILABLE_ERROR_MESSAGES.find((message) => error.message.includes(message))
-    if (matchedError) {
-        errorType = matchedError
-    } else if (error.code) {
-        errorType = error.code
+/** Throws retriable DependencyUnavailableError for transient PG/PgBouncer errors, does nothing otherwise. */
+export function handlePostgresError(error: Error, databaseUse: PostgresUse): void {
+    const matchedMessage = POSTGRES_UNAVAILABLE_ERROR_MESSAGES.find((msg) => error.message?.includes(msg))
+    if (!matchedMessage) {
+        return
     }
 
-    postgresErrorCounter.inc({ error_type: errorType, database_use: databaseUseLabel })
+    postgresErrorCounter.inc({ error_type: matchedMessage, database_use: PostgresUse[databaseUse] })
     throw new DependencyUnavailableError(error.message, 'Postgres', error)
 }

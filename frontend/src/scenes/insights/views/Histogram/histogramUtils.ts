@@ -1,6 +1,7 @@
 import * as d3 from 'd3'
 
 import { FunnelLayout } from 'lib/constants'
+// eslint-disable-next-line import/no-cycle
 import { HistogramDatum } from 'scenes/insights/views/Histogram/Histogram'
 
 export interface HistogramConfig {

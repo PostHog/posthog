@@ -32,7 +32,7 @@ A long-running entity workflow that serializes all signal grouping for a single 
 4. **Semantic search** ClickHouse `document_embeddings` for nearest neighbors per query → `run_signal_semantic_search_activity` (uses `cosineDistance()`)
 5. **LLM match** — decides if signal belongs to an existing report or needs a new group → `match_signal_to_report_activity`
 6. **Assign** signal to a `SignalReport` in Postgres, increment weight/count, check promotion threshold, **and emit to ClickHouse** via Kafka (embedding worker) — all in a single atomic operation → `assign_and_emit_signal_activity`
-7. **Wait for ClickHouse** (gated behind `workflow.patched("wait-for-clickhouse-v1")`) — poll ClickHouse until the emitted signal appears so subsequent signals can find it during semantic search → `wait_for_signal_in_clickhouse_activity`
+7. **Wait for ClickHouse** — poll ClickHouse until the emitted signal appears so subsequent signals can find it during semantic search → `wait_for_signal_in_clickhouse_activity`
 8. If promoted (weight ≥ `WEIGHT_THRESHOLD`, default `1.0`), **spawn child** `SignalReportSummaryWorkflow` (with `ALLOW_DUPLICATE_FAILED_ONLY` reuse policy, `ParentClosePolicy.ABANDON` so it survives `continue_as_new`, silently ignores `WorkflowAlreadyStartedError`)
 
 Step 1 runs two activities in parallel. Step 2 depends on step 1 (needs the type examples). Steps 3+4 fan out in parallel for each query/embedding.
@@ -53,7 +53,7 @@ Runs when a report is promoted to `candidate` status. Summarizes the signal grou
 **Flow:**
 
 1. **Fetch signals** for the report from ClickHouse → `fetch_signals_for_report_activity` (no hard limit — fetches all signals for the report)
-2. **Mark in-progress** in Postgres → `mark_report_in_progress_activity`
+2. **Mark in-progress** in Postgres and advance `signals_at_run` by `SIGNALS_AT_RUN_INCREMENT` (3), so the report must accumulate that many new signals before it can be promoted and re-summarised again → `mark_report_in_progress_activity`
 3. **Summarize** signals into a title + summary via LLM → `summarize_signals_activity` (`summarize_signals.py`)
 4. **Safety judge** + **Actionability judge** — run **concurrently** via `asyncio.gather`:
    - **Safety judge** → `safety_judge_activity` (`safety_judge.py`) — assess for prompt injection / manipulation
@@ -84,24 +84,33 @@ potential → candidate → in_progress → ready
                                     → pending_input
                                     → failed
                                     → potential (reset by actionability judge)
+
+# Transitions enforced by SignalReport.transition_to():
+# - deleted is terminal (no transitions out; excluded from API via queryset)
+# - suppressed only transitions back to potential
+# - any non-deleted status can transition to deleted or suppressed
+# - snooze = transition to potential with snooze_for=N (sets signals_at_run = signal_count + N)
+suppressed → potential
+any (except deleted) → deleted
+any (except deleted) → suppressed
 ```
 
-| Field                         | Type                         | Description                                                                         |
-| ----------------------------- | ---------------------------- | ----------------------------------------------------------------------------------- |
-| `team`                        | FK → Team                    | Owning team                                                                         |
-| `status`                      | CharField                    | One of: `potential`, `candidate`, `in_progress`, `pending_input`, `ready`, `failed` |
-| `total_weight`                | Float                        | Sum of all assigned signal weights (reset to 0 if deemed not actionable)            |
-| `signal_count`                | Int                          | Number of signals assigned                                                          |
-| `title`                       | Text (nullable)              | LLM-generated title (set during matching or summarization)                          |
-| `summary`                     | Text (nullable)              | LLM-generated summary                                                               |
-| `error`                       | Text (nullable)              | Error message if failed, or reason if pending input / reset to potential            |
-| `conversation`                | FK → Conversation (nullable) | Optional linked conversation                                                        |
-| `signals_at_run`              | Int                          | Snapshot of signal count when summary started                                       |
-| `promoted_at`                 | DateTime (nullable)          | When report was promoted to `candidate` (cleared on reset to potential)             |
-| `last_run_at`                 | DateTime (nullable)          | When summary workflow last ran                                                      |
-| `relevant_user_count`         | Int (nullable)               | Number of relevant users                                                            |
-| `cluster_centroid`            | **DEPRECATED**               | Was: ArrayField(Float) for video segment clustering. Wrapped in `deprecate_field()` |
-| `cluster_centroid_updated_at` | **DEPRECATED**               | Was: DateTime for centroid freshness. Wrapped in `deprecate_field()`                |
+| Field                         | Type                | Description                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `team`                        | FK → Team           | Owning team                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `status`                      | CharField           | One of: `potential`, `candidate`, `in_progress`, `pending_input`, `ready`, `failed`, `deleted`, `suppressed`                                                                                                                                                                                                                                                                                                                             |
+| `total_weight`                | Float               | Sum of all assigned signal weights (reset to 0 if deemed not actionable)                                                                                                                                                                                                                                                                                                                                                                 |
+| `signal_count`                | Int                 | Number of signals assigned                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `title`                       | Text (nullable)     | LLM-generated title (set during matching or summarization)                                                                                                                                                                                                                                                                                                                                                                               |
+| `summary`                     | Text (nullable)     | LLM-generated summary                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `error`                       | Text (nullable)     | Error message if failed, or reason if pending input / reset to potential                                                                                                                                                                                                                                                                                                                                                                 |
+| `signals_at_run`              | Int                 | **Forward-looking promotion threshold.** A `potential` report will not be promoted to `candidate` until `signal_count >= signals_at_run`. Defaults to 0, so fresh reports always pass immediately. Advanced by 3 each time a summary run starts, preventing the report from immediately re-promoting after being reset to potential. Snoozing sets this to `signal_count + N`, pushing the threshold forward by an additional N signals. |
+| `promoted_at`                 | DateTime (nullable) | When report was promoted to `candidate` (cleared on reset to potential)                                                                                                                                                                                                                                                                                                                                                                  |
+| `last_run_at`                 | DateTime (nullable) | When summary workflow last ran                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `conversation`                | **DEPRECATED**      | Was: FK → Conversation. Wrapped in `deprecate_field()`                                                                                                                                                                                                                                                                                                                                                                                   |
+| `relevant_user_count`         | **DEPRECATED**      | Was: Int for relevant user count. Wrapped in `deprecate_field()`                                                                                                                                                                                                                                                                                                                                                                         |
+| `cluster_centroid`            | **DEPRECATED**      | Was: ArrayField(Float) for video segment clustering. Wrapped in `deprecate_field()`                                                                                                                                                                                                                                                                                                                                                      |
+| `cluster_centroid_updated_at` | **DEPRECATED**      | Was: DateTime for centroid freshness. Wrapped in `deprecate_field()`                                                                                                                                                                                                                                                                                                                                                                     |
 
 **Indexes:** `(team, status, promoted_at)`, `(team, created_at)`
 
@@ -178,7 +187,7 @@ emit_embedding_request() → Kafka (document_embeddings_input topic)
 
 ### Soft Deletion
 
-Signals are soft-deleted by re-emitting the embedding row with `metadata.deleted = true`, preserving the original `timestamp` so it lands in the same partition and replaces the original via `ReplacingMergeTree`. All read queries filter with `NOT JSONExtractBool(metadata, 'deleted')`.
+Signals are soft-deleted by re-emitting the embedding row with `metadata.deleted = true`, preserving the original `timestamp` so it lands in the same partition and replaces the original via `ReplacingMergeTree`. Most read queries filter with `NOT JSONExtractBool(metadata, 'deleted')`; the exception is `wait_for_signal_in_clickhouse_activity`, which deliberately includes deleted rows (it only cares that the row landed, not whether it's visible).
 
 ### HogQL Queries
 
@@ -187,7 +196,7 @@ Activities query via `execute_hogql_query()` using the HogQL alias `document_emb
 1. **Fetch signal type examples** (`fetch_signal_type_examples_activity`): Fetches one example signal per unique `(source_product, source_type)` pair from the last month, selecting the most recent example per type via `argMax(content, timestamp)`. Used to give the query generation LLM context about the heterogeneous signal landscape.
 2. **Semantic search** (`run_signal_semantic_search_activity`): Uses `cosineDistance(embedding, {embedding})` to find nearest neighbors that have a `report_id`, limited to the last 1 month.
 3. **Fetch for report** (`fetch_signals_for_report_activity`): Fetches all signals for a given `report_id`, ordered by timestamp ascending.
-4. **Wait for ClickHouse** (`wait_for_signal_in_clickhouse_activity`): Polls for a specific `document_id` by exact `toDate(timestamp)` match, used to confirm a signal is queryable before processing the next one.
+4. **Wait for ClickHouse** (`wait_for_signal_in_clickhouse_activity`): Polls for a specific `document_id` by exact `toDate(timestamp)` match and `inserted_at >= (now - 1 minute)`, confirming that _this specific ingestion_ landed before processing the next signal. Does not filter on `deleted` — if a signal was emitted into a deleted report it will still be found.
 
 ---
 
@@ -196,6 +205,10 @@ Activities query via `execute_hogql_query()` using the HogQL alias `document_emb
 ### Entry Point: `emit_signal()` (`backend/api.py`)
 
 The primary programmatic entry point. Called by other PostHog products to emit signals.
+
+### Utility: `soft_delete_report_signals()` (`backend/api.py`)
+
+Centralized sync helper that soft-deletes all ClickHouse signals for a given report by re-emitting them with `metadata.deleted = true`, preserving original timestamps so rows replace originals via `ReplacingMergeTree`. Intentionally fetches all signals (including already-deleted ones) to be idempotent. Called by `SignalReportViewSet.destroy()`.
 
 ```python
 await emit_signal(
@@ -239,22 +252,22 @@ Full CRUD for per-team signal source configurations. Uses `IsAuthenticated` + `A
 
 #### `SignalReportViewSet`
 
-Read-only + delete. Uses `IsAuthenticated` + `APIScopePermission` (scope: `task`). Extends `ReadOnlyModelViewSet` + `DestroyModelMixin`.
+Read-only + state transitions. Uses `IsAuthenticated` + `APIScopePermission` (scope: `task`). Extends `ReadOnlyModelViewSet`. Deleted reports are excluded from all endpoints via `safely_get_queryset`.
 
-| Method | Path                              | Description                                                                                 |
-| ------ | --------------------------------- | ------------------------------------------------------------------------------------------- |
-| GET    | `/signal_reports/`                | List reports, filterable by `?status=` query param, ordered by `-signal_count` by default   |
-| GET    | `/signal_reports/{id}/`           | Retrieve a single report                                                                    |
-| DELETE | `/signal_reports/{id}/`           | Soft-delete all signals in ClickHouse, then delete the Django model (cascades to artefacts) |
-| GET    | `/signal_reports/{id}/artefacts/` | List video segment artefacts for a report                                                   |
-| GET    | `/signal_reports/{id}/signals/`   | Fetch all signals for a report from ClickHouse, including full metadata                     |
+| Method | Path                              | Description                                                                                                                                                                                                                                                                   |
+| ------ | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/signal_reports/`                | List reports (excludes `deleted` always, excludes `suppressed` by default), filterable by `?status=` query param, ordered by `-signal_count` by default                                                                                                                       |
+| GET    | `/signal_reports/{id}/`           | Retrieve a single report                                                                                                                                                                                                                                                      |
+| POST   | `/signal_reports/{id}/state/`     | Transition report state. Body: `{ "state": "suppressed" \| "potential", ...transition_to kwargs }`. Only `suppressed` and `potential` are exposed via API. Validates transitions via `SignalReport.transition_to()`. Returns 409 on invalid transition, 400 on bad arguments. |
+| GET    | `/signal_reports/{id}/artefacts/` | List video segment artefacts for a report                                                                                                                                                                                                                                     |
+| GET    | `/signal_reports/{id}/signals/`   | Fetch all signals for a report from ClickHouse, including full metadata                                                                                                                                                                                                       |
 
 **Ordering:** Configurable via query params. Supported fields: `signal_count`, `total_weight`, `created_at`, `updated_at`. Default: `-signal_count`.
 
 ### Serializers (`backend/serializers.py`)
 
 - **`SignalSourceConfigSerializer`** — Exposes `id`, `source_product`, `source_type`, `enabled`, `config`, `created_at`, `updated_at`. Validates that `recording_filters` in config is a dict when `source_product` is `session_replay`.
-- **`SignalReportSerializer`** — Exposes `id`, `title`, `summary`, `status`, `total_weight`, `signal_count`, `relevant_user_count`, `created_at`, `updated_at`, `artefact_count`.
+- **`SignalReportSerializer`** — Exposes `id`, `title`, `summary`, `status`, `total_weight`, `signal_count`, `signals_at_run`, `created_at`, `updated_at`, `artefact_count`.
 - **`SignalReportArtefactSerializer`** — Exposes `id`, `type`, `content` (parsed from JSON text), `created_at`.
 
 ---

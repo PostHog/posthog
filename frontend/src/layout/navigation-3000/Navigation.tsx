@@ -1,7 +1,7 @@
 import './Navigation.scss'
 
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { ReactNode, useEffect, useRef } from 'react'
+import { ReactNode, useCallback, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -50,6 +50,24 @@ export function Navigation({
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
+    const inlinePanelRef = useRef<HTMLDivElement | null>(null)
+    const inlinePanelCallbackRef = useCallback(
+        (node: HTMLDivElement | null) => {
+            inlinePanelRef.current = node
+            registerScenePanelElement(node)
+        },
+        [registerScenePanelElement]
+    )
+
+    // SidePanelInfo overrides scenePanelElement while the Info tab is open and
+    // clears it on unmount, leaving it null even though Navigation's inline
+    // panel div is still in the DOM. Re-register it when the side panel closes.
+    useEffect(() => {
+        if (!sidePanelOpen && inlinePanelRef.current) {
+            registerScenePanelElement(inlinePanelRef.current)
+        }
+    }, [sidePanelOpen, registerScenePanelElement])
+
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
         if (mainRef.current) {
@@ -178,7 +196,7 @@ export function Navigation({
                                         innerClassName="px-2 py-2 bg-primary"
                                         styledScrollbars
                                     >
-                                        <div ref={registerScenePanelElement} />
+                                        <div ref={inlinePanelCallbackRef} />
                                     </ScrollableShadows>
                                 </div>
                             </>

@@ -62,7 +62,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
         If quorum is reached, automatically applies the change immediately.
         """
         change_request: ChangeRequest = self.get_object()
-        service = ChangeRequestService(change_request, cast(User, request.user))
+        service = ChangeRequestService(change_request, cast(User, request.user), request=request)
 
         try:
             result = service.approve(reason=request.data.get("reason", ""))
@@ -94,7 +94,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
     def reject(self, request: Request, pk=None, **kwargs) -> Response:
         """Reject a change request."""
         change_request: ChangeRequest = self.get_object()
-        service = ChangeRequestService(change_request, cast(User, request.user))
+        service = ChangeRequestService(change_request, cast(User, request.user), request=request)
 
         try:
             result = service.reject(reason=request.data.get("reason", ""))
@@ -130,7 +130,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
         Only the requester can cancel their own pending change request.
         """
         change_request: ChangeRequest = self.get_object()
-        service = ChangeRequestService(change_request, cast(User, request.user))
+        service = ChangeRequestService(change_request, cast(User, request.user), request=request)
 
         try:
             result = service.cancel(reason=request.data.get("reason", "Canceled by requester"))
