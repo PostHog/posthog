@@ -351,7 +351,7 @@ class TestTable(BaseTest):
                 url_pattern="https://example.com/test.csv",
                 credential=credential,
                 format=DataWarehouseTable.TableFormat.CSVWithNames,
-                csv_allow_double_quotes=False,
+                options={"csv_allow_double_quotes": False},
                 team=self.team,
             )
 
@@ -367,7 +367,7 @@ class TestTable(BaseTest):
                 url_pattern="https://example.com/test.csv",
                 credential=credential,
                 format=DataWarehouseTable.TableFormat.CSVWithNames,
-                csv_allow_double_quotes=True,
+                options={"csv_allow_double_quotes": True},
                 team=self.team,
             )
 
@@ -390,7 +390,7 @@ class TestTable(BaseTest):
                     url_pattern="https://example.com/test.csv",
                     credential=credential,
                     format=DataWarehouseTable.TableFormat.CSVWithNames,
-                    csv_allow_double_quotes=True,
+                    options={"csv_allow_double_quotes": True},
                     team=self.team,
                 )
 
@@ -455,7 +455,7 @@ class TestTable(BaseTest):
                 credential=credential,
             )
         # Simulate detection having found RFC 4180 quoting
-        table.csv_allow_double_quotes = True
+        table.options["csv_allow_double_quotes"] = True
         table.save_base(raw=True)
 
         definition = table.hogql_definition()
@@ -474,7 +474,7 @@ class TestTable(BaseTest):
                 credential=credential,
             )
         # Simulate detection having returned None (both failed)
-        table.csv_allow_double_quotes = None
+        table.options.pop("csv_allow_double_quotes", None)
         table.save_base(raw=True)
 
         definition = table.hogql_definition()

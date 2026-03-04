@@ -63,7 +63,7 @@ class TableSerializer(serializers.ModelSerializer):
             "columns",
             "external_data_source",
             "external_schema",
-            "csv_allow_double_quotes",
+            "options",
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 

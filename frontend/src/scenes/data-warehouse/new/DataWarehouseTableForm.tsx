@@ -118,7 +118,11 @@ export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
                     )}
                 </LemonField>
                 {isCsvFormat && (
-                    <LemonField name="csv_allow_double_quotes" label="CSV quote handling" className="mb-4 w-max">
+                    <LemonField
+                        name={['options', 'csv_allow_double_quotes']}
+                        label="CSV quote handling"
+                        className="mb-4 w-max"
+                    >
                         {({ value, onChange }) => (
                             <LemonSelect
                                 data-attr="csv-quote-handling"

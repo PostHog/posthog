@@ -121,11 +121,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         help_text="Dict of all columns with Clickhouse type (including Nullable())",
     )
 
-    csv_allow_double_quotes = models.BooleanField(
-        null=True,
-        default=None,
-        help_text="Whether to use RFC 4180 CSV quoting. None = not yet detected.",
-    )
+    options = models.JSONField(default=dict, blank=True)
 
     row_count = models.IntegerField(null=True, help_text="How many rows are currently synced in this table")
     size_in_s3_mib = models.FloatField(null=True, help_text="The object size in S3 for this table in MiB")
@@ -138,6 +134,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     @property
     def name_chain(self) -> list[str]:
         return self.name.split(".")
+
+    @property
+    def csv_allow_double_quotes(self) -> bool | None:
+        return self.options.get("csv_allow_double_quotes")
 
     def soft_delete(self):
         from products.data_warehouse.backend.models.join import DataWarehouseJoin
