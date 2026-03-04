@@ -75,7 +75,7 @@ export function findSchemaByFieldName<T extends { name: string }>(
     schemas: T[] | undefined,
     fieldName: string,
     sourceType: string
-): T | undefined {
+): T | null {
     const schema = schemas?.find((s) => s.name === fieldName)
     if (schema) {
         return schema
@@ -90,7 +90,7 @@ export function findSchemaByFieldName<T extends { name: string }>(
             }
         }
     }
-    return undefined
+    return null
 }
 
 export const MAX_ATTRIBUTION_WINDOW_DAYS = 90
