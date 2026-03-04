@@ -9,7 +9,6 @@ import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
-import MaxTool from 'scenes/max/MaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
@@ -34,7 +33,7 @@ export const scene: SceneExport = {
 }
 
 function NewSurveyButton(): JSX.Element {
-    const { loadSurveys, addProductIntent } = useActions(surveysLogic)
+    const { addProductIntent } = useActions(surveysLogic)
 
     const trackAddNewClick = (): void => {
         addProductIntent({
@@ -44,66 +43,26 @@ function NewSurveyButton(): JSX.Element {
     }
 
     return (
-        <MaxTool
-            identifier="create_survey"
-            initialMaxPrompt="Create a survey to collect "
-            suggestions={[
-                'Create an NPS survey for customers who completed checkout',
-                'Create a feedback survey asking about our new dashboard',
-                'Create a product-market fit survey for trial users',
-                'Create a quick satisfaction survey for support interactions',
-            ]}
-            context={{}}
-            callback={(toolOutput: {
-                survey_id?: string
-                survey_name?: string
-                error?: string
-                error_message?: string
-            }) => {
-                addProductIntent({
-                    product_type: ProductKey.SURVEYS,
-                    intent_context: ProductIntentContext.SURVEY_CREATED,
-                    metadata: {
-                        survey_id: toolOutput.survey_id,
-                        source: SURVEY_CREATED_SOURCE.MAX_AI,
-                        created_successfully: !toolOutput?.error,
-                    },
-                })
-
-                if (toolOutput?.error || !toolOutput?.survey_id) {
-                    return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.MAX_AI)
-                }
-
-                loadSurveys()
-                router.actions.push(urls.survey(toolOutput.survey_id))
-            }}
-            position="bottom-right"
-            active={false}
-        >
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Survey}
-                minAccessLevel={AccessControlLevel.Editor}
+        <AccessControlAction resourceType={AccessControlResourceType.Survey} minAccessLevel={AccessControlLevel.Editor}>
+            <AppShortcut
+                name="NewSurvey"
+                keybind={[keyBinds.new]}
+                intent="New survey"
+                interaction="click"
+                scope={Scene.Surveys}
             >
-                <AppShortcut
-                    name="NewSurvey"
-                    keybind={[keyBinds.new]}
-                    intent="New survey"
-                    interaction="click"
-                    scope={Scene.Surveys}
+                <LemonButton
+                    size="small"
+                    to={urls.surveyWizard()}
+                    type="primary"
+                    data-attr="new-survey"
+                    tooltip="New survey"
+                    onClick={trackAddNewClick}
                 >
-                    <LemonButton
-                        size="small"
-                        to={urls.surveyWizard()}
-                        type="primary"
-                        data-attr="new-survey"
-                        tooltip="New survey"
-                        onClick={trackAddNewClick}
-                    >
-                        New survey
-                    </LemonButton>
-                </AppShortcut>
-            </AccessControlAction>
-        </MaxTool>
+                    New survey
+                </LemonButton>
+            </AppShortcut>
+        </AccessControlAction>
     )
 }
 
@@ -138,6 +97,7 @@ function Surveys(): JSX.Element {
                     callback: (toolOutput: {
                         survey_id?: string
                         survey_name?: string
+                        survey_type?: string
                         error?: string
                         error_message?: string
                     }) => {
@@ -156,7 +116,11 @@ function Surveys(): JSX.Element {
                         }
 
                         loadSurveys()
-                        router.actions.push(urls.survey(toolOutput.survey_id))
+                        if (toolOutput.survey_type === 'popover') {
+                            router.actions.push(urls.surveyWizard(toolOutput.survey_id))
+                        } else {
+                            router.actions.push(urls.survey(toolOutput.survey_id) + '?edit=true')
+                        }
                     },
                 }}
             />

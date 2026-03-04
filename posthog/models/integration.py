@@ -2623,3 +2623,29 @@ class AzureBlobIntegration:
             if part.startswith("AccountName="):
                 return part.split("=", 1)[1]
         return None
+
+
+# TODO: This is a placeholder currently only used to store the scopes we use for Stripe
+# It should be extended with the actual integration code once we move over to OAuth for Stripe as well
+class StripeIntegration:
+    integration: Integration
+
+    # These are the scopes we'll give Stripe when creating a local OAuth App
+    # and sending them access
+    SCOPES = " ".join(
+        [
+            "query:read",
+            "conversation:read",
+            "conversation:write",
+            "experiment:read",
+            "feature_flag:read",
+            "organization:read",
+            "person:read",
+            "project:read",
+            "ticket:read",
+            "ticket:write",
+            "user:read",
+            "hog_flow:read",
+            "hog_flow:write",
+        ]
+    )

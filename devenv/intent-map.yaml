@@ -139,6 +139,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    stripe_app:
+        description: 'Stripe app for PostHog integration'
+        requires: [core_infra]
+        docker_profiles: []
+
 # Intents map to products/features developers work on
 intents:
     product_analytics:
@@ -225,6 +230,10 @@ intents:
     mcp:
         description: 'MCP server for AI assistant integration'
         capabilities: [mcp_server]
+
+    stripe:
+        description: 'Stripe app for PostHog integration'
+        capabilities: [stripe_app]
 
     dagster:
         description: 'Dagster for clickhouse maintenance, system workflows'

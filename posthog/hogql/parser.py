@@ -378,7 +378,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select_query = ast.SelectQuery(
             ctes=self.visit(ctx.withClause()) if ctx.withClause() else None,
-            select=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
+            select=self.visit(ctx.selectColumnExprList()) if ctx.selectColumnExprList() else [],
             distinct=True if ctx.DISTINCT() else None,
             select_from=self.visit(ctx.fromClause()) if ctx.fromClause() else None,
             where=self.visit(ctx.whereClause()) if ctx.whereClause() else None,
@@ -691,6 +691,21 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprList(self, ctx: HogQLParser.ColumnExprListContext):
         return [self.visit(c) for c in ctx.columnExpr()]
+
+    def visitSelectColumnExprList(self, ctx: HogQLParser.SelectColumnExprListContext):
+        return [self.visit(c) for c in ctx.selectColumnExpr()]
+
+    def visitColumnExprAliasBefore(self, ctx: HogQLParser.ColumnExprAliasBeforeContext):
+        alias = self.visit(ctx.identifier())
+        expr = self.visit(ctx.columnExpr())
+
+        if alias.lower() in RESERVED_KEYWORDS:
+            raise SyntaxError(f'"{alias}" cannot be an alias or identifier, as it\'s a reserved keyword')
+
+        return ast.Alias(expr=expr, alias=alias)
+
+    def visitColumnExprSelectValue(self, ctx: HogQLParser.ColumnExprSelectValueContext):
+        return self.visit(ctx.columnExpr())
 
     def visitColumnExprTernaryOp(self, ctx: HogQLParser.ColumnExprTernaryOpContext):
         return ast.Call(

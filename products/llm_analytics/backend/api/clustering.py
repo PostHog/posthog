@@ -29,9 +29,10 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     MIN_CLUSTER_SIZE_FRACTION_MIN,
     WORKFLOW_NAME,
 )
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringWorkflowInputs
+from posthog.temporal.llm_analytics.trace_clustering.models import AnalysisLevel, ClusteringWorkflowInputs
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
+from products.llm_analytics.backend.models.clustering_job import ClusteringJob
 
 logger = structlog.get_logger(__name__)
 
@@ -143,6 +144,14 @@ class ClusteringRunRequestSerializer(serializers.Serializer):
         help_text="Property filters to scope which traces are included in clustering (PostHog standard format)",
     )
 
+    # Optional: run using a saved clustering job's configuration
+    clustering_job_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text="If provided, use this clustering job's analysis_level and event_filters instead of request params",
+    )
+
 
 class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """ViewSet for triggering and managing clustering workflow runs."""
@@ -188,6 +197,25 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         visualization_method = serializer.validated_data["visualization_method"]
         event_filters = serializer.validated_data["event_filters"]
 
+        # Override with clustering job config if provided
+        clustering_job_id = serializer.validated_data.get("clustering_job_id")
+        job_id = 0
+        job_name = ""
+        if clustering_job_id:
+            try:
+                job = ClusteringJob.objects.get(id=clustering_job_id, team_id=self.team_id)
+            except ClusteringJob.DoesNotExist:
+                return Response(
+                    {"detail": "Clustering job not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            event_filters = job.event_filters
+            job_id = job.id
+            job_name = job.name
+            analysis_level = cast(AnalysisLevel, job.analysis_level)
+        else:
+            analysis_level = ClusteringWorkflowInputs.analysis_level
+
         # Build method-specific params dict
         clustering_method_params: dict = {}
         if clustering_method == "hdbscan":
@@ -204,6 +232,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         # Build workflow inputs
         inputs = ClusteringWorkflowInputs(
             team_id=self.team_id,
+            analysis_level=analysis_level,
             lookback_days=lookback_days,
             max_samples=max_samples,
             embedding_normalization=embedding_normalization,
@@ -214,6 +243,8 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
             clustering_method_params=clustering_method_params,
             visualization_method=visualization_method,
             event_filters=event_filters,
+            job_id=job_id,
+            job_name=job_name,
         )
 
         # Generate unique workflow ID (follows naming convention from trace_clustering constants)

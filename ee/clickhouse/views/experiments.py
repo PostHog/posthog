@@ -382,6 +382,15 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         has_start_date = validated_data.get("start_date") is not None
         feature_flag = instance.feature_flag
 
+        # When restoring an experiment (deleted transitions from True to False),
+        # verify the linked feature flag hasn't been deleted in the meantime.
+        if instance.deleted and validated_data.get("deleted") is False:
+            if feature_flag.deleted:
+                raise ValidationError(
+                    "Cannot restore experiment: the linked feature flag has been deleted. "
+                    "Restore the feature flag first, then restore the experiment."
+                )
+
         expected_keys = {
             "name",
             "description",
