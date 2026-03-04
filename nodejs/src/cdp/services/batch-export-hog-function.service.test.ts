@@ -288,9 +288,7 @@ describe('BatchExportHogFunctionService', () => {
     describe('groups enrichment', () => {
         beforeEach(() => {
             // Clear cached group data between tests
-            const groupsManager = api['batchExportHogFunctionService']['groupsManager']
-            groupsManager['groupTypesLoader'].clear()
-            groupsManager['groupPropertiesLoader'].clear()
+            api['batchExportHogFunctionService']['groupsManager'].clear()
         })
 
         const setupGroups = async () => {
