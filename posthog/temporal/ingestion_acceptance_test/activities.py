@@ -10,7 +10,7 @@ import temporalio.activity
 from posthog.temporal.ingestion_acceptance_test.client import PostHogClient
 from posthog.temporal.ingestion_acceptance_test.config import Config
 from posthog.temporal.ingestion_acceptance_test.results import TestSuiteResult
-from posthog.temporal.ingestion_acceptance_test.runner import run_tests
+from posthog.temporal.ingestion_acceptance_test.runner import RunningTests, run_tests
 from posthog.temporal.ingestion_acceptance_test.slack import send_slack_notification, send_slack_timeout_notification
 from posthog.temporal.ingestion_acceptance_test.test_cases_discovery import discover_tests
 
@@ -54,14 +54,15 @@ async def run_ingestion_acceptance_tests() -> dict:
 
     tests = discover_tests()
     client = PostHogClient(config, posthog_sdk)
+    running_tests = RunningTests()
     try:
         with ThreadPoolExecutor() as executor:
             result: TestSuiteResult = await asyncio.wait_for(
-                asyncio.to_thread(run_tests, config, tests, client, executor),
+                asyncio.to_thread(run_tests, config, tests, client, executor, running_tests),
                 timeout=config.activity_timeout_seconds,
             )
     except TimeoutError:
-        send_slack_timeout_notification(config)
+        send_slack_timeout_notification(config, running_tests=running_tests.snapshot())
         raise
 
     logger.info(

@@ -340,7 +340,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportDashboardModeToggled: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
-            mode: DashboardMode,
+            mode: DashboardMode | null,
             source: DashboardEventSource | null
         ) => ({ dashboard, mode, source }),
         reportDashboardRefreshed: (
@@ -405,6 +405,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportDashboardWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
+        reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized') => ({
+            dashboardId,
+            action,
+        }),
+        reportDashboardInsightMetaUpdated: (
+            dashboardId: number | undefined,
+            insightId: number,
+            attribute: 'name' | 'description'
+        ) => ({ dashboardId, insightId, attribute }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -1175,6 +1184,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardWhitelabelToggled: async ({ isWhiteLabelled }) => {
             posthog.capture(`dashboard whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
+        },
+        reportDashboardTileRepositioned: async ({ dashboardId, action }) => {
+            posthog.capture('dashboard tile repositioned', {
+                dashboard_id: dashboardId,
+                action,
+            })
+        },
+        reportDashboardInsightMetaUpdated: async ({ dashboardId, insightId, attribute }) => {
+            posthog.capture('dashboard insight meta updated', {
+                dashboard_id: dashboardId,
+                insight_id: insightId,
+                attribute,
+            })
         },
         reportUpgradeModalShown: async (payload) => {
             posthog.capture('upgrade modal shown', payload)
