@@ -115,7 +115,7 @@ impl InvocationContext {
     }
 
     pub fn capture_event(&self, event_name: &str, props: Vec<(&str, serde_json::Value)>) {
-        let env_id = self.client.get_env_id();
+        let env_id = self.client.get_env_id().clone();
         let event_name = event_name.to_string();
         let props: Vec<(String, serde_json::Value)> = props
             .into_iter()
