@@ -117,17 +117,6 @@ const loadAppMetricsTimeSeries = async (
     timezone: string
 ): Promise<AppMetricsTimeSeriesResponse> => {
     const interval = request.interval || DEFAULT_INTERVAL
-    const breakdownBy = request.breakdownBy ?? 'metric_name'
-    const requestedMetricNames = request.metricName
-        ? Array.isArray(request.metricName)
-            ? request.metricName
-            : [request.metricName]
-        : null
-    const shouldIncludeWorkflowInProgressSeries =
-        request.appSource === 'hog_flow' &&
-        breakdownBy === 'metric_name' &&
-        !request.instanceId &&
-        (!requestedMetricNames || requestedMetricNames.includes('in_progress'))
 
     let query = hogql`
         WITH
@@ -176,7 +165,7 @@ const loadAppMetricsTimeSeries = async (
             FROM
             (
                 SELECT
-                    ${hogql.raw(breakdownBy)} AS breakdown,
+                    ${hogql.raw(request.breakdownBy!)} AS breakdown,
                     -- Convert data to user's TZ before truncating
                     dateTrunc(g, toTimeZone(timestamp, tz), tz) AS bucket,
                     sum(count) AS cnt
@@ -199,58 +188,8 @@ const loadAppMetricsTimeSeries = async (
         query = (query + hogql`\nAND metric_kind IN ${metricKinds}`) as HogQLQueryString
     }
 
-    if (shouldIncludeWorkflowInProgressSeries) {
-        query = (query +
-            hogql`
-                AND toTimeZone(timestamp, tz) >= start_bucket
-                AND toTimeZone(timestamp, tz) < multiIf(
-                        g = 'minute', addMinutes(end_bucket, 1),
-                        g = 'hour',   addHours(end_bucket,   1),
-                        g = 'day',    addDays(end_bucket,    1),
-                        g = 'week',   addWeeks(end_bucket,   1),
-                        end_bucket
-                )
-                GROUP BY breakdown, bucket
-
-                UNION ALL
-
-                SELECT
-                    'in_progress' AS breakdown,
-                    dateTrunc(g, toTimeZone(timestamp, tz), tz) AS bucket,
-                    sumIf(count, metric_name = 'triggered') - sumIf(count, metric_name = 'succeeded') AS cnt
-                FROM app_metrics
-                WHERE app_source = ${request.appSource}
-        `) as HogQLQueryString
-
-        if (request.appSourceId) {
-            query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
-        }
-        if (request.metricKind) {
-            const metricKinds = Array.isArray(request.metricKind) ? request.metricKind : [request.metricKind]
-            query = (query + hogql`\nAND metric_kind IN ${metricKinds}`) as HogQLQueryString
-        }
-
-        query = (query +
-            hogql`
-                AND metric_name IN ['triggered', 'succeeded']
-                AND toTimeZone(timestamp, tz) >= start_bucket
-                AND toTimeZone(timestamp, tz) < multiIf(
-                        g = 'minute', addMinutes(end_bucket, 1),
-                        g = 'hour',   addHours(end_bucket,   1),
-                        g = 'day',    addDays(end_bucket,    1),
-                        g = 'week',   addWeeks(end_bucket,   1),
-                        end_bucket
-                )
-                GROUP BY bucket
-                ORDER BY breakdown, bucket
-            )
-            GROUP BY breakdown
-        )
-        ORDER BY breakdown
-        `) as HogQLQueryString
-    } else {
-        query = (query +
-            hogql`
+    query = (query +
+        hogql`
                 AND toTimeZone(timestamp, tz) >= start_bucket
                 AND toTimeZone(timestamp, tz) < multiIf(
                         g = 'minute', addMinutes(end_bucket, 1),
@@ -266,7 +205,6 @@ const loadAppMetricsTimeSeries = async (
         )
         ORDER BY breakdown
         `) as HogQLQueryString
-    }
 
     const response = await api.queryHogQL(
         query,
