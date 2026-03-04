@@ -102,7 +102,13 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
 
     return (
         <div className="flex flex-col">
-            <DatabaseTablePreview table={table} emptyMessage="No table selected" limit={5} className="mt-2" />
+            <DatabaseTablePreview
+                table={table}
+                selectedKey={activeFieldValue}
+                emptyMessage="No table selected"
+                limit={5}
+                className="mt-2"
+            />
             <LemonSegmentedButton
                 className="mt-4"
                 fullWidth
