@@ -2951,3 +2951,281 @@ MultipleAlerts.parameters = {
         waitForLoadersToDisappear: false,
     },
 }
+
+// Session Summarization Progress Stories
+
+const sessionSummarizationToolCallMessage: AssistantMessage = {
+    type: AssistantMessageType.Assistant,
+    content: 'Let me summarize those sessions...',
+    id: 'summarize-sessions-msg',
+    tool_calls: [
+        {
+            id: 'summarize_tool_1',
+            name: 'summarize_sessions',
+            type: 'tool_call',
+            args: {},
+        },
+    ],
+}
+
+const sessionSummarizationToolCallResult: AssistantToolCallMessage = {
+    type: AssistantMessageType.ToolCall,
+    tool_call_id: 'summarize_tool_1',
+    content: 'Sessions have been summarized',
+    id: 'summarize-tool-result-1',
+    ui_payload: {
+        summarize_sessions: {
+            title: 'Checkout flow analysis',
+            session_group_summary_id: 'summary-123',
+        },
+    },
+}
+
+const sessionsDiscoveredUpdate = JSON.stringify({
+    type: 'sessions_discovered',
+    sessions: [
+        {
+            id: 'session-abc-001',
+            first_url: 'https://app.example.com/dashboard',
+            active_duration_s: 245,
+            distinct_id: 'user-alpha@example.com',
+            start_time: '2025-03-01T10:15:00Z',
+            snapshot_source: 'web',
+        },
+        {
+            id: 'session-abc-002',
+            first_url: 'https://app.example.com/checkout',
+            active_duration_s: 180,
+            distinct_id: 'user-beta@example.com',
+            start_time: '2025-03-01T11:30:00Z',
+            snapshot_source: 'web',
+        },
+        {
+            id: 'session-abc-003',
+            first_url: 'https://m.example.com/products',
+            active_duration_s: 92,
+            distinct_id: 'user-gamma',
+            start_time: '2025-03-01T12:00:00Z',
+            snapshot_source: 'mobile',
+        },
+    ],
+})
+
+function makeProgressUpdate(
+    statusChanges: { id: string; status: string }[],
+    phase: string,
+    completedCount: number,
+    totalCount: number,
+    patternsFound: string[] = []
+): string {
+    return JSON.stringify({
+        type: 'progress',
+        status_changes: statusChanges,
+        phase,
+        completed_count: completedCount,
+        total_count: totalCount,
+        patterns_found: patternsFound,
+    })
+}
+
+export const SessionSummarizationInProgress: StoryFn = () => {
+    const updateEvents = [
+        sessionsDiscoveredUpdate,
+        makeProgressUpdate([{ id: 'session-abc-001', status: 'summarizing' }], 'watching_sessions', 0, 3),
+        makeProgressUpdate([{ id: 'session-abc-002', status: 'summarizing' }], 'watching_sessions', 0, 3),
+        makeProgressUpdate([{ id: 'session-abc-001', status: 'summarized' }], 'watching_sessions', 1, 3),
+    ]
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Summarize my recent checkout sessions',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(sessionSummarizationToolCallMessage)}`,
+                            ...updateEvents.flatMap((update) => [
+                                'event: update',
+                                `data: ${JSON.stringify({ id: 'upd-1', tool_call_id: 'summarize_tool_1', content: update })}`,
+                            ]),
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Summarize my recent checkout sessions')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+SessionSummarizationInProgress.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const SessionSummarizationCompleted: StoryFn = () => {
+    const updateEvents = [
+        sessionsDiscoveredUpdate,
+        makeProgressUpdate([{ id: 'session-abc-001', status: 'summarizing' }], 'watching_sessions', 0, 3),
+        makeProgressUpdate([{ id: 'session-abc-002', status: 'summarizing' }], 'watching_sessions', 0, 3),
+        makeProgressUpdate([{ id: 'session-abc-003', status: 'summarizing' }], 'watching_sessions', 0, 3),
+        makeProgressUpdate([{ id: 'session-abc-001', status: 'summarized' }], 'watching_sessions', 1, 3),
+        makeProgressUpdate([{ id: 'session-abc-002', status: 'summarized' }], 'watching_sessions', 2, 3),
+        makeProgressUpdate([{ id: 'session-abc-003', status: 'summarized' }], 'watching_sessions', 3, 3),
+        makeProgressUpdate([], 'extracting_patterns', 3, 3, ['Checkout abandonment', 'Navigation confusion']),
+        makeProgressUpdate([], 'assigning_patterns', 3, 3, ['Checkout abandonment', 'Navigation confusion']),
+    ]
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Summarize my recent checkout sessions',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(sessionSummarizationToolCallMessage)}`,
+                            ...updateEvents.flatMap((update) => [
+                                'event: update',
+                                `data: ${JSON.stringify({ id: 'upd-1', tool_call_id: 'summarize_tool_1', content: update })}`,
+                            ]),
+                            'event: message',
+                            `data: ${JSON.stringify(sessionSummarizationToolCallResult)}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                type: AssistantMessageType.Assistant,
+                                content:
+                                    'I found 2 key patterns across 3 sessions: **Checkout abandonment** — users leave during payment step, and **Navigation confusion** — users struggle to find the cart.',
+                                id: 'summary-response',
+                            })}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Summarize my recent checkout sessions')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+SessionSummarizationCompleted.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const SessionSummarizationWithFailures: StoryFn = () => {
+    const updateEvents = [
+        sessionsDiscoveredUpdate,
+        makeProgressUpdate([{ id: 'session-abc-001', status: 'summarizing' }], 'watching_sessions', 0, 3),
+        makeProgressUpdate([{ id: 'session-abc-002', status: 'summarizing' }], 'watching_sessions', 0, 3),
+        makeProgressUpdate([{ id: 'session-abc-003', status: 'summarizing' }], 'watching_sessions', 0, 3),
+        makeProgressUpdate([{ id: 'session-abc-001', status: 'summarized' }], 'watching_sessions', 1, 3),
+        makeProgressUpdate([{ id: 'session-abc-002', status: 'failed' }], 'watching_sessions', 2, 3),
+        makeProgressUpdate([{ id: 'session-abc-003', status: 'summarized' }], 'watching_sessions', 3, 3),
+    ]
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Summarize my recent checkout sessions',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(sessionSummarizationToolCallMessage)}`,
+                            ...updateEvents.flatMap((update) => [
+                                'event: update',
+                                `data: ${JSON.stringify({ id: 'upd-1', tool_call_id: 'summarize_tool_1', content: update })}`,
+                            ]),
+                            'event: message',
+                            `data: ${JSON.stringify(sessionSummarizationToolCallResult)}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                type: AssistantMessageType.Assistant,
+                                content: 'I was able to summarize 2 out of 3 sessions. One session failed to process.',
+                                id: 'summary-with-failures',
+                            })}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Summarize my recent checkout sessions')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+SessionSummarizationWithFailures.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}

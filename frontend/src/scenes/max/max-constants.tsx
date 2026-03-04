@@ -23,7 +23,7 @@ import { isObject } from '~/lib/utils'
 import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
-import type { SessionSummarizationUpdate } from './messages/SessionSummarizationProgress'
+import type { SessionSummarizationUpdate } from './messages/sessionSummarizationProgressUtils'
 import { EnhancedToolCall } from './Thread'
 
 export interface DisplayFormatterContext {
