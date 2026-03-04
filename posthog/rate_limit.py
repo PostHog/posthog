@@ -735,13 +735,8 @@ class RestoreRedeemThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
-class CodeInviteRedeemThrottle(UserRateThrottle):
-    scope = "code_invite_redeem"
-    rate = "20/hour"
-
-
-class CodeInviteCheckAccessThrottle(UserRateThrottle):
-    scope = "code_invite_check_access"
+class CodeInviteThrottle(UserRateThrottle):
+    scope = "code_invite"
     rate = "20000/hour"
 
 
