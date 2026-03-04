@@ -16,6 +16,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.schema import EmbeddingModelName
 
@@ -25,6 +26,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
+from posthog.temporal.ai.video_segment_clustering.constants import clustering_workflow_id
+from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
+from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend.api import emit_signal
 from products.signals.backend.models import (
@@ -89,11 +93,31 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         try:
-            serializer.save(team_id=self.team_id, created_by=self.request.user)
+            instance = serializer.save(team_id=self.team_id, created_by=self.request.user)
         except IntegrityError:
             raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}
             )
+
+        if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER and instance.enabled:
+            self._trigger_initial_clustering(instance)
+
+    def _trigger_initial_clustering(self, config: SignalSourceConfig) -> None:
+        """Fire-and-forget the clustering workflow."""
+        try:
+            client = sync_connect()
+            async_to_sync(client.start_workflow)(  # type: ignore
+                "video-segment-clustering",  # type: ignore
+                ClusteringWorkflowInputs(team_id=self.team_id),  # type: ignore
+                id=clustering_workflow_id(self.team_id, config.id),
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            logger.info(f"Started initial clustering workflow for team {self.team_id}")
+        except Exception:
+            logger.exception(f"Failed to start initial clustering workflow for team {self.team_id}")
 
     def perform_update(self, serializer):
         try:

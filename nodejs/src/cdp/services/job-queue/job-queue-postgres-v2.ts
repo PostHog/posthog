@@ -21,13 +21,10 @@ type SerializedJobState = {
 export class CyclotronJobQueuePostgresV2 {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
+    private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
 
-    constructor(
-        private config: PluginsServerConfig,
-        private queue: CyclotronJobQueueKind,
-        private consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
-    ) {}
+    constructor(private config: PluginsServerConfig) {}
 
     public async startAsProducer(): Promise<void> {
         if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
@@ -41,7 +38,12 @@ export class CyclotronJobQueuePostgresV2 {
         await this.manager.connect()
     }
 
-    public async startAsConsumer(): Promise<void> {
+    public async startAsConsumer(
+        queue: CyclotronJobQueueKind,
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+    ): Promise<void> {
+        this.consumeBatch = consumeBatch
+
         if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
             throw new Error('Cyclotron V2 database URL not set')
         }
@@ -50,7 +52,7 @@ export class CyclotronJobQueuePostgresV2 {
 
         this.worker = new CyclotronV2Worker({
             pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
-            queueName: this.queue,
+            queueName: queue,
             batchMaxSize: this.config.CONSUMER_BATCH_SIZE,
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
@@ -175,7 +177,7 @@ export class CyclotronJobQueuePostgresV2 {
             invocations.push(v2JobToInvocation(job))
         }
 
-        await this.consumeBatch(invocations)
+        await this.consumeBatch!(invocations)
     }
 }
 

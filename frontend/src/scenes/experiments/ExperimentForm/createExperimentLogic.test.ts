@@ -717,6 +717,89 @@ describe('createExperimentLogic', () => {
 
             secondLogic.unmount()
         })
+
+        it('navigating away without saving preserves draft for next visit', async () => {
+            const firstLogic = createExperimentLogic({ tabId: TAB_ID })
+            firstLogic.mount()
+
+            firstLogic.actions.setExperimentValue('name', 'Work In Progress')
+            firstLogic.actions.setExperimentValue('feature_flag_key', 'wip-flag')
+
+            await expectLogic(firstLogic).toMatchValues({
+                experiment: partial({ name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
+            })
+
+            // User navigates away (e.g. switches tab) — no cancel, no save
+            firstLogic.unmount()
+
+            // User comes back to /experiments/new
+            const secondLogic = createExperimentLogic({ tabId: TAB_ID })
+            secondLogic.mount()
+
+            await expectLogic(secondLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
+            })
+
+            secondLogic.unmount()
+        })
+
+        it('cancel clears draft so re-entering create mode starts fresh', async () => {
+            const firstLogic = createExperimentLogic({ tabId: TAB_ID })
+            firstLogic.mount()
+
+            firstLogic.actions.setExperimentValue('name', 'Will Cancel')
+            firstLogic.actions.setExperimentValue('feature_flag_key', 'will-cancel')
+
+            await expectLogic(firstLogic).toMatchValues({
+                experiment: partial({ name: 'Will Cancel', feature_flag_key: 'will-cancel' }),
+            })
+
+            // User clicks cancel — clears draft then navigates away
+            firstLogic.actions.cancelForm()
+            firstLogic.unmount()
+
+            // User navigates back to /experiments/new
+            const secondLogic = createExperimentLogic({ tabId: TAB_ID })
+            secondLogic.mount()
+
+            await expectLogic(secondLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: '', feature_flag_key: '' }),
+            })
+
+            secondLogic.unmount()
+        })
+
+        it('canceling one tab does not affect the other', async () => {
+            const tab1Logic = createExperimentLogic({ tabId: 'tab-1' })
+            const tab2Logic = createExperimentLogic({ tabId: 'tab-2' })
+            tab1Logic.mount()
+            tab2Logic.mount()
+
+            tab1Logic.actions.setExperimentValue('name', 'Tab 1 Experiment')
+            tab1Logic.actions.setExperimentValue('feature_flag_key', 'tab-1-flag')
+            tab2Logic.actions.setExperimentValue('name', 'Tab 2 Experiment')
+            tab2Logic.actions.setExperimentValue('feature_flag_key', 'tab-2-flag')
+
+            // Cancel tab 1
+            tab1Logic.actions.cancelForm()
+            tab1Logic.unmount()
+
+            // Tab 2 is unaffected
+            await expectLogic(tab2Logic).toMatchValues({
+                experiment: partial({ name: 'Tab 2 Experiment', feature_flag_key: 'tab-2-flag' }),
+            })
+
+            // Re-opening tab 1 starts fresh
+            const newTab1Logic = createExperimentLogic({ tabId: 'tab-1' })
+            newTab1Logic.mount()
+
+            await expectLogic(newTab1Logic).toMatchValues({
+                experiment: partial({ id: 'new', name: '', feature_flag_key: '' }),
+            })
+
+            newTab1Logic.unmount()
+            tab2Logic.unmount()
+        })
     })
 
     describe('feature flag key auto-generation', () => {

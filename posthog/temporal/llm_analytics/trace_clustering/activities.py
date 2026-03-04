@@ -63,8 +63,10 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
     if window_start is None or window_end is None:
         raise ValueError(f"Invalid datetime format: window_start={inputs.window_start}, window_end={inputs.window_end}")
 
-    # Generate run_id with analysis_level for uniqueness and optional label suffix for experiment tracking
+    # Generate run_id with analysis_level for uniqueness and optional job/label suffixes
     base_run_id = f"{inputs.team_id}_{inputs.analysis_level}_{window_end.strftime('%Y%m%d_%H%M%S')}"
+    if inputs.job_id:
+        base_run_id = f"{base_run_id}_{inputs.job_id}"
     clustering_run_id = f"{base_run_id}_{inputs.run_label}" if inputs.run_label else base_run_id
 
     team = Team.objects.get(id=inputs.team_id)
@@ -344,6 +346,8 @@ def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
         batch_run_ids=inputs.batch_run_ids,
         clustering_params=inputs.clustering_params,
         analysis_level=inputs.analysis_level,
+        job_id=inputs.job_id,
+        job_name=inputs.job_name,
     )
 
     return ClusteringResult(

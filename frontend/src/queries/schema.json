@@ -11045,9 +11045,6 @@
         "DataWarehouseViewLink": {
             "additionalProperties": false,
             "properties": {
-                "configuration": {
-                    "$ref": "#/definitions/DataWarehouseViewLinkConfiguration"
-                },
                 "created_at": {
                     "type": ["string", "null"]
                 },
@@ -11081,18 +11078,6 @@
                 }
             },
             "required": ["id"],
-            "type": "object"
-        },
-        "DataWarehouseViewLinkConfiguration": {
-            "additionalProperties": false,
-            "properties": {
-                "experiments_optimized": {
-                    "type": "boolean"
-                },
-                "experiments_timestamp_key": {
-                    "type": ["string", "null"]
-                }
-            },
             "type": "object"
         },
         "DatabaseSchemaBatchExportTable": {
@@ -18718,6 +18703,7 @@
         "IntegrationKind": {
             "enum": [
                 "slack",
+                "slack-twig",
                 "salesforce",
                 "hubspot",
                 "google-pubsub",
@@ -21353,6 +21339,33 @@
             },
             "type": "object"
         },
+        "MaxEvaluationContext": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "evaluation_type": {
+                    "enum": ["hog", "llm_judge"],
+                    "type": "string"
+                },
+                "hog_source": {
+                    "type": ["string", "null"]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "evaluation",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "id", "evaluation_type"],
+            "type": "object"
+        },
         "MaxEventContext": {
             "additionalProperties": false,
             "properties": {
@@ -21723,6 +21736,12 @@
                 "error_tracking_issues": {
                     "items": {
                         "$ref": "#/definitions/MaxErrorTrackingIssueContext"
+                    },
+                    "type": "array"
+                },
+                "evaluations": {
+                    "items": {
+                        "$ref": "#/definitions/MaxEvaluationContext"
                     },
                     "type": "array"
                 },
@@ -32103,6 +32122,7 @@
                 "log_attributes",
                 "log_resource_attributes",
                 "replay",
+                "replay_saved_filters",
                 "revenue_analytics_properties",
                 "resources",
                 "error_tracking_properties",
@@ -32747,6 +32767,10 @@
                         "$ref": "#/definitions/integer"
                     },
                     "type": "array"
+                },
+                "hideWeekends": {
+                    "default": false,
+                    "type": "boolean"
                 },
                 "minDecimalPlaces": {
                     "type": "number"
