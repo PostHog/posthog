@@ -7,6 +7,7 @@ from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, 
 
 import structlog
 import posthoganalytics
+from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import (
@@ -102,6 +103,17 @@ from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 logger = structlog.get_logger(__name__)
 
+QUERY_EXECUTION_SUCCESS = Counter(
+    "posthog_query_execution_success_total",
+    "Successful query executions",
+    labelnames=["query_type"],
+)
+
+QUERY_EXECUTION_FAILURE = Counter(
+    "posthog_query_execution_failure_total",
+    "Failed query executions",
+    labelnames=["query_type"],
+)
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
 
@@ -1290,7 +1302,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
                 self.modifiers.useMaterializedViews = True
 
-            query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
+            query_type = getattr(self.query, "kind", "Other")
+            try:
+                query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
+            except Exception:
+                QUERY_EXECUTION_FAILURE.labels(query_type=query_type).inc()
+                raise
 
             fresh_response_dict = {
                 **query_result.model_dump(),
@@ -1325,6 +1342,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Don't cache debug queries with errors and export queries
             errors: Optional[list] = fresh_response_dict.get("error", None)
             has_error = errors is not None and len(errors) > 0
+
+            if has_error:
+                QUERY_EXECUTION_FAILURE.labels(query_type=query_type).inc()
+            else:
+                QUERY_EXECUTION_SUCCESS.labels(query_type=query_type).inc()
+
             if not has_error and self.limit_context != LimitContext.EXPORT:
                 cache_manager.set_cache_data(
                     response=fresh_response_dict,
