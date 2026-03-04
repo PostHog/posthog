@@ -31,11 +31,7 @@ export class PersonsPage {
         this.deletePersonButton = page.locator('[data-attr="delete-person"]').first()
     }
 
-    propertiesTable(): TableHelper {
-        return new TableHelper(this.page.locator('table').first())
-    }
-
-    eventsTable(): TableHelper {
+    detailTable(): TableHelper {
         return new TableHelper(this.page.locator('table').first())
     }
 

@@ -44,7 +44,7 @@ test.describe('Persons', () => {
 
         await test.step('verify properties tab shows seeded person properties', async () => {
             await persons.goToPropertiesTab()
-            const propsTable = persons.propertiesTable()
+            const propsTable = persons.detailTable()
             const nameValue = await propsTable.row('name').column('value')
             expect(nameValue).toContain('Alice')
             const planValue = await propsTable.row('plan').column('value')
@@ -54,7 +54,7 @@ test.describe('Persons', () => {
         await test.step('verify events tab shows the seeded pageview events', async () => {
             await persons.goToEventsTab()
             await expect(page.getByText('Showing all')).toBeVisible()
-            const eventsTable = persons.eventsTable()
+            const eventsTable = persons.detailTable()
             const eventNames = await eventsTable.column('event')
             expect(eventNames).toHaveLength(2)
             expect(eventNames.every((name) => name.includes('Pageview'))).toBe(true)
@@ -78,7 +78,7 @@ test.describe('Persons', () => {
 
         await test.step('add a new text property and verify it appears', async () => {
             await persons.addProperty(propKey, 'test-value-123')
-            const propsTable = persons.propertiesTable()
+            const propsTable = persons.detailTable()
             const value = await propsTable.row(propKey).column('value')
             expect(value).toContain('test-value-123')
         })
@@ -86,15 +86,15 @@ test.describe('Persons', () => {
         await test.step('add a property with an empty string value and verify it is not coerced to 0', async () => {
             const emptyKey = randomString('empty-val')
             await persons.addProperty(emptyKey, '')
-            const propsTable = persons.propertiesTable()
+            const propsTable = persons.detailTable()
             const value = await propsTable.row(emptyKey).column('value')
-            expect(value).not.toContain('0')
+            expect(value).toBe('string')
         })
 
         await test.step('add a property with value "0" and verify it shows 0', async () => {
             const numericKey = randomString('numeric-val')
             await persons.addProperty(numericKey, '0')
-            const propsTable = persons.propertiesTable()
+            const propsTable = persons.detailTable()
             const value = await propsTable.row(numericKey).column('value')
             expect(value).toContain('0')
         })
@@ -126,7 +126,7 @@ test.describe('Persons', () => {
                 .toBe('will-be-deleted')
 
             await persons.deleteProperty(propKey)
-            const propsTable = persons.propertiesTable()
+            const propsTable = persons.detailTable()
             const keys = await propsTable.column('key')
             expect(keys).not.toContain(propKey)
         })
