@@ -263,7 +263,7 @@ async def _get_backfill_info_for_events(
     exclude_events: list[str],
     filters_str: str,
     extra_query_parameters: dict[str, typing.Any],
-) -> tuple[dt.datetime | None, int]:
+) -> tuple[dt.datetime | None, int | None]:
     """Get adjusted start time and estimated record count for events model.
 
     Returns:
