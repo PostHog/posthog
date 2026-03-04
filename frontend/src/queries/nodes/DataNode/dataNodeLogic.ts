@@ -303,6 +303,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     }
 
+                    if (query === undefined || Object.keys(query).length === 0) {
+                        // no need to try and load a query before properly initialized
+                        return null
+                    }
+
                     // if no query, return null
                     if ('query' in query) {
                         if (!query.query) {
@@ -312,11 +317,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     if (!values.currentTeamId) {
                         // if shared/exported, the team is not loaded
-                        return null
-                    }
-
-                    if (query === undefined || Object.keys(query).length === 0) {
-                        // no need to try and load a query before properly initialized
                         return null
                     }
 

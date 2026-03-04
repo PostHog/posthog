@@ -11,8 +11,10 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import (
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
+    QueryError,
     ResolutionError,
 )
+from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
@@ -86,16 +88,21 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
 
             # Replace placeholders with dummy values to compile the generated query.
             finder = find_placeholders(parsed_query)
-            if finder.placeholder_fields or finder.has_filters:
+
+            # Handle filter placeholders using the proper filter replacement system.
+            # Passing None for filters resolves all recognized filter placeholders to True (no-op).
+            if finder.has_filters:
+                parsed_query = cast(ast.SelectQuery, replace_filters(parsed_query, None, self._team))
+
+            # Handle remaining non-filter placeholders with dummy values.
+            if finder.placeholder_fields:
                 dummy_placeholders: dict[str, ast.Expr] = {
                     str(field[0]): ast.Constant(value=1) for field in finder.placeholder_fields
                 }
-                if finder.has_filters:
-                    dummy_placeholders["filters"] = ast.Constant(value=1)
                 parsed_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
 
             prepare_and_print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
-        except (ExposedHogQLError, HogQLNotImplementedError, ResolutionError) as err:
+        except (ExposedHogQLError, HogQLNotImplementedError, QueryError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
