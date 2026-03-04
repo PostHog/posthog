@@ -1,9 +1,11 @@
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dashmap::DashMap;
 use kafka_assigner_proto::kafka_assigner::v1 as proto;
 use kafka_assigner_proto::kafka_assigner::v1::kafka_assigner_server::KafkaAssigner;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
@@ -24,6 +26,9 @@ pub struct KafkaAssignerService {
     registry: Arc<ConsumerRegistry>,
     store: Arc<KafkaAssignerStore>,
     kafka_config: KafkaConfig,
+    /// Per-topic lock to serialize concurrent `ensure_topic_config` calls,
+    /// avoiding duplicate Kafka metadata fetches for the same new topic.
+    topic_init_locks: DashMap<String, Arc<Mutex<()>>>,
     stream_channel_size: usize,
     consumer_lease_ttl: i64,
     consumer_keepalive_interval: Duration,
@@ -78,6 +83,7 @@ impl KafkaAssignerService {
             registry,
             store,
             kafka_config,
+            topic_init_locks: DashMap::new(),
             stream_channel_size,
             consumer_lease_ttl,
             consumer_keepalive_interval,
@@ -89,46 +95,56 @@ impl KafkaAssignerService {
     /// If one already exists, this is a no-op. Otherwise, fetch the partition
     /// count from Kafka broker metadata and store the config in etcd.
     async fn ensure_topic_config(&self, topic: &str) -> Result<(), Status> {
-        let existing = self
-            .store
-            .get_topic_config(topic)
-            .await
-            .map_err(|e| Status::internal(format!("failed to check topic config: {e}")))?;
+        let store = &self.store;
+        let kafka_config = &self.kafka_config;
 
-        if existing.is_some() {
-            return Ok(());
-        }
+        run_once_per_key(
+            topic,
+            &self.topic_init_locks,
+            || async {
+                store
+                    .get_topic_config(topic)
+                    .await
+                    .map(|opt| opt.is_some())
+                    .map_err(|e| Status::internal(format!("failed to check topic config: {e}")))
+            },
+            || async {
+                tracing::info!(topic, "topic config not found in etcd, fetching from Kafka");
 
-        tracing::info!(topic, "topic config not found in etcd, fetching from Kafka");
+                let kc = kafka_config.clone();
+                let topic_owned = topic.to_string();
 
-        let kafka_config = self.kafka_config.clone();
-        let topic_owned = topic.to_string();
+                let partition_count = tokio::task::spawn_blocking(move || {
+                    crate::kafka_admin::fetch_partition_count(
+                        &kc.hosts,
+                        kc.tls,
+                        &topic_owned,
+                        kc.metadata_timeout,
+                    )
+                })
+                .await
+                .map_err(|e| Status::internal(format!("metadata fetch task panicked: {e}")))?
+                .map_err(|e| {
+                    Status::internal(format!("failed to fetch partition count: {e}"))
+                })?;
 
-        let partition_count = tokio::task::spawn_blocking(move || {
-            crate::kafka_admin::fetch_partition_count(
-                &kafka_config.hosts,
-                kafka_config.tls,
-                &topic_owned,
-                kafka_config.metadata_timeout,
-            )
-        })
+                let config = TopicConfig {
+                    topic: topic.to_string(),
+                    partition_count,
+                };
+
+                store
+                    .set_topic_config(&config)
+                    .await
+                    .map_err(|e| {
+                        Status::internal(format!("failed to store topic config: {e}"))
+                    })?;
+
+                tracing::info!(topic, partition_count, "stored topic config in etcd");
+                Ok(())
+            },
+        )
         .await
-        .map_err(|e| Status::internal(format!("metadata fetch task panicked: {e}")))?
-        .map_err(|e| Status::internal(format!("failed to fetch partition count: {e}")))?;
-
-        let config = TopicConfig {
-            topic: topic.to_string(),
-            partition_count,
-        };
-
-        self.store
-            .set_topic_config(&config)
-            .await
-            .map_err(|e| Status::internal(format!("failed to store topic config: {e}")))?;
-
-        tracing::info!(topic, partition_count, "stored topic config in etcd");
-
-        Ok(())
     }
 }
 
@@ -330,6 +346,40 @@ impl KafkaAssigner for KafkaAssignerService {
     }
 }
 
+/// Double-checked locking: run `init_fn` at most once per key.
+///
+/// `is_initialized` is called first without a lock (fast path). If it returns
+/// false, a per-key mutex is acquired and `is_initialized` is re-checked. Only
+/// if still false, `init_fn` runs.
+async fn run_once_per_key<C, CF, I, IF, E>(
+    key: &str,
+    locks: &DashMap<String, Arc<Mutex<()>>>,
+    is_initialized: C,
+    init_fn: I,
+) -> Result<(), E>
+where
+    C: Fn() -> CF,
+    CF: Future<Output = Result<bool, E>>,
+    I: FnOnce() -> IF,
+    IF: Future<Output = Result<(), E>>,
+{
+    if is_initialized().await? {
+        return Ok(());
+    }
+
+    let lock = locks
+        .entry(key.to_string())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone();
+    let _guard = lock.lock().await;
+
+    if is_initialized().await? {
+        return Ok(());
+    }
+
+    init_fn().await
+}
+
 /// Keep the etcd lease alive while the gRPC stream is still open.
 ///
 /// The `proto_tx` sender is used to detect when the consumer disconnects:
@@ -356,5 +406,167 @@ async fn run_consumer_keepalive(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn run_once_skips_init_when_already_initialized() {
+        let locks = DashMap::new();
+        let init_count = AtomicU32::new(0);
+
+        run_once_per_key(
+            "topic-a",
+            &locks,
+            || async { Ok::<_, String>(true) },
+            || async {
+                init_count.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(init_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn run_once_calls_init_when_not_initialized() {
+        let locks = DashMap::new();
+        let init_count = AtomicU32::new(0);
+
+        run_once_per_key(
+            "topic-a",
+            &locks,
+            || async { Ok::<_, String>(false) },
+            || async {
+                init_count.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(init_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn run_once_concurrent_callers_only_init_once() {
+        let locks = Arc::new(DashMap::new());
+        let init_count = Arc::new(AtomicU32::new(0));
+        let initialized = Arc::new(AtomicBool::new(false));
+
+        let mut handles = Vec::new();
+        for _ in 0..10 {
+            let locks = Arc::clone(&locks);
+            let count = Arc::clone(&init_count);
+            let flag = Arc::clone(&initialized);
+            handles.push(tokio::spawn(async move {
+                run_once_per_key(
+                    "topic-a",
+                    &locks,
+                    || {
+                        let flag = Arc::clone(&flag);
+                        async move { Ok::<_, String>(flag.load(Ordering::SeqCst)) }
+                    },
+                    || {
+                        let count = Arc::clone(&count);
+                        let flag = Arc::clone(&flag);
+                        async move {
+                            count.fetch_add(1, Ordering::SeqCst);
+                            // Simulate slow work so other callers queue up on the lock.
+                            tokio::time::sleep(Duration::from_millis(50)).await;
+                            flag.store(true, Ordering::SeqCst);
+                            Ok(())
+                        }
+                    },
+                )
+                .await
+            }));
+        }
+
+        for handle in handles {
+            handle.await.unwrap().unwrap();
+        }
+
+        assert_eq!(init_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn run_once_different_keys_init_independently() {
+        let locks = Arc::new(DashMap::new());
+        let count_a = Arc::new(AtomicU32::new(0));
+        let count_b = Arc::new(AtomicU32::new(0));
+
+        let locks_a = Arc::clone(&locks);
+        let ca = Arc::clone(&count_a);
+        let handle_a = tokio::spawn(async move {
+            run_once_per_key(
+                "topic-a",
+                &locks_a,
+                || async { Ok::<_, String>(false) },
+                || async {
+                    ca.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                },
+            )
+            .await
+        });
+
+        let locks_b = Arc::clone(&locks);
+        let cb = Arc::clone(&count_b);
+        let handle_b = tokio::spawn(async move {
+            run_once_per_key(
+                "topic-b",
+                &locks_b,
+                || async { Ok::<_, String>(false) },
+                || async {
+                    cb.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                },
+            )
+            .await
+        });
+
+        handle_a.await.unwrap().unwrap();
+        handle_b.await.unwrap().unwrap();
+
+        assert_eq!(count_a.load(Ordering::SeqCst), 1);
+        assert_eq!(count_b.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn run_once_propagates_check_error() {
+        let locks = DashMap::new();
+
+        let result = run_once_per_key(
+            "topic-a",
+            &locks,
+            || async { Err::<bool, _>("check failed") },
+            || async { Ok(()) },
+        )
+        .await;
+
+        assert_eq!(result.unwrap_err(), "check failed");
+    }
+
+    #[tokio::test]
+    async fn run_once_propagates_init_error() {
+        let locks = DashMap::new();
+
+        let result = run_once_per_key(
+            "topic-a",
+            &locks,
+            || async { Ok::<_, String>(false) },
+            || async { Err("init failed".to_string()) },
+        )
+        .await;
+
+        assert_eq!(result.unwrap_err(), "init failed");
     }
 }
