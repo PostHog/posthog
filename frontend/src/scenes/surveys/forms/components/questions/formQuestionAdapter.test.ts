@@ -3,6 +3,7 @@ import { JSONContent } from '@tiptap/core'
 import { SurveyQuestionType } from '~/types'
 
 import { FormQuestionType } from '../../formTypes'
+import { extractNameFromContent } from '../../surveyFormBuilderLogic'
 import { toSurveyQuestions } from './formQuestionAdapter'
 
 function questionNode(questionId: string, questionData: Record<string, unknown>): JSONContent {
@@ -177,5 +178,53 @@ describe('formQuestionAdapter', () => {
             const result = toSurveyQuestions(content)
             expect(result[0].question).toBe('Object data')
         })
+    })
+})
+
+describe('extractNameFromContent', () => {
+    it.each([
+        {
+            name: 'extracts text from first heading',
+            content: doc({ type: 'heading', content: [{ type: 'text', text: 'My Form' }] }),
+            expected: 'My Form',
+        },
+        {
+            name: 'trims whitespace',
+            content: doc({ type: 'heading', content: [{ type: 'text', text: '  Spaced  ' }] }),
+            expected: 'Spaced',
+        },
+        {
+            name: 'joins multiple text nodes in heading',
+            content: doc({
+                type: 'heading',
+                content: [
+                    { type: 'text', text: 'Hello ' },
+                    { type: 'text', text: 'World' },
+                ],
+            }),
+            expected: 'Hello World',
+        },
+        {
+            name: 'returns default for empty heading',
+            content: doc({ type: 'heading', content: [] }),
+            expected: 'Untitled form',
+        },
+        {
+            name: 'returns default for whitespace-only heading',
+            content: doc({ type: 'heading', content: [{ type: 'text', text: '   ' }] }),
+            expected: 'Untitled form',
+        },
+        {
+            name: 'returns default for doc with no heading',
+            content: doc({ type: 'paragraph', content: [{ type: 'text', text: 'Not a heading' }] }),
+            expected: 'Untitled form',
+        },
+        {
+            name: 'returns default for empty doc',
+            content: { type: 'doc' },
+            expected: 'Untitled form',
+        },
+    ])('$name', ({ content, expected }) => {
+        expect(extractNameFromContent(content)).toBe(expected)
     })
 })
