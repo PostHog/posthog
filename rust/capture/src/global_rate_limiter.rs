@@ -441,7 +441,8 @@ mod tests {
         for (input, max, expected) in &cases {
             let result = truncate_str(input, *max);
             assert_eq!(
-                result, *expected,
+                result,
+                *expected,
                 "truncate_str({:?}, {max}) = {:?}, expected {:?}",
                 &input[..input.len().min(20)],
                 result,
