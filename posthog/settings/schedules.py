@@ -114,3 +114,20 @@ REALTIME_COHORT_CALCULATION_P0_P50_BATCH_DELAY_MINUTES: int = get_from_env(
     1,
     type_cast=int,
 )
+REALTIME_COHORT_CALCULATION_P50_P80_BATCH_DELAY_MINUTES: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P50_P80_BATCH_DELAY_MINUTES",
+    2,
+    type_cast=int,
+)
+
+# Parallelism settings for different percentile ranges
+REALTIME_COHORT_CALCULATION_P0_P50_PARALLELISM: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P0_P50_PARALLELISM",
+    15,
+    type_cast=int,
+)
+REALTIME_COHORT_CALCULATION_P50_P80_PARALLELISM: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P50_P80_PARALLELISM",
+    10,
+    type_cast=int,
+)
