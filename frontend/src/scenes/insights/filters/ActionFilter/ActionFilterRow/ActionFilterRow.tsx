@@ -44,6 +44,7 @@ import {
     TaxonomicPopoverProps,
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
@@ -523,7 +524,9 @@ export function ActionFilterRow({
     )
 
     // Enable popup menu for funnels and trends contexts where we want to show rename/duplicate/delete/etc in a menu
-    const enablePopup = mathAvailability === MathAvailability.FunnelsOnly || isTrendsContext
+    const canUsePopupMenu = mathAvailability === MathAvailability.FunnelsOnly || isTrendsContext
+    const { isWindowLessThan } = useWindowSize()
+    const useCompactActionsMenu = !readOnly && canUsePopupMenu && isWindowLessThan('lg')
 
     const renameRowButton = (
         <LemonButton
@@ -531,15 +534,15 @@ export function ActionFilterRow({
             icon={<IconPencil />}
             title="Rename graph series"
             data-attr={`show-prop-rename-${index}`}
-            noPadding={!enablePopup}
+            noPadding={!useCompactActionsMenu}
             onClick={() => {
                 setIsMenuVisible(false)
                 selectFilter(filter)
                 onRenameClick()
             }}
-            fullWidth={enablePopup}
+            fullWidth={useCompactActionsMenu}
         >
-            {enablePopup ? 'Rename' : undefined}
+            {useCompactActionsMenu ? 'Rename' : undefined}
         </LemonButton>
     )
 
@@ -549,14 +552,14 @@ export function ActionFilterRow({
             icon={<IconCopy />}
             title="Duplicate graph series"
             data-attr={`show-prop-duplicate-${index}`}
-            noPadding={!enablePopup}
+            noPadding={!useCompactActionsMenu}
             onClick={() => {
                 setIsMenuVisible(false)
                 duplicateFilter(filter)
             }}
-            fullWidth={enablePopup}
+            fullWidth={useCompactActionsMenu}
         >
-            {enablePopup ? 'Duplicate' : undefined}
+            {useCompactActionsMenu ? 'Duplicate' : undefined}
         </LemonButton>
     )
 
@@ -585,14 +588,14 @@ export function ActionFilterRow({
             icon={<IconTrash />}
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
-            noPadding={!enablePopup}
+            noPadding={!useCompactActionsMenu}
             onClick={() => {
                 setIsMenuVisible(false)
                 onClose()
             }}
-            fullWidth={enablePopup}
+            fullWidth={useCompactActionsMenu}
         >
-            {enablePopup ? 'Delete' : undefined}
+            {useCompactActionsMenu ? 'Delete' : undefined}
         </LemonButton>
     )
 
@@ -604,7 +607,7 @@ export function ActionFilterRow({
     // Check if popup would have any menu items (excluding filter and combine buttons which are always outside the menu)
     const hasMenuItems =
         isFunnelContext || !hideRename || (!hideDuplicate && !singleFilter) || (!hideDeleteBtn && !singleFilter)
-    const showPopupMenu = !readOnly && enablePopup && hasMenuItems
+    const showPopupMenu = useCompactActionsMenu && hasMenuItems
 
     // When not using popup, show elements inline
     const rowEndElements =
