@@ -15,11 +15,13 @@ from django.utils import timezone
 
 import structlog
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken, find_oauth_refresh_token
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.security.outbound_proxy import external_requests
@@ -34,6 +36,8 @@ logger = structlog.get_logger(__name__)
 
 AUTH_CODE_TTL_SECONDS = 300
 PENDING_AUTH_TTL_SECONDS = 600
+DEEP_LINK_TTL_SECONDS = 600
+DEEP_LINK_CACHE_PREFIX = "stripe_app_deep_link:"
 
 STRIPE_APP_NAME = "PostHog Stripe App"
 
@@ -476,8 +480,204 @@ def _exchange_refresh_token(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
+# POST /provisioning/resources
+# ---------------------------------------------------------------------------
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+def provisioning_resources_create(request: Request) -> Response:
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+
+    error = verify_stripe_signature(request)
+    if error:
+        return error
+
+    scoped_teams = access_token.scoped_teams or []
+
+    if not scoped_teams:
+        return Response(
+            {
+                "status": "error",
+                "id": "",
+                "error": {"code": "no_team", "message": "No team associated with this token"},
+            },
+            status=400,
+        )
+
+    team_id = scoped_teams[0]
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return Response(
+            {"status": "error", "id": str(team_id), "error": {"code": "team_not_found", "message": "Team not found"}},
+            status=404,
+        )
+
+    region = get_instance_region() or "US"
+    host = _region_to_host(region)
+
+    return Response(
+        {
+            "status": "complete",
+            "id": str(team_id),
+            "complete": {
+                "access_configuration": {
+                    "api_key": team.api_token,
+                    "host": host,
+                },
+            },
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /provisioning/resources/:id
+# ---------------------------------------------------------------------------
+
+
+@api_view(["GET"])
+@authentication_classes([])
+@permission_classes([])
+def provisioning_resource_detail(request: Request, resource_id: str) -> Response:
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+
+    error = verify_stripe_signature(request)
+    if error:
+        return error
+
+    scoped_teams = access_token.scoped_teams or []
+
+    try:
+        team_id = int(resource_id)
+    except (ValueError, TypeError):
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "invalid_resource_id", "message": "Invalid resource ID"},
+            },
+            status=400,
+        )
+
+    if team_id not in scoped_teams:
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "forbidden", "message": "Resource not accessible with this token"},
+            },
+            status=403,
+        )
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return Response(
+            {"status": "error", "id": resource_id, "error": {"code": "not_found", "message": "Resource not found"}},
+            status=404,
+        )
+
+    region = get_instance_region() or "US"
+    host = _region_to_host(region)
+
+    return Response(
+        {
+            "status": "complete",
+            "id": resource_id,
+            "complete": {
+                "access_configuration": {
+                    "api_key": team.api_token,
+                    "host": host,
+                },
+            },
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /provisioning/deep_links
+# ---------------------------------------------------------------------------
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+def deep_links(request: Request) -> Response:
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+
+    error = verify_stripe_signature(request)
+    if error:
+        return error
+
+    purpose = request.data.get("purpose", "dashboard")
+
+    scoped_teams = access_token.scoped_teams or []
+    team_id = scoped_teams[0] if scoped_teams else None
+
+    region = get_instance_region() or "US"
+    host = _region_to_host(region)
+
+    token = secrets.token_urlsafe(32)
+    cache_key = f"{DEEP_LINK_CACHE_PREFIX}{token}"
+    cache.set(
+        cache_key,
+        {
+            "user_id": access_token.user_id,
+            "team_id": team_id,
+        },
+        timeout=DEEP_LINK_TTL_SECONDS,
+    )
+
+    expires_at = timezone.now() + timedelta(seconds=DEEP_LINK_TTL_SECONDS)
+
+    url = f"{host}/login/stripe?token={token}"
+    if team_id:
+        url += f"&team_id={team_id}"
+
+    return Response(
+        {
+            "purpose": purpose,
+            "url": url,
+            "expires_at": expires_at.isoformat(),
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _authenticate_bearer(request: Request) -> tuple[Response | None, any, any]:
+    """Authenticate via Bearer token. Returns (error_response, user, access_token)."""
+    from .authentication import StripeProvisioningBearerAuthentication
+
+    auth = StripeProvisioningBearerAuthentication()
+    try:
+        result = auth.authenticate(request)
+    except AuthenticationFailed as e:
+        return (
+            Response({"status": "error", "error": {"code": "unauthorized", "message": str(e)}}, status=401),
+            None,
+            None,
+        )
+    if result is None:
+        return (
+            Response(
+                {"status": "error", "error": {"code": "unauthorized", "message": "Missing bearer token"}}, status=401
+            ),
+            None,
+            None,
+        )
+    return None, result[0], result[1]
 
 
 def _get_stripe_oauth_app():
@@ -507,3 +707,12 @@ def _get_stripe_oauth_app():
         redirect_uris="https://localhost",
         algorithm="RS256",
     )
+
+
+def _region_to_host(region: str) -> str:
+    region_lower = region.lower()
+    if region_lower == "eu":
+        return "https://eu.posthog.com"
+    elif region_lower in ("us", "dev"):
+        return "https://us.posthog.com"
+    return settings.SITE_URL
