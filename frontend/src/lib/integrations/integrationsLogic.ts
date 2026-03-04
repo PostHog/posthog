@@ -265,6 +265,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return preflight?.slack_service?.available
             },
         ],
+        twigSlackAvailable: [
+            (s) => [s.preflight],
+            (preflight) => {
+                return preflight?.twig_slack_service?.available
+            },
+        ],
         getGitHubRepositories: [
             (s) => [s.githubRepositories],
             (githubRepositories) => {

@@ -1,4 +1,5 @@
 import json
+import math
 import secrets
 from datetime import timedelta
 from functools import cached_property
@@ -43,6 +44,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
 from posthog.models.tag import Tag
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.util import actions_that_require_current_team
@@ -69,6 +71,7 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from posthog.utils import get_instance_realm, get_instance_region, get_ip_address, get_week_start_for_country_code
 
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
+from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.signals.backend.models import SignalSourceConfig
 
 
@@ -1293,6 +1296,56 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     return response.Response({"success": True})
                 except Tag.DoesNotExist:
                     return response.Response({"error": "Tag not found"}, status=404)
+
+    @action(
+        methods=["GET", "PUT"],
+        detail=True,
+        permission_classes=[TeamMemberStrictManagementPermission],
+        url_path="default_release_conditions",
+    )
+    def default_release_conditions(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage default release conditions for new feature flags in this team."""
+        team = self.get_object()
+        config = get_or_create_team_extension(team, TeamFeatureFlagDefaultsConfig)
+
+        if request.method == "GET":
+            return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
+
+        # PUT: update the config
+        enabled = request.data.get("enabled", config.enabled)
+        default_groups = request.data.get("default_groups", config.default_groups)
+
+        if not isinstance(default_groups, list):
+            return response.Response({"error": "default_groups must be a list"}, status=400)
+
+        for i, group in enumerate(default_groups):
+            if not isinstance(group, dict):
+                return response.Response({"error": f"Group at index {i} must be an object"}, status=400)
+            if "properties" not in group or not isinstance(group["properties"], list):
+                return response.Response(
+                    {"error": f"Group at index {i} must have a 'properties' list"},
+                    status=400,
+                )
+            rollout = group.get("rollout_percentage")
+            if rollout is not None and (
+                not isinstance(rollout, (int, float)) or math.isnan(rollout) or rollout < 0 or rollout > 100
+            ):
+                return response.Response(
+                    {"error": f"Group at index {i} has invalid rollout_percentage (must be 0-100 or null)"},
+                    status=400,
+                )
+
+        config.enabled = enabled
+        config.default_groups = default_groups
+        config.save()
+
+        report_user_action(
+            cast(User, request.user),
+            "default release conditions updated",
+            {"team_id": team.id, "enabled": enabled, "group_count": len(default_groups)},
+        )
+
+        return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
 
     @action(
         methods=["GET"],

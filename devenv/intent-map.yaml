@@ -144,6 +144,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    duckgres:
+        description: 'Duckgres query server (DuckDB with Postgres wire protocol)'
+        requires: [core_infra]
+        docker_profiles: [duckgres]
+
 # Intents map to products/features developers work on
 intents:
     product_analytics:
@@ -234,6 +239,9 @@ intents:
     stripe:
         description: 'Stripe app for PostHog integration'
         capabilities: [stripe_app]
+    endpoints:
+        description: 'Endpoints (the product)'
+        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, duckgres]
 
     dagster:
         description: 'Dagster for clickhouse maintenance, system workflows'

@@ -3,6 +3,8 @@
 //! This module provides a builder pattern for constructing pipeline-specific
 //! Kafka consumers with all necessary dependencies.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -15,6 +17,7 @@ use tracing::info;
 
 use crate::checkpoint::import::CheckpointImporter;
 use crate::config::PipelineType;
+use crate::kafka::assigner::AssignerConsumer;
 use crate::kafka::batch_consumer::BatchConsumer;
 use crate::kafka::{OffsetTracker, PartitionRouter, PartitionRouterConfig, RoutingProcessor};
 use crate::pipelines::clickhouse_events::{ClickHouseEventsBatchProcessor, ClickHouseEventsConfig};
@@ -25,13 +28,18 @@ use crate::processor_rebalance_handler::ProcessorRebalanceHandler;
 use crate::rebalance_tracker::RebalanceTracker;
 use crate::store_manager::StoreManager;
 
-/// Enum wrapper for different consumer types based on pipeline configuration.
+/// Enum wrapper for different consumer types based on pipeline and mode configuration.
 ///
-/// Each variant wraps a `BatchConsumer` for the appropriate event type,
-/// allowing the service to work with either pipeline through a unified interface.
+/// Each variant wraps a consumer for the appropriate event type,
+/// allowing the service to work with any pipeline/mode through a unified interface.
+///
+/// The `Assigner` variant uses a boxed future to type-erase the `AssignerConsumer`
+/// (which contains `tonic::Streaming<T>`, a `!Sync` type that would otherwise make
+/// the entire service `!Sync` and break `tokio::spawn` compatibility).
 pub enum PipelineConsumer {
     IngestionEvents(BatchConsumer<CapturedEvent>),
     ClickHouseEvents(BatchConsumer<ClickHouseEvent>),
+    Assigner(Pin<Box<dyn Future<Output = Result<()>> + Send>>),
 }
 
 impl PipelineConsumer {
@@ -39,6 +47,7 @@ impl PipelineConsumer {
         match self {
             PipelineConsumer::IngestionEvents(consumer) => consumer.start_consumption().await,
             PipelineConsumer::ClickHouseEvents(consumer) => consumer.start_consumption().await,
+            PipelineConsumer::Assigner(future) => future.await,
         }
     }
 }
@@ -118,7 +127,7 @@ impl PipelineBuilder {
         self
     }
 
-    /// Build the pipeline consumer
+    /// Build a group-based pipeline consumer (uses Kafka's consumer group protocol).
     pub fn build(self, shutdown_rx: oneshot::Receiver<()>) -> Result<PipelineConsumer> {
         let rebalance_tracker = self.store_manager.rebalance_tracker().clone();
         let offset_tracker = Arc::new(OffsetTracker::new(rebalance_tracker.clone()));
@@ -129,6 +138,41 @@ impl PipelineBuilder {
             }
             PipelineType::ClickhouseEvents => {
                 self.build_clickhouse_events(rebalance_tracker, offset_tracker, shutdown_rx)
+            }
+        }
+    }
+
+    /// Build an assigner-driven pipeline consumer (uses kafka-assigner for partition assignment).
+    ///
+    /// The resulting consumer is type-erased into a boxed future to avoid exposing
+    /// `tonic::Streaming<T>` (which is `!Sync`) through `PipelineConsumer`.
+    pub async fn build_assigner(
+        self,
+        assigner_endpoint: &str,
+        consumer_name: String,
+        shutdown_rx: oneshot::Receiver<()>,
+    ) -> Result<PipelineConsumer> {
+        let rebalance_tracker = self.store_manager.rebalance_tracker().clone();
+        let offset_tracker = Arc::new(OffsetTracker::new(rebalance_tracker));
+
+        match self.pipeline_type {
+            PipelineType::IngestionEvents => {
+                self.build_assigner_ingestion_events(
+                    offset_tracker,
+                    assigner_endpoint,
+                    consumer_name,
+                    shutdown_rx,
+                )
+                .await
+            }
+            PipelineType::ClickhouseEvents => {
+                self.build_assigner_clickhouse_events(
+                    offset_tracker,
+                    assigner_endpoint,
+                    consumer_name,
+                    shutdown_rx,
+                )
+                .await
             }
         }
     }
@@ -245,5 +289,109 @@ impl PipelineBuilder {
         .with_context(|| format!("Failed to create consumer for topic '{}'", self.topic))?;
 
         Ok(PipelineConsumer::ClickHouseEvents(consumer))
+    }
+
+    async fn build_assigner_ingestion_events(
+        self,
+        offset_tracker: Arc<OffsetTracker>,
+        assigner_endpoint: &str,
+        consumer_name: String,
+        shutdown_rx: oneshot::Receiver<()>,
+    ) -> Result<PipelineConsumer> {
+        info!("Building assigner ingestion_events pipeline");
+
+        let dedup_config = self
+            .dedup_config
+            .context("DeduplicationConfig required for ingestion_events pipeline")?;
+
+        let processor = Arc::new(
+            IngestionEventsBatchProcessor::new(
+                dedup_config,
+                self.store_manager.clone(),
+                self.main_producer,
+                self.duplicate_producer,
+            )
+            .context("Failed to create ingestion events processor")?,
+        );
+
+        let router = Arc::new(PartitionRouter::new(
+            processor,
+            offset_tracker.clone(),
+            self.router_config,
+        ));
+
+        let routing_processor = Arc::new(RoutingProcessor::new(
+            router.clone(),
+            offset_tracker.clone(),
+        ));
+
+        let consumer = AssignerConsumer::new(
+            &self.consumer_config,
+            assigner_endpoint,
+            consumer_name,
+            self.store_manager,
+            self.checkpoint_importer,
+            offset_tracker,
+            router,
+            routing_processor,
+            self.commit_interval,
+            self.batch_size,
+            self.batch_timeout,
+            shutdown_rx,
+        )
+        .await
+        .context("Failed to create assigner consumer for ingestion events")?;
+
+        Ok(PipelineConsumer::Assigner(Box::pin(consumer.start())))
+    }
+
+    async fn build_assigner_clickhouse_events(
+        self,
+        offset_tracker: Arc<OffsetTracker>,
+        assigner_endpoint: &str,
+        consumer_name: String,
+        shutdown_rx: oneshot::Receiver<()>,
+    ) -> Result<PipelineConsumer> {
+        info!("Building assigner clickhouse_events pipeline");
+
+        let ch_config = ClickHouseEventsConfig {
+            store_config: self.store_manager.config().clone(),
+            fail_open: self.fail_open,
+        };
+
+        let processor = Arc::new(ClickHouseEventsBatchProcessor::new(
+            ch_config,
+            self.store_manager.clone(),
+        ));
+
+        let router = Arc::new(PartitionRouter::new(
+            processor,
+            offset_tracker.clone(),
+            self.router_config,
+        ));
+
+        let routing_processor = Arc::new(RoutingProcessor::new(
+            router.clone(),
+            offset_tracker.clone(),
+        ));
+
+        let consumer = AssignerConsumer::new(
+            &self.consumer_config,
+            assigner_endpoint,
+            consumer_name,
+            self.store_manager,
+            self.checkpoint_importer,
+            offset_tracker,
+            router,
+            routing_processor,
+            self.commit_interval,
+            self.batch_size,
+            self.batch_timeout,
+            shutdown_rx,
+        )
+        .await
+        .context("Failed to create assigner consumer for clickhouse events")?;
+
+        Ok(PipelineConsumer::Assigner(Box::pin(consumer.start())))
     }
 }
