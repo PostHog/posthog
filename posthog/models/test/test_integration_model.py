@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from django.db import connection
 
 from disposable_email_domains import blocklist as disposable_email_domains_list
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.instance_setting import set_instance_setting
@@ -352,6 +353,37 @@ class TestOauthIntegrationModel(BaseTest):
         assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
 
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
+    @parameterized.expand(
+        [
+            (
+                "rotated",
+                {
+                    "access_token": "REFRESHED_ACCESS_TOKEN",
+                    "refresh_token": "ROTATED_REFRESH_TOKEN",
+                    "expires_in": 1000,
+                },
+                "ROTATED_REFRESH_TOKEN",
+            ),
+            ("not_rotated", {"access_token": "REFRESHED_ACCESS_TOKEN", "expires_in": 1000}, "REFRESH"),
+        ]
+    )
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.external_requests.post")
+    def test_refresh_access_token_refresh_token_handling(
+        self, _name, token_response, expected_refresh_token, mock_post, mock_reload
+    ):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = token_response
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+        assert integration.sensitive_config["refresh_token"] == expected_refresh_token
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.external_requests.post")
