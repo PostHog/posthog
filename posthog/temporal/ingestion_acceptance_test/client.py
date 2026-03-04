@@ -220,6 +220,7 @@ class PostHogClient:
 
     def query_event_by_uuid(self, event_uuid: str) -> CapturedEvent | None:
         """Query for an event by UUID, polling until found or timeout."""
+        logger.info("Querying for event", event_uuid=event_uuid)
         return self._poll_until_found(
             fetch_fn=lambda: self._fetch_event_by_uuid(event_uuid),
             description=f"event UUID '{event_uuid}'",
@@ -234,6 +235,7 @@ class PostHogClient:
                 property is >= this value. This helps ensure eventual consistency by
                 waiting for person updates to propagate.
         """
+        logger.info("Querying for person", distinct_id=distinct_id, min_timestamp=min_timestamp)
         return self._poll_until_found(
             fetch_fn=lambda: _person_has_min_timestamp(self._fetch_person_by_distinct_id(distinct_id), min_timestamp),
             description=f"person with distinct_id '{distinct_id}'",
@@ -249,6 +251,11 @@ class PostHogClient:
         Returns:
             List of events if all expected UUIDs are found, None if timeout.
         """
+        logger.info(
+            "Querying for events by person",
+            person_id=person_id,
+            expected_event_uuids=expected_event_uuids,
+        )
         return self._poll_until_found(
             fetch_fn=lambda: self._fetch_events_by_person_id(person_id, expected_event_uuids),
             description=f"events for person '{person_id}'",
@@ -276,12 +283,30 @@ class PostHogClient:
         """
         start_time = time.time()
         current_interval = self.config.poll_interval_seconds
+        attempt = 0
 
         while time.time() - start_time < self.config.event_timeout_seconds:
+            attempt += 1
             time.sleep(current_interval)
+            if attempt > 1:
+                elapsed = time.time() - start_time
+                logger.info(
+                    "Polling attempt",
+                    attempt=attempt,
+                    description=description,
+                    elapsed_seconds=round(elapsed, 1),
+                    next_interval_seconds=round(current_interval, 1),
+                )
             try:
                 result = fetch_fn()
                 if result is not None:
+                    elapsed = time.time() - start_time
+                    logger.info(
+                        "Polling succeeded",
+                        description=description,
+                        attempt=attempt,
+                        elapsed_seconds=round(elapsed, 1),
+                    )
                     return result
             except requests.exceptions.RequestException as e:
                 logger.warning(
@@ -289,6 +314,7 @@ class PostHogClient:
                     error=str(e),
                     error_type=type(e).__name__,
                     description=description,
+                    attempt=attempt,
                 )
             current_interval = min(
                 current_interval * self.POLL_BACKOFF_FACTOR,
@@ -296,7 +322,12 @@ class PostHogClient:
                 self.config.event_timeout_seconds - (time.time() - start_time),
             )
 
-        logger.warning("Polling timed out", description=description, timeout_seconds=self.config.event_timeout_seconds)
+        logger.warning(
+            "Polling timed out",
+            description=description,
+            timeout_seconds=self.config.event_timeout_seconds,
+            attempts=attempt,
+        )
         return None
 
     def _execute_hogql_query(self, query: str, values: dict[str, Any]) -> dict[str, Any] | None:
