@@ -1,7 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -10,7 +9,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
+import { Settings } from 'scenes/settings/Settings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -18,18 +17,16 @@ import { CyclotronJobFiltersType } from '~/types'
 
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
-import { ErrorTrackingIssueImpactTool } from '../../components/IssueImpactTool'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
+import { ERROR_TRACKING_LOGIC_KEY } from '../../utils'
 import {
     ERROR_TRACKING_SCENE_LOGIC_KEY,
     ErrorTrackingSceneActiveTab,
     errorTrackingSceneLogic,
 } from './errorTrackingSceneLogic'
-import { ImpactFilters } from './tabs/impact/ImpactFilters'
-import { ImpactList } from './tabs/impact/ImpactList'
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
@@ -49,7 +46,6 @@ export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
-    const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
     const hasInsights = useFeatureFlag('ERROR_TRACKING_INSIGHTS')
 
     useOnMountEffect(() => {
@@ -75,7 +71,6 @@ export function ErrorTrackingScene(): JSX.Element {
             content: (
                 <>
                     <ErrorTrackingIssueFilteringTool />
-                    {hasIssueCorrelation && <ErrorTrackingIssueImpactTool />}
                     {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
                     <div className="border rounded bg-surface-primary p-2">
                         <IssuesFilters />
@@ -84,22 +79,6 @@ export function ErrorTrackingScene(): JSX.Element {
                 </>
             ),
         },
-        ...(hasIssueCorrelation
-            ? [
-                  {
-                      key: 'impact' as const,
-                      label: 'Impact',
-                      content: (
-                          <>
-                              <div className="border rounded bg-surface-primary p-2">
-                                  <ImpactFilters />
-                              </div>
-                              <ImpactList />
-                          </>
-                      ),
-                  },
-              ]
-            : []),
         ...(hasInsights
             ? [
                   {
@@ -109,6 +88,13 @@ export function ErrorTrackingScene(): JSX.Element {
                   },
               ]
             : []),
+        {
+            key: 'configuration',
+            label: 'Configuration',
+            content: (
+                <Settings logicKey={ERROR_TRACKING_LOGIC_KEY} sectionId="environment-error-tracking" handleLocally />
+            ),
+        },
     ]
 
     return (
@@ -173,14 +159,6 @@ const Header = (): JSX.Element => {
                             targetBlank
                         >
                             Documentation
-                        </LemonButton>
-                        <LemonButton
-                            size="small"
-                            to={urls.errorTrackingConfiguration()}
-                            type="secondary"
-                            icon={<IconGear />}
-                        >
-                            Configure
                         </LemonButton>
                     </>
                 }
