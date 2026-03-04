@@ -547,7 +547,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                     <>
                                                                         A user may have multiple{' '}
                                                                         <Link
-                                                                            to="https://posthog.com/docs/data/persons"
+                                                                            to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
                                                                             target="_blank"
                                                                         >
                                                                             profiles
