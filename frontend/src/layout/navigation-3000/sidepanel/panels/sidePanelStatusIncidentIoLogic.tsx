@@ -14,7 +14,6 @@ import {
     REFRESH_INTERVAL,
     setIncidentStatus,
 } from '~/layout/navigation-3000/incident/incidentStatus'
-export type { IncidentIoSummary, NormalizedStatus } from '~/layout/navigation-3000/incident/incidentStatus'
 
 import type { sidePanelStatusIncidentIoLogicType } from './sidePanelStatusIncidentIoLogicType'
 

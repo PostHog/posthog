@@ -297,13 +297,13 @@ export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): Re
 
     const { id, kind, name, type, order, uuid, custom_name } = entity
     return {
-        ...(id ? { id } : {}),
-        ...(kind ? { kind } : {}),
-        ...(name ? { name } : {}),
-        ...(type ? { type } : {}),
-        ...(order ? { order } : {}),
-        ...(uuid ? { uuid } : {}),
-        ...(custom_name ? { custom_name } : {}),
+        ...('id' in entity ? { id } : {}),
+        ...('kind' in entity ? { kind } : {}),
+        ...('name' in entity ? { name } : {}),
+        ...('type' in entity ? { type } : {}),
+        ...('order' in entity ? { order } : {}),
+        ...('uuid' in entity ? { uuid } : {}),
+        ...('custom_name' in entity ? { custom_name } : {}),
     }
 }
 
