@@ -4964,7 +4964,7 @@ export type ExportContext = (
     | QueryExportContext
     | ReplayExportContext
     | HeatmapExportContext
-) & { row_limit?: number; max_height_pixels?: number } // Some exports have different row limits, e.g. logs
+) & { row_limit?: number } // Some exports have different row limits, e.g. logs
 
 export interface ExportedAssetType {
     id: number
