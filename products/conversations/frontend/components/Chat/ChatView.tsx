@@ -32,6 +32,8 @@ export interface ChatViewProps {
     isPrivate?: boolean
     /** Called when private checkbox changes */
     onPrivateChange?: (isPrivate: boolean) => void
+    /** Extra actions rendered next to the send button in MessageInput */
+    extraActions?: React.ReactNode
 }
 
 export function ChatView({
@@ -52,6 +54,7 @@ export function ChatView({
     onDraftChange,
     isPrivate,
     onPrivateChange,
+    extraActions,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
     const listMaxHeight = maxHeight ?? '600px'
@@ -80,6 +83,7 @@ export function ChatView({
                     onDraftChange={onDraftChange}
                     isPrivate={isPrivate}
                     onPrivateChange={onPrivateChange}
+                    extraActions={extraActions}
                 />
             </div>
         </LemonCard>

@@ -339,6 +339,8 @@ export interface TicketApi {
     readonly session_id: string | null
     readonly session_context: unknown
     /** @nullable */
+    sla_due_at?: string | null
+    /** @nullable */
     readonly slack_channel_id: string | null
     /** @nullable */
     readonly slack_thread_ts: string | null
@@ -381,12 +383,23 @@ export interface PatchedTicketApi {
     readonly session_id?: string | null
     readonly session_context?: unknown
     /** @nullable */
+    sla_due_at?: string | null
+    /** @nullable */
     readonly slack_channel_id?: string | null
     /** @nullable */
     readonly slack_thread_ts?: string | null
     /** @nullable */
     readonly slack_team_id?: string | null
     readonly person?: TicketPersonApi | null
+}
+
+export interface SuggestReplyResponseApi {
+    suggestion: string
+}
+
+export interface SuggestReplyErrorApi {
+    detail: string
+    error_type?: string
 }
 
 export type ConversationsListParams = {

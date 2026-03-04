@@ -691,7 +691,7 @@ class ToolbarOAuthCoopMiddleware:
     def __call__(self, request):
         response = self.get_response(request)
         is_toolbar_flow = request.path.startswith("/toolbar_oauth/") or (
-            request.path.startswith("/oauth/authorize") and request.session.get("toolbar_oauth_code_verifier")
+            request.path.startswith("/oauth/authorize") and request.session.get("toolbar_oauth_redirect_flow")
         )
         if is_toolbar_flow:
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"

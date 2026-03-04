@@ -160,8 +160,6 @@ export type CdpConfig = {
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string // A comma-separated list of queue to mode like `hog:kafka,fetch:postgres,*:kafka` with * being the default
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: string // Like the above but with a team check too
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: boolean // If true then scheduled jobs will be routed to postgres even if they are mapped to kafka
-    CDP_CYCLOTRON_STRIP_GROUPS_FROM_STATE_TEAMS: string // Team IDs to strip groups from persisted job state ('*' for all, '' for none)
-    CDP_CYCLOTRON_GROUPS_IN_WORKFLOWS_TEAMS: string // Team IDs to load groups fresh in hogflow worker ('*' for all, '' for none)
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
@@ -794,6 +792,25 @@ export interface RawKafkaEvent extends RawClickHouseEvent {
      * That's because we need it in `property-defs-rs` and not elsewhere.
      */
     project_id: ProjectId
+}
+
+/** Pre-serialization event produced by create-event, before ClickHouse formatting. */
+export interface ProcessedEvent {
+    uuid: string
+    event: string
+    properties: Record<string, unknown>
+    timestamp: ISOTimestamp
+    team_id: TeamId
+    project_id: ProjectId
+    distinct_id: string
+    elements_chain: string
+    created_at: null
+    captured_at: Date | null
+    person_id: string
+    person_properties: Record<string, unknown>
+    person_created_at: DateTime | null
+    person_mode: PersonMode
+    historical_migration?: boolean
 }
 
 /** Parsed event row from ClickHouse. */

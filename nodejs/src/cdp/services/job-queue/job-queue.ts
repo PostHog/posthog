@@ -6,8 +6,7 @@
 import { DateTime } from 'luxon'
 import { Counter, Gauge } from 'prom-client'
 
-import { buildIntegerMatcher } from '../../../config/config'
-import { HealthCheckResultError, PluginsServerConfig, ValueMatcher } from '../../../types'
+import { HealthCheckResultError, PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
@@ -55,7 +54,6 @@ export class CyclotronJobQueue {
     private jobQueuePostgres: CyclotronJobQueuePostgres
     private jobQueueKafka: CyclotronJobQueueKafka
     private jobQueueDelay: CyclotronJobQueueDelay
-    private stripGroupsMatcher: ValueMatcher<number>
     private shadowPostgres: CyclotronJobQueuePostgresShadow | null = null
     private shadowFailures = 0
     private shadowCircuitOpenUntil = 0
@@ -70,8 +68,6 @@ export class CyclotronJobQueue {
         this.producerMapping = getProducerMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING)
         this.producerTeamMapping = getProducerTeamMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING)
         this.producerForceScheduledToPostgres = this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES
-        this.stripGroupsMatcher = buildIntegerMatcher(this.config.CDP_CYCLOTRON_STRIP_GROUPS_FROM_STATE_TEAMS, true)
-
         this.jobQueueKafka = new CyclotronJobQueueKafka(this.config, this.queue, (invocations) =>
             this.consumeBatch(invocations, 'kafka')
         )
@@ -232,9 +228,7 @@ export class CyclotronJobQueue {
     }
 
     public async queueInvocations(invocations: CyclotronJobInvocation[]) {
-        const sanitized = invocations.map((inv) =>
-            this.stripGroupsMatcher(inv.teamId) ? sanitizeInvocationForPersistence(inv) : inv
-        )
+        const sanitized = invocations.map(sanitizeInvocationForPersistence)
         const postgresInvocations: CyclotronJobInvocation[] = []
         const kafkaInvocations: CyclotronJobInvocation[] = []
 
@@ -297,9 +291,7 @@ export class CyclotronJobQueue {
 
         const sanitizedResults = invocationResults.map((result) => ({
             ...result,
-            invocation: this.stripGroupsMatcher(result.invocation.teamId)
-                ? sanitizeInvocationForPersistence(result.invocation)
-                : result.invocation,
+            invocation: sanitizeInvocationForPersistence(result.invocation),
         }))
 
         const postgresInvocationsToCreate: CyclotronJobInvocationResult[] = []

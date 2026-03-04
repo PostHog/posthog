@@ -80,7 +80,9 @@ class SignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128)
     last_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email: serializers.Field = serializers.EmailField()
-    password: serializers.Field = serializers.CharField(allow_null=True, required=False, allow_blank=True)
+    password: serializers.Field = serializers.CharField(
+        max_length=72, allow_null=True, required=False, allow_blank=True
+    )
     organization_name: serializers.Field = serializers.CharField(max_length=64, required=False, allow_blank=True)
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
@@ -328,7 +330,7 @@ class SignupViewset(generics.CreateAPIView):
 
 class InviteSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128, required=False)
-    password: serializers.Field = serializers.CharField(required=False)
+    password: serializers.Field = serializers.CharField(max_length=72, required=False)
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )
