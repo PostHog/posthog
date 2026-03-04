@@ -716,7 +716,10 @@ function ConversionGoalSection(): JSX.Element {
                 <IconTarget className="text-lg" />
                 <span className="text-md font-semibold">Conversion goal (optional)</span>
             </span>
-            <p>Define what a user must do to be considered converted.</p>
+            <p>
+                Define what a user must do to be considered converted. If any condition is met, the user will be
+                considered converted.
+            </p>
 
             <div className="flex flex-col gap-4 max-w-240">
                 <div className="flex flex-col gap-1 items-start">
@@ -732,6 +735,7 @@ function ConversionGoalSection(): JSX.Element {
                         pageKey="workflow-conversion-properties"
                         hideBehavioralCohorts
                         operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
+                        orFiltering
                     />
                 </div>
 
