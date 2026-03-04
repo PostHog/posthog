@@ -24,18 +24,40 @@ class SensitiveConfig(TypedDict, total=False):
 # The URL in RECOMMENDED_SERVERS is the MCP server URL, not the OAuth server URL.
 RECOMMENDED_SERVERS = [
     {
+        "name": "Attio",
+        "url": "https://mcp.attio.com/mcp",
+        "description": "Manage Attio CRM contacts, companies, and deals.",
+        "auth_type": "oauth",
+    },
+    {
+        "name": "Canva",
+        "url": "https://mcp.canva.com/mcp",
+        "description": "Create, edit, and manage Canva designs and assets.",
+        "auth_type": "oauth",
+    },
+    {
+        "name": "Atlassian",
+        "url": "https://mcp.atlassian.com/v1/mcp",
+        "description": "Integrate with Atlassian products like Jira and Confluence.",
+        "auth_type": "oauth",
+    },
+    {
         "name": "Linear",
         "url": "https://mcp.linear.app/mcp",
         "description": "Manage Linear issues, projects, and teams.",
-        "icon_url": "",
         "auth_type": "oauth",
         "oauth_provider_kind": "linear",
+    },
+    {
+        "name": "Monday",
+        "url": "https://mcp.monday.com/mcp",
+        "description": "Manage Monday.com boards, items, and workflows.",
+        "auth_type": "oauth",
     },
     {
         "name": "Notion",
         "url": "https://mcp.notion.com/mcp",
         "description": "Search and manage Notion pages, databases, and knowledge base content.",
-        "icon_url": "",
         "auth_type": "oauth",
     },
 ]
