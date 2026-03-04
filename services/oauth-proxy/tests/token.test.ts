@@ -75,14 +75,12 @@ describe('handleToken', () => {
 
         vi.stubGlobal(
             'fetch',
-            vi
-                .fn()
-                .mockResolvedValue(
-                    new Response(JSON.stringify({ access_token: 'pha_eu_token', token_type: 'bearer' }), {
-                        status: 200,
-                        headers: { 'Content-Type': 'application/json' },
-                    })
-                )
+            vi.fn().mockResolvedValue(
+                new Response(JSON.stringify({ access_token: 'pha_eu_token', token_type: 'bearer' }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            )
         )
 
         const request = new Request('https://oauth.posthog.com/oauth/token/', {
@@ -101,6 +99,53 @@ describe('handleToken', () => {
         const sentBody = new URLSearchParams(fetchCall[1]!.body as string)
         expect(sentBody.get('redirect_uri')).toBe('https://oauth.posthog.com/oauth/callback/')
         expect(sentBody.get('client_id')).toBe('eu_real_id')
+    })
+
+    it('rewrites client_secret for confidential clients', async () => {
+        mockKVGet(mockKV, (key: string, type?: unknown) => {
+            if (key === 'region:proxy_client_789') {
+                return Promise.resolve('eu')
+            }
+            if (key === 'callback:proxy_client_789') {
+                return Promise.resolve('https://claude.ai/api/mcp/auth_callback')
+            }
+            if (key === 'client:proxy_client_789' && type === 'json') {
+                return Promise.resolve({
+                    us_client_id: 'proxy_client_789',
+                    eu_client_id: 'eu_real_id',
+                    us_client_secret: 'us_secret_abc',
+                    eu_client_secret: 'eu_secret_xyz',
+                    redirect_uris: ['https://claude.ai/api/mcp/auth_callback'],
+                    created_at: Date.now(),
+                })
+            }
+            return Promise.resolve(null)
+        })
+
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue(
+                new Response(JSON.stringify({ access_token: 'pha_eu_token', token_type: 'bearer' }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            )
+        )
+
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'grant_type=authorization_code&code=test_code&client_id=proxy_client_789&client_secret=us_secret_abc&redirect_uri=https%3A%2F%2Fclaude.ai%2Fapi%2Fmcp%2Fauth_callback',
+        })
+
+        const response = await handleToken(request, mockKV)
+        expect(response.status).toBe(200)
+
+        const fetchCall = vi.mocked(fetch).mock.calls[0]!
+        const sentBody = new URLSearchParams(fetchCall[1]!.body as string)
+        expect(sentBody.get('client_id')).toBe('eu_real_id')
+        expect(sentBody.get('client_secret')).toBe('eu_secret_xyz')
+        expect(sentBody.get('redirect_uri')).toBe('https://oauth.posthog.com/oauth/callback/')
     })
 
     it('returns error for authorization_code grant when region is unknown', async () => {
