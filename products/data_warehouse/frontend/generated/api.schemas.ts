@@ -839,6 +839,7 @@ export interface TableApi {
     readonly columns: string
     readonly external_data_source: SimpleExternalDataSourceSerializersApi
     readonly external_schema: string
+    options?: unknown
 }
 
 export interface PaginatedTableListApi {
