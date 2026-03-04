@@ -204,12 +204,6 @@ async fn create_sink(
 
         Ok(Box::new(PrintSink {}))
     } else if config.noop_sink {
-        liveness
-            .register("noop_sink".to_string(), Duration::from_secs(30))
-            .await
-            .report_healthy()
-            .await;
-
         info!("NoOpSink enabled, events will be silently dropped");
         Ok(Box::new(NoOpSink {}))
     } else {
