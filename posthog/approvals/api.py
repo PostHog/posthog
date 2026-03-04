@@ -28,18 +28,12 @@ from posthog.permissions import (
 logger = logging.getLogger(__name__)
 
 
-class CommaSeparatedCharFilter(django_filters.CharFilter):
-    """Filter that splits comma-separated values into an __in lookup."""
-
-    def filter(self, qs, value):
-        if not value:
-            return qs
-        values = [v.strip() for v in value.split(",") if v.strip()]
-        return qs.filter(**{f"{self.field_name}__in": values})
+class CharInFilter(django_filters.BaseInFilter, django_filters.CharFilter):
+    pass
 
 
 class ChangeRequestFilterSet(django_filters.FilterSet):
-    state = CommaSeparatedCharFilter(field_name="state")
+    state = CharInFilter(field_name="state", lookup_expr="in")
     action_key = django_filters.CharFilter(field_name="action_key")
     requester = django_filters.NumberFilter(field_name="created_by_id")
     resource_type = django_filters.CharFilter(field_name="resource_type")
