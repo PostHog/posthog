@@ -2075,6 +2075,51 @@
             },
             "required": ["projectId"]
         },
+        "PromptCreateSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Unique name (letters, numbers, hyphens, underscores only)"
+                },
+                "prompt": {
+                    "description": "The prompt content (string or JSON object)"
+                }
+            },
+            "required": ["name", "prompt"]
+        },
+        "PromptGetSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The name of the prompt to retrieve"
+                }
+            },
+            "required": ["name"]
+        },
+        "PromptListSchema": {
+            "type": "object",
+            "properties": {
+                "search": {
+                    "description": "Filter prompts by name",
+                    "type": "string"
+                }
+            }
+        },
+        "PromptUpdateSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The name of the prompt to update"
+                },
+                "prompt": {
+                    "description": "The updated prompt content"
+                }
+            },
+            "required": ["name", "prompt"]
+        },
         "QueryRunInputSchema": {
             "type": "object",
             "properties": {
