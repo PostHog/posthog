@@ -1561,6 +1561,45 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
         assert response.json()["draft"]["deleted_action_ids"] == ["action_1", "action_2"]
 
+    def test_draft_save_replaces_nested_fields_on_subsequent_save(self):
+        flow_id = self._create_active_workflow()
+
+        # First draft save with actions
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/draft",
+            {"name": "Draft v1", "actions": [{"id": "a1", "type": "function", "config": {"key": "val1"}}]},
+        )
+
+        # Second draft save with updated actions — should fully replace, not deep merge
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/draft",
+            {"name": "Draft v2", "actions": [{"id": "a2", "type": "function", "config": {"key": "val2"}}]},
+        )
+        assert response.status_code == 200, response.json()
+        draft = response.json()["draft"]
+        assert draft["name"] == "Draft v2"
+        assert len(draft["actions"]) == 1
+        assert draft["actions"][0]["id"] == "a2"
+
+    def test_draft_save_preserves_fields_not_in_update(self):
+        flow_id = self._create_active_workflow()
+
+        # First save sets name and deleted_action_ids
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/draft",
+            {"name": "Draft Name", "deleted_action_ids": ["a1"]},
+        )
+
+        # Second save only updates name — deleted_action_ids should persist
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/draft",
+            {"name": "Updated Name"},
+        )
+        assert response.status_code == 200, response.json()
+        draft = response.json()["draft"]
+        assert draft["name"] == "Updated Name"
+        assert draft["deleted_action_ids"] == ["a1"]
+
     def test_draft_and_draft_updated_at_in_response(self):
         flow_id = self._create_active_workflow()
 

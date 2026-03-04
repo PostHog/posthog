@@ -126,30 +126,27 @@ function isEmptyValue(v: unknown): boolean {
     return false
 }
 
-function normalizeForComparison(obj: unknown): unknown {
-    if (Array.isArray(obj)) {
-        return obj.map(normalizeForComparison)
-    }
-    if (obj !== null && typeof obj === 'object') {
-        const sorted: Record<string, unknown> = {}
-        for (const key of Object.keys(obj as Record<string, unknown>).sort()) {
-            if (SERVER_ADDED_KEYS.has(key)) {
-                continue
-            }
-            const val = (obj as Record<string, unknown>)[key]
-            // Skip empty values that may be server defaults not present in frontend state
-            if (isEmptyValue(val)) {
-                continue
-            }
-            sorted[key] = normalizeForComparison(val)
-        }
-        return sorted
-    }
-    return obj
-}
-
 export function configsEqual(a: unknown, b: unknown): boolean {
-    return JSON.stringify(normalizeForComparison(a)) === JSON.stringify(normalizeForComparison(b))
+    if (a === b) {
+        return true
+    }
+    if (Array.isArray(a) && Array.isArray(b)) {
+        if (a.length !== b.length) {
+            return false
+        }
+        return a.every((item, i) => configsEqual(item, b[i]))
+    }
+    if (a !== null && b !== null && typeof a === 'object' && typeof b === 'object') {
+        const aObj = a as Record<string, unknown>
+        const bObj = b as Record<string, unknown>
+        const aKeys = Object.keys(aObj).filter((k) => !SERVER_ADDED_KEYS.has(k) && !isEmptyValue(aObj[k]))
+        const bKeys = Object.keys(bObj).filter((k) => !SERVER_ADDED_KEYS.has(k) && !isEmptyValue(bObj[k]))
+        if (aKeys.length !== bKeys.length) {
+            return false
+        }
+        return aKeys.every((key) => key in bObj && configsEqual(aObj[key], bObj[key]))
+    }
+    return false
 }
 
 const BRANCHING_ACTION_TYPES = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
@@ -671,11 +668,7 @@ export const workflowLogic = kea<workflowLogicType>([
                     'actions',
                     'variables',
                 ]
-                return contentFields.some(
-                    (field) =>
-                        JSON.stringify(normalizeForComparison(workflow[field])) !==
-                        JSON.stringify(normalizeForComparison(originalWorkflow[field]))
-                )
+                return contentFields.some((field) => !configsEqual(workflow[field], originalWorkflow[field]))
             },
         ],
 
