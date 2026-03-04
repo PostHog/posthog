@@ -36,6 +36,18 @@ import {
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 import { DashboardsFiltersBar } from './DashboardsFiltersBar'
 
+export function getDashboardFolderLabelFromItems(
+    itemsByRef: Record<string, { path?: string }>,
+    id: DashboardType['id']
+): string {
+    const entry = itemsByRef[`dashboard::${id}`]
+    const folderParts = splitPath(entry?.path).slice(0, -1)
+    if (folderParts.length === 0) {
+        return '—'
+    }
+    return folderParts.join(' / ')
+}
+
 export function DashboardsTableContainer(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { dashboards } = useValues(dashboardsLogic)
@@ -63,15 +75,6 @@ export function DashboardsTable({
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
     const { itemsByRef } = useValues(projectTreeDataLogic)
-
-    const getDashboardFolderLabel = (id: DashboardType['id']): string => {
-        const entry = itemsByRef[`dashboard::${id}`]
-        const folderParts = splitPath(entry?.path).slice(0, -1)
-        if (folderParts.length === 0) {
-            return '—'
-        }
-        return folderParts.join(' / ')
-    }
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -145,7 +148,7 @@ export function DashboardsTable({
             title: 'Folder',
             key: 'folder',
             render: function RenderFolder(_, { id }: DashboardType) {
-                return getDashboardFolderLabel(id)
+                return getDashboardFolderLabelFromItems(itemsByRef, id)
             },
         },
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,

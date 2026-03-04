@@ -1,52 +1,32 @@
-import '@testing-library/jest-dom'
+import { getDashboardFolderLabelFromItems } from './DashboardsTable'
 
-import { render, screen } from '@testing-library/react'
-import { Provider } from 'kea'
-
-import { DashboardsTable } from './DashboardsTable'
-
-jest.mock('kea', () => {
-    const actualKea = jest.requireActual('kea')
-    return {
-        ...actualKea,
-        useActions: () => ({}),
-        useValues: (logic: any) => {
-            // For this focused test we only care about projectTreeDataLogic.itemsByRef
-            if (logic && logic.path?.includes?.('projectTreeDataLogic')) {
-                return {
-                    itemsByRef: {
-                        'dashboard::1': { path: 'Unfiled/Foo' },
-                        'dashboard::2': { path: 'Foo/Bar/Baz' },
-                    },
-                }
-            }
-            return {}
-        },
-    }
-})
-
-describe('DashboardsTable folder column', () => {
-    it('renders folder names based on project tree paths', () => {
-        render(
-            <Provider>
-                <DashboardsTable
-                    dashboards={[
-                        { id: 1, name: 'A', tags: [], created_by: null } as any,
-                        { id: 2, name: 'B', tags: [], created_by: null } as any,
-                        { id: 3, name: 'C', tags: [], created_by: null } as any,
-                    ]}
-                    dashboardsLoading={false}
-                />
-            </Provider>
+describe('getDashboardFolderLabelFromItems', () => {
+    it('returns first folder segment for Unfiled/Foo', () => {
+        const label = getDashboardFolderLabelFromItems(
+            {
+                'dashboard::1': { path: 'Unfiled/Foo' },
+            },
+            1
         )
+        expect(label).toEqual('Unfiled')
+    })
 
-        // Dashboard 1: Unfiled/Foo -> "Unfiled"
-        expect(screen.getByText('Unfiled')).toBeInTheDocument()
+    it('returns all but last segment joined with / for Foo/Bar/Baz', () => {
+        const label = getDashboardFolderLabelFromItems(
+            {
+                'dashboard::2': { path: 'Foo/Bar/Baz' },
+            },
+            2
+        )
+        expect(label).toEqual('Foo / Bar')
+    })
 
-        // Dashboard 2: Foo/Bar/Baz -> "Foo / Bar"
-        expect(screen.getByText('Foo / Bar')).toBeInTheDocument()
+    it('returns em dash when there is no entry or no folder segments', () => {
+        const itemsByRef = {
+            'dashboard::3': { path: 'RootOnly' },
+        }
 
-        // Dashboard 3: no entry -> "—"
-        expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(1)
+        expect(getDashboardFolderLabelFromItems(itemsByRef, 3)).toEqual('—')
+        expect(getDashboardFolderLabelFromItems(itemsByRef, 999)).toEqual('—')
     })
 })

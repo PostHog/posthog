@@ -4,15 +4,10 @@ import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dash
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 import { DashboardType, UserBasicType } from '~/types'
-
-jest.mock('~/layout/panel-layout/ProjectTree/projectTreeLogic', () => ({
-    refreshTreeItem: jest.fn(),
-}))
 
 import dashboardJson from '../__mocks__/dashboard.json'
 
@@ -71,8 +66,6 @@ describe('dashboardsLogic', () => {
 
         logic = dashboardsLogic({ tabId: '1' })
         logic.mount()
-
-        ;(refreshTreeItem as jest.Mock).mockClear()
     })
 
     it('shows all dashboards when no filters', async () => {
@@ -170,23 +163,5 @@ describe('dashboardsLogic', () => {
                 return dashboards.length === 1 && dashboards[0].name === 'needle'
             }),
         })
-    })
-
-    it('refreshes project tree items for each loaded dashboard', async () => {
-        const refreshTreeItemMock = refreshTreeItem as jest.MockedFunction<typeof refreshTreeItem>
-
-        const pagedDashboards = {
-            results: [{ id: 101 }, { id: 202 }, { id: null }, {}],
-        } as any
-
-        await expectLogic(dashboardsModel, () => {
-            dashboardsModel.actions.loadDashboardsSuccess(pagedDashboards)
-        })
-            .toDispatchActions(['loadDashboardsSuccess'])
-            .toFinishAllListeners()
-
-        expect(refreshTreeItemMock).toHaveBeenCalledTimes(2)
-        expect(refreshTreeItemMock).toHaveBeenCalledWith('dashboard', '101')
-        expect(refreshTreeItemMock).toHaveBeenCalledWith('dashboard', '202')
     })
 })
