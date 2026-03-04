@@ -1330,7 +1330,7 @@ export const warehouseTablesFileCreate = async (
     formData.append(`url_pattern`, tableApi.url_pattern)
     formData.append(`credential`, JSON.stringify(tableApi.credential))
     if (tableApi.options !== undefined) {
-        formData.append(`options`, tableApi.options)
+        formData.append(`options`, JSON.stringify(tableApi.options))
     }
 
     return apiMutator<void>(getWarehouseTablesFileCreateUrl(projectId), {

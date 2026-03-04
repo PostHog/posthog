@@ -48,6 +48,7 @@ class TableSerializer(serializers.ModelSerializer):
     columns = serializers.SerializerMethodField(read_only=True)
     external_data_source = SimpleExternalDataSourceSerializers(read_only=True)
     external_schema = serializers.SerializerMethodField(read_only=True)
+    options = serializers.DictField(required=False, default=dict)
 
     class Meta:
         model = DataWarehouseTable
