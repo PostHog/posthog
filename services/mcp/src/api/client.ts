@@ -109,14 +109,14 @@ export type SearchableEntity = z.infer<typeof SearchableEntitySchema>
 export const SearchResultSchema = z.object({
     type: z.string(),
     result_id: z.string(),
-    extra_fields: z.record(z.any()),
+    extra_fields: z.record(z.string(), z.any()),
     rank: z.number().optional(),
 })
 export type SearchResult = z.infer<typeof SearchResultSchema>
 
 export const SearchResponseSchema = z.object({
     results: z.array(SearchResultSchema),
-    counts: z.record(z.number().nullable()).optional(),
+    counts: z.record(z.string(), z.number().nullable()).optional(),
 })
 export type SearchResponse = z.infer<typeof SearchResponseSchema>
 
@@ -1309,7 +1309,7 @@ export class ApiClient {
                         tiles: z.array(
                             z.object({
                                 id: z.number(),
-                                layouts: z.record(z.any()).nullish(),
+                                layouts: z.record(z.string(), z.any()).nullish(),
                             })
                         ),
                     }),
