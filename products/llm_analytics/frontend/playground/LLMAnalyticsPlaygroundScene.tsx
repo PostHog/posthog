@@ -1,9 +1,10 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import React from 'react'
 
 import {
+    IconLlmPromptManagement,
     IconChevronRight,
-    IconCopy,
     IconGear,
     IconPencil,
     IconPlay,
@@ -11,10 +12,12 @@ import {
     IconStack,
     IconTrash,
     IconWrench,
+    IconCopy,
 } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonDivider,
     LemonDropdown,
     LemonInput,
     LemonModal,
@@ -23,11 +26,15 @@ import {
     LemonSwitch,
     LemonTag,
     LemonTextArea,
+    Spinner,
     Link,
 } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -50,7 +57,12 @@ import {
     type MessageRole,
     type PromptConfig,
 } from './llmPlaygroundPromptsLogic'
-import { llmPlaygroundRunLogic, type ComparisonItem } from './llmPlaygroundRunLogic'
+import {
+    abortCurrentPlaygroundRun,
+    llmPlaygroundRunLogic,
+    type ComparisonItem,
+    type UsageSummary,
+} from './llmPlaygroundRunLogic'
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460
@@ -97,6 +109,7 @@ export const scene: SceneExport = {
 
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     useMountedLogic(llmPlaygroundRunLogic)
+    usePlaygroundSourceFromSearchParams()
 
     return (
         <SceneContent className="h-full">
@@ -113,11 +126,71 @@ export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     )
 }
 
+function usePlaygroundSourceFromSearchParams(): void {
+    const { searchParams } = useValues(router)
+    const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
+    const handledSourceKey = React.useRef<string | null>(null)
+
+    const sourcePromptId =
+        typeof searchParams.source_prompt_id === 'string'
+            ? searchParams.source_prompt_id
+            : typeof searchParams.playground_source_prompt_id === 'string'
+              ? searchParams.playground_source_prompt_id
+              : null
+    const sourcePromptName =
+        typeof searchParams.source_prompt_name === 'string'
+            ? searchParams.source_prompt_name
+            : typeof searchParams.playground_source_prompt_name === 'string'
+              ? searchParams.playground_source_prompt_name
+              : null
+    const sourceEvaluationId =
+        typeof searchParams.source_evaluation_id === 'string'
+            ? searchParams.source_evaluation_id
+            : typeof searchParams.playground_source_evaluation_id === 'string'
+              ? searchParams.playground_source_evaluation_id
+              : null
+    const sourceEvaluationName =
+        typeof searchParams.source_evaluation_name === 'string'
+            ? searchParams.source_evaluation_name
+            : typeof searchParams.playground_source_evaluation_name === 'string'
+              ? searchParams.playground_source_evaluation_name
+              : null
+
+    React.useEffect(() => {
+        if (!sourcePromptId && !sourceEvaluationId) {
+            handledSourceKey.current = null
+            return
+        }
+
+        const sourceKey = [
+            sourcePromptId ?? '',
+            sourcePromptName ?? '',
+            sourceEvaluationId ?? '',
+            sourceEvaluationName ?? '',
+        ].join('::')
+        if (handledSourceKey.current === sourceKey) {
+            return
+        }
+
+        const inferredSourceType = sourcePromptId ? 'prompt' : sourceEvaluationId ? 'evaluation' : undefined
+        setupPlaygroundFromEvent({
+            sourceType: inferredSourceType,
+            sourcePromptId: sourcePromptId ?? undefined,
+            sourcePromptName: sourcePromptName ?? undefined,
+            sourceEvaluationId: sourceEvaluationId ?? undefined,
+            sourceEvaluationName: sourceEvaluationName ?? undefined,
+        })
+
+        handledSourceKey.current = sourceKey
+    }, [setupPlaygroundFromEvent, sourceEvaluationId, sourceEvaluationName, sourcePromptId, sourcePromptName])
+}
+
 function PlaygroundHeaderActions(): JSX.Element {
-    const { hasRunnablePrompts, activePromptId } = useValues(llmPlaygroundPromptsLogic)
+    const { hasRunnablePrompts, promptConfigs } = useValues(llmPlaygroundPromptsLogic)
     const { addPromptConfig } = useActions(llmPlaygroundPromptsLogic)
     const { submitting: playgroundSubmitting } = useValues(llmPlaygroundRunLogic)
     const { submitPrompt } = useActions(llmPlaygroundRunLogic)
+    const firstPromptId = promptConfigs[0]?.id
 
     return (
         <>
@@ -125,28 +198,28 @@ function PlaygroundHeaderActions(): JSX.Element {
                 type="secondary"
                 size="small"
                 icon={<IconPlus />}
-                onClick={() => addPromptConfig(activePromptId ?? undefined)}
+                onClick={() => addPromptConfig(firstPromptId)}
                 disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
                 data-attr="playground-add-prompt"
             >
                 Add prompt
             </LemonButton>
             <LemonButton
-                type="primary"
+                type={playgroundSubmitting ? 'secondary' : 'primary'}
                 size="small"
-                icon={<IconPlay />}
-                onClick={() => submitPrompt()}
-                loading={playgroundSubmitting}
+                icon={playgroundSubmitting ? <Spinner textColored /> : <IconPlay />}
+                status={playgroundSubmitting ? 'danger' : undefined}
+                onClick={() => (playgroundSubmitting ? abortCurrentPlaygroundRun() : submitPrompt())}
                 disabledReason={
                     playgroundSubmitting
-                        ? 'Generating...'
+                        ? undefined
                         : !hasRunnablePrompts
                           ? 'Add messages to at least one prompt'
                           : undefined
                 }
-                data-attr="playground-run"
+                data-attr="ai-playground-run-button"
             >
-                Run
+                {playgroundSubmitting ? 'Stop' : 'Run'}
             </LemonButton>
         </>
     )
@@ -202,23 +275,33 @@ function SubscriptionRequiredBanner(): JSX.Element | null {
 }
 
 function PlaygroundLayout(): JSX.Element {
+    const { sourceSetupLoading } = useValues(llmPlaygroundPromptsLogic)
+
     return (
         <div className="flex flex-1 min-h-0 flex-col gap-4">
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
 
             <section className="rounded overflow-hidden min-h-0 flex flex-1 flex-col bg-transparent">
-                <div className="h-full min-h-0 overflow-y-auto">
-                    <PromptConfigsSection />
-                </div>
+                {sourceSetupLoading ? (
+                    <div className="h-full min-h-0 p-4 space-y-3">
+                        <LemonSkeleton className="h-8 w-56" />
+                        <LemonSkeleton className="h-28 w-full" />
+                        <LemonSkeleton className="h-28 w-full" />
+                    </div>
+                ) : (
+                    <div className="h-full min-h-0 overflow-y-auto">
+                        <PromptConfigsSection />
+                    </div>
+                )}
             </section>
         </div>
     )
 }
 
 function PromptConfigsSection(): JSX.Element {
-    const { promptConfigs, activePromptId } = useValues(llmPlaygroundPromptsLogic)
-    const { removePromptConfig, setActivePromptId } = useActions(llmPlaygroundPromptsLogic)
+    const { promptConfigs } = useValues(llmPlaygroundPromptsLogic)
+    const { removePromptConfig } = useActions(llmPlaygroundPromptsLogic)
     const { comparisonItems } = useValues(llmPlaygroundRunLogic)
 
     const promptCount = promptConfigs.length
@@ -243,18 +326,16 @@ function PromptConfigsSection(): JSX.Element {
                 }}
             >
                 {promptConfigs.map((prompt, index) => {
-                    const isActive = prompt.id === activePromptId
                     return (
                         <React.Fragment key={prompt.id}>
                             <PromptCard
                                 prompt={prompt}
                                 index={index}
-                                isActive={isActive}
+                                promptCount={promptCount}
                                 canRemove={promptConfigs.length > 1}
-                                onActivate={() => setActivePromptId(prompt.id)}
                                 onRemove={() => removePromptConfig(prompt.id)}
                             />
-                            <PromptResultCard item={latestItemByPromptId.get(prompt.id)} />
+                            <PromptResultCard prompt={prompt} item={latestItemByPromptId.get(prompt.id)} />
                         </React.Fragment>
                     )
                 })}
@@ -266,47 +347,46 @@ function PromptConfigsSection(): JSX.Element {
 function PromptCard({
     prompt,
     index,
-    isActive,
+    promptCount,
     canRemove,
-    onActivate,
     onRemove,
 }: {
     prompt: PromptConfig
     index: number
-    isActive: boolean
+    promptCount: number
     canRemove: boolean
-    onActivate: () => void
     onRemove: () => void
 }): JSX.Element {
     const { submitting } = useValues(llmPlaygroundRunLogic)
+    const showHeaderRow = promptCount > 1 || canRemove
 
     return (
-        <div
-            className={`min-w-0 border rounded p-4 bg-transparent transition-shadow group/prompt ${
-                isActive ? 'ring-1 ring-primary/40 shadow-sm' : 'hover:shadow-sm'
-            } h-full flex flex-col min-h-0`}
-        >
-            <div className="flex items-center justify-between mb-4 gap-2 shrink-0">
-                <button type="button" className="flex items-center gap-2 min-w-0" onClick={onActivate}>
-                    <LemonTag type={isActive ? 'highlight' : 'default'} size="small">
-                        Prompt {index + 1}
-                    </LemonTag>
-                </button>
+        <div className="min-w-0 border rounded p-4 bg-transparent group/prompt ring-1 ring-primary/40 shadow-sm h-full flex flex-col min-h-0">
+            {showHeaderRow ? (
+                <div className="flex items-center justify-between mb-4 gap-2 shrink-0">
+                    {promptCount > 1 ? (
+                        <LemonTag type="highlight" size="small">
+                            Prompt {index + 1}
+                        </LemonTag>
+                    ) : (
+                        <span />
+                    )}
 
-                {canRemove && (
-                    <div className="opacity-0 group-hover/prompt:opacity-100 group-focus-within/prompt:opacity-100 transition-opacity">
-                        <LemonButton
-                            size="small"
-                            status="danger"
-                            icon={<IconTrash />}
-                            noPadding
-                            disabledReason={submitting ? 'Generating...' : undefined}
-                            onClick={onRemove}
-                            data-attr="playground-remove-prompt"
-                        />
-                    </div>
-                )}
-            </div>
+                    {canRemove && (
+                        <div>
+                            <LemonButton
+                                size="small"
+                                status="danger"
+                                icon={<IconTrash />}
+                                noPadding
+                                disabledReason={submitting ? 'Generating...' : undefined}
+                                onClick={onRemove}
+                                data-attr="playground-remove-prompt"
+                            />
+                        </div>
+                    )}
+                </div>
+            ) : null}
 
             <div className="shrink-0 mb-4">
                 <ModelConfigBar promptId={prompt.id} />
@@ -319,8 +399,29 @@ function PromptCard({
     )
 }
 
-function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
+function hasUsage(usage: UsageSummary | undefined): boolean {
+    if (!usage) {
+        return false
+    }
+    return Object.values(usage).some((value) => typeof value === 'number' && value > 0)
+}
+
+function PromptResultCard({ prompt, item }: { prompt: PromptConfig; item?: ComparisonItem }): JSX.Element {
     const isStreaming = !!item && item.latencyMs == null && !item.error
+    const { setPendingToolResults } = useActions(llmPlaygroundPromptsLogic)
+    const [toolResultsByCallId, setToolResultsByCallId] = React.useState<Record<string, string>>({})
+
+    React.useEffect(() => {
+        const fromPrompt =
+            prompt.pendingToolResults?.reduce(
+                (acc, toolResult) => {
+                    acc[toolResult.id] = toolResult.result
+                    return acc
+                },
+                {} as Record<string, string>
+            ) ?? {}
+        setToolResultsByCallId(fromPrompt)
+    }, [prompt.pendingToolResults, prompt.id])
 
     return (
         <div className="mb-4 border rounded p-4 bg-transparent h-[30vh] min-w-0 flex flex-col">
@@ -358,7 +459,69 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                             <span className="text-muted italic">No response</span>
                         )}
                     </div>
-                    {!!item.response && (
+                    {!!item.reasoning && (
+                        <div className="mt-2 rounded border bg-surface-primary p-2 text-xs">
+                            <div className="mb-1 font-medium">Reasoning</div>
+                            <div className="whitespace-pre-wrap break-words">{item.reasoning}</div>
+                        </div>
+                    )}
+                    {!!item.toolCalls?.length && (
+                        <div className="mt-2 space-y-2 overflow-y-auto max-h-40">
+                            {item.toolCalls.map((toolCall) => (
+                                <div key={toolCall.id} className="rounded border bg-surface-primary p-2">
+                                    <div className="text-[11px] font-medium">
+                                        {toolCall.name || 'tool_call'}{' '}
+                                        <span className="text-muted">({toolCall.id})</span>
+                                    </div>
+                                    <pre className="mt-1 text-[11px] whitespace-pre-wrap break-all text-muted">
+                                        {toolCall.arguments || '{}'}
+                                    </pre>
+                                    <LemonTextArea
+                                        className="mt-2 text-xs"
+                                        value={toolResultsByCallId[toolCall.id] ?? ''}
+                                        onChange={(value) =>
+                                            setToolResultsByCallId((current) => ({
+                                                ...current,
+                                                [toolCall.id]: value,
+                                            }))
+                                        }
+                                        placeholder="Paste tool result output here"
+                                        minRows={2}
+                                        maxRows={4}
+                                    />
+                                </div>
+                            ))}
+                            <div className="flex justify-end">
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    disabledReason={
+                                        !item.toolCalls.some((tool) => (toolResultsByCallId[tool.id] ?? '').trim())
+                                            ? 'Add at least one tool result'
+                                            : undefined
+                                    }
+                                    onClick={() =>
+                                        setPendingToolResults(
+                                            item.toolCalls
+                                                .filter(
+                                                    (tool) => (toolResultsByCallId[tool.id] ?? '').trim().length > 0
+                                                )
+                                                .map((tool) => ({
+                                                    id: tool.id,
+                                                    name: tool.name,
+                                                    arguments: tool.arguments,
+                                                    result: toolResultsByCallId[tool.id].trim(),
+                                                })),
+                                            prompt.id
+                                        )
+                                    }
+                                >
+                                    Apply tool results
+                                </LemonButton>
+                            </div>
+                        </div>
+                    )}
+                    {(!!item.response || !!item.toolCalls?.length || hasUsage(item.usage)) && (
                         <MetadataHeader
                             className="mt-2 pt-2"
                             isError={item.error}
@@ -385,6 +548,41 @@ function getTrialModelsErrorMessage(errorStatus: number | null): string | null {
         return 'Too many requests. Please wait a moment and try again.'
     }
     return 'Failed to load models. Please refresh the page or try again later.'
+}
+
+function modelSupportsReasoning(modelId: string): boolean {
+    const normalized = modelId.toLowerCase()
+    return (
+        normalized.includes('gpt-5') ||
+        normalized.includes('o1') ||
+        normalized.includes('o3') ||
+        normalized.includes('o4') ||
+        normalized.includes('claude')
+    )
+}
+
+function modelSupportsTools(modelId: string): boolean {
+    const normalized = modelId.toLowerCase()
+    return (
+        normalized.includes('gpt') ||
+        normalized.includes('o1') ||
+        normalized.includes('o3') ||
+        normalized.includes('o4') ||
+        normalized.includes('claude') ||
+        normalized.includes('gemini')
+    )
+}
+
+function modelSupportsMaxTokens(modelId: string): boolean {
+    const normalized = modelId.toLowerCase()
+    return (
+        normalized.includes('gpt') ||
+        normalized.includes('o1') ||
+        normalized.includes('o3') ||
+        normalized.includes('o4') ||
+        normalized.includes('claude') ||
+        normalized.includes('gemini')
+    )
 }
 
 function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element {
@@ -444,11 +642,15 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
 
 function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { setMaxTokens, setThinking, setReasoningLevel } = useActions(llmPlaygroundPromptsLogic)
+    const { setMaxTokens, setTemperature, setTopP, setSeed, setThinking, setReasoningLevel } =
+        useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <div className="p-3 text-xs text-muted">Prompt not found</div>
     }
+
+    const supportsReasoning = modelSupportsReasoning(prompt.model)
+    const supportsMaxTokens = modelSupportsMaxTokens(prompt.model)
 
     return (
         <div className="space-y-4 p-4 w-[300px]">
@@ -458,10 +660,57 @@ function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Elemen
                     type="number"
                     value={prompt.maxTokens ?? undefined}
                     onChange={(val) => setMaxTokens(val ?? null, promptId)}
+                    disabled={!supportsMaxTokens}
                     min={1}
                     max={16384}
                     step={64}
                     placeholder="Model default"
+                    size="small"
+                />
+                {!supportsMaxTokens && (
+                    <p className="mt-1 text-[11px] text-muted">
+                        Selected model compatibility is unknown for max tokens.
+                    </p>
+                )}
+            </div>
+
+            <div>
+                <label className="text-xs font-medium mb-1 block">Temperature</label>
+                <LemonInput
+                    type="number"
+                    value={prompt.temperature ?? undefined}
+                    onChange={(val) => setTemperature(val ?? null, promptId)}
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    placeholder="Model default"
+                    size="small"
+                />
+            </div>
+
+            <div>
+                <label className="text-xs font-medium mb-1 block">Top p</label>
+                <LemonInput
+                    type="number"
+                    value={prompt.topP ?? undefined}
+                    onChange={(val) => setTopP(val ?? null, promptId)}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    placeholder="Model default"
+                    size="small"
+                />
+            </div>
+
+            <div>
+                <label className="text-xs font-medium mb-1 block">Seed</label>
+                <LemonInput
+                    type="number"
+                    value={prompt.seed ?? undefined}
+                    onChange={(val) => setSeed(val ?? null, promptId)}
+                    min={1}
+                    step={1}
+                    placeholder="Random"
                     size="small"
                 />
             </div>
@@ -473,6 +722,9 @@ function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Elemen
                     placeholder="None"
                     value={prompt.reasoningLevel}
                     onChange={(value) => setReasoningLevel(value ?? null, promptId)}
+                    disabledReason={
+                        !supportsReasoning ? 'Selected model likely does not support reasoning effort' : undefined
+                    }
                     options={[
                         { label: 'None', value: null },
                         { label: 'Minimal', value: 'minimal' },
@@ -488,10 +740,11 @@ function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Elemen
             <LemonSwitch
                 bordered
                 checked={prompt.thinking}
-                onChange={(checked) => setThinking(checked, promptId)}
+                onChange={(checked) => setThinking(checked && supportsReasoning, promptId)}
                 label="Thinking"
                 size="small"
-                tooltip="Enable thinking/reasoning stream (if supported)"
+                disabledReason={!supportsReasoning ? 'Selected model likely does not support thinking' : undefined}
+                tooltip="Enable thinking/reasoning stream for supported models"
             />
         </div>
     )
@@ -499,12 +752,27 @@ function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Elemen
 
 function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
+    const { setThinking, setReasoningLevel } = useActions(llmPlaygroundPromptsLogic)
+    const supportsReasoning = prompt ? modelSupportsReasoning(prompt.model) : false
+
+    React.useEffect(() => {
+        if (prompt && !supportsReasoning && (prompt.thinking || prompt.reasoningLevel !== null)) {
+            setThinking(false, promptId)
+            setReasoningLevel(null, promptId)
+        }
+    }, [prompt?.reasoningLevel, prompt?.thinking, promptId, setReasoningLevel, setThinking, supportsReasoning])
 
     if (!prompt) {
         return <LemonSkeleton className="h-8" />
     }
 
-    const hasNonDefaultSettings = prompt.maxTokens !== null || prompt.thinking || prompt.reasoningLevel !== 'medium'
+    const hasNonDefaultSettings =
+        prompt.maxTokens !== null ||
+        prompt.temperature !== null ||
+        prompt.topP !== null ||
+        prompt.seed !== null ||
+        prompt.thinking ||
+        prompt.reasoningLevel !== 'medium'
 
     return (
         <div className="flex flex-wrap items-center gap-3">
@@ -534,7 +802,7 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
 function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
     const { submitting } = useValues(llmPlaygroundRunLogic)
-    const { addMessage } = useActions(llmPlaygroundPromptsLogic)
+    const { addMessage, clearPendingToolResults } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-16" />
@@ -542,6 +810,18 @@ function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
 
     return (
         <div className="space-y-3">
+            {!!prompt.pendingToolResults?.length && (
+                <LemonBanner
+                    type="info"
+                    action={{
+                        children: 'Clear',
+                        onClick: () => clearPendingToolResults(promptId),
+                    }}
+                >
+                    {prompt.pendingToolResults.length} tool result
+                    {prompt.pendingToolResults.length === 1 ? '' : 's'} will be sent on the next run.
+                </LemonBanner>
+            )}
             <SystemMessageDisplay promptId={promptId} />
             {prompt.messages.map((message, index) => (
                 <MessageDisplay key={`${promptId}-${index}`} promptId={promptId} index={index} message={message} />
@@ -578,6 +858,7 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
     const toolsJsonString = localToolsJson ?? JSON.stringify(prompt.tools ?? [], null, 2)
     const toolCount = Array.isArray(prompt.tools) ? prompt.tools.length : 0
     const hasTools = toolCount > 0
+    const supportsTools = modelSupportsTools(prompt.model)
 
     const handleToolsChange = (value?: string): void => {
         if (value === undefined) {
@@ -601,7 +882,13 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                 icon={<IconWrench />}
                 active={hasTools}
                 onClick={() => setEditModal({ type: 'tools', promptId })}
-                disabledReason={submitting ? 'Generating...' : undefined}
+                disabledReason={
+                    submitting
+                        ? 'Generating...'
+                        : !supportsTools
+                          ? 'Selected model compatibility is unknown for tools'
+                          : undefined
+                }
                 tooltip={hasTools ? `${toolCount} tool${toolCount === 1 ? '' : 's'} attached` : 'No tools attached'}
             >
                 Tools
@@ -704,8 +991,11 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
 
 function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
+    const { effectiveModelOptions } = useValues(llmPlaygroundModelLogic)
     const { promptConfigs, editModal, collapsedSections } = useValues(llmPlaygroundPromptsLogic)
-    const { setSystemPrompt, setEditModal, toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { searchParams } = useValues(router)
+    const { setSystemPrompt, setEditModal, toggleCollapsed, clearLinkedSource } = useActions(llmPlaygroundPromptsLogic)
     const { submitPrompt } = useActions(llmPlaygroundRunLogic)
 
     if (!prompt) {
@@ -715,6 +1005,273 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const showEditModal = editModal?.type === 'system' && editModal.promptId === promptId
     const collapsed = !!collapsedSections[`system:${promptId}`]
     const hasOtherPrompts = promptConfigs.length > 1
+    const selectedModel = effectiveModelOptions.find((model) => model.id === prompt.model)
+    const linkedPromptIdFromUrl =
+        typeof searchParams.source_prompt_id === 'string'
+            ? searchParams.source_prompt_id
+            : typeof searchParams.playground_source_prompt_id === 'string'
+              ? searchParams.playground_source_prompt_id
+              : null
+    const linkedPromptNameFromUrl =
+        typeof searchParams.source_prompt_name === 'string'
+            ? searchParams.source_prompt_name
+            : typeof searchParams.playground_source_prompt_name === 'string'
+              ? searchParams.playground_source_prompt_name
+              : null
+    const linkedEvaluationIdFromUrl =
+        typeof searchParams.source_evaluation_id === 'string'
+            ? searchParams.source_evaluation_id
+            : typeof searchParams.playground_source_evaluation_id === 'string'
+              ? searchParams.playground_source_evaluation_id
+              : null
+    const linkedEvaluationNameFromUrl =
+        typeof searchParams.source_evaluation_name === 'string'
+            ? searchParams.source_evaluation_name
+            : typeof searchParams.playground_source_evaluation_name === 'string'
+              ? searchParams.playground_source_evaluation_name
+              : null
+    const linkedPromptId = prompt.sourcePromptId ?? linkedPromptIdFromUrl
+    const linkedPromptName = prompt.sourcePromptName ?? linkedPromptNameFromUrl
+    const linkedEvaluationId = prompt.sourceEvaluationId ?? linkedEvaluationIdFromUrl
+    const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+    const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
+    const isEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
+    const linkedPromptLabel = linkedPromptName ?? 'linked prompt'
+    const linkedEvaluationLabel = linkedEvaluationNameFromUrl
+        ? `evaluation "${linkedEvaluationNameFromUrl}"`
+        : linkedEvaluationId
+          ? `evaluation ${linkedEvaluationId.slice(0, 8)}`
+          : 'linked evaluation'
+    const linkedContextLabel =
+        linkedPromptId && linkedPromptName
+            ? `Editing prompt: ${linkedPromptName}`
+            : linkedEvaluationId && linkedEvaluationNameFromUrl
+              ? `Editing evaluation: ${linkedEvaluationNameFromUrl}`
+              : linkedEvaluationId
+                ? `Editing evaluation: ${linkedEvaluationId.slice(0, 8)}`
+                : null
+    const {
+        source_prompt_id: _sourcePromptId,
+        source_prompt_name: _sourcePromptName,
+        source_evaluation_id: _sourceEvaluationId,
+        source_evaluation_name: _sourceEvaluationName,
+        playground_source_prompt_id: _legacySourcePromptId,
+        playground_source_prompt_name: _legacySourcePromptName,
+        playground_source_evaluation_id: _legacySourceEvaluationId,
+        playground_source_evaluation_name: _legacySourceEvaluationName,
+        ...searchParamsWithoutLinkedSource
+    } = searchParams
+
+    const goToNewEvaluationEditor = (): void => {
+        const url = combineUrl(urls.llmAnalyticsEvaluation('new'), {
+            ...searchParams,
+            playground_name: 'Playground guardrail',
+            playground_description: `Created from playground on ${new Date().toLocaleString()}`,
+            playground_prompt: prompt.systemPrompt,
+            playground_model: prompt.model,
+            playground_provider: selectedModel?.provider,
+            playground_provider_key_id: prompt.selectedProviderKeyId,
+        }).url
+        router.actions.push(url)
+    }
+
+    const goToPromptsLibrary = (): void => {
+        router.actions.push(combineUrl(urls.llmAnalyticsPrompts(), searchParams).url)
+    }
+
+    const goToEvaluationsLibrary = (): void => {
+        router.actions.push(combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url)
+    }
+
+    const goToLinkedEvaluationEditor = (): void => {
+        if (!linkedEvaluationId) {
+            return
+        }
+
+        const url = combineUrl(urls.llmAnalyticsEvaluation(linkedEvaluationId), {
+            ...searchParams,
+            playground_prompt: prompt.systemPrompt,
+            playground_model: prompt.model,
+            playground_provider: selectedModel?.provider,
+            playground_provider_key_id: prompt.selectedProviderKeyId,
+        }).url
+        router.actions.push(url)
+    }
+
+    const confirmSaveToLinkedEvaluation = (): void => {
+        if (!linkedEvaluationId) {
+            return
+        }
+
+        LemonDialog.open({
+            title: `Save to ${linkedEvaluationLabel}?`,
+            description:
+                'This opens the existing evaluation with this system prompt prefilled. If you save there, it will overwrite the current evaluation.',
+            primaryButton: {
+                children: 'Continue',
+                type: 'primary',
+                onClick: goToLinkedEvaluationEditor,
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'secondary',
+            },
+        })
+    }
+
+    const goToNewPromptEditor = (): void => {
+        const url = combineUrl(urls.llmAnalyticsPrompt('new'), {
+            ...searchParams,
+            edit: 'true',
+            prefill_name: `playground_system_prompt_${Date.now()}`,
+            prefill_prompt: prompt.systemPrompt,
+        }).url
+        router.actions.push(url)
+    }
+
+    const goToLinkedPromptEditor = (): void => {
+        if (!linkedPromptName) {
+            return
+        }
+
+        const url = combineUrl(urls.llmAnalyticsPrompt(linkedPromptName), {
+            ...searchParams,
+            edit: 'true',
+            prefill_prompt: prompt.systemPrompt,
+            source_prompt_id: linkedPromptId,
+        }).url
+        router.actions.push(url)
+    }
+
+    const confirmSaveToLinkedPrompt = (): void => {
+        if (!linkedPromptName) {
+            return
+        }
+
+        LemonDialog.open({
+            title: `Save to prompt "${linkedPromptLabel}"?`,
+            description:
+                'This opens the existing prompt in edit mode with this system prompt prefilled. If you save there, it will overwrite the current prompt.',
+            primaryButton: {
+                children: 'Continue',
+                type: 'primary',
+                onClick: goToLinkedPromptEditor,
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'secondary',
+            },
+        })
+    }
+
+    const clearLinkedSourceState = (): void => {
+        clearLinkedSource(promptId)
+        router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), searchParamsWithoutLinkedSource).url)
+    }
+
+    const linkedActions: JSX.Element[] = []
+    const saveAsNewActions: JSX.Element[] = []
+    const loadActions: JSX.Element[] = []
+    const hasLinkedSource = !!linkedPromptId || !!linkedEvaluationId
+
+    if (linkedPromptId && linkedPromptName && isPromptManagementEnabled) {
+        linkedActions.push(
+            <LemonButton
+                key="save-linked-prompt"
+                type="tertiary"
+                size="small"
+                fullWidth
+                className="justify-start"
+                onClick={confirmSaveToLinkedPrompt}
+            >
+                <span
+                    className="block w-full whitespace-normal break-all text-left"
+                    title={`Save to prompt "${linkedPromptLabel}"`}
+                >
+                    Save to prompt "{linkedPromptLabel}"
+                </span>
+            </LemonButton>
+        )
+    }
+
+    if (linkedEvaluationId && isEvaluationsEnabled) {
+        linkedActions.push(
+            <LemonButton
+                key="save-linked-evaluation"
+                type="tertiary"
+                size="small"
+                fullWidth
+                className="justify-start"
+                onClick={confirmSaveToLinkedEvaluation}
+            >
+                <span
+                    className="block w-full whitespace-normal break-all text-left"
+                    title={
+                        linkedEvaluationNameFromUrl
+                            ? `Save to evaluation "${linkedEvaluationNameFromUrl}"`
+                            : `Save to evaluation ${linkedEvaluationId.slice(0, 8)}`
+                    }
+                >
+                    Save to evaluation{' '}
+                    {linkedEvaluationNameFromUrl ? `"${linkedEvaluationNameFromUrl}"` : linkedEvaluationId.slice(0, 8)}
+                </span>
+            </LemonButton>
+        )
+    }
+
+    if (hasLinkedSource) {
+        linkedActions.push(
+            <LemonButton key="unlink-source" type="tertiary" size="small" fullWidth onClick={clearLinkedSourceState}>
+                Unlink from source
+            </LemonButton>
+        )
+    }
+
+    if (isPromptManagementEnabled) {
+        saveAsNewActions.push(
+            <LemonButton key="save-new-prompt" type="tertiary" size="small" fullWidth onClick={goToNewPromptEditor}>
+                Save as new prompt
+            </LemonButton>
+        )
+        loadActions.push(
+            <LemonButton key="load-prompt" type="tertiary" size="small" fullWidth onClick={goToPromptsLibrary}>
+                Load prompt
+            </LemonButton>
+        )
+    }
+
+    if (isEvaluationsEnabled) {
+        saveAsNewActions.push(
+            <LemonButton
+                key="save-new-evaluation"
+                type="tertiary"
+                size="small"
+                fullWidth
+                onClick={goToNewEvaluationEditor}
+            >
+                Save as new evaluation
+            </LemonButton>
+        )
+        loadActions.push(
+            <LemonButton key="load-evaluation" type="tertiary" size="small" fullWidth onClick={goToEvaluationsLibrary}>
+                Load evaluation
+            </LemonButton>
+        )
+    }
+
+    const menuGroups = [linkedActions, saveAsNewActions, loadActions].filter((group) => group.length > 0)
+
+    const saveAsOverlay = (
+        <div className={`${hasLinkedSource ? 'w-72' : 'w-56'} p-1`}>
+            {menuGroups.map((group, groupIndex) => (
+                <React.Fragment key={`group-${groupIndex}`}>
+                    {groupIndex > 0 ? <LemonDivider className="my-1" /> : null}
+                    {group}
+                </React.Fragment>
+            ))}
+        </div>
+    )
+
     const copySystemPromptToOtherPrompts = (): void => {
         if (!hasOtherPrompts) {
             return
@@ -730,7 +1287,22 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     return (
         <>
             <div className="border rounded p-4 py-2 relative group border-l-4 border-l-[var(--color-purple-500)]">
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                <div className="absolute top-2 right-2 flex items-center gap-1">
+                    {menuGroups.length > 0 ? (
+                        <LemonDropdown overlay={saveAsOverlay} placement="bottom-end">
+                            <LemonButton
+                                size="small"
+                                icon={<IconLlmPromptManagement className="text-warning" />}
+                                tooltip={
+                                    linkedPromptId || linkedEvaluationId
+                                        ? 'Save changes back to the linked item or create a new one'
+                                        : 'Save this system prompt as a prompt or evaluation'
+                                }
+                                noPadding
+                                data-attr="playground-use-system-prompt"
+                            />
+                        </LemonDropdown>
+                    ) : null}
                     <LemonButton
                         size="small"
                         icon={<IconCopy />}
@@ -767,6 +1339,11 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                     <LemonTag type="completion" size="small">
                         System
                     </LemonTag>
+                    {linkedContextLabel ? (
+                        <LemonTag type="highlight" size="small" className="max-w-[260px] truncate">
+                            {linkedContextLabel}
+                        </LemonTag>
+                    ) : null}
                     {collapsed && (
                         <span className="text-xs text-muted truncate flex-1">
                             {prompt.systemPrompt
@@ -883,7 +1460,7 @@ function MessageDisplay({
     return (
         <>
             <div className={`border rounded p-4 py-2 relative group ${getRoleBorderClass(message.role)}`}>
-                <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                <div className="absolute top-4 right-4 flex items-center gap-1">
                     <LemonButton
                         size="small"
                         icon={<IconCopy />}
