@@ -137,7 +137,7 @@ pub async fn flags_definitions(
     );
 
     // Retrieve cached response from HyperCache (always with cohorts)
-    let cached_response = get_from_cache(&state, &team).await?;
+    let cached_response = get_from_cache(&state, &team_key, team.id).await?;
 
     Ok(ok_response_with_etag(
         cached_response,
@@ -271,13 +271,12 @@ async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, Flag
 /// to support dashboards and alerting during the migration from Django.
 async fn get_from_cache(
     state: &AppState,
-    team: &Team,
+    team_key: &KeyType,
+    team_id: i32,
 ) -> Result<FlagDefinitionsResponse, FlagError> {
-    let team_key = KeyType::team(team.clone());
-
     let result = state
         .flags_with_cohorts_hypercache_reader
-        .get_with_source(&team_key)
+        .get_with_source(team_key)
         .await;
 
     match result {
@@ -293,7 +292,7 @@ async fn get_from_cache(
                 1,
             );
             info!(
-                team_id = team.id,
+                team_id = team_id,
                 source = source_name,
                 "Cache hit for flag definitions"
             );
@@ -313,7 +312,7 @@ async fn get_from_cache(
                 1,
             );
             warn!(
-                team_id = team.id,
+                team_id = team_id,
                 reason = reason,
                 error = %e,
                 "Flag definitions cache miss"
