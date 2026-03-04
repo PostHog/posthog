@@ -116,6 +116,7 @@ class TestGetEventSource(BaseTest):
         request = factory.get("/fake", HTTP_USER_AGENT=user_agent)
         assert get_event_source(request) == expected
 
+
 class TestSanitizeUserAgent(BaseTest):
     @parameterized.expand(
         [
