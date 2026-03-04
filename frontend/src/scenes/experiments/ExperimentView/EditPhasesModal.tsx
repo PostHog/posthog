@@ -688,15 +688,17 @@ export function EditPhasesModal(): JSX.Element | null {
                 {newPhaseValidationError ? <div className="text-danger text-sm">{newPhaseValidationError}</div> : null}
 
                 {isRunning && !addingNewPhase ? (
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        size="small"
-                        onClick={handleStartAddingPhase}
-                        disabledReason={addPhaseDisabledReason}
-                    >
-                        Add phase
-                    </LemonButton>
+                    <div>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            size="small"
+                            onClick={handleStartAddingPhase}
+                            disabledReason={addPhaseDisabledReason}
+                        >
+                            Add phase
+                        </LemonButton>
+                    </div>
                 ) : null}
 
                 {selectedPhaseIndex != null && selectedPhaseIndex >= draftPhases.length ? (
