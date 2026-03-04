@@ -796,7 +796,8 @@ export interface ToolbarParams {
     /** @deprecated, not needed if `posthog` is passed as prop instead */
     apiURL?: string
     token?: string /** public posthog-js token */
-    temporaryToken?: string /** private temporary user token */
+    /** @deprecated Replaced by OAuth flow. Remove after September 2026. */
+    temporaryToken?: string
     accessToken?: string /** OAuth access token (Bearer) */
     refreshToken?: string /** OAuth refresh token */
     clientId?: string /** OAuth client_id for token refresh */
@@ -2228,6 +2229,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     last_modified_by: UserBasicType | null
     last_viewed_at?: string | null
     viewers?: UserBasicType[]
+    view_count?: number
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
@@ -2237,6 +2239,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     alerts?: AlertType[]
     query?: Node | null
     query_status?: QueryStatus
+    is_cached?: boolean
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }
@@ -3503,6 +3506,7 @@ export interface ProductTourDisplayConditions {
     } | null
     linkedFlagVariant?: string
     seenTourWaitPeriod?: ProductTourWaitPeriod
+    deviceTypes?: string[]
 }
 
 export interface ProductTourAppearance {
@@ -4047,6 +4051,10 @@ export interface PreflightStatus {
     opt_out_capture?: boolean
     email_service_available: boolean
     slack_service: {
+        available: boolean
+        client_id?: string
+    }
+    twig_slack_service: {
         available: boolean
         client_id?: string
     }
@@ -4615,8 +4623,6 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Action/event filter defition */
         action?: ActionFilter | null
         yAxisID?: string
-        /** Total number of respondents for survey questions (for per-respondent percentage calculation) */
-        totalResponses?: number
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }
@@ -4816,6 +4822,7 @@ export enum EventDefinitionType {
 
 export const INTEGRATION_KINDS = [
     'slack',
+    'slack-twig',
     'salesforce',
     'hubspot',
     'google-pubsub',
@@ -5284,6 +5291,7 @@ export interface DataWarehouseTable {
     credential: DataWarehouseCredential
     external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
+    options?: { csv_allow_double_quotes?: boolean | null }
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames'
@@ -5361,11 +5369,6 @@ export interface DataWarehouseSavedQueryDraft {
     edited_history_id?: string
 }
 
-export interface DataWarehouseViewLinkConfiguration {
-    experiments_optimized?: boolean
-    experiments_timestamp_key?: string | null
-}
-
 export interface DataWarehouseViewLink {
     id: string
     source_table_name?: string
@@ -5375,7 +5378,6 @@ export interface DataWarehouseViewLink {
     field_name?: string
     created_by?: UserBasicType | null
     created_at?: string | null
-    configuration?: DataWarehouseViewLinkConfiguration
 }
 
 export interface DataWarehouseViewLinkValidation {
@@ -5807,6 +5809,7 @@ export type RawBatchExportBackfill = {
     start_at?: string
     end_at?: string
     last_updated_at?: string
+    total_records_count?: number
     progress?: BatchExportBackfillProgress
 }
 
@@ -5827,6 +5830,7 @@ export type BatchExportBackfill = {
     start_at?: Dayjs
     end_at?: Dayjs
     last_updated_at?: Dayjs
+    total_records_count?: number
     progress?: BatchExportBackfillProgress
 }
 

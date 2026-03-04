@@ -79,7 +79,9 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 loadEvaluationsSuccess: (_, { evaluations }) => evaluations,
                 createEvaluationSuccess: (state, { evaluation }) => [...state, evaluation],
                 updateEvaluationSuccess: (state, { id, evaluation }) =>
-                    state.map((e: EvaluationConfig) => (e.id === id ? { ...e, ...evaluation } : e)),
+                    state.map((e: EvaluationConfig) =>
+                        e.id === id ? ({ ...e, ...evaluation } as EvaluationConfig) : e
+                    ),
                 deleteEvaluationSuccess: (state, { id }) => state.filter((e: EvaluationConfig) => e.id !== id),
                 duplicateEvaluationSuccess: (state, { evaluation }) => [...state, evaluation],
                 toggleEvaluationEnabledSuccess: (state, { id }) =>
@@ -228,7 +230,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     (e: EvaluationConfig) =>
                         e.name.toLowerCase().includes(filter.toLowerCase()) ||
                         e.description?.toLowerCase().includes(filter.toLowerCase()) ||
-                        e.evaluation_config.prompt.toLowerCase().includes(filter.toLowerCase())
+                        ('prompt' in e.evaluation_config &&
+                            e.evaluation_config.prompt.toLowerCase().includes(filter.toLowerCase())) ||
+                        ('source' in e.evaluation_config &&
+                            e.evaluation_config.source.toLowerCase().includes(filter.toLowerCase()))
                 )
             },
         ],
@@ -260,7 +265,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, values }) => ({
-        [urls.llmAnalyticsEvaluations()]: (_, searchParams) => {
+        [urls.llmAnalyticsEvaluations()]: (_, searchParams, __, { method }) => {
             const showOfflineEvals = !!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
 
             if (!showOfflineEvals && (searchParams.tab === 'offline' || searchParams.tab === 'offline-evals')) {
@@ -278,6 +283,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
 
             if (dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo) {
                 actions.setDates(dateFrom, dateTo)
+            }
+
+            if (method !== 'REPLACE') {
+                actions.loadEvaluations()
             }
         },
         [urls.llmAnalyticsOfflineEvaluations()]: (_, searchParams) => {

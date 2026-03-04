@@ -1,4 +1,5 @@
 import { DataColorToken } from 'lib/colors'
+// eslint-disable-next-line import/no-cycle
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ConversionGoalSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
@@ -1314,6 +1315,8 @@ export type TrendsFilter = {
     movingAverageIntervals?: number
     /** detailed results table */
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
+    /** @default false */
+    hideWeekends?: boolean
 }
 
 export type CalendarHeatmapFilter = {
@@ -1336,6 +1339,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'yAxisScaleType',
     'hiddenLegendIndexes',
+    'hideWeekends',
 ])
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
