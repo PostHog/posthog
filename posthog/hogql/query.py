@@ -332,7 +332,7 @@ class HogQLQueryExecutor:
         from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
         source = (
-            ExternalDataSource.objects.get(team=self.team, connection_id=self.connection_id)
+            ExternalDataSource.objects.get(team=self.team, id=self.connection_id)
             if self.connection_id is not None
             else ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
         )
