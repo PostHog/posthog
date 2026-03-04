@@ -343,82 +343,51 @@ class TestTable(BaseTest):
             "`map_nullable` Nullable(Map(String, String))"
         )
 
-    def test_save_validates_csv_double_quotes_setting_succeeds(self):
+    def test_csv_allow_double_quotes_persisted_via_options(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
-        with patch("products.data_warehouse.backend.models.table.sync_execute", return_value=[]):
-            table = DataWarehouseTable.objects.create(
-                name="test_csv",
-                url_pattern="https://example.com/test.csv",
-                credential=credential,
-                format=DataWarehouseTable.TableFormat.CSVWithNames,
-                options={"csv_allow_double_quotes": False},
-                team=self.team,
-            )
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            options={"csv_allow_double_quotes": False},
+            team=self.team,
+        )
 
         assert table.csv_allow_double_quotes is False
         table.refresh_from_db()
         assert table.csv_allow_double_quotes is False
 
-    def test_save_validates_csv_double_quotes_true_succeeds(self):
+    def test_csv_allow_double_quotes_defaults_to_none(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
-        with patch("products.data_warehouse.backend.models.table.sync_execute", return_value=[]):
-            table = DataWarehouseTable.objects.create(
-                name="test_csv",
-                url_pattern="https://example.com/test.csv",
-                credential=credential,
-                format=DataWarehouseTable.TableFormat.CSVWithNames,
-                options={"csv_allow_double_quotes": True},
-                team=self.team,
-            )
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+        )
+        assert table.csv_allow_double_quotes is None
 
-        assert table.csv_allow_double_quotes is True
-        table.refresh_from_db()
-        assert table.csv_allow_double_quotes is True
-
-    def test_save_validates_csv_double_quotes_raises_on_parse_failure(self):
+    def test_validate_csv_double_quotes_raises_on_parse_failure(self):
         from clickhouse_driver.errors import ServerException
 
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            options={"csv_allow_double_quotes": True},
+            team=self.team,
+        )
 
         with patch(
             "products.data_warehouse.backend.models.table.sync_execute",
             side_effect=ServerException("Expected end of line", code=117),
         ):
             with pytest.raises(Exception, match="CSV parsing failed"):
-                DataWarehouseTable.objects.create(
-                    name="test_csv",
-                    url_pattern="https://example.com/test.csv",
-                    credential=credential,
-                    format=DataWarehouseTable.TableFormat.CSVWithNames,
-                    options={"csv_allow_double_quotes": True},
-                    team=self.team,
-                )
-
-    def test_save_skips_validation_when_csv_allow_double_quotes_is_none(self):
-        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
-        with patch("products.data_warehouse.backend.models.table.sync_execute") as mock_execute:
-            table = DataWarehouseTable.objects.create(
-                name="test_csv",
-                url_pattern="https://example.com/test.csv",
-                credential=credential,
-                format=DataWarehouseTable.TableFormat.CSVWithNames,
-                team=self.team,
-            )
-        assert table.csv_allow_double_quotes is None
-        mock_execute.assert_not_called()
-
-    def test_save_skips_detection_for_non_csv(self):
-        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
-        with patch("products.data_warehouse.backend.models.table.sync_execute") as mock_execute:
-            table = DataWarehouseTable.objects.create(
-                name="test_parquet",
-                url_pattern="https://example.com/test.parquet",
-                credential=credential,
-                format=DataWarehouseTable.TableFormat.Parquet,
-                team=self.team,
-            )
-        assert table.csv_allow_double_quotes is None
-        mock_execute.assert_not_called()
+                table._validate_csv_double_quotes_setting()
 
     def test_is_csv_format_for_non_csv(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)

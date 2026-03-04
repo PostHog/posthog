@@ -182,11 +182,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
         return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
 
-    def save(self, *args, **kwargs):
-        if self._is_csv_format() and self.csv_allow_double_quotes is not None:
-            self._validate_csv_double_quotes_setting()
-        super().save(*args, **kwargs)
-
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,

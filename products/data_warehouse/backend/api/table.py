@@ -260,8 +260,20 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 credential.access_secret = access_secret
             credential.save()
 
+        old_csv_allow_double_quotes = instance.csv_allow_double_quotes
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+
+        if (
+            instance._is_csv_format()
+            and instance.csv_allow_double_quotes is not None
+            and instance.csv_allow_double_quotes != old_csv_allow_double_quotes
+        ):
+            try:
+                instance._validate_csv_double_quotes_setting()
+            except Exception as err:
+                raise serializers.ValidationError(str(err))
+
         try:
             instance.save()
         except Exception as err:
