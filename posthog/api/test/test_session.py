@@ -94,7 +94,7 @@ class TestSessionsAPI(APIBaseTest):
     def test_list_channel_type_values(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/sessions/values/?key=$channel_type")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        actual_values = {entry["name"] for entry in response.json()}
+        actual_values = {entry["name"] for entry in response.json()["results"]}
         expected_values = {
             "Affiliate",
             "Audio",
@@ -120,7 +120,7 @@ class TestSessionsAPI(APIBaseTest):
     def test_search_channel_type_values(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/sessions/values/?key=$channel_type&value=paid")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        actual_values = {entry["name"] for entry in response.json()}
+        actual_values = {entry["name"] for entry in response.json()["results"]}
         expected_values = {
             "Paid Unknown",
             "Paid Search",
@@ -133,7 +133,7 @@ class TestSessionsAPI(APIBaseTest):
     def test_list_session_property_values(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/sessions/values/?key=$entry_utm_source")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        actual_values = {entry["name"] for entry in response.json()}
+        actual_values = {entry["name"] for entry in response.json()["results"]}
         expected_values = {
             "google",
             "youtube",
@@ -143,7 +143,7 @@ class TestSessionsAPI(APIBaseTest):
     def test_search_session_property_values(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/sessions/values/?key=$entry_utm_source&value=tub")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        actual_values = {entry["name"] for entry in response.json()}
+        actual_values = {entry["name"] for entry in response.json()["results"]}
         expected_values = {
             "youtube",
         }
@@ -154,11 +154,11 @@ class TestSessionsAPI(APIBaseTest):
             f"/api/projects/{self.team.pk}/sessions/values/?key=$entry_utm_source&value=doesnotexist"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert len(response.json()) == 0
+        assert len(response.json()["results"]) == 0
 
     def test_search_missing_session_property_values(self):
         response = self.client.get(
             f"/api/projects/{self.team.pk}/sessions/values/?key=$entry_utm_source&value=doesnotexist"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert len(response.json()) == 0
+        assert len(response.json()["results"]) == 0

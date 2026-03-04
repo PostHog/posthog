@@ -108,10 +108,6 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
 @csrf_protect
 def logout(request):
-    if request.user.is_authenticated:
-        request.user.temporary_token = None
-        request.user.save()
-
     clear_two_factor_session_flags(request)
 
     request.session.pop("reauth", None)

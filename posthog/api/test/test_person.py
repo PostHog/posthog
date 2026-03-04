@@ -20,6 +20,7 @@ from unittest import mock
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 import posthog.models.person.deletion
@@ -161,7 +162,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get("/api/person/values/?key=random_prop")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
+        response_data = response.json()["results"]
         self.assertEqual(response_data[0]["name"], "asdf")
         self.assertEqual(response_data[0]["count"], 2)
         self.assertEqual(response_data[1]["name"], "qwerty")
@@ -170,8 +171,38 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get("/api/person/values/?key=random_prop&value=qw")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()[0]["name"], "qwerty")
-        self.assertEqual(response.json()[0]["count"], 1)
+        self.assertEqual(response.json()["results"][0]["name"], "qwerty")
+        self.assertEqual(response.json()["results"][0]["count"], 1)
+
+    @parameterized.expand(
+        [
+            ("default", "", "RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS"),
+            (
+                "force_refresh_false",
+                "force_refresh=false",
+                "RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS",
+            ),
+            ("force_refresh_true", "force_refresh=true", "CALCULATE_BLOCKING_ALWAYS"),
+        ]
+    )
+    @freeze_time("2020-01-10")
+    def test_person_property_values_force_refresh(self, _name, param, expected_mode_name):
+        from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryResponse
+        from posthog.hogql_queries.query_runner import ExecutionMode
+
+        _create_person(distinct_ids=["u1"], team=self.team, properties={"country": "US"})
+        flush_persons_and_events()
+
+        url = "/api/person/values/?key=country"
+        if param:
+            url += f"&{param}"
+
+        with mock.patch(
+            "posthog.hogql_queries.property_values_query_runner.PropertyValuesQueryRunner.run",
+            return_value=PropertyValuesQueryResponse(results=[]),
+        ) as mock_run:
+            self.client.get(url)
+            mock_run.assert_called_once_with(ExecutionMode[expected_mode_name])
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
