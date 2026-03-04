@@ -111,6 +111,10 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
         with conn.cursor() as cur:
             cur.execute(f"CREATE SCHEMA IF NOT EXISTS {safe_schema}")
             cur.execute(f"CREATE OR REPLACE TABLE {qualified} AS {sql}")
+
+    with psycopg.connect(conninfo) as conn:
+        conn.execute("SET search_path TO 'posthog'")
+        with conn.cursor() as cur:
             cur.execute(f"SELECT count(*) FROM {qualified}")
             row = cur.fetchone()
             row_count = int(row[0]) if row else 0
