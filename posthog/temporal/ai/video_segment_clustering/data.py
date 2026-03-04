@@ -58,7 +58,7 @@ def _fetch_video_segment_rows_paginated(team: Team, lookback_hours: int) -> Iter
                         AND product = {product}
                         AND document_type = {document_type}
                         AND rendering = {rendering}
-                    ORDER BY timestamp ASC
+                    ORDER BY timestamp ASC, document_id ASC
                     LIMIT {page_size}
                     OFFSET {offset}"""
                 ),
