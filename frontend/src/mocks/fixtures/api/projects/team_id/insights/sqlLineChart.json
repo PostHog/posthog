@@ -1,0 +1,533 @@
+        {
+            "id": 20,
+            "short_id": "5IF3BqYw",
+            "name": "xy",
+            "derived_name": null,
+            "filters": {},
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT\n    week,\n    sumIf(c, shift = 0) AS shift_0d,\n    sumIf(c, shift = 1) AS shift_7d,\n    sumIf(c, shift = 2) AS shift_14d,\n    sumIf(c, shift = 3) AS shift_21d,\n    sumIf(c, shift = 4) AS shift_28d,\n    sumIf(c, shift = 5) AS shift_35d,\n    sumIf(c, shift = 6) AS shift_42d\nFROM\n(\n    SELECT\n        toStartOfWeek(shifted_ts) AS week,\n        shift,\n        count() AS c\n    FROM\n    (\n        SELECT\n            shift,\n            timestamp - toIntervalDay(shift * 7) AS shifted_ts\n        FROM events\n        ARRAY JOIN range(7) AS shift\n        WHERE event = '$pageview'\n    )\n    GROUP BY week, shift\n)\nGROUP BY week\nORDER BY week"
+                },
+                "display": "ActionsLineGraph",
+                "chartSettings": {
+                    "xAxis": {
+                        "column": "week"
+                    },
+                    "yAxis": [
+                        {
+                            "column": "shift_0d",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "shift_7d",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "shift_14d",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "shift_21d",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "shift_28d",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "shift_35d",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "shift_42d",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        }
+                    ]
+                },
+                "tableSettings": {
+                    "columns": [
+                        {
+                            "column": "week",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "shift_0d",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "shift_7d",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "shift_14d",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "shift_21d",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "shift_28d",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "shift_35d",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        },
+                        {
+                            "column": "shift_42d",
+                            "settings": {
+                                "formatting": {
+                                    "prefix": "",
+                                    "suffix": ""
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            "order": null,
+            "deleted": false,
+            "dashboards": [],
+            "dashboard_tiles": [],
+            "last_refresh": "2026-03-04T12:41:15.844826Z",
+            "cache_target_age": "2026-03-04T18:41:15.844826Z",
+            "next_allowed_client_refresh": "2026-03-04T12:42:15.844826Z",
+            "result": [
+                [
+                    "2025-09-07",
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    1
+                ],
+                [
+                    "2025-09-14",
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    1,
+                    94
+                ],
+                [
+                    "2025-09-21",
+                    0,
+                    0,
+                    0,
+                    0,
+                    1,
+                    94,
+                    407
+                ],
+                [
+                    "2025-09-28",
+                    0,
+                    0,
+                    0,
+                    1,
+                    94,
+                    407,
+                    679
+                ],
+                [
+                    "2025-10-05",
+                    0,
+                    0,
+                    1,
+                    94,
+                    407,
+                    679,
+                    792
+                ],
+                [
+                    "2025-10-12",
+                    0,
+                    1,
+                    94,
+                    407,
+                    679,
+                    792,
+                    817
+                ],
+                [
+                    "2025-10-19",
+                    1,
+                    94,
+                    407,
+                    679,
+                    792,
+                    817,
+                    1140
+                ],
+                [
+                    "2025-10-26",
+                    94,
+                    407,
+                    679,
+                    792,
+                    817,
+                    1140,
+                    1523
+                ],
+                [
+                    "2025-11-02",
+                    407,
+                    679,
+                    792,
+                    817,
+                    1140,
+                    1523,
+                    1858
+                ],
+                [
+                    "2025-11-09",
+                    679,
+                    792,
+                    817,
+                    1140,
+                    1523,
+                    1858,
+                    1915
+                ],
+                [
+                    "2025-11-16",
+                    792,
+                    817,
+                    1140,
+                    1523,
+                    1858,
+                    1915,
+                    1871
+                ],
+                [
+                    "2025-11-23",
+                    817,
+                    1140,
+                    1523,
+                    1858,
+                    1915,
+                    1871,
+                    2119
+                ],
+                [
+                    "2025-11-30",
+                    1140,
+                    1523,
+                    1858,
+                    1915,
+                    1871,
+                    2119,
+                    2460
+                ],
+                [
+                    "2025-12-07",
+                    1523,
+                    1858,
+                    1915,
+                    1871,
+                    2119,
+                    2460,
+                    2666
+                ],
+                [
+                    "2025-12-14",
+                    1858,
+                    1915,
+                    1871,
+                    2119,
+                    2460,
+                    2666,
+                    2867
+                ],
+                [
+                    "2025-12-21",
+                    1915,
+                    1871,
+                    2119,
+                    2460,
+                    2666,
+                    2867,
+                    3114
+                ],
+                [
+                    "2025-12-28",
+                    1871,
+                    2119,
+                    2460,
+                    2666,
+                    2867,
+                    3114,
+                    3474
+                ],
+                [
+                    "2026-01-04",
+                    2119,
+                    2460,
+                    2666,
+                    2867,
+                    3114,
+                    3474,
+                    1000
+                ],
+                [
+                    "2026-01-11",
+                    2460,
+                    2666,
+                    2867,
+                    3114,
+                    3474,
+                    1000,
+                    8
+                ],
+                [
+                    "2026-01-18",
+                    2666,
+                    2867,
+                    3114,
+                    3474,
+                    1000,
+                    8,
+                    12
+                ],
+                [
+                    "2026-01-25",
+                    2867,
+                    3114,
+                    3474,
+                    1000,
+                    8,
+                    12,
+                    0
+                ],
+                [
+                    "2026-02-01",
+                    3114,
+                    3474,
+                    1000,
+                    8,
+                    12,
+                    0,
+                    0
+                ],
+                [
+                    "2026-02-08",
+                    3474,
+                    1000,
+                    8,
+                    12,
+                    0,
+                    0,
+                    0
+                ],
+                [
+                    "2026-02-15",
+                    1000,
+                    8,
+                    12,
+                    0,
+                    0,
+                    0,
+                    0
+                ],
+                [
+                    "2026-02-22",
+                    8,
+                    12,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                ],
+                [
+                    "2026-03-01",
+                    12,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                ]
+            ],
+            "hasMore": false,
+            "columns": [
+                "week",
+                "shift_0d",
+                "shift_7d",
+                "shift_14d",
+                "shift_21d",
+                "shift_28d",
+                "shift_35d",
+                "shift_42d"
+            ],
+            "created_at": "2026-03-04T12:44:18.053303Z",
+            "created_by": {
+                "id": 1,
+                "uuid": "019c66e6-fd77-0000-a6bb-509ac38f988e",
+                "distinct_id": "otSl3FZiAxw3Vv8GUTeWtZcV3mdpR0lH9pprZmBRKXd",
+                "first_name": "Employee 427",
+                "last_name": "",
+                "email": "test@posthog.com",
+                "is_email_verified": null,
+                "hedgehog_config": null,
+                "role_at_organization": "engineering"
+            },
+            "description": null,
+            "updated_at": "2026-03-04T12:44:18.053321Z",
+            "favorited": false,
+            "saved": true,
+            "last_modified_at": "2026-03-04T12:44:18.048815Z",
+            "last_modified_by": {
+                "id": 1,
+                "uuid": "019c66e6-fd77-0000-a6bb-509ac38f988e",
+                "distinct_id": "otSl3FZiAxw3Vv8GUTeWtZcV3mdpR0lH9pprZmBRKXd",
+                "first_name": "Employee 427",
+                "last_name": "",
+                "email": "test@posthog.com",
+                "is_email_verified": null,
+                "hedgehog_config": null,
+                "role_at_organization": "engineering"
+            },
+            "is_sample": false,
+            "effective_restriction_level": 21,
+            "effective_privilege_level": 37,
+            "user_access_level": "manager",
+            "timezone": "UTC",
+            "is_cached": true,
+            "query_status": {
+                "complete": false,
+                "dashboard_id": null,
+                "end_time": null,
+                "error": false,
+                "error_message": null,
+                "expiration_time": "2026-03-04T13:08:14.764370Z",
+                "id": "cache_1_351c0183c9343af9278b53e585b6dee6e59084ea7807cd880f2ab7960a0c7bc6",
+                "insight_id": 20,
+                "labels": null,
+                "pickup_time": null,
+                "query_async": true,
+                "query_progress": null,
+                "results": null,
+                "start_time": "2026-03-04T12:48:14.763237Z",
+                "task_id": "4959b96a-1cef-4ee7-85e1-3637d15bcb35",
+                "team_id": 1
+            },
+            "hogql": "SELECT\n    week,\n    sumIf(c, equals(shift, 0)) AS shift_0d,\n    sumIf(c, equals(shift, 1)) AS shift_7d,\n    sumIf(c, equals(shift, 2)) AS shift_14d,\n    sumIf(c, equals(shift, 3)) AS shift_21d,\n    sumIf(c, equals(shift, 4)) AS shift_28d,\n    sumIf(c, equals(shift, 5)) AS shift_35d,\n    sumIf(c, equals(shift, 6)) AS shift_42d\nFROM\n    (SELECT\n        toStartOfWeek(shifted_ts) AS week,\n        shift,\n        count() AS c\n    FROM\n        (SELECT\n            shift,\n            minus(timestamp, toIntervalDay(multiply(shift, 7))) AS shifted_ts\n        FROM\n            events\n        ARRAY JOIN range(7) AS shift\n        WHERE\n            equals(event, '$pageview'))\n    GROUP BY\n        week,\n        shift)\nGROUP BY\n    week\nORDER BY\n    week ASC\nLIMIT 101\nOFFSET 0",
+            "types": [
+                [
+                    "week",
+                    "Date"
+                ],
+                [
+                    "shift_0d",
+                    "UInt64"
+                ],
+                [
+                    "shift_7d",
+                    "UInt64"
+                ],
+                [
+                    "shift_14d",
+                    "UInt64"
+                ],
+                [
+                    "shift_21d",
+                    "UInt64"
+                ],
+                [
+                    "shift_28d",
+                    "UInt64"
+                ],
+                [
+                    "shift_35d",
+                    "UInt64"
+                ],
+                [
+                    "shift_42d",
+                    "UInt64"
+                ]
+            ],
+            "resolved_date_range": null,
+            "alerts": [],
+            "last_viewed_at": "2026-03-04T12:44:38.512573Z",
+            "tags": [],
+            "filters_hash": "cache_1_351c0183c9343af9278b53e585b6dee6e59084ea7807cd880f2ab7960a0c7bc6"
+        }
