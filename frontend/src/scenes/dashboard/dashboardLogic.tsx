@@ -2011,7 +2011,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 action: RefreshDashboardItemsAction.Preview,
                 forceRefresh: false,
             })
-            actions.setDashboardMode(DashboardMode.Edit, null)
+            if (values.dashboardMode !== DashboardMode.Edit) {
+                actions.setDashboardMode(DashboardMode.Edit, null)
+            }
         },
         [variableDataLogic.actionTypes.getVariablesSuccess]: () => {
             // Only run this handler once on startup
