@@ -90,6 +90,7 @@ export function DashboardHeader(): JSX.Element | null {
         showTextTileModal,
         textTileId,
         isSavingTags,
+        currentLayoutSize,
     } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard, updateDashboardTags } = useActions(dashboardLogic)
     const { asDashboardTemplate, effectiveEditBarFilters, effectiveDashboardVariableOverrides, tiles } =
@@ -311,7 +312,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 tooltipPlacement="left"
                             >
                                 <IconGridMasonry />
-                                Edit layout
+                                {currentLayoutSize === 'xs' ? 'Edit dashboard' : 'Edit layout'}
                             </ButtonPrimitive>
                         </AppShortcut>
                     )}
