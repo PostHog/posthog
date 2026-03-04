@@ -8,6 +8,7 @@
  * so they don't need separate US/EU URLs.
  */
 import { handleAuthorize } from '@/handlers/authorize'
+import { handleCallback } from '@/handlers/callback'
 import { handleMetadata } from '@/handlers/metadata'
 import { handleIntrospect, handleJwks, handleRevoke, handleUserInfo } from '@/handlers/passthrough'
 import { handleRegister } from '@/handlers/register'
@@ -46,6 +47,10 @@ const routes: Route[] = [
     {
         paths: ['/oauth/authorize', '/authorize'],
         handler: (req, kv) => handleAuthorize(req, kv),
+    },
+    {
+        paths: ['/oauth/callback'],
+        handler: (req, kv) => handleCallback(req, kv),
     },
     {
         paths: ['/oauth/token', '/token'],

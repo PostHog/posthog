@@ -1,5 +1,5 @@
 import { type Region, baseUrlForRegion } from '@/lib/constants'
-import { getClientMapping, putRegionSelection } from '@/lib/kv'
+import { getClientMapping, putCallbackRedirectUri, putRegionSelection } from '@/lib/kv'
 
 import REGION_PICKER_HTML from '../static/region-picker.html'
 
@@ -48,7 +48,7 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
 
     // Store region selection keyed by both state and client_id.
     // The token exchange only has client_id (state is not sent to the token endpoint),
-    // but we also store by state for any future callback interception.
+    // but we also store by state for the callback interception.
     const kvWrites: Promise<void>[] = []
     if (state) {
         kvWrites.push(putRegionSelection(kv, state, region))
@@ -56,11 +56,26 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
     if (clientId) {
         kvWrites.push(putRegionSelection(kv, clientId, region))
     }
+
+    // Store original redirect_uri so the proxy can intercept the callback
+    // and forward to the client, preventing the client from seeing the regional URL.
+    const originalRedirectUri = url.searchParams.get('redirect_uri')
+    if (state && originalRedirectUri) {
+        kvWrites.push(putCallbackRedirectUri(kv, state, originalRedirectUri))
+    }
+    if (clientId && originalRedirectUri) {
+        kvWrites.push(putCallbackRedirectUri(kv, clientId, originalRedirectUri))
+    }
+
     await Promise.all(kvWrites)
 
     // Build the regional authorize URL with all original params
     const regionalBase = baseUrlForRegion(region)
     const regionalUrl = new URL('/oauth/authorize/', regionalBase)
+
+    // Replace redirect_uri with proxy's own callback so the client always
+    // talks back to the proxy (not directly to the regional server).
+    const proxyCallbackUrl = `${url.protocol}//${url.host}/oauth/callback/`
 
     // Copy all params except our internal _region param
     for (const [key, value] of url.searchParams.entries()) {
@@ -69,6 +84,8 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
         }
         if (key === 'client_id' && regionalClientId) {
             regionalUrl.searchParams.set(key, regionalClientId)
+        } else if (key === 'redirect_uri') {
+            regionalUrl.searchParams.set(key, proxyCallbackUrl)
         } else {
             regionalUrl.searchParams.set(key, value)
         }
