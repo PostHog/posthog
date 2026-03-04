@@ -1521,6 +1521,12 @@ class TestPrinter(BaseTest):
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) HAVING 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_select_qualify_not_supported_in_clickhouse(self):
+        self._assert_select_error(
+            "select row_number() OVER () as rn from events qualify rn = 1",
+            "QUALIFY is not supported in the 'clickhouse' dialect",
+        )
+
     def test_select_prewhere(self):
         self.assertEqual(
             self._select("select 1 from events prewhere 1 == 2 where 2 == 3"),
@@ -4537,3 +4543,13 @@ class TestPostgresPrinter(BaseTest):
         query = "WITH RECURSIVE x USING KEY (a) AS (SELECT 1 AS a UNION ALL SELECT a + 1 FROM x WHERE a < 5) SELECT * FROM x"
         result = self._select(query)
         self.assertIn("USING KEY (a) AS", result)
+
+    def test_select_qualify(self):
+        result = self._select("SELECT row_number() OVER () AS rn FROM events QUALIFY rn = 1")
+        self.assertIn("QUALIFY", result)
+        self.assertIn("rn", result)
+
+    def test_select_qualify_with_having(self):
+        result = self._select("SELECT 1 FROM events HAVING 1 == 1 QUALIFY 1 == 1")
+        self.assertIn("HAVING", result)
+        self.assertIn("QUALIFY", result)

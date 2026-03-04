@@ -379,6 +379,7 @@ class Resolver(CloningVisitor):
         new_node.where = self.visit(node.where)
         new_node.prewhere = self.visit(node.prewhere)
         new_node.having = self.visit(node.having)
+        new_node.qualify = self.visit(node.qualify)
         if node.group_by:
             new_node.group_by = [self.visit(expr) for expr in node.group_by]
         if node.order_by:

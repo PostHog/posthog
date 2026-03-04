@@ -155,6 +155,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitQualifyClause(HogQLParser::QualifyClauseContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitOrderByClause(HogQLParser::OrderByClauseContext *ctx) override {
     return visitChildren(ctx);
   }

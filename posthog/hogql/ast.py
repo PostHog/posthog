@@ -927,6 +927,7 @@ class SelectQuery(Expr):
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None
     having: Optional[Expr] = None
+    qualify: Optional[Expr] = None
     group_by: Optional[list[Expr]] = None
     order_by: Optional[list[OrderExpr]] = None
     limit: Optional[Expr] = None

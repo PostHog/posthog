@@ -202,6 +202,9 @@ class HogQLPrinter(Visitor[str]):
         where = self.visit(where) if where else None
         group_by = [self.visit(column) for column in node.group_by] if node.group_by else None
         having = self.visit(node.having) if node.having else None
+        if node.qualify is not None and self.dialect != "postgres":
+            raise QueryError("QUALIFY is not supported in the '{}' dialect".format(self.dialect))
+        qualify = self.visit(node.qualify) if node.qualify else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
         array_join = ""
@@ -229,6 +232,7 @@ class HogQLPrinter(Visitor[str]):
             f"WHERE{space}" + where if where else None,
             f"GROUP BY{space}{comma.join(group_by)}" if group_by and len(group_by) > 0 else None,
             f"HAVING{space}" + having if having else None,
+            f"QUALIFY{space}" + qualify if qualify else None,
             f"WINDOW{space}" + window if window else None,
             f"ORDER BY{space}{comma.join(order_by)}" if order_by and len(order_by) > 0 else None,
         ]

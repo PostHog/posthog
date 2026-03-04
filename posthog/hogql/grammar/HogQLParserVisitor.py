@@ -184,6 +184,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#qualifyClause.
+    def visitQualifyClause(self, ctx:HogQLParser.QualifyClauseContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#orderByClause.
     def visitOrderByClause(self, ctx:HogQLParser.OrderByClauseContext):
         return self.visitChildren(ctx)

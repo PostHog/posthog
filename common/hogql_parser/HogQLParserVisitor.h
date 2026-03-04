@@ -89,6 +89,8 @@ public:
 
     virtual std::any visitHavingClause(HogQLParser::HavingClauseContext *context) = 0;
 
+    virtual std::any visitQualifyClause(HogQLParser::QualifyClauseContext *context) = 0;
+
     virtual std::any visitOrderByClause(HogQLParser::OrderByClauseContext *context) = 0;
 
     virtual std::any visitProjectionOrderByClause(HogQLParser::ProjectionOrderByClauseContext *context) = 0;

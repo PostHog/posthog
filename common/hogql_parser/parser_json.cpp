@@ -619,6 +619,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["where"] = visitAsJSONOrNull(ctx->whereClause());
     json["prewhere"] = visitAsJSONOrNull(ctx->prewhereClause());
     json["having"] = visitAsJSONOrNull(ctx->havingClause());
+    json["qualify"] = visitAsJSONOrNull(ctx->qualifyClause());
     json["group_by"] = visitAsJSONOrNull(ctx->groupByClause());
     json["order_by"] = visitAsJSONOrNull(ctx->orderByClause());
 
@@ -736,6 +737,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   VISIT(GroupByClause) { return visit(ctx->columnExprList()); }
 
   VISIT(HavingClause) { return visit(ctx->columnExpr()); }
+
+  VISIT(QualifyClause) { return visit(ctx->columnExpr()); }
 
   VISIT(OrderByClause) { return visit(ctx->orderExprList()); }
 

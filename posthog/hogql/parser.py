@@ -392,6 +392,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             where=self.visit(ctx.whereClause()) if ctx.whereClause() else None,
             prewhere=self.visit(ctx.prewhereClause()) if ctx.prewhereClause() else None,
             having=self.visit(ctx.havingClause()) if ctx.havingClause() else None,
+            qualify=self.visit(ctx.qualifyClause()) if ctx.qualifyClause() else None,
             group_by=self.visit(ctx.groupByClause()) if ctx.groupByClause() else None,
             order_by=self.visit(ctx.orderByClause()) if ctx.orderByClause() else None,
             limit_by=self.visit(ctx.limitByClause()) if ctx.limitByClause() else None,
@@ -468,6 +469,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.columnExprList())
 
     def visitHavingClause(self, ctx: HogQLParser.HavingClauseContext):
+        return self.visit(ctx.columnExpr())
+
+    def visitQualifyClause(self, ctx: HogQLParser.QualifyClauseContext):
         return self.visit(ctx.columnExpr())
 
     def visitOrderByClause(self, ctx: HogQLParser.OrderByClauseContext):

@@ -68,6 +68,7 @@ selectStmt:
     where=whereClause?
     groupByClause? (WITH (CUBE | ROLLUP))? (WITH TOTALS)?
     havingClause?
+    qualifyClause?
     windowClause?
     orderByClause?
     limitByClause?
@@ -84,6 +85,7 @@ prewhereClause: PREWHERE columnExpr;
 whereClause: WHERE columnExpr;
 groupByClause: GROUP BY ((CUBE | ROLLUP) LPAREN columnExprList RPAREN | columnExprList);
 havingClause: HAVING columnExpr;
+qualifyClause: QUALIFY columnExpr;
 orderByClause: ORDER BY orderExprList;
 projectionOrderByClause: ORDER BY columnExprList;
 limitByClause: LIMIT limitExpr BY columnExprList;
@@ -302,7 +304,7 @@ keyword
     | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
     | LAST | LEADING | LEFT | LIKE | LIMIT
     | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
-    | PRECEDING | PREWHERE | RANGE | RECURSIVE | RETURN | RIGHT | ROLLUP | ROW
+    | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | RETURN | RIGHT | ROLLUP | ROW
     | ROWS | SAMPLE | SELECT | SEMI | SETTINGS | SUBSTRING
     | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
     | UNBOUNDED | UNION | USING | WHEN | WHERE | WINDOW | WITH
