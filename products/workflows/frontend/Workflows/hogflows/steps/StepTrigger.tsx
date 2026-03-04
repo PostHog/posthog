@@ -725,7 +725,7 @@ function ConversionGoalSection(): JSX.Element {
                 <div className="flex flex-col gap-1 items-start">
                     <LemonLabel>Detect conversion from property changes</LemonLabel>
                     <PropertyFilters
-                        addText="Add property conversion"
+                        buttonText="Add property conversion"
                         propertyFilters={workflow.conversion?.filters ?? []}
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.PersonProperties,
@@ -745,9 +745,7 @@ function ConversionGoalSection(): JSX.Element {
                         <LemonTag>Coming soon</LemonTag>
                     </LemonLabel>
                     <LemonButton
-                        className="ml-10"
                         type="secondary"
-                        size="medium"
                         icon={<IconPlusSmall />}
                         onClick={() => {
                             posthog.capture('workflows workflow event conversion clicked')
