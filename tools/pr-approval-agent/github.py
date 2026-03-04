@@ -47,8 +47,13 @@ class PRData:
         return self.lines_added + self.lines_deleted
 
 
-def _gh_api(endpoint: str) -> dict | list:
+def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
     cmd = ["gh", "api", endpoint]
+    if paginate:
+        cmd.append("--paginate")
+    else:
+        sep = "&" if "?" in endpoint else "?"
+        cmd[2] = f"{endpoint}{sep}per_page=100"
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     if result.returncode != 0:
         raise RuntimeError(f"gh api {endpoint} failed: {result.stderr.strip()}")
@@ -75,11 +80,13 @@ def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path) -> list[dict]
         if len(parts) != 3:
             continue
         added, deleted, filename = parts
+        is_binary = added == "-"
         files.append(
             {
                 "filename": filename,
-                "additions": int(added) if added != "-" else 0,
-                "deletions": int(deleted) if deleted != "-" else 0,
+                "additions": int(added) if not is_binary else 0,
+                "deletions": int(deleted) if not is_binary else 0,
+                "binary": is_binary,
             }
         )
     return files
@@ -106,8 +113,8 @@ def ensure_commits(pr_number: int, head_sha: str, repo_root: Path) -> None:
 def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData:
     """Fetch PR data: metadata from API, file stats from local git."""
     pr = _gh_api(f"repos/{repo}/pulls/{pr_number}")
-    reviews_raw = _gh_api(f"repos/{repo}/pulls/{pr_number}/reviews")
-    comments_raw = _gh_api(f"repos/{repo}/pulls/{pr_number}/comments")
+    reviews_raw = _gh_api(f"repos/{repo}/pulls/{pr_number}/reviews", paginate=True)
+    comments_raw = _gh_api(f"repos/{repo}/pulls/{pr_number}/comments", paginate=True)
 
     base_sha = pr["base"]["sha"]
     head_sha = pr["head"]["sha"]

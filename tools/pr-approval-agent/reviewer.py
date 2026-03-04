@@ -8,6 +8,7 @@ and reach a verdict on whether a PR is safe to auto-approve.
 import json
 import asyncio
 import textwrap
+import subprocess
 from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions, query
@@ -63,9 +64,9 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - Typos, log strings, test fixes, config tweaks
     - Anything purely cosmetic or additive without risk
 
-    Context: Deterministic gates already verified no deny-list matches (auth,
-    crypto, migrations, infra/CI, billing, public API, deps), CI is green,
-    no outstanding "changes requested". You only see T1 PRs that passed.
+    Context: Deterministic gates have already run. Gate results and their
+    pass/fail status are provided in the prompt — rely on those, not
+    assumptions. You typically see T1 PRs that passed all gates.
 
     T1 sub-tiers (provided in the prompt):
     - T1a-trivial: ≤20 lines, ≤3 files, single area
@@ -84,9 +85,10 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - Substantive comments unresolved by the current diff → REFUSE
     - Bot comments with valid concerns that were ignored → ESCALATE
 
-    Tools: You have Read, Grep, Glob, and Bash. All PR metadata (comments,
-    ownership) is in the prompt — do NOT fetch from GitHub.
-    1. Run the git diff command to see what changed
+    Tools: You have Read, Grep, and Glob. The full diff is provided below.
+    All PR metadata (comments, ownership) is in the prompt — do NOT fetch
+    from GitHub.
+    1. Review the diff provided in the prompt
     2. Read source files only if something looks off
     3. ESCALATE if you'd need deep review to feel confident
 
@@ -124,10 +126,11 @@ class Reviewer:
     # ── Review implementation ────────────────────────────────────
 
     async def _review(self, pr: PRData, classification: dict, gate_context: dict) -> dict:
-        prompt = self._build_review_prompt(pr, classification, gate_context)
+        diff_path = self._write_diff_file(pr)
+        prompt = self._build_review_prompt(pr, classification, gate_context, diff_path)
         options = ClaudeAgentOptions(
             system_prompt=REVIEWER_SYSTEM,
-            allowed_tools=["Read", "Grep", "Glob", "Bash"],
+            allowed_tools=["Read", "Grep", "Glob"],
             disallowed_tools=["Write", "Edit", "NotebookEdit"],
             cwd=str(self.repo_root),
             max_turns=20,
@@ -140,11 +143,18 @@ class Reviewer:
             if self.verbose:
                 print(f"\033[2m    [{type(message).__name__}]\033[0m", flush=True)
             if isinstance(message, AssistantMessage):
+                # Keep only the last assistant message's text (tool-use
+                # messages in between are intermediate steps, not the verdict)
+                msg_text = ""
                 for block in message.content:
                     if isinstance(block, ToolUseBlock) and self.verbose:
                         self._log_tool_call(block)
                     if isinstance(block, TextBlock):
-                        result_text = block.text
+                        msg_text += block.text
+                if msg_text:
+                    result_text = msg_text
+
+        diff_path.unlink(missing_ok=True)
 
         if not result_text.strip():
             raise RuntimeError("Reviewer agent returned no output")
@@ -163,15 +173,25 @@ class Reviewer:
         elif name == "Glob":
             pattern = inp.get("pattern", "?")
             print(f"\033[2m    Glob {pattern}\033[0m", flush=True)
-        elif name == "Bash":
-            cmd = inp.get("command", "?")
-            print(f"\033[2m    $ {cmd}\033[0m", flush=True)
         else:
             print(f"\033[2m    {name} {json.dumps(inp)[:100]}\033[0m", flush=True)
 
+    def _write_diff_file(self, pr: PRData) -> Path:
+        """Write the PR diff to a temp file so the LLM can Read it on demand."""
+        diff_path = self.repo_root / ".pr-review-diff.patch"
+        result = subprocess.run(
+            ["git", "diff", f"{pr.base_sha}...{pr.head_sha}"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=self.repo_root,
+        )
+        diff_path.write_text(result.stdout if result.returncode == 0 else f"git diff failed: {result.stderr}")
+        return diff_path
+
     # ── Prompt builder ────────────────────────────────────────────
 
-    def _build_review_prompt(self, pr: PRData, cl: dict, gate_context: dict) -> str:
+    def _build_review_prompt(self, pr: PRData, cl: dict, gate_context: dict, diff_path: Path) -> str:
         review_comments = ""
         if pr.review_comments:
             lines = []
@@ -214,8 +234,8 @@ class Reviewer:
             {chr(10).join(f"  {f['filename']} (+{f['additions']}/-{f['deletions']})" for f in pr.files)}
             {review_comments}
 
-            To see the diff, run: git diff {pr.base_sha}..{pr.head_sha}
-            You can also diff individual files: git diff {pr.base_sha}..{pr.head_sha} -- <path>
+            The full diff is at: {diff_path}
+            Read this file to review the changes.
         """)
 
     def _format_ownership(self, cl: dict) -> str:

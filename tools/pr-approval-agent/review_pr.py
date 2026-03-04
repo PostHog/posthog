@@ -210,7 +210,7 @@ class Pipeline:
         print(_dim(f"  ownership: {ownership}"))
 
     def _any_gate_denied(self) -> bool:
-        return any(not r.passed for r in self.gate_results if r.gate != "prerequisites")
+        return any(not r.passed for r in self.gate_results)
 
     def _check_prerequisites(self) -> tuple[bool, str]:
         pr = self.pr
@@ -232,11 +232,8 @@ class Pipeline:
             for c in pr.check_runs
             if c.get("conclusion") in ("failure", "cancelled", "timed_out") and c.get("status") == "completed"
         ]
-        pending = [c["name"] for c in pr.check_runs if c.get("status") in ("queued", "in_progress")]
         if failed:
             issues.append(f"failed CI: {', '.join(failed[:5])}")
-        if pending:
-            issues.append(f"pending CI: {', '.join(pending[:5])}")
 
         if issues:
             return False, "; ".join(issues)
@@ -278,9 +275,14 @@ class Pipeline:
     def _check_size(self) -> tuple[bool, str]:
         lines = self.pr.lines_total
         files = len(self.pr.files)
+        binary_count = sum(1 for f in self.pr.files if f.get("binary"))
+        suffix = f", {binary_count} binary" if binary_count else ""
         if lines > MAX_LINES or files > MAX_FILES:
-            return False, f"too large for auto-review ({lines}L, {files}F — ceiling is {MAX_LINES}L / {MAX_FILES}F)"
-        return True, f"{lines}L, {files}F within ceiling"
+            return (
+                False,
+                f"too large for auto-review ({lines}L, {files}F{suffix} — ceiling is {MAX_LINES}L / {MAX_FILES}F)",
+            )
+        return True, f"{lines}L, {files}F{suffix} within ceiling"
 
     def _check_tier(self) -> tuple[bool, str]:
         cl = self.classification
@@ -402,9 +404,7 @@ def main() -> None:
     pipeline = Pipeline(args.pr_number, args.repo, dry_run=args.dry_run, verbose=args.verbose)
     verdict = pipeline.run()
 
-    if verdict == "AUTO-APPROVED":
-        print(f"\n{_ok('AUTO-APPROVED')} — deterministic tier, no LLM needed")
-    elif verdict == "DRY-RUN":
+    if verdict == "DRY-RUN":
         print(f"\n{_dim('DRY RUN — would proceed to LLM review')}")
 
     if args.output_json:

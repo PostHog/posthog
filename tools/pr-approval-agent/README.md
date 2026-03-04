@@ -36,15 +36,19 @@ Uses PEP 723 inline metadata so `uv run` handles dependencies automatically.
 "stamphog" label added to PR
   │
   ▼
-Prerequisites
+Prerequisites (hard gate)
   - Not draft, no merge conflicts
   - No outstanding "changes requested" reviews
-  - All CI checks passing (no failures or pending)
+  - No failed CI checks
   │
   ▼
-Deny-list
+Deny-list (hard gate)
   - Checks file paths + PR title against sensitive categories
   - Any match → gates DENY
+  │
+  ▼
+Size ceiling (hard gate)
+  - >500 lines or >20 files → too large for auto-review
   │
   ▼
 Tier classification
@@ -53,8 +57,8 @@ Tier classification
   - T2-never: caught by deny-list
   │
   ▼
-LLM Review (always runs)
-  - Claude Agent SDK with Read/Grep/Glob/Bash tools
+LLM Review
+  - Claude Agent SDK with Read/Grep/Glob tools
   - Explores the repo via git diff, reads source files if needed
   - Looks for showstoppers: production breakage, security, missed deps
   - Gates are authoritative — LLM can tighten but never loosen
@@ -69,7 +73,7 @@ The bot never posts request-changes — only approves or comments.
 
 ### T0 — deterministic
 
-No LLM judgment needed. PR touches only safe paths:
+Lowest risk. LLM still reviews but with a lighter bar. PR touches only safe paths:
 
 - Allow-listed extensions: `.md`, `.mdx`, `.txt`, `.rst`, `.json`, `.yaml`, `.yml`, `.toml`, `.ini`, `.cfg`, `.csv`, `.svg`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.ico`, `.webp`, `.snap`, `.lock`
 - Allow-listed paths: `docs/`, `README`, `CHANGELOG`, `LICENSE`, `CONTRIBUTING`, `.github/CODEOWNERS`, `.gitignore`, `.editorconfig`, `generated/`, `__snapshots__/`
