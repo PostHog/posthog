@@ -398,5 +398,16 @@ export const scene: SceneExport<LLMEvaluationLogicProps> = {
     paramsToProps: ({ params: { id }, searchParams }) => ({
         evaluationId: id && id !== 'new' ? id : 'new',
         templateKey: typeof searchParams.template === 'string' ? searchParams.template : undefined,
+        prefillName: typeof searchParams.playground_name === 'string' ? searchParams.playground_name : undefined,
+        prefillDescription:
+            typeof searchParams.playground_description === 'string' ? searchParams.playground_description : undefined,
+        prefillPrompt: typeof searchParams.playground_prompt === 'string' ? searchParams.playground_prompt : undefined,
+        prefillModel: typeof searchParams.playground_model === 'string' ? searchParams.playground_model : undefined,
+        prefillProvider:
+            typeof searchParams.playground_provider === 'string' ? searchParams.playground_provider : undefined,
+        prefillProviderKeyId:
+            typeof searchParams.playground_provider_key_id === 'string'
+                ? searchParams.playground_provider_key_id
+                : undefined,
     }),
 }
