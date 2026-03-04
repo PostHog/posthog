@@ -1,5 +1,6 @@
-import { IconStar, IconStarFilled } from '@posthog/icons'
+import { IconHeart, IconHeartFilled, IconStar, IconStarFilled } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { SceneDataAttrKeyProps } from './utils'
@@ -10,6 +11,7 @@ interface SceneFavoriteProps extends SceneDataAttrKeyProps {
 }
 
 export function SceneFavorite({ dataAttrKey, onClick, isFavorited }: SceneFavoriteProps): JSX.Element {
+    const isAIFirst = useFeatureFlag('AI_FIRST')
     return (
         <ButtonPrimitive
             menuItem
@@ -18,7 +20,17 @@ export function SceneFavorite({ dataAttrKey, onClick, isFavorited }: SceneFavori
             tooltip={isFavorited ? 'Unfavorite' : 'Favorite'}
             active={isFavorited}
         >
-            {isFavorited ? <IconStarFilled className="text-warning" /> : <IconStar />}
+            {isAIFirst ? (
+                isFavorited ? (
+                    <IconHeartFilled className="text-danger" />
+                ) : (
+                    <IconHeart />
+                )
+            ) : isFavorited ? (
+                <IconStarFilled className="text-warning" />
+            ) : (
+                <IconStar />
+            )}
             Favorite
         </ButtonPrimitive>
     )
