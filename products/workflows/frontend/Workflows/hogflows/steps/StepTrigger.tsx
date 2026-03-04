@@ -736,6 +736,7 @@ function ConversionGoalSection(): JSX.Element {
                         hideBehavioralCohorts
                         operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
                         orFiltering
+                        logicalRowDivider
                     />
                 </div>
 
