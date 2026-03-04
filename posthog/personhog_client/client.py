@@ -154,13 +154,14 @@ _lock = threading.Lock()
 
 def get_personhog_client() -> Optional[PersonHogClient]:
     global _client
-    addr = getattr(settings, "PERSONHOG_ADDR", "")
-    if not addr:
-        return None
 
     if _client is None:
         with _lock:
             if _client is None:
+                addr = getattr(settings, "PERSONHOG_ADDR", "")
+                if not addr:
+                    return None
+
                 timeout_ms = getattr(settings, "PERSONHOG_TIMEOUT_MS", 5000)
                 _client = PersonHogClient(
                     addr=addr,
