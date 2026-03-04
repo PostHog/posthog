@@ -83,7 +83,6 @@ export function ErrorTrackingScene(): JSX.Element {
                     <IssuesList />
                 </>
             ),
-            link: urls.errorTracking({ activeTab: 'issues' }),
         },
         ...(hasIssueCorrelation
             ? [
@@ -98,7 +97,6 @@ export function ErrorTrackingScene(): JSX.Element {
                               <ImpactList />
                           </>
                       ),
-                      link: urls.errorTracking({ activeTab: 'impact' }),
                   },
               ]
             : []),
@@ -108,7 +106,6 @@ export function ErrorTrackingScene(): JSX.Element {
                       key: 'insights' as const,
                       label: 'Insights',
                       content: <ErrorTrackingInsights />,
-                      link: urls.errorTracking({ activeTab: 'insights' }),
                   },
               ]
             : []),
