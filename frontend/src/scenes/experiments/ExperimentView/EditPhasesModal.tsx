@@ -42,20 +42,6 @@ function getPhaseName(phase: ExperimentPhase, index: number): string {
     return phase.name || `Phase ${index + 1}`
 }
 
-function getDefaultNewPhaseStartDate(
-    phases: ExperimentPhase[],
-    experimentStartDate: string | null | undefined
-): string {
-    const now = dayjs().startOf('minute')
-    const lowerBound = phases.length
-        ? dayjs(phases[phases.length - 1].start_date).add(1, 'minute')
-        : experimentStartDate
-          ? dayjs(experimentStartDate).add(1, 'minute')
-          : now
-
-    return (lowerBound.isAfter(now) ? now : lowerBound).toISOString()
-}
-
 function validatePhases(phases: ExperimentPhase[], now: ReturnType<typeof dayjs> = dayjs()): string | null {
     if (!phases.length) {
         return null
@@ -405,21 +391,38 @@ export function EditPhasesModal(): JSX.Element | null {
     }
 
     const handleStartAddingPhase = (): void => {
+        const now = dayjs().toISOString()
+
+        // Set the end date of the current last phase to now
+        if (draftPhases.length > 0) {
+            const updated = clonePhases(draftPhases)
+            updated[updated.length - 1].end_date = now
+            setDraftPhases(updated)
+        }
+
         setAddingNewPhase({
             name: '',
             reason: '',
-            startDate: getDefaultNewPhaseStartDate(draftPhases, experiment.start_date),
+            startDate: now,
         })
         setCalendarOpen(null)
     }
 
-    const addPhaseDisabledReason = useMemo(
-        () =>
-            addingNewPhase
-                ? 'Finish or cancel the phase being added'
-                : validateNewPhase('2000-01-01', draftPhases, experiment.start_date, hasPendingChanges, !!editing),
-        [addingNewPhase, draftPhases, experiment.start_date, hasPendingChanges, editing]
-    )
+    const addPhaseDisabledReason = useMemo((): string | undefined => {
+        if (addingNewPhase) {
+            return 'Finish or cancel the phase being added'
+        }
+        if (hasPendingChanges) {
+            return 'Save or discard pending phase edits before adding a new phase'
+        }
+        if (editing) {
+            return 'Save or cancel the phase currently being edited'
+        }
+        if (!experiment.start_date) {
+            return 'Experiment must be running before adding phases'
+        }
+        return undefined
+    }, [addingNewPhase, hasPendingChanges, editing, experiment.start_date])
 
     const newPhaseValidationError = useMemo(() => {
         if (!addingNewPhase) {
@@ -439,6 +442,13 @@ export function EditPhasesModal(): JSX.Element | null {
     }
 
     const handleCancelNewPhase = (): void => {
+        // Revert the end date we set on the last phase
+        if (draftPhases.length > 0) {
+            const reverted = clonePhases(draftPhases)
+            const baselineLastPhase = baselinePhases[baselinePhases.length - 1]
+            reverted[reverted.length - 1].end_date = baselineLastPhase?.end_date ?? null
+            setDraftPhases(reverted)
+        }
         setAddingNewPhase(null)
         setCalendarOpen(null)
     }
