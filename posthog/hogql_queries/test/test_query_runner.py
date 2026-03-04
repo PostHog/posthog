@@ -409,21 +409,21 @@ class TestQueryRunner(BaseTest):
             mock_cache_manager.set_cache_data.assert_called_once()
 
     def test_query_execution_metrics_on_success(self):
-        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_FAILURE, QUERY_EXECUTION_SUCCESS
+        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_SUCCESS
 
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         before_success = QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get()
-        before_failure = QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery")._value.get()
+        before_duration_count = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
         runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         after_success = QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get()
-        after_failure = QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery")._value.get()
+        after_duration_count = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
         self.assertEqual(after_success - before_success, 1)
-        self.assertEqual(after_failure - before_failure, 0)
+        self.assertGreater(after_duration_count, before_duration_count)
 
     def test_query_execution_metrics_on_error_result(self):
         from posthog.hogql_queries.query_runner import QUERY_EXECUTION_FAILURE, QUERY_EXECUTION_SUCCESS
@@ -437,12 +437,12 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         before_success = QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get()
-        before_failure = QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery")._value.get()
+        before_failure = QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery", error_type="soft_error")._value.get()
 
         runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         after_success = QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get()
-        after_failure = QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery")._value.get()
+        after_failure = QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery", error_type="soft_error")._value.get()
 
         self.assertEqual(after_success - before_success, 0)
         self.assertEqual(after_failure - before_failure, 1)
@@ -459,13 +459,13 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         before_success = QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get()
-        before_failure = QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery")._value.get()
+        before_failure = QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery", error_type="ValueError")._value.get()
 
         with self.assertRaises(ValueError):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         after_success = QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get()
-        after_failure = QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery")._value.get()
+        after_failure = QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery", error_type="ValueError")._value.get()
 
         self.assertEqual(after_success - before_success, 0)
         self.assertEqual(after_failure - before_failure, 1)

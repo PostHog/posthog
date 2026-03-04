@@ -7,7 +7,7 @@ from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, 
 
 import structlog
 import posthoganalytics
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import (
@@ -112,7 +112,14 @@ QUERY_EXECUTION_SUCCESS = Counter(
 QUERY_EXECUTION_FAILURE = Counter(
     "posthog_query_execution_failure_total",
     "Failed query executions",
+    labelnames=["query_type", "error_type"],
+)
+
+QUERY_EXECUTION_DURATION = Histogram(
+    "posthog_query_execution_duration_seconds",
+    "Query execution duration in seconds",
     labelnames=["query_type"],
+    buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
 )
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
@@ -1305,8 +1312,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_type = getattr(self.query, "kind", "Other")
             try:
                 query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
-            except Exception:
-                QUERY_EXECUTION_FAILURE.labels(query_type=query_type).inc()
+            except Exception as e:
+                QUERY_EXECUTION_FAILURE.labels(query_type=query_type, error_type=type(e).__name__).inc()
                 raise
 
             fresh_response_dict = {
@@ -1344,9 +1351,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             has_error = errors is not None and len(errors) > 0
 
             if has_error:
-                QUERY_EXECUTION_FAILURE.labels(query_type=query_type).inc()
+                QUERY_EXECUTION_FAILURE.labels(query_type=query_type, error_type="soft_error").inc()
             else:
                 QUERY_EXECUTION_SUCCESS.labels(query_type=query_type).inc()
+                QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(query_duration_ms / 1000)
 
             if not has_error and self.limit_context != LimitContext.EXPORT:
                 cache_manager.set_cache_data(
