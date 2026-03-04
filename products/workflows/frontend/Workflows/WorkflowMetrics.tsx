@@ -9,6 +9,7 @@ import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
+import { EmailMetricsSummary } from './EmailMetricsSummary'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
@@ -68,6 +69,8 @@ export function WorkflowMetrics(props: WorkflowLogicProps): JSX.Element {
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params } = useValues(logic)
     const { setParams } = useActions(logic)
 
+    const selectedAction = workflow.actions.find((action) => action.id === params.instanceId)
+
     const modifiedAppMetricsTrends = useMemo(
         () =>
             appMetricsTrends
@@ -106,7 +109,7 @@ export function WorkflowMetrics(props: WorkflowLogicProps): JSX.Element {
                 <div>
                     <LemonSelect
                         size="small"
-                        options={workflowStepOptions}
+                        options={workflowStepOptions.filter((option) => option.value !== 'trigger_node')}
                         value={params.instanceId ?? OVERVIEW_OPTION_VALUE}
                         onChange={(value) =>
                             setParams({
@@ -120,7 +123,13 @@ export function WorkflowMetrics(props: WorkflowLogicProps): JSX.Element {
             </div>
 
             {!params.instanceId || params.instanceId === OVERVIEW_OPTION_VALUE ? (
-                <WorkflowMetricsSummary logicKey={logicKey} id={props.id ?? ''} />
+                <WorkflowMetricsSummary
+                    logicKey={logicKey}
+                    id={props.id ?? ''}
+                    onSelectAction={(actionId) => setParams({ ...params, instanceId: actionId })}
+                />
+            ) : selectedAction?.type === 'function_email' ? (
+                <EmailMetricsSummary logicKey={logicKey} />
             ) : (
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">

@@ -9,19 +9,29 @@ import {
     loadAppMetricsTotals,
     type AppMetricsTotalsResponse,
 } from 'lib/components/AppMetrics/appMetricsLogic'
+import { dayjs } from 'lib/dayjs'
 
 import { isOptOutEligibleAction } from './hogflows/steps/types'
 import { EXIT_NODE_ID, workflowLogic } from './workflowLogic'
 import type { workflowMetricsSummaryLogicType } from './workflowMetricsSummaryLogicType'
 
 type WorkflowSummaryMetric = 'started' | 'in_progress' | 'persons_messaged' | 'completed'
-type MessageMetric = 'email_sent' | 'email_opened' | 'email_unsubscribed'
+type EmailMetric =
+    | 'email_sent'
+    | 'email_failed'
+    | 'email_opened'
+    | 'email_link_clicked'
+    | 'email_bounced'
+    | 'email_blocked'
+    | 'email_spam'
 
-export type MessageMetricRow = {
+export type EmailMetricRow = {
     id: string
-    message: string
+    email: string
+    delivered: number
     sent: number
     opened: number
+    linkClicked: number
     unsubscribed: number
 }
 
@@ -34,35 +44,95 @@ export const WORKFLOW_SUMMARY_METRICS: Record<
         metricNames: string[]
     }
 > = {
-    started: {
-        name: 'Started',
-        description: 'Total number of workflow runs started',
-        color: getColorVar('success'),
-        metricNames: ['triggered'],
-    },
     in_progress: {
         name: 'In progress',
         description: 'Total number of workflow runs currently in progress',
         color: getColorVar('warning'),
         metricNames: ['in_progress'],
     },
+    started: {
+        name: 'Started',
+        description: 'Total number of workflow runs started',
+        color: getColorVar('success'),
+        metricNames: ['triggered'],
+    },
     persons_messaged: {
-        name: 'Emails delivered',
-        description: 'Total number of emails delivered by this workflow',
+        name: 'Emails sent',
+        description: 'Total number of emails attempted to be sent by this workflow',
         color: getColorVar('primary'),
         metricNames: ['email_sent'],
     },
     completed: {
         name: 'Completed',
-        description: 'Total number of workflow runs completed',
+        description:
+            'Total number of workflow runs completed. This may include runs that began before the selected date range but completed within it.',
         color: getColorVar('success'),
         metricNames: ['succeeded'],
     },
 }
 
-const SUMMARY_METRIC_KEYS = Object.keys(WORKFLOW_SUMMARY_METRICS) as WorkflowSummaryMetric[]
+export const WORKFLOW_EMAIL_METRICS: Record<
+    EmailMetric,
+    { name: string; description: string; color: string; metricNames: string[] }
+> = {
+    email_sent: {
+        name: 'Sent',
+        description: 'Total number of emails sent',
+        color: getColorVar('primary'),
+        metricNames: ['email_sent'],
+    },
+    email_failed: {
+        name: 'Failed',
+        description: 'Total number of emails that failed to send',
+        color: getColorVar('danger'),
+        metricNames: ['email_failed'],
+    },
+    email_opened: {
+        name: 'Opened',
+        description: 'Total number of emails opened',
+        color: getColorVar('blue'),
+        metricNames: ['email_opened'],
+    },
+    email_link_clicked: {
+        name: 'Link clicked',
+        description: 'Total number of times links in emails were clicked',
+        color: getColorVar('indigo'),
+        metricNames: ['email_link_clicked'],
+    },
+    email_bounced: {
+        name: 'Bounced',
+        description: 'Total number of emails that bounced',
+        color: getColorVar('orange'),
+        metricNames: ['email_bounced'],
+    },
+    email_blocked: {
+        name: 'Blocked',
+        description: 'Total number of emails that were blocked by the recipient server',
+        color: getColorVar('red'),
+        metricNames: ['email_blocked'],
+    },
+    email_spam: {
+        name: 'Marked as spam',
+        description: 'Total number of emails that were marked as spam by recipient server or recipient email client',
+        color: getColorVar('danger'),
+        metricNames: ['email_spam'],
+    },
+}
 
-const MESSAGE_METRICS: MessageMetric[] = ['email_sent', 'email_opened', 'email_unsubscribed']
+const SUMMARY_METRIC_KEYS = (Object.keys(WORKFLOW_SUMMARY_METRICS) as WorkflowSummaryMetric[]).filter(
+    (key) => key !== 'in_progress'
+)
+
+const EMAIL_METRICS: EmailMetric[] = [
+    'email_sent',
+    'email_opened',
+    'email_unsubscribed',
+    'email_failed',
+    'email_link_clicked',
+    'email_bounced',
+    'email_blocked',
+    'email_spam',
+]
 
 export interface WorkflowMetricsSummaryLogicProps {
     logicKey: string
@@ -107,17 +177,17 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         actions: [appMetricsLogic({ logicKey: props.logicKey }), ['setParams', 'loadAppMetricsTrendsSuccess']],
     })),
     loaders(({ values }) => ({
-        messageTotalsByActionId: [
-            {} as Record<string, Partial<Record<MessageMetric, number>>>,
+        emailTotalsByActionId: [
+            {} as Record<string, Partial<Record<EmailMetric, number>>>,
             {
-                loadMessageTotals: async (_, breakpoint) => {
+                loadEmailTotals: async (_, breakpoint) => {
                     await breakpoint(10)
                     const dateRange = values.getDateRangeAbsolute()
                     const request: AppMetricsTotalsRequest = {
                         appSource: values.params.appSource,
                         appSourceId: values.params.appSourceId,
                         breakdownBy: ['instance_id', 'metric_name'],
-                        metricName: [...MESSAGE_METRICS],
+                        metricName: [...EMAIL_METRICS],
                         dateFrom: dateRange.dateFrom.toISOString(),
                         dateTo: dateRange.dateTo.toISOString(),
                     }
@@ -125,7 +195,39 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                     const totalsResponse = await loadAppMetricsTotals(request, values.currentTeam?.timezone ?? 'UTC')
                     await breakpoint(10)
 
-                    return mapMessageMetricsToActions(totalsResponse)
+                    return mapEmailMetricsToActions(totalsResponse)
+                },
+            },
+        ],
+        inProgressTotal: [
+            0,
+            {
+                loadInProgressTotal: async (_, breakpoint) => {
+                    await breakpoint(10)
+                    const timezone = values.currentTeam?.timezone ?? 'UTC'
+                    const dateFrom = dayjs().tz(timezone).subtract(30, 'day').toISOString()
+                    const request: AppMetricsTotalsRequest = {
+                        appSource: values.params.appSource,
+                        appSourceId: values.params.appSourceId,
+                        breakdownBy: ['metric_name'],
+                        metricName: ['triggered'],
+                        dateFrom,
+                        dateTo: dayjs().tz(timezone).toISOString(),
+                    }
+                    const triggeredResponse = await loadAppMetricsTotals(request, timezone)
+                    await breakpoint(10)
+
+                    const exitRequest: AppMetricsTotalsRequest = {
+                        ...request,
+                        instanceId: EXIT_NODE_ID,
+                        metricName: ['succeeded'],
+                    }
+                    const completedResponse = await loadAppMetricsTotals(exitRequest, timezone)
+                    await breakpoint(10)
+
+                    const triggered = Object.values(triggeredResponse).reduce((sum, r) => sum + r.total, 0)
+                    const completed = Object.values(completedResponse).reduce((sum, r) => sum + r.total, 0)
+                    return Math.max(0, triggered - completed)
                 },
             },
         ],
@@ -137,7 +239,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 appMetricsTrendsLoading || exitNodeCompletedLoading,
         ],
 
-        messageActions: [(s) => [s.workflow], (workflow) => workflow.actions.filter(isOptOutEligibleAction)],
+        emailActions: [(s) => [s.workflow], (workflow) => workflow.actions.filter(isOptOutEligibleAction)],
 
         metricNameBySummaryMetric: [
             (s) => [s.appMetricsTrends],
@@ -176,9 +278,6 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 const completedValues =
                     getExitNodeSingleTrendSeries('succeeded')?.series[0]?.values ??
                     Array.from({ length: labels.length }, () => 0)
-                const triggeredValues =
-                    appMetricsTrends?.series.find((series: { name: string }) => series.name === 'triggered')?.values ??
-                    Array.from({ length: labels.length }, () => 0)
 
                 return {
                     labels,
@@ -187,13 +286,6 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                             return {
                                 name: WORKFLOW_SUMMARY_METRICS.completed.name,
                                 values: completedValues,
-                            }
-                        }
-
-                        if (summaryMetric === 'in_progress') {
-                            return {
-                                name: WORKFLOW_SUMMARY_METRICS.in_progress.name,
-                                values: subtractSeriesValues(triggeredValues, completedValues, labels.length),
                             }
                         }
 
@@ -211,16 +303,20 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
             },
         ],
 
-        messageMetricsRows: [
-            (s) => [s.messageActions, s.messageTotalsByActionId],
-            (messageActions, messageTotalsByActionId): MessageMetricRow[] =>
-                messageActions.map((action: { id: string; name: string }) => {
-                    const totals = messageTotalsByActionId[action.id] || {}
+        emailMetricsRows: [
+            (s) => [s.emailActions, s.emailTotalsByActionId],
+            (emailActions, emailTotalsByActionId): EmailMetricRow[] =>
+                emailActions.map((action: { id: string; name: string }) => {
+                    const totals = emailTotalsByActionId[action.id] || {}
+                    const sent = totals.email_sent ?? 0
+                    const failed = totals.email_failed ?? 0
                     return {
                         id: action.id,
-                        message: action.name,
-                        sent: totals.email_sent ?? 0,
+                        email: action.name,
+                        delivered: Math.max(0, sent - failed),
+                        sent,
                         opened: totals.email_opened ?? 0,
+                        linkClicked: totals.email_link_clicked ?? 0,
                         unsubscribed: totals.email_unsubscribed ?? 0,
                     }
                 }),
@@ -230,7 +326,8 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
     })),
 
     afterMount(({ actions }) => {
-        actions.loadMessageTotals({})
+        actions.loadEmailTotals({})
+        actions.loadInProgressTotal({})
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -244,7 +341,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 dateFrom: values.params.dateFrom,
                 dateTo: values.params.dateTo,
             })
-            actions.loadMessageTotals({})
+            actions.loadEmailTotals({})
         },
     })),
 ])
@@ -296,14 +393,14 @@ export function subtractSeries(
     }
 }
 
-function mapMessageMetricsToActions(
+function mapEmailMetricsToActions(
     totalsResponse: AppMetricsTotalsResponse
-): Record<string, Partial<Record<MessageMetric, number>>> {
-    const result: Record<string, Partial<Record<MessageMetric, number>>> = {}
+): Record<string, Partial<Record<EmailMetric, number>>> {
+    const result: Record<string, Partial<Record<EmailMetric, number>>> = {}
 
     Object.values(totalsResponse).forEach(({ total, breakdowns }) => {
         const [instanceId, metricName] = breakdowns
-        if (!instanceId || !isMessageMetric(metricName)) {
+        if (!instanceId || !isEmailMetric(metricName)) {
             return
         }
 
@@ -314,6 +411,6 @@ function mapMessageMetricsToActions(
     return result
 }
 
-function isMessageMetric(metricName: string): metricName is MessageMetric {
-    return MESSAGE_METRICS.includes(metricName as MessageMetric)
+function isEmailMetric(metricName: string): metricName is EmailMetric {
+    return EMAIL_METRICS.includes(metricName as EmailMetric)
 }
