@@ -35,5 +35,5 @@ def record_jobs_dispatched(count: int, pipeline: str, analysis_level: str) -> No
     meter = get_metric_meter({"pipeline": pipeline, "analysis_level": analysis_level})
     meter.create_counter(
         "llma_coordinator_jobs_dispatched",
-        "Clustering jobs dispatched to child workflows",
+        "Jobs dispatched to child workflows per coordinator run",
     ).add(count)

@@ -78,7 +78,7 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
             }
         },
         createJobSuccess: ({ jobs }) => {
-            posthog.capture('llma clustering job created', { jobs_count: jobs.length })
+            posthog.capture('llma clustering job created', { total_jobs_count: jobs.length })
             actions.setEditingJob(null)
         },
         updateJobSuccess: () => {
