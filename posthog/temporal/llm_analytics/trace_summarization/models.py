@@ -50,7 +50,7 @@ class BatchSummarizationInputs:
     # Optional property filters to scope which traces/generations are sampled.
     # Uses PostHog's standard property filter format (same as clustering event_filters).
     event_filters: list[dict[str, Any]] = field(default_factory=list)
-    job_id: int = 0  # 0 = no job (legacy/manual run without a job)
+    job_id: str = ""  # empty = no job (legacy/manual run without a job)
     job_name: str = ""
 
     @property
@@ -156,7 +156,7 @@ class SummarizeAndSaveInput:
     generation_id: str | None = None
     event_count: int = 0
     text_repr_length: int = 0
-    job_id: int = 0  # 0 = no job (legacy/manual run without a job)
+    job_id: str = ""  # empty = no job (legacy/manual run without a job)
     job_name: str = ""
 
     @property

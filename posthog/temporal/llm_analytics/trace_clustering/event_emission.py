@@ -56,7 +56,7 @@ def emit_cluster_events(
     batch_run_ids: ItemBatchRunIds | None = None,
     clustering_params: ClusteringParams | None = None,
     analysis_level: AnalysisLevel = "trace",
-    job_id: int = 0,
+    job_id: str = "",
     job_name: str = "",
 ) -> list[ClusterData]:
     """Emit $ai_trace_clusters or $ai_generation_clusters event to ClickHouse.
@@ -79,7 +79,7 @@ def emit_cluster_events(
         batch_run_ids: Dict mapping item_id -> batch_run_id for linking to summaries
         clustering_params: Parameters used for this clustering run
         analysis_level: "trace" or "generation" - determines which event type to emit
-        job_id: Clustering job ID (0 for legacy/manual runs with no job)
+        job_id: Clustering job ID (empty for legacy/manual runs with no job)
         job_name: Clustering job name (empty for legacy/manual runs)
 
     Returns:
