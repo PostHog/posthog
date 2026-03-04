@@ -9,7 +9,10 @@ const schema = ProjectEventDefinitionsSchema
 
 type Params = z.infer<typeof schema>
 
-export const eventDefinitionsHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const eventDefinitionsHandler: ToolBase<typeof schema, EventDefinition[]>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const projectId = await context.stateManager.getProjectId()
 
     const eventDefsResult = await context.api.projects().eventDefinitions({
@@ -31,7 +34,7 @@ export const eventDefinitionsHandler: ToolBase<typeof schema>['handler'] = async
     return simplifiedEvents
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, EventDefinition[]> => ({
     name: 'event-definitions-list',
     schema,
     handler: eventDefinitionsHandler,

@@ -8,7 +8,7 @@ const schema = ProjectPropertyDefinitionsInputSchema
 
 type Params = z.infer<typeof schema>
 
-export const propertyDefinitionsHandler: ToolBase<typeof schema>['handler'] = async (
+export const propertyDefinitionsHandler: ToolBase<typeof schema, PropertyDefinition[]>['handler'] = async (
     context: Context,
     params: Params
 ) => {
@@ -43,7 +43,7 @@ export const propertyDefinitionsHandler: ToolBase<typeof schema>['handler'] = as
     return simplifiedProperties
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, PropertyDefinition[]> => ({
     name: 'properties-list',
     schema,
     handler: propertyDefinitionsHandler,

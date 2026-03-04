@@ -445,6 +445,19 @@ function generateToolCode(
     // Response enrichment — adds _posthogUrl for "View in PostHog" links
     handlerBody += buildEnrichment(config, category)
 
+    // Compute the result type for the ToolBase generic parameter
+    let resultType: string
+    if (config.list && config.enrich_url) {
+        // List items are mapped/transformed, so the shape is no longer the raw response type
+        resultType = 'unknown'
+    } else if (config.enrich_url) {
+        resultType = responseType ? `${responseType} & { _posthogUrl: string }` : 'unknown'
+    } else if (config.list) {
+        resultType = responseType ? `${responseType} & { _posthogUrl: string }` : 'unknown'
+    } else {
+        resultType = responseType ?? 'unknown'
+    }
+
     // Build optional _meta block for UI app visualization
     let metaBlock = ''
     if (config.ui_resource_uri) {
@@ -454,7 +467,7 @@ function generateToolCode(
     const code = `
 ${schemaDecl}
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}> => ({
+const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ({
     name: '${toolName}',
     schema: ${schemaName},
     handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {

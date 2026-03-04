@@ -17,7 +17,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CohortsListSchema = CohortsListQueryParams
 
-const cohortsList = (): ToolBase<typeof CohortsListSchema> => ({
+const cohortsList = (): ToolBase<typeof CohortsListSchema, unknown> => ({
     name: 'cohorts-list',
     schema: CohortsListSchema,
     handler: async (context: Context, params: z.infer<typeof CohortsListSchema>) => {
@@ -49,7 +49,7 @@ const CohortsCreateSchema = CohortsCreateBody.omit({
     _create_static_person_ids: true,
 })
 
-const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema> => ({
+const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, Schemas.Cohort & { _posthogUrl: string }> => ({
     name: 'cohorts-create',
     schema: CohortsCreateSchema,
     handler: async (context: Context, params: z.infer<typeof CohortsCreateSchema>) => {
@@ -87,7 +87,7 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema> => ({
 
 const CohortsRetrieveSchema = CohortsRetrieveParams.omit({ project_id: true })
 
-const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema> => ({
+const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema, Schemas.Cohort & { _posthogUrl: string }> => ({
     name: 'cohorts-retrieve',
     schema: CohortsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof CohortsRetrieveSchema>) => {
@@ -107,7 +107,10 @@ const CohortsPartialUpdateSchema = CohortsPartialUpdateParams.omit({ project_id:
     CohortsPartialUpdateBody.omit({ groups: true, _create_in_folder: true, _create_static_person_ids: true }).shape
 )
 
-const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema> => ({
+const cohortsPartialUpdate = (): ToolBase<
+    typeof CohortsPartialUpdateSchema,
+    Schemas.Cohort & { _posthogUrl: string }
+> => ({
     name: 'cohorts-partial-update',
     schema: CohortsPartialUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof CohortsPartialUpdateSchema>) => {
@@ -151,7 +154,8 @@ const CohortsAddPersonsToStaticCohortPartialUpdateSchema = CohortsAddPersonsToSt
 }).extend(CohortsAddPersonsToStaticCohortPartialUpdateBody.shape)
 
 const cohortsAddPersonsToStaticCohortPartialUpdate = (): ToolBase<
-    typeof CohortsAddPersonsToStaticCohortPartialUpdateSchema
+    typeof CohortsAddPersonsToStaticCohortPartialUpdateSchema,
+    unknown
 > => ({
     name: 'cohorts-add-persons-to-static-cohort-partial-update',
     schema: CohortsAddPersonsToStaticCohortPartialUpdateSchema,
@@ -179,7 +183,8 @@ const CohortsRemovePersonFromStaticCohortPartialUpdateSchema =
     )
 
 const cohortsRemovePersonFromStaticCohortPartialUpdate = (): ToolBase<
-    typeof CohortsRemovePersonFromStaticCohortPartialUpdateSchema
+    typeof CohortsRemovePersonFromStaticCohortPartialUpdateSchema,
+    unknown
 > => ({
     name: 'cohorts-remove-person-from-static-cohort-partial-update',
     schema: CohortsRemovePersonFromStaticCohortPartialUpdateSchema,
