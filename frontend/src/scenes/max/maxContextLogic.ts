@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBug, IconDashboard, IconGraph } from '@posthog/icons'
+import { IconBug, IconCheckbox, IconDashboard, IconGraph } from '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
@@ -31,6 +31,7 @@ import {
     MaxContextType,
     MaxDashboardContext,
     MaxErrorTrackingIssueContext,
+    MaxEvaluationContext,
     MaxEventContext,
     MaxInsightContext,
     MaxUIContext,
@@ -39,6 +40,7 @@ import {
     actionToMaxContextPayload,
     dashboardToMaxContext,
     errorTrackingIssueToMaxContextPayload,
+    evaluationToMaxContextPayload,
     eventToMaxContextPayload,
     insightToMaxContext,
 } from './utils'
@@ -80,11 +82,19 @@ export const maxContextLogic = kea<maxContextLogicType>([
         addOrUpdateContextEvent: (data: EventDefinition) => ({ data }),
         addOrUpdateContextAction: (data: ActionType) => ({ data }),
         addOrUpdateContextErrorTrackingIssue: (data: { id: string; name?: string | null }) => ({ data }),
+        addOrUpdateContextEvaluation: (data: {
+            id: string
+            name?: string | null
+            description?: string | null
+            evaluation_type: 'hog' | 'llm_judge'
+            hog_source?: string | null
+        }) => ({ data }),
         removeContextInsight: (id: string | number) => ({ id }),
         removeContextDashboard: (id: string | number) => ({ id }),
         removeContextEvent: (id: string | number) => ({ id }),
         removeContextAction: (id: string | number) => ({ id }),
         removeContextErrorTrackingIssue: (id: string) => ({ id }),
+        removeContextEvaluation: (id: string) => ({ id }),
         loadAndProcessDashboard: (data: DashboardItemInfo) => ({ data }),
         loadAndProcessInsight: (
             data: InsightItemInfo,
@@ -164,6 +174,28 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     { data }: { data: { id: string; name?: string | null } }
                 ) => addOrUpdateEntity(state, errorTrackingIssueToMaxContextPayload(data)),
                 removeContextErrorTrackingIssue: (state: MaxErrorTrackingIssueContext[], { id }: { id: string }) =>
+                    removeEntity(state, id),
+                resetContext: () => [],
+            },
+        ],
+        contextEvaluations: [
+            [] as MaxEvaluationContext[],
+            {
+                addOrUpdateContextEvaluation: (
+                    state: MaxEvaluationContext[],
+                    {
+                        data,
+                    }: {
+                        data: {
+                            id: string
+                            name?: string | null
+                            description?: string | null
+                            evaluation_type: 'hog' | 'llm_judge'
+                            hog_source?: string | null
+                        }
+                    }
+                ) => addOrUpdateEntity(state, evaluationToMaxContextPayload(data)),
+                removeContextEvaluation: (state: MaxEvaluationContext[], { id }: { id: string }) =>
                     removeEntity(state, id),
                 resetContext: () => [],
             },
@@ -474,6 +506,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
                                 return actionToMaxContextPayload(item.data)
                             case MaxContextType.ERROR_TRACKING_ISSUE:
                                 return errorTrackingIssueToMaxContextPayload(item.data)
+                            case MaxContextType.EVALUATION:
+                                return evaluationToMaxContextPayload(item.data)
                             default:
                                 return null
                         }
@@ -520,6 +554,14 @@ export const maxContextLogic = kea<maxContextLogicType>([
                             type: MaxContextType.ERROR_TRACKING_ISSUE,
                             icon: IconBug,
                         })
+                    } else if (item.type == MaxContextType.EVALUATION) {
+                        options.push({
+                            id: item.id,
+                            name: item.name || `Evaluation ${item.id}`,
+                            value: item.id,
+                            type: MaxContextType.EVALUATION,
+                            icon: IconCheckbox,
+                        })
                     }
                 })
 
@@ -559,6 +601,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 s.contextEvents,
                 s.contextActions,
                 s.contextErrorTrackingIssues,
+                s.contextEvaluations,
                 s.sceneContext,
             ],
             (
@@ -568,6 +611,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 contextEvents: MaxEventContext[],
                 contextActions: MaxActionContext[],
                 contextErrorTrackingIssues: MaxErrorTrackingIssueContext[],
+                contextEvaluations: MaxEvaluationContext[],
                 sceneContext: MaxContextItem[]
             ): MaxUIContext | null => {
                 const context: MaxUIContext = {}
@@ -654,6 +698,17 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     context.error_tracking_issues = Array.from(uniqueIssues.values())
                 }
 
+                // Add evaluations (combine manual selections + auto-added from scene context)
+                const sceneEvaluations = sceneContext.filter(
+                    (item): item is MaxEvaluationContext => item.type === MaxContextType.EVALUATION
+                )
+                const allEvaluations = [...contextEvaluations, ...sceneEvaluations]
+                if (allEvaluations.length > 0) {
+                    const uniqueEvaluations = new Map<string, MaxEvaluationContext>()
+                    allEvaluations.forEach((evaluation) => uniqueEvaluations.set(evaluation.id, evaluation))
+                    context.evaluations = Array.from(uniqueEvaluations.values())
+                }
+
                 return hasData ? context : null
             },
         ],
@@ -664,6 +719,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 s.contextEvents,
                 s.contextActions,
                 s.contextErrorTrackingIssues,
+                s.contextEvaluations,
                 s.sceneContext,
             ],
             (
@@ -672,6 +728,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 contextEvents: MaxEventContext[],
                 contextActions: MaxActionContext[],
                 contextErrorTrackingIssues: MaxErrorTrackingIssueContext[],
+                contextEvaluations: MaxEvaluationContext[],
                 sceneContext: MaxContextItem[]
             ): boolean => {
                 return [
@@ -680,6 +737,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     contextEvents,
                     contextActions,
                     contextErrorTrackingIssues,
+                    contextEvaluations,
                     sceneContext,
                 ].some((arr) => arr.length > 0)
             },
