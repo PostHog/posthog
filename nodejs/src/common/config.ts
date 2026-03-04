@@ -128,18 +128,12 @@ export type CommonConfig = {
     MMDB_FILE_LOCATION: string
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
     LAZY_LOADER_MAX_SIZE: number
+    INTERNAL_API_BASE_URL: string
     INTERNAL_API_SECRET: string
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
-
-    // ClickHouse
-    CLICKHOUSE_HOST: string
-    CLICKHOUSE_PORT: number
-    CLICKHOUSE_USERNAME: string
-    CLICKHOUSE_PASSWORD: string
-    CLICKHOUSE_DATABASE: string
 
     // PostHog analytics
     POSTHOG_API_KEY: string

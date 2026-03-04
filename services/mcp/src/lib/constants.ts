@@ -6,6 +6,13 @@ import packageJson from '../../package.json'
 
 export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
 
+export function getUserAgent(clientIdentifier?: string): string {
+    if (clientIdentifier) {
+        return `${USER_AGENT}; for ${clientIdentifier}`
+    }
+    return USER_AGENT
+}
+
 // Region-specific PostHog API base URLs
 export const POSTHOG_US_BASE_URL = 'https://us.posthog.com'
 export const POSTHOG_EU_BASE_URL = 'https://eu.posthog.com'
@@ -33,13 +40,16 @@ export const getBaseUrlForRegion = (region: CloudRegion): string => {
  */
 export const CUSTOM_API_BASE_URL = env.POSTHOG_API_BASE_URL
 
-// Get the authorization server URL for OAuth, respecting CUSTOM_API_BASE_URL for self-hosted instances
-export const getAuthorizationServerUrl = (regionParam: string | null): string => {
+const OAUTH_PROXY_URL = 'https://oauth.posthog.com'
+
+// Get the authorization server URL for OAuth
+// Uses the cross-region OAuth proxy for cloud, or CUSTOM_API_BASE_URL for self-hosted
+export const getAuthorizationServerUrl = (): string => {
     if (CUSTOM_API_BASE_URL) {
         return CUSTOM_API_BASE_URL
     }
 
-    return getBaseUrlForRegion(toCloudRegion(regionParam))
+    return OAUTH_PROXY_URL
 }
 
 // OAuth Authorization Server URL (where clients get tokens)
@@ -58,6 +68,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'introspection',
     'action:read',
     'action:write',
+    'cohort:read',
+    'cohort:write',
     'dashboard:read',
     'dashboard:write',
     'error_tracking:read',
@@ -68,6 +80,7 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'experiment:write',
     'feature_flag:read',
     'feature_flag:write',
+    'hog_flow:read',
     'insight:read',
     'insight:write',
     'logs:read',

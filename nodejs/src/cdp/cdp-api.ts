@@ -25,17 +25,13 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
+import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
-import { HogInputsService } from './services/hog-inputs.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
-import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
-import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
-import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
-import { EmailService } from './services/messaging/email.service'
-import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
@@ -55,20 +51,17 @@ export class CdpApi {
     private segmentDestinationExecutorService: SegmentDestinationExecutorService
 
     private hogFunctionManager: HogFunctionManagerService
-    private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     private hogFlowManager: HogFlowManagerService
-    private recipientsManager: RecipientsManagerService
 
     private hogFlowExecutor: HogFlowExecutorService
-    private hogFlowFunctionsService: HogFlowFunctionsService
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private emailTrackingService: EmailTrackingService
-    private recipientPreferencesService: RecipientPreferencesService
     private recipientTokensService: RecipientTokensService
     private cdpWarehouseKafkaProducer?: KafkaProducerWrapper
+    private batchExportHogFunctionService: BatchExportHogFunctionService
 
     constructor(
         private config: PluginsServerConfig,
@@ -77,13 +70,9 @@ export class CdpApi {
         const services = createCdpCoreServices(config, deps, 'cdp-api-redis')
 
         this.hogFunctionManager = services.hogFunctionManager
-        this.hogFunctionTemplateManager = services.hogFunctionTemplateManager
         this.hogFlowManager = services.hogFlowManager
-        this.recipientsManager = services.recipientsManager
         this.recipientTokensService = services.recipientTokensService
         this.hogExecutor = services.hogExecutor
-        this.hogFlowFunctionsService = services.hogFlowFunctionsService
-        this.recipientPreferencesService = services.recipientPreferencesService
         this.hogFlowExecutor = services.hogFlowExecutor
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
@@ -96,6 +85,15 @@ export class CdpApi {
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
+            this.hogFunctionMonitoringService
+        )
+        this.batchExportHogFunctionService = new BatchExportHogFunctionService(
+            config.SITE_URL,
+            deps.teamManager,
+            new GroupsManagerService(deps.teamManager, deps.groupRepository),
+            this.hogFunctionManager,
+            this.hogExecutor,
+            this.hogWatcher,
             this.hogFunctionMonitoringService
         )
     }
@@ -117,7 +115,11 @@ export class CdpApi {
     }
 
     async stop(): Promise<void> {
-        await Promise.all([this.cdpWarehouseKafkaProducer?.disconnect(), this.cdpSourceWebhooksConsumer.stop()])
+        await Promise.all([
+            this.cdpWarehouseKafkaProducer?.disconnect(),
+            this.cdpSourceWebhooksConsumer.stop(),
+            this.batchExportHogFunctionService.stop(),
+        ])
     }
 
     isHealthy(): HealthCheckResult {
@@ -146,6 +148,10 @@ export class CdpApi {
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
         router.post('/api/messaging/generate_preferences_token', asyncHandler(this.generatePreferencesToken()))
         router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
+        router.post(
+            '/api/projects/:team_id/hog_functions/:hog_function_id/batch_export_invocations',
+            asyncHandler(this.handleBatchExportHogFunction())
+        )
 
         const publicBodySizeLimit = (req: ModifiedRequest, res: express.Response, next: express.NextFunction): void => {
             if (req.rawBody && req.rawBody.length > 512_000) {
@@ -703,6 +709,35 @@ export class CdpApi {
             } catch (error) {
                 logger.error('[CdpApi] Error validating preferences token', error)
                 return res.status(500).json({ error: 'Failed to validate token' })
+            }
+        }
+
+    private handleBatchExportHogFunction =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            try {
+                const result = await this.batchExportHogFunctionService.execute(
+                    {
+                        team_id: req.params.team_id,
+                        hog_function_id: req.params.hog_function_id,
+                    },
+                    req.body
+                )
+
+                return res.json({
+                    status: result.error ? 'error' : 'success',
+                    errors: result.error ? [String(result.error)] : [],
+                    logs: result.logs,
+                })
+            } catch (e) {
+                if (e instanceof NotFoundError) {
+                    return res.status(404).json({ errors: [e.message] })
+                } else if (e instanceof ParseError) {
+                    return res.status(400).json({ errors: [e.message] })
+                } else {
+                    console.error(e)
+                    return res.status(500).json({ errors: [e.message] })
+                }
             }
         }
 }

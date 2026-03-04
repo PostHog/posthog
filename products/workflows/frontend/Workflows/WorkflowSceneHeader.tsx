@@ -5,8 +5,6 @@ import { useEffect, useRef, useState } from 'react'
 import { IconArchive, IconCopy, IconScreen } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -22,14 +20,28 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
     const logic = workflowLogic(props)
     const {
         workflow,
-        workflowChanged,
+        workflowContentChanged,
         isWorkflowSubmitting,
         workflowLoading,
         workflowHasErrors,
         workflowHasActionErrors,
+        hasPendingDraft,
+        dirtyAfterDraftSave,
+        isDraftSaving,
+        isDraftPublishing,
+        canPublish,
     } = useValues(logic)
-    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, duplicate, archiveWorkflow } =
-        useActions(logic)
+    const {
+        saveWorkflowPartial,
+        submitWorkflow,
+        setWorkflowValue,
+        saveMetadataField,
+        duplicate,
+        archiveWorkflow,
+        saveDraftNow,
+        publishWorkflow,
+        discardDraft,
+    } = useActions(logic)
     const { searchParams } = useValues(router)
     const editTemplateId = searchParams.editTemplateId as string | undefined
     const templateId = searchParams.templateId as string | undefined
@@ -42,7 +54,8 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
     const [displayStatus, setDisplayStatus] = useState(workflow?.status)
     const [isTransitioning, setIsTransitioning] = useState(false)
     const prevStatusRef = useRef(workflow?.status)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+
+    const isActive = workflow?.status === 'active'
 
     useEffect(() => {
         // Only transition if status actually changed (not on initial mount)
@@ -69,8 +82,14 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 description={workflow?.description}
                 resourceType={{ type: 'workflows' }}
                 canEdit
-                onNameChange={(name) => setWorkflowValue('name', name)}
-                onDescriptionChange={(description) => setWorkflowValue('description', description)}
+                onNameChange={(name) => {
+                    setWorkflowValue('name', name)
+                    saveMetadataField('name', name)
+                }}
+                onDescriptionChange={(description) => {
+                    setWorkflowValue('description', description)
+                    saveMetadataField('description', description)
+                }}
                 isLoading={workflowLoading && !workflow}
                 renameDebounceMs={200}
                 actions={
@@ -87,11 +106,13 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                     }
                                     size="small"
                                     disabledReason={
-                                        workflowChanged
-                                            ? 'Save changes first'
-                                            : workflow?.status === 'draft' && workflowHasActionErrors
-                                              ? 'Fix all errors before enabling'
-                                              : undefined
+                                        hasPendingDraft
+                                            ? 'Publish or discard draft first'
+                                            : workflowContentChanged
+                                              ? 'Save changes first'
+                                              : workflow?.status === 'draft' && workflowHasActionErrors
+                                                ? 'Fix all errors before enabling'
+                                                : undefined
                                     }
                                     className="transition-colors duration-300 ease-in-out"
                                     data-attr="workflow-launch"
@@ -105,65 +126,41 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                     </span>
                                 </LemonButton>
                                 <LemonDivider vertical />
-                                {isRemovingSidePanelFlag ? (
-                                    <ScenePanel>
-                                        <ScenePanelActionsSection>
-                                            <ButtonPrimitive menuItem onClick={() => duplicate()}>
-                                                <IconCopy />
-                                                Duplicate
-                                            </ButtonPrimitive>
-                                            <ButtonPrimitive menuItem onClick={showSaveAsTemplateModal}>
-                                                <IconScreen />
-                                                Save as template
-                                            </ButtonPrimitive>
-                                        </ScenePanelActionsSection>
-                                        <ScenePanelDivider />
-                                        <ScenePanelActionsSection>
-                                            <ButtonPrimitive
-                                                menuItem
-                                                onClick={() => archiveWorkflow(workflow)}
-                                                variant="danger"
-                                            >
-                                                <IconArchive />
-                                                Archive
-                                            </ButtonPrimitive>
-                                        </ScenePanelActionsSection>
-                                    </ScenePanel>
-                                ) : (
-                                    <More
-                                        size="small"
-                                        overlay={
-                                            <>
-                                                <LemonButton fullWidth onClick={() => duplicate()}>
-                                                    Duplicate
-                                                </LemonButton>
-                                                <LemonButton fullWidth onClick={showSaveAsTemplateModal}>
-                                                    Save as template
-                                                </LemonButton>
-                                                <LemonDivider />
-                                                <LemonButton
-                                                    status="danger"
-                                                    fullWidth
-                                                    onClick={() => archiveWorkflow(workflow)}
-                                                >
-                                                    Archive
-                                                </LemonButton>
-                                            </>
-                                        }
-                                    />
-                                )}
+                                <ScenePanel>
+                                    <ScenePanelActionsSection>
+                                        <ButtonPrimitive menuItem onClick={() => duplicate()}>
+                                            <IconCopy />
+                                            Duplicate
+                                        </ButtonPrimitive>
+                                        <ButtonPrimitive menuItem onClick={showSaveAsTemplateModal}>
+                                            <IconScreen />
+                                            Save as template
+                                        </ButtonPrimitive>
+                                    </ScenePanelActionsSection>
+                                    <ScenePanelDivider />
+                                    <ScenePanelActionsSection>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => archiveWorkflow(workflow)}
+                                            variant="danger"
+                                        >
+                                            <IconArchive />
+                                            Archive
+                                        </ButtonPrimitive>
+                                    </ScenePanelActionsSection>
+                                </ScenePanel>
                             </>
                         )}
-                        {workflowChanged && (
+                        {isSavedWorkflow && (hasPendingDraft || workflowContentChanged) ? (
                             <LemonButton
-                                data-attr="discard-workflow-changes"
+                                data-attr="discard-draft"
                                 type="secondary"
-                                onClick={() => discardChanges()}
+                                onClick={() => discardDraft()}
                                 size="small"
                             >
-                                Clear changes
+                                Discard changes
                             </LemonButton>
-                        )}
+                        ) : null}
                         {editTemplateId ? (
                             <LemonButton
                                 type="primary"
@@ -173,7 +170,31 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             >
                                 Update template
                             </LemonButton>
+                        ) : isActive && hasPendingDraft && !dirtyAfterDraftSave ? (
+                            /* Active workflow with up-to-date draft: ready to publish */
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={publishWorkflow}
+                                loading={isDraftPublishing}
+                                disabledReason={!canPublish ? 'Fix all errors before publishing' : undefined}
+                                data-attr="publish-workflow"
+                            >
+                                Publish
+                            </LemonButton>
+                        ) : isActive && (workflowContentChanged || dirtyAfterDraftSave) ? (
+                            /* Active workflow with unsaved content changes: save draft first */
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={saveDraftNow}
+                                loading={isDraftSaving}
+                                data-attr="save-draft"
+                            >
+                                Save draft
+                            </LemonButton>
                         ) : (
+                            /* Default: normal Save/Create button */
                             <LemonButton
                                 type="primary"
                                 size="small"
@@ -186,7 +207,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                         ? 'Some fields still need work'
                                         : isCreatedFromTemplate
                                           ? undefined
-                                          : workflowChanged
+                                          : workflowContentChanged
                                             ? undefined
                                             : 'No changes to save'
                                 }

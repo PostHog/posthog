@@ -239,6 +239,8 @@ const insightActionsMapping: Record<
     user_access_level: () => null,
     _create_in_folder: () => null,
     last_viewed_at: () => null,
+    viewers: () => null,
+    view_count: () => null,
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {

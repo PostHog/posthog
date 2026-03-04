@@ -67,8 +67,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
-        PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30_000, // 30 seconds
-        TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: 0,
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         CONSUMER_BATCH_SIZE: 500,
@@ -141,6 +139,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000, // 3 seconds
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000, // 10 seconds
         EXTERNAL_REQUEST_CONNECTIONS: 500, // 500 connections
+        OUTBOUND_PROXY_URL: '',
+        OUTBOUND_PROXY_ENABLED: false,
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
@@ -151,13 +151,6 @@ export function getDefaultConfig(): PluginsServerConfig {
             ? 'http://capture.posthog.svc.cluster.local:3000/capture'
             : 'http://localhost:8010/capture',
 
-        // ClickHouse
-        CLICKHOUSE_HOST: 'localhost',
-        CLICKHOUSE_PORT: 8123,
-        CLICKHOUSE_USERNAME: 'default',
-        CLICKHOUSE_PASSWORD: '',
-        CLICKHOUSE_DATABASE: 'default',
-
         // posthog
         POSTHOG_API_KEY: '',
         POSTHOG_HOST_URL: 'http://localhost:8010',
@@ -166,6 +159,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         OTEL_SERVICE_NAME: null,
         OTEL_SERVICE_ENVIRONMENT: null,
         // Internal API authentication
+        INTERNAL_API_BASE_URL: isProdEnv()
+            ? 'http://posthog-web-django.posthog.svc.cluster.local:8000'
+            : 'http://localhost:8000',
         INTERNAL_API_SECRET: isProdEnv() ? '' : 'posthog123',
 
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
@@ -263,7 +259,6 @@ export function getDefaultConfig(): PluginsServerConfig {
             : 'postgres://posthog:posthog@localhost:5432/cyclotron_shadow',
         CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: false,
         CDP_CYCLOTRON_TEST_SEEK_LATENCY: false,
-        CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: 1.0,
         CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 50_000_000,
         CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 500,
         CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: 10,

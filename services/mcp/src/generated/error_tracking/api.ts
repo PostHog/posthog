@@ -372,6 +372,7 @@ export const ErrorTrackingExternalReferencesListResponse = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
+                    'slack-twig',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -396,6 +397,7 @@ export const ErrorTrackingExternalReferencesListResponse = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -418,6 +420,7 @@ export const ErrorTrackingExternalReferencesCreateBody = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
+            'slack-twig',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -442,6 +445,7 @@ export const ErrorTrackingExternalReferencesCreateBody = zod.object({
             'azure-blob',
             'firebase',
             'jira',
+            'pinterest-ads',
         ]),
     }),
 })
@@ -463,6 +467,7 @@ export const ErrorTrackingExternalReferencesRetrieveResponse = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
+            'slack-twig',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -487,6 +492,7 @@ export const ErrorTrackingExternalReferencesRetrieveResponse = zod.object({
             'azure-blob',
             'firebase',
             'jira',
+            'pinterest-ads',
         ]),
     }),
 })
@@ -508,6 +514,7 @@ export const ErrorTrackingExternalReferencesUpdateBody = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
+            'slack-twig',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -532,6 +539,7 @@ export const ErrorTrackingExternalReferencesUpdateBody = zod.object({
             'azure-blob',
             'firebase',
             'jira',
+            'pinterest-ads',
         ]),
     }),
 })
@@ -544,6 +552,7 @@ export const ErrorTrackingExternalReferencesUpdateResponse = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
+            'slack-twig',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -568,6 +577,7 @@ export const ErrorTrackingExternalReferencesUpdateResponse = zod.object({
             'azure-blob',
             'firebase',
             'jira',
+            'pinterest-ads',
         ]),
     }),
 })
@@ -595,6 +605,7 @@ export const ErrorTrackingExternalReferencesPartialUpdateResponse = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
+            'slack-twig',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -619,6 +630,7 @@ export const ErrorTrackingExternalReferencesPartialUpdateResponse = zod.object({
             'azure-blob',
             'firebase',
             'jira',
+            'pinterest-ads',
         ]),
     }),
 })
@@ -924,6 +936,7 @@ export const ErrorTrackingIssuesListResponse = zod.object({
                         id: zod.number(),
                         kind: zod.enum([
                             'slack',
+                            'slack-twig',
                             'salesforce',
                             'hubspot',
                             'google-pubsub',
@@ -948,6 +961,7 @@ export const ErrorTrackingIssuesListResponse = zod.object({
                             'azure-blob',
                             'firebase',
                             'jira',
+                            'pinterest-ads',
                         ]),
                     }),
                 })
@@ -988,6 +1002,7 @@ export const ErrorTrackingIssuesCreateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
+                    'slack-twig',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1012,6 +1027,7 @@ export const ErrorTrackingIssuesCreateBody = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1051,6 +1067,7 @@ export const ErrorTrackingIssuesRetrieveResponse = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
+                    'slack-twig',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1075,6 +1092,7 @@ export const ErrorTrackingIssuesRetrieveResponse = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1114,6 +1132,7 @@ export const ErrorTrackingIssuesUpdateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
+                    'slack-twig',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1138,6 +1157,7 @@ export const ErrorTrackingIssuesUpdateBody = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1168,6 +1188,7 @@ export const ErrorTrackingIssuesUpdateResponse = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
+                    'slack-twig',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1192,6 +1213,7 @@ export const ErrorTrackingIssuesUpdateResponse = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1234,6 +1256,7 @@ export const ErrorTrackingIssuesPartialUpdateBody = zod.object({
                     id: zod.number(),
                     kind: zod.enum([
                         'slack',
+                        'slack-twig',
                         'salesforce',
                         'hubspot',
                         'google-pubsub',
@@ -1258,6 +1281,7 @@ export const ErrorTrackingIssuesPartialUpdateBody = zod.object({
                         'azure-blob',
                         'firebase',
                         'jira',
+                        'pinterest-ads',
                     ]),
                 }),
             })
@@ -1289,6 +1313,7 @@ export const ErrorTrackingIssuesPartialUpdateResponse = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
+                    'slack-twig',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1313,6 +1338,7 @@ export const ErrorTrackingIssuesPartialUpdateResponse = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1367,6 +1393,7 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = zod.object({
                     id: zod.number(),
                     kind: zod.enum([
                         'slack',
+                        'slack-twig',
                         'salesforce',
                         'hubspot',
                         'google-pubsub',
@@ -1391,6 +1418,7 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = zod.object({
                         'azure-blob',
                         'firebase',
                         'jira',
+                        'pinterest-ads',
                     ]),
                 }),
             })
@@ -1430,6 +1458,7 @@ export const ErrorTrackingIssuesCohortUpdateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
+                    'slack-twig',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1454,6 +1483,7 @@ export const ErrorTrackingIssuesCohortUpdateBody = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1492,6 +1522,7 @@ export const ErrorTrackingIssuesMergeCreateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
+                    'slack-twig',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1516,6 +1547,7 @@ export const ErrorTrackingIssuesMergeCreateBody = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1554,6 +1586,7 @@ export const ErrorTrackingIssuesSplitCreateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
+                    'slack-twig',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1578,6 +1611,7 @@ export const ErrorTrackingIssuesSplitCreateBody = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })
@@ -1623,6 +1657,7 @@ export const ErrorTrackingIssuesBulkCreateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
+                    'slack-twig',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1647,6 +1682,7 @@ export const ErrorTrackingIssuesBulkCreateBody = zod.object({
                     'azure-blob',
                     'firebase',
                     'jira',
+                    'pinterest-ads',
                 ]),
             }),
         })

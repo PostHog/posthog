@@ -34,6 +34,22 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-opus-4-5",
                 "claude-opus-4-6",
                 "claude-sonnet-4-5",
+                "claude-sonnet-4-6",
+                "claude-haiku-4-5",
+                "gpt-5.3-codex",
+                "gpt-5.2",
+                "gpt-5-mini",
+            }
+        ),
+        allow_api_keys=False,
+    ),
+    "background_agents": ProductConfig(
+        allowed_application_ids=frozenset({TWIG_US_APP_ID, TWIG_EU_APP_ID}),
+        allowed_models=frozenset(
+            {
+                "claude-opus-4-5",
+                "claude-opus-4-6",
+                "claude-sonnet-4-5",
                 "claude-haiku-4-5",
                 "gpt-5.3-codex",
                 "gpt-5.2",

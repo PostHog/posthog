@@ -27,9 +27,11 @@ class RequestContext:
         self.user = user
         self.data = data
         self.session: dict[str, Any] = {}
+        self.META: dict[str, str] = {}
+        self.headers: dict[str, str] = {}
 
 
-def apply_change_request(change_request: ChangeRequest) -> Any:
+def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
     """
     Apply an approved change request.
 
@@ -113,6 +115,8 @@ def apply_change_request(change_request: ChangeRequest) -> Any:
                     "action_key": change_request.action_key,
                     "change_request_id": str(change_request.id),
                 },
+                team=change_request.team,
+                request=request,
             )
 
         send_approval_applied_notification(change_request)
@@ -175,9 +179,10 @@ class CancelResult(ServiceResult):
 class ChangeRequestService:
     """Service for managing change request lifecycle operations."""
 
-    def __init__(self, change_request: ChangeRequest, user: User):
+    def __init__(self, change_request: ChangeRequest, user: User, request=None):
         self.change_request = change_request
         self.user = user
+        self._request = request
 
     def approve(self, reason: str = "") -> ApproveResult:
         """
@@ -207,6 +212,8 @@ class ChangeRequestService:
                     "action_key": change_request.action_key,
                     "decision": ApprovalDecision.APPROVED,
                 },
+                team=change_request.team,
+                request=self._request,
             )
 
             approval_count = change_request.approvals.filter(decision=ApprovalDecision.APPROVED).count()
@@ -237,7 +244,7 @@ class ChangeRequestService:
                 )
 
                 try:
-                    result = apply_change_request(change_request)
+                    result = apply_change_request(change_request, request=self._request)
                     return ApproveResult(
                         status="applied",
                         message="Quorum reached. Change applied successfully.",
@@ -302,6 +309,8 @@ class ChangeRequestService:
                     "action_key": change_request.action_key,
                     "decision": ApprovalDecision.REJECTED,
                 },
+                team=change_request.team,
+                request=self._request,
             )
 
             logger.info(
@@ -345,6 +354,8 @@ class ChangeRequestService:
                     "action_key": change_request.action_key,
                     "reason": reason,
                 },
+                team=change_request.team,
+                request=self._request,
             )
 
             logger.info(

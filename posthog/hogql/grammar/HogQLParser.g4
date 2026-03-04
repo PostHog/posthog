@@ -61,7 +61,7 @@ selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
 selectStmt:
     with=withClause?
     SELECT DISTINCT? topClause?
-    columns=columnExprList
+    columns=selectColumnExprList
     from=fromClause?
     arrayJoinClause?
     prewhereClause?
@@ -146,6 +146,11 @@ columnTypeExpr
     | identifier LPAREN columnExprList? RPAREN                                               # ColumnTypeExprParam    // FixedString(N)
     ;
 columnExprList: columnExpr (COMMA columnExpr)* COMMA?;
+selectColumnExprList: selectColumnExpr (COMMA selectColumnExpr)* COMMA?;
+selectColumnExpr
+    : identifier COLON columnExpr                                                   # ColumnExprAliasBefore
+    | columnExpr                                                                    # ColumnExprSelectValue
+    ;
 columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
@@ -244,10 +249,12 @@ hogqlxTagAttribute
 
 withExprList: withExpr (COMMA withExpr)* COMMA?;
 withExpr
-    : identifier AS LPAREN selectSetStmt RPAREN    # WithExprSubquery
+    : identifier withExprColumnNameList? (USING KEY withExprColumnNameList)? AS (NOT? MATERIALIZED)? LPAREN selectSetStmt RPAREN    # WithExprSubquery
     // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
-    | columnExpr AS identifier                       # WithExprColumn
+    | columnExpr AS identifier                                          # WithExprColumn
     ;
+
+withExprColumnNameList: LPAREN identifier (COMMA identifier)* RPAREN;
 
 
 // This is slightly different in HogQL compared to ClickHouse SQL

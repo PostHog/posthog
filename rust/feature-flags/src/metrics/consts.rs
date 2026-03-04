@@ -5,6 +5,7 @@ pub const FLAG_HASH_KEY_RETRIES_COUNTER: &str = "flags_hash_key_retries_total";
 pub const TEAM_CACHE_HIT_COUNTER: &str = "flags_team_cache_hit_total";
 pub const DB_TEAM_READS_COUNTER: &str = "flags_db_team_reads_total";
 pub const TOKEN_VALIDATION_ERRORS_COUNTER: &str = "flags_token_validation_errors_total";
+pub const TEAM_NEGATIVE_CACHE_HIT_COUNTER: &str = "flags_team_negative_cache_hit_total";
 pub const DB_COHORT_READS_COUNTER: &str = "flags_db_cohort_reads_total";
 pub const DB_COHORT_ERRORS_COUNTER: &str = "flags_db_cohort_errors_total";
 pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
@@ -65,6 +66,9 @@ pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total"
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
+
+// Request-level timeout (tower TimeoutLayer killed the request before completion)
+pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";
 
 // Timeout tracking and classification
 pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";

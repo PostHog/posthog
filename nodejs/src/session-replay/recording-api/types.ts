@@ -9,7 +9,9 @@ import { SessionRecordingConfig } from '../../session-recording/config'
 
 // Re-export all shared encryption types so existing recording-api imports still work
 export {
+    DecryptResult,
     DeleteKeyResult,
+    EncryptResult,
     KeyStore,
     RecordingDecryptor,
     RecordingEncryptor,

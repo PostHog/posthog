@@ -32,7 +32,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
 
     props({} as ExperimentWizardLogicProps),
 
-    key((props) => props.tabId),
+    key((props) => `${props.tabId}-create-experiment`),
 
     connect((props: ExperimentWizardLogicProps) => ({
         values: [

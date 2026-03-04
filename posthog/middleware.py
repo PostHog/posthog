@@ -691,7 +691,7 @@ class ToolbarOAuthCoopMiddleware:
     def __call__(self, request):
         response = self.get_response(request)
         is_toolbar_flow = request.path.startswith("/toolbar_oauth/") or (
-            request.path.startswith("/oauth/authorize") and request.session.get("toolbar_oauth_code_verifier")
+            request.path.startswith("/oauth/authorize") and request.session.get("toolbar_oauth_redirect_flow")
         )
         if is_toolbar_flow:
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
@@ -732,6 +732,12 @@ class CSPMiddleware:
 
         # nonce must be added to request (above) before generating response
         response = self.get_response(request)
+
+        content_type = response.get("Content-Type", "")
+        # csp headers only matter on html documents, so for defense in depth, add strong csp to all other requests
+        if "text/html" not in content_type:
+            response.headers["Content-Security-Policy"] = "default-src 'none'"
+            return response
 
         is_admin_view = request.path.startswith("/admin/")
         if is_admin_view:

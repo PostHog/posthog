@@ -439,6 +439,55 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertIsNone(response.results[0].person)
         self.assertEqual(response.results[0].distinctId, "person1")
 
+    @freeze_time("2025-01-01T00:00:00Z")
+    def test_distinct_id_prefers_trace_event(self):
+        """When a $ai_trace event exists, its distinct_id should be used even if
+        other events in the trace have an earlier timestamp with a different distinct_id."""
+        _create_person(distinct_ids=["server-internal-id"], team=self.team)
+        _create_person(distinct_ids=["real-user-id"], team=self.team)
+
+        _create_ai_generation_event(
+            distinct_id="server-internal-id",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 31, 23, 59, 0),
+        )
+        _create_ai_trace_event(
+            trace_id="trace1",
+            trace_name="my-trace",
+            input_state={},
+            output_state={},
+            distinct_id="real-user-id",
+            team=self.team,
+            timestamp=datetime(2024, 12, 31, 23, 59, 30),
+        )
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].distinctId, "real-user-id")
+
+    @freeze_time("2025-01-01T00:00:00Z")
+    def test_distinct_id_falls_back_without_trace_event(self):
+        """When no $ai_trace event exists, the distinct_id from the earliest event should be used."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 31, 23, 59, 0),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 31, 23, 59, 30),
+        )
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].distinctId, "person1")
+
     @freeze_time("2025-01-16T00:00:00Z")
     def test_date_range(self):
         _create_person(distinct_ids=["person1"], team=self.team)

@@ -481,7 +481,7 @@ quality:
         cmd: pnpm format
         description: Format both backend and frontend code
     format:yaml:
-        cmd: pnpm exec oxfmt
+        cmd: pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format JSON, YAML files
     format:css:
         cmd: pnpm stylelint --fix --allow-empty-input "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
@@ -519,6 +519,12 @@ tools:
     tool:download-mmdb:
         bin_script: download-mmdb
         description: Download and cache GeoLite2 MaxMind database with retry logic
+    tool:download-sentiment-model:
+        bin_script: download-sentiment-model
+        description: Download and export sentiment ONNX model for local LLM Analytics
+            development
+        services:
+            - temporal
     tool:hog:
         bin_script: hog
         description: Run HogQL interpreter (TypeScript/Python) or compiled bytecode
@@ -597,6 +603,9 @@ tools:
         bin_script: start-mcp-server
         description: Start the MCP server
         hidden: true
+    start:stripe:app:
+        bin_script: start-stripe-app
+        description: Start the Stripe app dev server (requires Stripe CLI)
     posthog:hobby:
         bin_script: posthog-hobby
         description: 'TODO: add description for posthog-hobby'
@@ -613,9 +622,11 @@ utilities:
             - name: node_modules
               cmd: rm -rf **/node_modules
             - name: python venvs
-              cmd: rm -rf .venv .flox/cache/venv && uv sync --active
+              cmd: rm -rf .venv .flox/cache/venv
             - name: rust builds
               cmd: cd rust && cargo clean && find . -name 'index.node' -type f -delete
+            - name: flox on activate
+              cmd: ./.flox/env/on-activate.sh
             - dev:reset
         description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
         prompt: true

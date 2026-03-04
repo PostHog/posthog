@@ -1,5 +1,5 @@
 import { Edge, Node } from '@xyflow/react'
-import { z } from 'zod'
+import z from 'zod'
 
 import { CyclotronJobInputsValidationResult } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 
@@ -34,8 +34,9 @@ export const HogFlowSchema = z.object({
         .nullable(),
     conversion: z
         .object({
-            window_minutes: z.number(),
+            window_minutes: z.number().nullable(),
             filters: z.any(),
+            bytecode: z.array(z.union([z.string(), z.number()])).optional(), // Bytecode only present after save
         })
         .optional(),
     exit_condition: z.enum([
@@ -50,6 +51,8 @@ export const HogFlowSchema = z.object({
     variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),
     updated_at: z.string(),
     created_at: z.string(),
+    draft: z.record(z.any()).nullable().optional(),
+    draft_updated_at: z.string().nullable().optional(),
 })
 
 export const HogFlowTemplateSchema = HogFlowSchema.omit({ status: true }).extend({

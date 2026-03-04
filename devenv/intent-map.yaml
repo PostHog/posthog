@@ -139,6 +139,16 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    stripe_app:
+        description: 'Stripe app for PostHog integration'
+        requires: [core_infra]
+        docker_profiles: []
+
+    duckgres:
+        description: 'Duckgres query server (DuckDB with Postgres wire protocol)'
+        requires: [core_infra]
+        docker_profiles: [duckgres]
+
 # Intents map to products/features developers work on
 intents:
     product_analytics:
@@ -151,7 +161,15 @@ intents:
 
     session_replay:
         description: 'Record and replay user sessions'
-        capabilities: [event_ingestion, replay_storage, property_definitions, celery_workers, nodejs_session_replay]
+        capabilities:
+            [
+                event_ingestion,
+                replay_storage,
+                property_definitions,
+                celery_workers,
+                temporal_workflows,
+                nodejs_session_replay,
+            ]
 
     feature_flags:
         description: 'Feature flag management and evaluation'
@@ -217,6 +235,13 @@ intents:
     mcp:
         description: 'MCP server for AI assistant integration'
         capabilities: [mcp_server]
+
+    stripe:
+        description: 'Stripe app for PostHog integration'
+        capabilities: [stripe_app]
+    endpoints:
+        description: 'Endpoints (the product)'
+        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, duckgres]
 
     dagster:
         description: 'Dagster for clickhouse maintenance, system workflows'

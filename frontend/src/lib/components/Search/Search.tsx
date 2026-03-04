@@ -16,7 +16,7 @@ import {
     useState,
 } from 'react'
 
-import { IconSearch, IconSparkles, IconX } from '@posthog/icons'
+import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -29,12 +29,15 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { fileSystemTypes } from '~/products'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
+import type { UserTheme } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { searchAiPreviewLogic } from './searchAiPreviewLogic'
@@ -68,6 +71,10 @@ const PLACEHOLDER_OPTIONS = [
 const PLACEHOLDER_CYCLE_INTERVAL = 3000
 
 const ASK_AI_ITEM_ID = '__ask_posthog_ai__'
+
+const SETTINGS_THEME_ITEM_ID = '__settings_theme__'
+
+const SETTINGS_THEME_ITEM_QUERY = ['dark', 'light', 'theme', 'appearance']
 
 // ============================================================================
 // Hooks
@@ -269,6 +276,9 @@ function SearchRoot({
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
+    const { isDarkModeOn } = useValues(themeLogic)
+    const { toggleTheme } = useActions(themeLogic)
+    const { updateUser } = useActions(userLogic)
     const aiPreviewEnabled = useFeatureFlag('SEARCH_AI_PREVIEW')
     const { conversationId: aiPreviewConversationId } = useValues(searchAiPreviewLogic({ logicKey }))
 
@@ -305,6 +315,39 @@ function SearchRoot({
             items = allItems.filter((item) => item.category === 'recents' || item.category === 'apps')
         }
 
+        // Add a direct shortcut to the theme setting when searching for dark/light/theme
+        const normalizedQuery = searchValue.trim().toLowerCase()
+        if (normalizedQuery && SETTINGS_THEME_ITEM_QUERY.some((keyword) => normalizedQuery.includes(keyword))) {
+            const hasDark = normalizedQuery.includes('dark')
+            const hasLight = normalizedQuery.includes('light')
+
+            let targetTheme: UserTheme
+            let record: Record<string, unknown> | undefined
+
+            if (!hasDark && !hasLight) {
+                targetTheme = isDarkModeOn ? 'light' : 'dark'
+                record = { toggleTheme: true }
+            } else {
+                targetTheme = hasDark ? 'dark' : 'light'
+                record = { themeMode: targetTheme }
+            }
+
+            const themeItem: SearchItem = {
+                id: SETTINGS_THEME_ITEM_ID,
+                name: targetTheme === 'dark' ? 'Dark mode' : 'Light mode',
+                displayName: targetTheme === 'dark' ? 'Dark mode' : 'Light mode',
+                category: 'settings',
+                href: urls.settings('user-customization', 'theme'),
+                record,
+                searchKeywords: SETTINGS_THEME_ITEM_QUERY,
+                icon: targetTheme === 'dark' ? <IconNight /> : <IconDay />,
+            }
+            const hasThemeItemAlready = items.some((item) => item.id === themeItem.id)
+            if (!hasThemeItemAlready) {
+                items = [themeItem, ...items]
+            }
+        }
+
         // Prepend "Ask PostHog AI" as the first result when there's a search query
         if (showAskAiLink && searchValue.trim()) {
             const askAiItem: SearchItem = {
@@ -322,7 +365,7 @@ function SearchRoot({
         }
 
         return [...normalizedSuggestedItems, ...items]
-    }, [allItems, searchValue, showAskAiLink, suggestedItems, aiPreviewConversationId])
+    }, [allItems, searchValue, showAskAiLink, suggestedItems, aiPreviewConversationId, isDarkModeOn])
 
     useEffect(() => {
         if (!isActive) {
@@ -399,13 +442,28 @@ function SearchRoot({
                 router.actions.push(item.href!)
                 return
             }
+            if (item.id === SETTINGS_THEME_ITEM_ID) {
+                const record = item.record as { themeMode?: UserTheme; toggleTheme?: boolean } | undefined
+                if (record?.themeMode) {
+                    updateUser({ theme_mode: record.themeMode })
+                    return
+                }
+                if (record?.toggleTheme) {
+                    toggleTheme()
+                    return
+                }
+                if (item.href) {
+                    router.actions.push(item.href)
+                    return
+                }
+            }
             if (onItemSelect) {
                 onItemSelect(item)
             } else if (item.href) {
                 router.actions.push(item.href)
             }
         },
-        [onItemSelect, onAskAiClick]
+        [onItemSelect, onAskAiClick, updateUser, toggleTheme]
     )
 
     const groupedItems = useMemo(() => {

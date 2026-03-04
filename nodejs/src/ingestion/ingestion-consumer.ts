@@ -31,6 +31,7 @@ import {
 } from './analytics'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
+import { EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createContext } from './pipelines/helpers'
@@ -85,7 +86,7 @@ export class IngestionConsumer {
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
-    private topHog?: TopHog
+    private topHog: TopHog
 
     private joinedPipeline!: BatchPipeline<
         JoinedIngestionPipelineInput,
@@ -179,6 +180,16 @@ export class IngestionConsumer {
             groupId: this.groupId,
             topic: this.topic,
         })
+
+        // Use the kafka producer from deps
+        this.kafkaProducer = this.deps.kafkaProducer
+
+        this.topHog = new TopHog({
+            kafkaProducer: this.kafkaProducer!,
+            topic: KAFKA_CLICKHOUSE_TOPHOG,
+            pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
+            lane: this.config.INGESTION_LANE ?? 'unknown',
+        })
     }
 
     public get service(): PluginServerService {
@@ -192,9 +203,6 @@ export class IngestionConsumer {
     public async start(): Promise<void> {
         await Promise.all([
             this.hogTransformer.start(),
-            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK).then((producer) => {
-                this.kafkaProducer = producer
-            }),
             // TRICKY: When we produce overflow events they are back to the kafka we are consuming from
             KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CONSUMER').then((producer) => {
                 this.kafkaOverflowProducer = producer
@@ -210,6 +218,13 @@ export class IngestionConsumer {
         this.topHog.start()
 
         // Initialize pipeline
+        const outputs = new IngestionOutputs({
+            [EVENTS_OUTPUT]: {
+                topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                producer: this.kafkaProducer!,
+            },
+        })
+
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             overflowEnabled: this.overflowEnabled(),
@@ -219,8 +234,8 @@ export class IngestionConsumer {
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
             groupId: this.groupId,
+            outputs,
             perDistinctIdOptions: {
-                CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
@@ -271,9 +286,8 @@ export class IngestionConsumer {
         logger.info('🔁', `${this.name} - stopping batch consumer`)
         await this.kafkaConsumer?.disconnect()
         logger.info('🔁', `${this.name} - stopping tophog`)
-        await this.topHog?.stop()
-        logger.info('🔁', `${this.name} - stopping kafka producer`)
-        await this.kafkaProducer?.disconnect()
+        await this.topHog.stop()
+        // NOTE: Don't disconnect kafkaProducer here as it's shared from deps and managed by the server
         logger.info('🔁', `${this.name} - stopping kafka overflow producer`)
         await this.kafkaOverflowProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping hog transformer`)

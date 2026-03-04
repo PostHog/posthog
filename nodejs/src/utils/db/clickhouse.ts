@@ -2,7 +2,6 @@ import { ClickHouseClient, createClient as createClickhouseClient } from '@click
 
 import { withSpan } from '~/common/tracing/tracing-utils'
 
-import { CommonConfig } from '../../common/config'
 import { logger } from '../logger'
 import { timeoutGuard } from './utils'
 
@@ -39,39 +38,15 @@ function createClickHouseClient(config: ClickHouseConnectionConfig): ClickHouseC
 export class ClickHouseRouter {
     private client: ClickHouseClient | null = null
 
-    constructor(
-        private hub: Pick<
-            CommonConfig,
-            | 'CLICKHOUSE_HOST'
-            | 'CLICKHOUSE_PORT'
-            | 'CLICKHOUSE_USERNAME'
-            | 'CLICKHOUSE_PASSWORD'
-            | 'CLICKHOUSE_DATABASE'
-        >
-    ) {}
+    constructor(private config: ClickHouseConnectionConfig) {}
 
     initialize(): void {
         if (this.client) {
             return
         }
 
-        const CLICKHOUSE_HOST = this.hub.CLICKHOUSE_HOST ?? 'localhost'
-        const CLICKHOUSE_PORT = this.hub.CLICKHOUSE_PORT ?? '8123'
-        const CLICKHOUSE_USERNAME = this.hub.CLICKHOUSE_USERNAME ?? 'default'
-        const CLICKHOUSE_PASSWORD = this.hub.CLICKHOUSE_PASSWORD ?? ''
-        const CLICKHOUSE_DATABASE = this.hub.CLICKHOUSE_DATABASE ?? 'default'
         logger.info('🤔', 'Connecting to ClickHouse...')
-
-        this.client = createClickHouseClient({
-            url: `http://${CLICKHOUSE_HOST}:${CLICKHOUSE_PORT}`,
-            username: CLICKHOUSE_USERNAME,
-            password: CLICKHOUSE_PASSWORD,
-            database: CLICKHOUSE_DATABASE,
-            request_timeout: 30000,
-            max_open_connections: 50,
-            keep_alive_enabled: true,
-        })
-
+        this.client = createClickHouseClient(this.config)
         logger.info('👍', 'ClickHouse ready')
     }
 

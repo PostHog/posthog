@@ -82,18 +82,32 @@ pub struct Config {
     #[envconfig(default = "60")]
     pub global_rate_limit_window_interval_secs: u64,
 
-    /// Time bucket granularity in seconds for the sliding window counters
-    #[envconfig(default = "20")]
-    pub global_rate_limit_bucket_interval_secs: u64,
+    /// Max staleness before re-sync with Redis (seconds)
+    #[envconfig(default = "15")]
+    pub global_rate_limit_sync_interval_secs: u64,
+
+    /// Background task cadence for pipeline reads + writes (milliseconds)
+    #[envconfig(default = "1000")]
+    pub global_rate_limit_tick_interval_ms: u64,
 
     /// CSV list of key=value pairs assigning custom global rate limit thresholds
     /// for particular keys.
     pub global_rate_limit_overrides_csv: Option<String>,
 
+    /// Maximum entries in the local LRU cache for the global rate limiter.
+    /// Higher values use more memory but reduce Redis reads under high key cardinality.
+    #[envconfig(default = "300000")]
+    pub global_rate_limit_local_cache_max_entries: u64,
+
     /// Optional dedicated Redis URL for global rate limiter.
     /// If set, creates a separate Redis client for the limiter.
     /// Falls back to the shared redis_url if unset.
     pub global_rate_limit_redis_url: Option<String>,
+
+    /// Optional Redis reader URL for global rate limiter (replica).
+    /// When set alongside global_rate_limit_redis_url, creates a ReadWriteClient
+    /// that routes reads to replicas and writes to the primary.
+    pub global_rate_limit_redis_reader_url: Option<String>,
 
     /// Response timeout for dedicated global rate limiter Redis (milliseconds).
     /// Defaults to redis_response_timeout_ms if unset.

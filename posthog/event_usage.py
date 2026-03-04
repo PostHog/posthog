@@ -3,7 +3,10 @@ Module to centralize event reporting on the server-side.
 """
 
 from enum import StrEnum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 import posthoganalytics
 from rest_framework.authentication import SessionAuthentication
@@ -265,6 +268,7 @@ class EventSource(StrEnum):
     POSTHOG_AI = "posthog_ai"
     TERRAFORM = "terraform"
     MCP = "mcp"
+    WIZARD = "wizard"
 
 
 def get_event_source(request) -> EventSource:
@@ -272,6 +276,8 @@ def get_event_source(request) -> EventSource:
     user_agent = request.META.get("HTTP_USER_AGENT", "")
     if "posthog/terraform-provider" in user_agent:
         return EventSource.TERRAFORM
+    if "posthog/wizard" in user_agent:
+        return EventSource.WIZARD
     if "posthog/mcp-server" in user_agent:
         return EventSource.MCP
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
@@ -289,11 +295,20 @@ def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
     }
 
 
-def report_user_action(user: User, event: str, properties: Optional[dict] = None, team: Optional[Team] = None):
-    if not user.distinct_id:
+def report_user_action(
+    user: User,
+    event: str,
+    properties: Optional[dict] = None,
+    *,
+    team: Optional[Team] = None,
+    request: Optional["Request"] = None,
+):
+    if user is None or not user.distinct_id:
         return
     if properties is None:
         properties = {}
+    if request is not None:
+        properties = {**get_request_analytics_properties(request), **properties}
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event=event,

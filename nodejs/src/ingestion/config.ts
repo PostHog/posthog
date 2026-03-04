@@ -4,8 +4,8 @@ export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
 
 export type IngestionConsumerConfig = {
-    INGESTION_PIPELINE?: string | null
-    INGESTION_LANE?: IngestionLane | null
+    INGESTION_PIPELINE: string | null
+    INGESTION_LANE: IngestionLane | null
 
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
@@ -64,9 +64,7 @@ export type IngestionConsumerConfig = {
     // Pipeline step config
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
-    PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
-    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
 
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
@@ -94,6 +92,5 @@ export type IngestionConsumerConfig = {
     EVENT_PROPERTY_LRU_SIZE: number
     PERSON_INFO_CACHE_TTL: number
 
-    // Ingestion pipeline
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null
 }
