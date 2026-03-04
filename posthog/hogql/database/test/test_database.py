@@ -18,7 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import ROOT_TABLES__DO_NOT_ADD_ANY_MORE, Database
+from posthog.hogql.database.database import ROOT_TABLES__DO_NOT_ADD_ANY_MORE, Database, get_data_warehouse_table_name
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     ExpressionField,
@@ -944,6 +944,124 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert isinstance(direct_table, Table)
         assert "properties" in direct_table.fields
 
+    def test_serialize_direct_postgres_table_uses_prefixed_name_in_default_mode(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        DataWarehouseTable.objects.create(
+            name="ph3_postgres_analytics_platform_preaggregationjob",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team)
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        assert "postgres.ph3.analytics_platform_preaggregationjob" in serialized
+        assert "ph3_postgres_analytics_platform_preaggregationjob" not in serialized
+
+    def test_serialize_direct_postgres_table_uses_raw_name_in_direct_mode(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        DataWarehouseTable.objects.create(
+            name="ph3_postgres_analytics_platform_preaggregationjob",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        assert "analytics_platform_preaggregationjob" in serialized
+        assert "postgres.ph3.analytics_platform_preaggregationjob" not in serialized
+        assert "ph3_postgres_analytics_platform_preaggregationjob" not in serialized
+
+    def test_get_all_table_names_uses_prefixed_direct_postgres_names_in_default_mode(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        DataWarehouseTable.objects.create(
+            name="ph3_postgres_analytics_platform_preaggregationjob",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team)
+        all_table_names = database.get_all_table_names()
+
+        assert "postgres.ph3.analytics_platform_preaggregationjob" in all_table_names
+        assert "ph3_postgres_analytics_platform_preaggregationjob" not in all_table_names
+
+    def test_get_all_table_names_uses_raw_direct_postgres_names_in_direct_mode(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        DataWarehouseTable.objects.create(
+            name="ph3_postgres_analytics_platform_preaggregationjob",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        all_table_names = database.get_all_table_names()
+
+        assert "analytics_platform_preaggregationjob" in all_table_names
+        assert "postgres.ph3.analytics_platform_preaggregationjob" not in all_table_names
+        assert "ph3_postgres_analytics_platform_preaggregationjob" not in all_table_names
+
     def test_database_warehouse_resolve_field_through_linear_joins_basic_join(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
@@ -1270,3 +1388,98 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         # The important behavior we're testing is that serialization completes without crashing,
         # allowing valid sources to work. Errors from actually using the invalid key are caught
         # when queries try to resolve it.
+
+    @parameterized.expand(
+        [
+            (
+                "warehouse_source_with_prefix",
+                ExternalDataSource.AccessMethod.WAREHOUSE,
+                "Postgres",
+                "ph3",
+                "ph3_postgres_analytics_platform_preaggregationjob",
+                "postgres.ph3.analytics_platform_preaggregationjob",
+            ),
+            (
+                "warehouse_source_without_prefix",
+                ExternalDataSource.AccessMethod.WAREHOUSE,
+                "Postgres",
+                None,
+                "postgres_analytics_platform_preaggregationjob",
+                "postgres.analytics_platform_preaggregationjob",
+            ),
+            (
+                "direct_source_with_prefix",
+                ExternalDataSource.AccessMethod.DIRECT,
+                "Postgres",
+                "ph3",
+                "ph3_postgres_analytics_platform_preaggregationjob",
+                "postgres.ph3.analytics_platform_preaggregationjob",
+            ),
+            (
+                "direct_source_without_prefix",
+                ExternalDataSource.AccessMethod.DIRECT,
+                "Postgres",
+                None,
+                "postgres_analytics_platform_preaggregationjob",
+                "postgres.analytics_platform_preaggregationjob",
+            ),
+        ]
+    )
+    def test_get_data_warehouse_table_name(
+        self,
+        _name: str,
+        access_method: str,
+        source_type: str,
+        prefix: str | None,
+        table_name: str,
+        expected: str,
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=source_type,
+            prefix=prefix,
+            access_method=access_method,
+        )
+
+        assert get_data_warehouse_table_name(source, table_name) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "direct_source_with_prefix",
+                "Postgres",
+                "ph3",
+                "ph3_postgres_analytics_platform_preaggregationjob",
+                "analytics_platform_preaggregationjob",
+            ),
+            (
+                "direct_source_without_prefix",
+                "Postgres",
+                None,
+                "postgres_analytics_platform_preaggregationjob",
+                "analytics_platform_preaggregationjob",
+            ),
+        ]
+    )
+    def test_get_data_warehouse_table_name_in_direct_mode(
+        self,
+        _name: str,
+        source_type: str,
+        prefix: str | None,
+        table_name: str,
+        expected: str,
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=source_type,
+            prefix=prefix,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+
+        assert get_data_warehouse_table_name(source, table_name, use_direct_database_names=True) == expected

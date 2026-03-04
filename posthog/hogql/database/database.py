@@ -252,6 +252,7 @@ class Database(BaseModel):
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
+    _direct_query_source_id: str | None = None
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -302,11 +303,15 @@ class Database(BaseModel):
             raise QueryError(f"Unknown table `{table_name}`.") from e
 
     def get_all_table_names(self) -> list[str]:
-        warehouse_table_names = list(filter(lambda x: "." in x, self._warehouse_table_names))
+        warehouse_table_names: list[str] = []
+        for table_name in self._warehouse_table_names:
+            table = self.get_table(table_name)
+            if table.name == table_name:
+                warehouse_table_names.append(table_name)
 
         return (
             self.get_posthog_table_names()
-            + warehouse_table_names
+            + sorted(set(warehouse_table_names))
             + self._warehouse_self_managed_table_names
             + self._view_table_names
         )
@@ -449,8 +454,7 @@ class Database(BaseModel):
         warehouse_table_names = self.get_warehouse_table_names()
         views = self.get_view_names()
 
-        # Fetch warehouse tables with related data in a single query
-        warehouse_tables_with_data = (
+        warehouse_tables_query = (
             DataWarehouseTable.objects.select_related("credential", "external_data_source")
             .prefetch_related(
                 "externaldataschema_set",
@@ -462,12 +466,17 @@ class Database(BaseModel):
                     to_attr="latest_completed_job",
                 ),
             )
-            .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id, name__in=warehouse_table_names)
+            .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id)
             .order_by("external_data_source__prefix", "external_data_source__source_type", "name")
-            .all()
-            if warehouse_table_names
-            else []
         )
+        if self._direct_query_source_id is not None:
+            warehouse_tables_query = warehouse_tables_query.filter(external_data_source_id=self._direct_query_source_id)
+        elif warehouse_table_names:
+            warehouse_tables_query = warehouse_tables_query.filter(name__in=warehouse_table_names)
+        else:
+            warehouse_tables_query = warehouse_tables_query.none()
+
+        warehouse_tables_with_data = warehouse_tables_query.all()
 
         # Process warehouse tables
         for warehouse_table in warehouse_tables_with_data:
@@ -506,7 +515,11 @@ class Database(BaseModel):
                 )
 
             # Temp until we migrate all table names in the DB to use dot notation
-            table_key = get_data_warehouse_table_name(warehouse_table.external_data_source, warehouse_table.name)
+            table_key = get_data_warehouse_table_name(
+                warehouse_table.external_data_source,
+                warehouse_table.name,
+                use_direct_database_names=self._direct_query_source_id is not None,
+            )
 
             if include_only and table_key not in include_only:
                 continue
@@ -616,6 +629,7 @@ class Database(BaseModel):
         user: Optional["User"] = None,
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
+        direct_query_source_id: str | None = None,
     ) -> "Database":
         if timings is None:
             timings = HogQLTimings()
@@ -664,6 +678,7 @@ class Database(BaseModel):
 
         with timings.measure("database"):
             database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
+            database._direct_query_source_id = direct_query_source_id
 
         with timings.measure("filter_system_tables_for_user"):
             if team is not None:
@@ -873,6 +888,14 @@ class Database(BaseModel):
                     .exclude(deleted=True)
                     .select_related("credential", "external_data_source")
                 )
+                if direct_query_source_id is not None:
+                    tables = [
+                        table
+                        for table in tables
+                        if table.external_data_source is not None
+                        and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                        and str(table.external_data_source_id) == direct_query_source_id
+                    ]
 
             view_names = views.resolve_all_table_names()
             for table in tables:
@@ -891,22 +914,19 @@ class Database(BaseModel):
                         )
 
                     if table.external_data_source:
-                        warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
+                        if direct_query_source_id is None:
+                            warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
                     else:
                         self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
 
                     # Add warehouse table using dot notation
                     if table.external_data_source:
-                        source_type = table.external_data_source.source_type
-                        prefix = table.external_data_source.prefix
-                        table_chain: list[str] = [source_type.lower()]
-
-                        if prefix is not None and isinstance(prefix, str) and prefix != "":
-                            table_name_stripped = table.name.replace(f"{prefix}{source_type}_".lower(), "")
-                            table_chain.extend([prefix.strip("_").lower(), table_name_stripped])
-                        else:
-                            table_name_stripped = table.name.replace(f"{source_type}_".lower(), "")
-                            table_chain.append(table_name_stripped)
+                        table_key = get_data_warehouse_table_name(
+                            table.external_data_source,
+                            table.name,
+                            use_direct_database_names=direct_query_source_id is not None,
+                        )
+                        table_chain = table_key.split(".")
 
                         # For a chain of type a.b.c, we want to create a nested table node
                         # where a is the parent, b is the child of a, and c is the child of b
@@ -1138,20 +1158,34 @@ class Database(BaseModel):
         return database
 
 
-def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
-    if source:
-        source_type = source.source_type
-        prefix = source.prefix
-        if prefix is not None and isinstance(prefix, str) and prefix != "":
-            table_name_stripped = table_name.replace(f"{prefix}{source_type}_".lower(), "")
-            table_key = f"{source_type}.{prefix.strip('_')}.{table_name_stripped}".lower()
-        else:
-            table_name_stripped = table_name.replace(f"{source_type}_".lower(), "")
-            table_key = f"{source_type}.{table_name_stripped}".lower()
-    else:
-        table_key = table_name
+def get_data_warehouse_table_name(
+    source: ExternalDataSource | None, table_name: str, *, use_direct_database_names: bool = False
+):
+    if source is None:
+        return table_name
 
-    return table_key
+    source_type = source.source_type.lower()
+    prefix = (source.prefix or "").strip("_").lower()
+
+    table_name_stripped = table_name
+    known_prefixes = [
+        f"{prefix}_{source_type}_" if prefix else None,
+        f"{prefix}{source_type}_" if prefix else None,
+        f"{source_type}_",
+    ]
+
+    for known_prefix in filter(None, known_prefixes):
+        if table_name_stripped.lower().startswith(known_prefix):
+            table_name_stripped = table_name_stripped[len(known_prefix) :]
+            break
+
+    if source.access_method == ExternalDataSource.AccessMethod.DIRECT and use_direct_database_names:
+        return table_name_stripped
+
+    if prefix:
+        return f"{source_type}.{prefix}.{table_name_stripped}".lower()
+
+    return f"{source_type}.{table_name_stripped}".lower()
 
 
 def _use_person_properties_from_events(database: Database) -> None:

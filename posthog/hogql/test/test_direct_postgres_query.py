@@ -5,6 +5,7 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor
 
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
@@ -85,6 +86,7 @@ class TestDirectPostgresQuery(APIBaseTest):
             status=ExternalDataSource.Status.COMPLETED,
             source_type="Postgres",
             access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
             job_inputs={
                 "host": "localhost",
                 "port": 5432,
@@ -96,7 +98,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         DataWarehouseTable.objects.create(
-            name="postgres.ph3.ph3_postgres_without_team_id",
+            name="ph3_postgres_without_team_id",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -119,6 +121,7 @@ class TestDirectPostgresQuery(APIBaseTest):
             status=ExternalDataSource.Status.COMPLETED,
             source_type="Postgres",
             access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
             job_inputs={
                 "host": "localhost",
                 "port": 5432,
@@ -130,7 +133,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         DataWarehouseTable.objects.create(
-            name="postgres.ph3.ph3_postgres_without_team_id",
+            name="ph3_postgres_without_team_id",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -145,3 +148,103 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn('FROM "ph3"."ph3_postgres_without_team_id"', sql)
         self.assertNotIn("team_id", sql)
         self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+
+    def test_direct_query_requires_selected_connection(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="ph3_postgres_without_team_id",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(query="SELECT * FROM postgres.ph3.without_team_id", team=self.team)
+
+        with self.assertRaises(ExposedHogQLError) as error:
+            executor.generate_clickhouse_sql()
+
+        self.assertEqual(str(error.exception), "Direct Postgres queries require selecting a connection.")
+
+    def test_selected_connection_prioritizes_matching_direct_source_for_canonical_table_name(self):
+        first_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id_1",
+            connection_id="connection_id_1",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="first",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "first_schema",
+            },
+        )
+        second_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id_2",
+            connection_id="connection_id_2",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="second",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "second_schema",
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="first_postgres_posthog_team",
+            format="Parquet",
+            team=self.team,
+            external_data_source=first_source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        DataWarehouseTable.objects.create(
+            name="second_postgres_posthog_team",
+            format="Parquet",
+            team=self.team,
+            external_data_source=second_source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM posthog_team",
+            team=self.team,
+            connection_id=str(second_source.id),
+            selected_direct_source_id=str(second_source.id),
+        )
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn("FROM\n    second_schema.posthog_team", sql)
+        self.assertEqual(executor.direct_postgres_source_id, str(second_source.id))

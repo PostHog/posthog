@@ -70,7 +70,15 @@ def _source_id_for_connection(team: Team, connection_id: str | None) -> str | No
 
 def _filter_schema_tables_for_connection(tables: dict, source_id: str | None) -> dict:
     if not source_id:
-        return tables
+        return {
+            name: table
+            for name, table in tables.items()
+            if not (
+                getattr(table, "type", None) == "data_warehouse"
+                and getattr(getattr(table, "source", None), "access_method", None)
+                == ExternalDataSource.AccessMethod.DIRECT
+            )
+        }
 
     return {
         name: table
@@ -171,10 +179,17 @@ def process_query_model(
     result: dict | BaseModel
 
     if isinstance(query, HogQLAutocomplete):
-        connection_source_id = _source_id_for_connection(team, query.connectionId)
+        source = _source_for_connection(team, query.connectionId)
+        connection_source_id = source.source_id if source else None
         database = None
         if connection_source_id:
-            database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team))
+            database = Database.create_for(
+                team=team,
+                modifiers=create_default_modifiers_for_team(team),
+                direct_query_source_id=str(source.id)
+                if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                else None,
+            )
         result = get_hogql_autocomplete(query=query, team=team, database_arg=database)
 
     if isinstance(query, HogQLMetadata):
@@ -183,8 +198,16 @@ def process_query_model(
 
     if isinstance(query, DatabaseSchemaQuery):
         joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
-        source_id = _source_id_for_connection(team, query.connectionId)
-        database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team), user=user)
+        source = _source_for_connection(team, query.connectionId)
+        source_id = source.source_id if source else None
+        database = Database.create_for(
+            team=team,
+            modifiers=create_default_modifiers_for_team(team),
+            user=user,
+            direct_query_source_id=str(source.id)
+            if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT
+            else None,
+        )
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
         filtered_tables = _filter_schema_tables_for_connection(
             database.serialize(context, include_hidden_posthog_tables=True),

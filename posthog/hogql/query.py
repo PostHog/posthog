@@ -16,6 +16,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
 from posthog.hogql.errors import ExposedHogQLError
@@ -154,6 +155,16 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_hogql")
     def _generate_hogql(self):
+        database = None
+        if self.selected_direct_source_id is not None:
+            database = Database.create_for(
+                team=self.team,
+                user=self.user,
+                modifiers=self.query_modifiers,
+                timings=self.timings,
+                direct_query_source_id=self.selected_direct_source_id,
+            )
+
         self.hogql_context = dataclasses.replace(
             self.context,
             team_id=self.team.pk,
@@ -163,6 +174,7 @@ class HogQLQueryExecutor:
             timings=self.timings,
             modifiers=self.query_modifiers,
             limit_context=self.limit_context,
+            database=database,
         )
 
         self._apply_optimizers()
@@ -243,6 +255,9 @@ class HogQLQueryExecutor:
             if self.connection_id is not None:
                 raise ExposedHogQLError("The selected connection requires querying tables from that source.")
             return
+
+        if self.selected_direct_source_id is None:
+            raise ExposedHogQLError("Direct Postgres queries require selecting a connection.")
 
         if len(direct_source_ids) > 1:
             raise ExposedHogQLError("Direct Postgres queries can only reference a single source.")
