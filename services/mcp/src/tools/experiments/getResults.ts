@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import { ExperimentResultsResponseSchema } from '@/schema/experiments'
+import { transformExperimentResults } from '@/schema/experiments'
 import { ExperimentResultsGetSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -27,15 +27,12 @@ export const getResultsHandler: ToolBase<typeof schema>['handler'] = async (cont
 
     const { experiment, primaryMetricsResults, secondaryMetricsResults, exposures } = result.data
 
-    // Format the response using the schema
-    const parsedExperiment = ExperimentResultsResponseSchema.parse({
+    return transformExperimentResults({
         experiment,
         primaryMetricsResults,
         secondaryMetricsResults,
         exposures,
     })
-
-    return parsedExperiment
 }
 
 const tool = (): ToolBase<typeof schema> => ({

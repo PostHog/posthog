@@ -1,6 +1,7 @@
 // AUTO-GENERATED from definitions/cohorts.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import {
     CohortsAddPersonsToStaticCohortPartialUpdateBody,
     CohortsAddPersonsToStaticCohortPartialUpdateParams,
@@ -21,7 +22,7 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema> => ({
     schema: CohortsListSchema,
     handler: async (context: Context, params: z.infer<typeof CohortsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.PaginatedCohortList>({
             method: 'GET',
             path: `/api/projects/${projectId}/cohorts/`,
             query: {
@@ -72,7 +73,7 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema> => ({
         if (params.cohort_type !== undefined) {
             body['cohort_type'] = params.cohort_type
         }
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.Cohort>({
             method: 'POST',
             path: `/api/projects/${projectId}/cohorts/`,
             body,
@@ -91,7 +92,7 @@ const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema> => ({
     schema: CohortsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof CohortsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.Cohort>({
             method: 'GET',
             path: `/api/projects/${projectId}/cohorts/${params.id}/`,
         })
@@ -133,7 +134,7 @@ const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema> => 
         if (params.cohort_type !== undefined) {
             body['cohort_type'] = params.cohort_type
         }
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.Cohort>({
             method: 'PATCH',
             path: `/api/projects/${projectId}/cohorts/${params.id}/`,
             body,
@@ -160,7 +161,7 @@ const cohortsAddPersonsToStaticCohortPartialUpdate = (): ToolBase<
         if (params.person_ids !== undefined) {
             body['person_ids'] = params.person_ids
         }
-        const result = await context.api.request({
+        const result = await context.api.request<unknown>({
             method: 'PATCH',
             path: `/api/projects/${projectId}/cohorts/${params.id}/add_persons_to_static_cohort/`,
             body,
@@ -191,7 +192,7 @@ const cohortsRemovePersonFromStaticCohortPartialUpdate = (): ToolBase<
         if (params.person_id !== undefined) {
             body['person_id'] = params.person_id
         }
-        const result = await context.api.request({
+        const result = await context.api.request<unknown>({
             method: 'PATCH',
             path: `/api/projects/${projectId}/cohorts/${params.id}/remove_person_from_static_cohort/`,
             body,

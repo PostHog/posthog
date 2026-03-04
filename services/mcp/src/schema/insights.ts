@@ -1,47 +1,5 @@
 import { z } from 'zod'
 
-export const InsightSchema = z.object({
-    id: z.number(),
-    short_id: z.string(),
-    name: z.string().nullish(),
-    description: z.string().nullish(),
-    filters: z.record(z.string(), z.any()),
-    query: z.any(),
-    result: z.any().optional(),
-    created_at: z.string(),
-    updated_at: z.string(),
-    created_by: z
-        .object({
-            id: z.number(),
-            uuid: z.string(),
-            distinct_id: z.string(),
-            first_name: z.string(),
-            email: z.string(),
-        })
-        .optional()
-        .nullable(),
-    favorited: z.boolean().nullish(),
-    deleted: z.boolean(),
-    dashboard: z.number().nullish(),
-    layouts: z.record(z.string(), z.any()).nullish(),
-    color: z.string().nullish(),
-    last_refresh: z.string().nullish(),
-    refreshing: z.boolean().nullish(),
-    tags: z.array(z.string()).nullish(),
-})
-
-export const SimpleInsightSchema = InsightSchema.pick({
-    id: true,
-    name: true,
-    short_id: true,
-    description: true,
-    filters: true,
-    query: true,
-    created_at: true,
-    updated_at: true,
-    favorited: true,
-})
-
 export const CreateInsightInputSchema = z.object({
     name: z.string(),
     query: z.object({
@@ -81,17 +39,50 @@ export const ListInsightsSchema = z.object({
     search: z.string().optional(),
 })
 
-export type PostHogInsight = z.infer<typeof InsightSchema>
 export type CreateInsightInput = z.infer<typeof CreateInsightInputSchema>
 export type UpdateInsightInput = z.infer<typeof UpdateInsightInputSchema>
 export type ListInsightsData = z.infer<typeof ListInsightsSchema>
-export type SimpleInsight = z.infer<typeof SimpleInsightSchema>
 
-export const SQLInsightResponseSchema = z.array(
-    z.object({
-        type: z.string(),
-        data: z.record(z.string(), z.any()),
-    })
-)
+export interface PostHogInsight {
+    id: number
+    short_id: string
+    name?: string | null
+    description?: string | null
+    filters: Record<string, unknown>
+    query?: unknown
+    result?: unknown
+    created_at: string
+    updated_at: string
+    created_by?: {
+        id: number
+        uuid: string
+        distinct_id: string
+        first_name: string
+        email: string
+    } | null
+    favorited?: boolean | null
+    deleted: boolean
+    dashboard?: number | null
+    layouts?: Record<string, unknown> | null
+    color?: string | null
+    last_refresh?: string | null
+    refreshing?: boolean | null
+    tags?: string[] | null
+}
 
-export type SQLInsightResponse = z.infer<typeof SQLInsightResponseSchema>
+export interface SimpleInsight {
+    id: number
+    name?: string | null
+    short_id: string
+    description?: string | null
+    filters: Record<string, unknown>
+    query?: unknown
+    created_at: string
+    updated_at: string
+    favorited?: boolean | null
+}
+
+export type SQLInsightResponse = Array<{
+    type: string
+    data: Record<string, unknown>
+}>

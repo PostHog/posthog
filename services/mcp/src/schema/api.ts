@@ -1,86 +1,64 @@
-import { z } from 'zod'
+export interface ApiPropertyDefinition {
+    id: string
+    name: string
+    description?: string | null | undefined
+    is_numerical?: boolean | null | undefined
+    updated_at?: string | null | undefined
+    updated_by?: unknown
+    is_seen_on_filtered_events?: boolean | null | undefined
+    property_type?: 'String' | 'Numeric' | 'Boolean' | 'DateTime' | null | undefined
+    verified?: boolean | null | undefined
+    verified_at?: string | null | undefined
+    verified_by?: unknown
+    hidden?: boolean | null | undefined
+    tags?: string[] | null | undefined
+}
 
-export const ApiPropertyDefinitionSchema = z.object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string().nullish(),
-    is_numerical: z.boolean().nullish(),
-    updated_at: z.string().nullish(),
-    updated_by: z.any().nullish(),
-    is_seen_on_filtered_events: z.boolean().nullish(),
-    property_type: z.enum(['String', 'Numeric', 'Boolean', 'DateTime']).nullish(),
-    verified: z.boolean().nullish(),
-    verified_at: z.string().nullish(),
-    verified_by: z.any().nullish(),
-    hidden: z.boolean().nullish(),
-    tags: z.array(z.string()).nullish(),
-})
+export interface ApiEventDefinition {
+    id: string
+    name: string
+    owner?: string | null | undefined
+    description?: string | null | undefined
+    created_at?: string | null | undefined
+    updated_at?: string | null | undefined
+    updated_by?: unknown
+    last_seen_at?: string | null | undefined
+    verified?: boolean | null | undefined
+    verified_at?: string | null | undefined
+    verified_by?: unknown
+    hidden?: boolean | null | undefined
+    is_action?: boolean | null | undefined
+    post_to_slack?: boolean | null | undefined
+    default_columns?: Array<string | null | undefined> | null | undefined
+    tags?: Array<string | null | undefined> | null | undefined
+}
 
-export const ApiEventDefinitionSchema = z.object({
-    id: z.string(),
-    name: z.string(),
-    owner: z.string().nullish(),
-    description: z.string().nullish(),
-    created_at: z.string().nullish(),
-    updated_at: z.string().nullish(),
-    updated_by: z.any().nullish(),
-    last_seen_at: z.string().nullish(),
-    verified: z.boolean().nullish(),
-    verified_at: z.string().nullish(),
-    verified_by: z.any().nullish(),
-    hidden: z.boolean().nullish(),
-    is_action: z.boolean().nullish(),
-    post_to_slack: z.boolean().nullish(),
-    default_columns: z.array(z.string().nullish()).nullish(),
-    tags: z.array(z.string().nullish()).nullish(),
-})
+export interface ApiUser {
+    distinct_id: string
+    organizations: Array<{ id: string }>
+    team: {
+        id: number
+        organization: string
+    }
+    organization: {
+        id: string
+    }
+}
 
-// oxlint-disable-next-line @typescript-eslint/explicit-function-return-type
-export const ApiListResponseSchema = <T extends z.ZodType>(dataSchema: T) =>
-    z.object({
-        count: z.number().nullish(),
-        next: z.string().nullish(),
-        previous: z.string().nullish(),
-        results: z.array(dataSchema),
-    })
+export interface ApiRedactedPersonalApiKey {
+    scopes: string[]
+    scoped_teams: number[]
+    scoped_organizations: string[]
+}
 
-export const ApiUserSchema = z.object({
-    distinct_id: z.string(),
-    organizations: z.array(
-        z.object({
-            id: z.string(),
-        })
-    ),
-    team: z.object({
-        id: z.number(),
-        organization: z.string(),
-    }),
-    organization: z.object({
-        id: z.string(),
-    }),
-})
-
-export const ApiRedactedPersonalApiKeySchema = z.object({
-    scopes: z.array(z.string()), // TODO: restrict available tools automatically based on scopes
-    scoped_teams: z.array(z.number()),
-    scoped_organizations: z.array(z.string()),
-})
-
-export const ApiOAuthIntrospectionSchema = z.discriminatedUnion('active', [
-    z.object({
-        active: z.literal(true),
-        scope: z.string(),
-        scoped_teams: z.array(z.number()),
-        scoped_organizations: z.array(z.string()),
-        client_name: z.string().optional(),
-    }),
-    z.object({
-        active: z.literal(false),
-    }),
-])
-
-export type ApiPropertyDefinition = z.infer<typeof ApiPropertyDefinitionSchema>
-export type ApiEventDefinition = z.infer<typeof ApiEventDefinitionSchema>
-export type ApiUser = z.infer<typeof ApiUserSchema>
-export type ApiRedactedPersonalApiKey = z.infer<typeof ApiRedactedPersonalApiKeySchema>
-export type ApiOAuthIntrospection = z.infer<typeof ApiOAuthIntrospectionSchema>
+export type ApiOAuthIntrospection =
+    | {
+          active: true
+          scope: string
+          scoped_teams: number[]
+          scoped_organizations: string[]
+          client_name?: string
+      }
+    | {
+          active: false
+      }

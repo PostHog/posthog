@@ -1,6 +1,7 @@
 // AUTO-GENERATED from products/error_tracking/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import {
     ErrorTrackingIssuesListQueryParams,
     ErrorTrackingIssuesPartialUpdateBody,
@@ -16,7 +17,7 @@ const errorTrackingIssuesList = (): ToolBase<typeof ErrorTrackingIssuesListSchem
     schema: ErrorTrackingIssuesListSchema,
     handler: async (context: Context, params: z.infer<typeof ErrorTrackingIssuesListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.PaginatedErrorTrackingIssueFullList>({
             method: 'GET',
             path: `/api/environments/${projectId}/error_tracking/issues/`,
             query: {
@@ -38,7 +39,7 @@ const errorTrackingIssuesRetrieve = (): ToolBase<typeof ErrorTrackingIssuesRetri
     schema: ErrorTrackingIssuesRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof ErrorTrackingIssuesRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.ErrorTrackingIssueFull>({
             method: 'GET',
             path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/`,
         })
@@ -74,7 +75,7 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<typeof ErrorTrackingIssues
         if (params.external_issues !== undefined) {
             body['external_issues'] = params.external_issues
         }
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.ErrorTrackingIssueFull>({
             method: 'PATCH',
             path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/`,
             body,

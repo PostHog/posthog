@@ -1,7 +1,7 @@
 import type { z } from 'zod'
 
 import type { ApiEventDefinition } from '@/schema/api'
-import { EventDefinitionSchema } from '@/schema/properties'
+import type { EventDefinition } from '@/schema/properties'
 import { ProjectEventDefinitionsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -23,7 +23,10 @@ export const eventDefinitionsHandler: ToolBase<typeof schema>['handler'] = async
         throw new Error(`Failed to get event definitions: ${eventDefsResult.error.message}`)
     }
 
-    const simplifiedEvents = eventDefsResult.data.map((def: ApiEventDefinition) => EventDefinitionSchema.parse(def))
+    const simplifiedEvents: EventDefinition[] = eventDefsResult.data.map((def: ApiEventDefinition) => ({
+        name: def.name,
+        last_seen_at: def.last_seen_at,
+    }))
 
     return simplifiedEvents
 }

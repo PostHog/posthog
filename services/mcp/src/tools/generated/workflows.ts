@@ -1,6 +1,7 @@
 // AUTO-GENERATED from products/workflows/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import { HogFlowsListQueryParams, HogFlowsRetrieveParams } from '@/generated/workflows/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -11,7 +12,7 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema> => ({
     schema: WorkflowsListSchema,
     handler: async (context: Context, params: z.infer<typeof WorkflowsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.PaginatedHogFlowMinimalList>({
             method: 'GET',
             path: `/api/projects/${projectId}/hog_flows/`,
             query: {
@@ -37,7 +38,7 @@ const workflowsGet = (): ToolBase<typeof WorkflowsGetSchema> => ({
     schema: WorkflowsGetSchema,
     handler: async (context: Context, params: z.infer<typeof WorkflowsGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.HogFlow>({
             method: 'GET',
             path: `/api/projects/${projectId}/hog_flows/${params.id}/`,
         })

@@ -3,18 +3,12 @@ import { z } from 'zod'
 import { getUserAgent } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
-import {
-    type ApiEventDefinition,
-    ApiEventDefinitionSchema,
-    ApiListResponseSchema,
-    type ApiOAuthIntrospection,
-    ApiOAuthIntrospectionSchema,
-    type ApiPropertyDefinition,
-    ApiPropertyDefinitionSchema,
-    type ApiRedactedPersonalApiKey,
-    ApiRedactedPersonalApiKeySchema,
-    type ApiUser,
-    ApiUserSchema,
+import type {
+    ApiEventDefinition,
+    ApiOAuthIntrospection,
+    ApiPropertyDefinition,
+    ApiRedactedPersonalApiKey,
+    ApiUser,
 } from '@/schema/api'
 import {
     type CreateDashboardInput,
@@ -22,7 +16,6 @@ import {
     type ListDashboardsData,
     ListDashboardsSchema,
     type SimpleDashboard,
-    SimpleDashboardSchema,
 } from '@/schema/dashboards'
 import type {
     Experiment,
@@ -32,16 +25,12 @@ import type {
 } from '@/schema/experiments'
 import {
     ExperimentCreatePayloadSchema,
-    ExperimentExposureQueryResponseSchema,
     ExperimentExposureQuerySchema,
-    ExperimentSchema,
     ExperimentUpdateApiPayloadSchema,
 } from '@/schema/experiments'
 import {
     type CreateFeatureFlagInput,
     CreateFeatureFlagInputSchema,
-    type FeatureFlag,
-    FeatureFlagSchema,
     type UpdateFeatureFlagInput,
     UpdateFeatureFlagInputSchema,
 } from '@/schema/flags'
@@ -50,15 +39,11 @@ import {
     CreateInsightInputSchema,
     type ListInsightsData,
     type SimpleInsight,
-    SimpleInsightSchema,
 } from '@/schema/insights'
-import { type Organization, OrganizationSchema } from '@/schema/orgs'
-import { type Project, ProjectSchema } from '@/schema/projects'
 import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
 import { isShortId } from '@/tools/insights/utils'
 
-import type { ActionResponse, CreateActionInput, ListActionsInput, UpdateActionInput } from '../schema/actions.js'
-import { ActionResponseSchema } from '../schema/actions.js'
+import type { CreateActionInput, ListActionsInput, UpdateActionInput } from '../schema/actions.js'
 import type {
     LogAttribute,
     LogAttributeValue,
@@ -67,7 +52,6 @@ import type {
     LogsQueryInput,
     LogsQueryResponse,
 } from '../schema/logs.js'
-import { LogAttributeValueSchema, LogsListAttributesResponseSchema, LogsQueryResponseSchema } from '../schema/logs.js'
 import type {
     CreateSurveyInput,
     GetSurveySpecificStatsInput,
@@ -83,9 +67,6 @@ import {
     GetSurveySpecificStatsInputSchema,
     GetSurveyStatsInputSchema,
     ListSurveysInputSchema,
-    SurveyListItemOutputSchema,
-    SurveyOutputSchema,
-    SurveyResponseStatsOutputSchema,
     UpdateSurveyInputSchema,
 } from '../schema/surveys.js'
 import { buildApiFetcher } from './fetcher.js'
@@ -106,19 +87,17 @@ export const SearchableEntitySchema = z.enum([
 ])
 export type SearchableEntity = z.infer<typeof SearchableEntitySchema>
 
-export const SearchResultSchema = z.object({
-    type: z.string(),
-    result_id: z.string(),
-    extra_fields: z.record(z.string(), z.any()),
-    rank: z.number().optional(),
-})
-export type SearchResult = z.infer<typeof SearchResultSchema>
+export interface SearchResult {
+    type: string
+    result_id: string
+    extra_fields: Record<string, unknown>
+    rank?: number
+}
 
-export const SearchResponseSchema = z.object({
-    results: z.array(SearchResultSchema),
-    counts: z.record(z.string(), z.number().nullable()).optional(),
-})
-export type SearchResponse = z.infer<typeof SearchResponseSchema>
+export interface SearchResponse {
+    results: SearchResult[]
+    counts?: Record<string, number | null>
+}
 
 export type Result<T, E = Error> = { success: true; data: T } | { success: false; error: E }
 
@@ -155,7 +134,7 @@ export class ApiClient {
     }
 
     private async fetch(url: string, options?: RequestInit): Promise<Response> {
-        // TODO: should we move rate limiting from `fetchWithSchema` to here?
+        // TODO: should we move rate limiting from `fetchJson` to here?
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
             'User-Agent': getUserAgent(this.config.clientUserAgent),
@@ -207,7 +186,7 @@ export class ApiClient {
         const qs = searchParams.toString()
         const url = `${this.baseUrl}${opts.path}${qs ? `?${qs}` : ''}`
 
-        const result = await this.fetchWithSchema(url, z.any(), {
+        const result = await this.fetchJson<T>(url, {
             method: opts.method,
             ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
         })
@@ -218,7 +197,7 @@ export class ApiClient {
         return result.data as T
     }
 
-    private async fetchWithSchema<T>(url: string, schema: z.ZodType<T>, options?: RequestInit): Promise<Result<T>> {
+    private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
         const maxRetries = 3
         const baseBackoffMs = 2000
         const method = options?.method ?? 'GET'
@@ -282,21 +261,7 @@ export class ApiClient {
                 }
 
                 const rawData = await response.json()
-                const parseResult = schema.safeParse(rawData)
-
-                if (!parseResult.success) {
-                    const rawDataKeysJSON = JSON.stringify(Object.keys(rawData as any))
-                    console.error(
-                        `[API] Schema validation failed on ${method} ${url}:\n` +
-                            `  Error: ${parseResult.error.message}\n` +
-                            `  Raw response keys: ${rawDataKeysJSON}`
-                    )
-                    throw new Error(
-                        `Response validation failed on ${method} ${url}: ${parseResult.error.message}\nResponse keys: ${rawDataKeysJSON}`
-                    )
-                }
-
-                return { success: true, data: parseResult.data }
+                return { success: true, data: rawData as T }
             } catch (error) {
                 // Only retry on rate limit errors, not other errors
                 if (error instanceof Error && error.message.includes('Rate limit')) {
@@ -315,12 +280,10 @@ export class ApiClient {
 
     organizations(): Endpoint {
         return {
-            list: async (): Promise<Result<Organization[]>> => {
-                const responseSchema = z.object({
-                    results: z.array(OrganizationSchema),
-                })
-
-                const result = await this.fetchWithSchema(`${this.baseUrl}/api/organizations/`, responseSchema)
+            list: async (): Promise<Result<Schemas.OrganizationBasic[]>> => {
+                const result = await this.fetchJson<{ results: Schemas.OrganizationBasic[] }>(
+                    `${this.baseUrl}/api/organizations/`
+                )
 
                 if (result.success) {
                     return { success: true, data: result.data.results }
@@ -328,20 +291,15 @@ export class ApiClient {
                 return result
             },
 
-            get: async ({ orgId }: { orgId: string }): Promise<Result<Organization>> => {
-                return this.fetchWithSchema(`${this.baseUrl}/api/organizations/${orgId}/`, OrganizationSchema)
+            get: async ({ orgId }: { orgId: string }): Promise<Result<Schemas.OrganizationBasic>> => {
+                return this.fetchJson<Schemas.OrganizationBasic>(`${this.baseUrl}/api/organizations/${orgId}/`)
             },
 
             projects: ({ orgId }: { orgId: string }) => {
                 return {
-                    list: async (): Promise<Result<Project[]>> => {
-                        const responseSchema = z.object({
-                            results: z.array(ProjectSchema),
-                        })
-
-                        const result = await this.fetchWithSchema(
-                            `${this.baseUrl}/api/organizations/${orgId}/projects/`,
-                            responseSchema
+                    list: async (): Promise<Result<Schemas.ProjectBackwardCompat[]>> => {
+                        const result = await this.fetchJson<{ results: Schemas.ProjectBackwardCompat[] }>(
+                            `${this.baseUrl}/api/organizations/${orgId}/projects/`
                         )
 
                         if (result.success) {
@@ -357,10 +315,7 @@ export class ApiClient {
     apiKeys(): Endpoint {
         return {
             current: async (): Promise<Result<ApiRedactedPersonalApiKey>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/personal_api_keys/@current`,
-                    ApiRedactedPersonalApiKeySchema
-                )
+                return this.fetchJson<ApiRedactedPersonalApiKey>(`${this.baseUrl}/api/personal_api_keys/@current`)
             },
         }
     }
@@ -368,7 +323,7 @@ export class ApiClient {
     oauth(): Endpoint {
         return {
             introspect: async ({ token }: { token: string }): Promise<Result<ApiOAuthIntrospection>> => {
-                return this.fetchWithSchema(`${this.baseUrl}/oauth/introspect`, ApiOAuthIntrospectionSchema, {
+                return this.fetchJson<ApiOAuthIntrospection>(`${this.baseUrl}/oauth/introspect`, {
                     method: 'POST',
                     body: JSON.stringify({ token }),
                     headers: {
@@ -382,8 +337,8 @@ export class ApiClient {
 
     projects(): Endpoint {
         return {
-            get: async ({ projectId }: { projectId: string }): Promise<Result<Project>> => {
-                return this.fetchWithSchema(`${this.baseUrl}/api/projects/${projectId}/`, ProjectSchema)
+            get: async ({ projectId }: { projectId: string }): Promise<Result<Schemas.ProjectBackwardCompat>> => {
+                return this.fetchJson<Schemas.ProjectBackwardCompat>(`${this.baseUrl}/api/projects/${projectId}/`)
             },
 
             propertyDefinitions: async ({
@@ -427,13 +382,9 @@ export class ApiClient {
                         throw new Error(`Failed to fetch property definitions: ${response.statusText}`)
                     }
 
-                    const data = await response.json()
-                    const responseSchema = ApiListResponseSchema(ApiPropertyDefinitionSchema)
-                    const parsedData = responseSchema.parse(data)
+                    const data = (await response.json()) as { results: ApiPropertyDefinition[] }
 
-                    const propertyDefinitionsWithoutHidden = parsedData.results.filter(
-                        (def: ApiPropertyDefinition) => !def.hidden
-                    )
+                    const propertyDefinitionsWithoutHidden = data.results.filter((def) => !def.hidden)
 
                     return { success: true, data: propertyDefinitionsWithoutHidden }
                 } catch (error) {
@@ -467,11 +418,9 @@ export class ApiClient {
                         throw new Error(`Failed to fetch event definitions: ${response.statusText}`)
                     }
 
-                    const data = await response.json()
-                    const responseSchema = ApiListResponseSchema(ApiEventDefinitionSchema)
-                    const parsedData = responseSchema.parse(data)
+                    const data = (await response.json()) as { results: ApiEventDefinition[] }
 
-                    return { success: true, data: parsedData.results }
+                    return { success: true, data: data.results }
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
@@ -509,11 +458,10 @@ export class ApiClient {
                         throw new Error(`Failed to find event definition: ${findResponse.statusText}`)
                     }
 
-                    const eventDef = await findResponse.json()
-                    const parsedEventDef = ApiEventDefinitionSchema.parse(eventDef)
+                    const eventDef = (await findResponse.json()) as ApiEventDefinition
 
                     // Updating the event definition by ID
-                    const updateUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${parsedEventDef.id}/`
+                    const updateUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${eventDef.id}/`
 
                     const updateResponse = await this.fetch(updateUrl, {
                         method: 'PATCH',
@@ -524,10 +472,9 @@ export class ApiClient {
                         throw new Error(`Failed to update event definition: ${updateResponse.statusText}`)
                     }
 
-                    const responseData = await updateResponse.json()
-                    const parsedData = ApiEventDefinitionSchema.parse(responseData)
+                    const responseData = (await updateResponse.json()) as ApiEventDefinition
 
-                    return { success: true, data: parsedData }
+                    return { success: true, data: responseData }
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
@@ -556,9 +503,8 @@ export class ApiClient {
             },
 
             get: async ({ experimentId }: { experimentId: number }): Promise<Result<Experiment>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`,
-                    ExperimentSchema
+                return this.fetchJson<Experiment>(
+                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`
                 )
             },
 
@@ -606,7 +552,7 @@ export class ApiClient {
                     experiment_id: experimentId,
                     experiment_name: experiment.name,
                     exposure_criteria: experiment.exposure_criteria,
-                    feature_flag: experiment.feature_flag as FeatureFlag,
+                    feature_flag: experiment.feature_flag ?? undefined,
                     start_date: experiment.start_date,
                     end_date: experiment.end_date,
                     holdout: experiment.holdout,
@@ -621,9 +567,8 @@ export class ApiClient {
                     ...(refresh ? { refresh: 'blocking' } : {}),
                 }
 
-                const result = await this.fetchWithSchema(
+                const result = await this.fetchJson<ExperimentExposureQueryResponse>(
                     `${this.baseUrl}/api/environments/${projectId}/query/`,
-                    ExperimentExposureQueryResponseSchema,
                     {
                         method: 'POST',
                         body: JSON.stringify(queryRequest),
@@ -722,9 +667,8 @@ export class ApiClient {
                                 ...(refresh ? { refresh: 'blocking' } : {}),
                             }
 
-                            const result = await this.fetchWithSchema(
+                            const result = await this.fetchJson<unknown>(
                                 `${this.baseUrl}/api/environments/${projectId}/query/`,
-                                z.any(),
                                 {
                                     method: 'POST',
                                     body: JSON.stringify(queryRequest),
@@ -753,9 +697,8 @@ export class ApiClient {
                                 ...(refresh ? { refresh: 'blocking' } : {}),
                             }
 
-                            const result = await this.fetchWithSchema(
+                            const result = await this.fetchJson<unknown>(
                                 `${this.baseUrl}/api/environments/${projectId}/query/`,
-                                z.any(),
                                 {
                                     method: 'POST',
                                     body: JSON.stringify(queryRequest),
@@ -784,14 +727,10 @@ export class ApiClient {
                 // Transform agent input to API payload
                 const createBody = ExperimentCreatePayloadSchema.parse(experimentData)
 
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/experiments/`,
-                    ExperimentSchema,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(createBody),
-                    }
-                )
+                return this.fetchJson<Experiment>(`${this.baseUrl}/api/projects/${projectId}/experiments/`, {
+                    method: 'POST',
+                    body: JSON.stringify(createBody),
+                })
             },
 
             update: async ({
@@ -804,9 +743,8 @@ export class ApiClient {
                 try {
                     const updateBody = ExperimentUpdateApiPayloadSchema.parse(updateData)
 
-                    return this.fetchWithSchema(
+                    return this.fetchJson<Experiment>(
                         `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`,
-                        ExperimentSchema,
                         {
                             method: 'PATCH',
                             body: JSON.stringify(updateBody),
@@ -878,14 +816,13 @@ export class ApiClient {
                 }
             },
 
-            get: async ({ flagId }: { flagId: string | number }): Promise<Result<FeatureFlag>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/feature_flags/${flagId}/`,
-                    FeatureFlagSchema
+            get: async ({ flagId }: { flagId: string | number }): Promise<Result<Schemas.FeatureFlag>> => {
+                return this.fetchJson<Schemas.FeatureFlag>(
+                    `${this.baseUrl}/api/projects/${projectId}/feature_flags/${flagId}/`
                 )
             },
 
-            findByKey: async ({ key }: { key: string }): Promise<Result<FeatureFlag | undefined>> => {
+            findByKey: async ({ key }: { key: string }): Promise<Result<Schemas.FeatureFlag | undefined>> => {
                 const listResult = await this.featureFlags({ projectId }).list()
 
                 if (!listResult.success) {
@@ -907,7 +844,7 @@ export class ApiClient {
                 return { success: true, data: flagResult.data }
             },
 
-            create: async ({ data }: { data: CreateFeatureFlagInput }): Promise<Result<FeatureFlag>> => {
+            create: async ({ data }: { data: CreateFeatureFlagInput }): Promise<Result<Schemas.FeatureFlag>> => {
                 const validatedInput = CreateFeatureFlagInputSchema.parse(data)
 
                 const body = {
@@ -918,14 +855,10 @@ export class ApiClient {
                     filters: validatedInput.filters,
                 }
 
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/feature_flags/`,
-                    FeatureFlagSchema,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(body),
-                    }
-                )
+                return this.fetchJson<Schemas.FeatureFlag>(`${this.baseUrl}/api/projects/${projectId}/feature_flags/`, {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                })
             },
 
             update: async ({
@@ -934,7 +867,7 @@ export class ApiClient {
             }: {
                 key: string
                 data: UpdateFeatureFlagInput
-            }): Promise<Result<FeatureFlag>> => {
+            }): Promise<Result<Schemas.FeatureFlag>> => {
                 const validatedInput = UpdateFeatureFlagInputSchema.parse(data)
                 const findResult = await this.featureFlags({ projectId }).findByKey({ key })
 
@@ -957,9 +890,8 @@ export class ApiClient {
                     filters: validatedInput.filters,
                 }
 
-                return this.fetchWithSchema(
+                return this.fetchJson<Schemas.FeatureFlag>(
                     `${this.baseUrl}/api/projects/${projectId}/feature_flags/${findResult.data.id}/`,
-                    FeatureFlagSchema,
                     {
                         method: 'PATCH',
                         body: JSON.stringify(body),
@@ -1020,14 +952,10 @@ export class ApiClient {
             create: async ({ data }: { data: CreateInsightInput }): Promise<Result<SimpleInsight>> => {
                 const validatedInput = CreateInsightInputSchema.parse(data)
 
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/insights/`,
-                    SimpleInsightSchema,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(validatedInput),
-                    }
-                )
+                return this.fetchJson<SimpleInsight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
+                    method: 'POST',
+                    body: JSON.stringify(validatedInput),
+                })
             },
 
             get: async ({ insightId }: { insightId: string }): Promise<Result<SimpleInsight>> => {
@@ -1037,11 +965,7 @@ export class ApiClient {
                     const searchParams = new URLSearchParams({ short_id: insightId })
                     const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${searchParams}`
 
-                    const responseSchema = z.object({
-                        results: z.array(SimpleInsightSchema),
-                    })
-
-                    const result = await this.fetchWithSchema(url, responseSchema)
+                    const result = await this.fetchJson<{ results: SimpleInsight[] }>(url)
 
                     if (!result.success) {
                         return result
@@ -1060,16 +984,12 @@ export class ApiClient {
                     return { success: true, data: insight }
                 }
 
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`,
-                    SimpleInsightSchema
-                )
+                return this.fetchJson<SimpleInsight>(`${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`)
             },
 
             update: async ({ insightId, data }: { insightId: number; data: any }): Promise<Result<SimpleInsight>> => {
-                return this.fetchWithSchema(
+                return this.fetchJson<SimpleInsight>(
                     `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`,
-                    SimpleInsightSchema,
                     {
                         method: 'PATCH',
                         body: JSON.stringify(data),
@@ -1110,12 +1030,7 @@ export class ApiClient {
             query: async ({ query }: { query: Record<string, any> }): Promise<Result<any>> => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
 
-                const queryResponseSchema = z.object({
-                    results: z.any(),
-                    columns: z.any(),
-                })
-
-                return this.fetchWithSchema(url, queryResponseSchema, {
+                return this.fetchJson<{ results: unknown; columns: unknown }>(url, {
                     method: 'POST',
                     body: JSON.stringify({ query }),
                 })
@@ -1127,11 +1042,8 @@ export class ApiClient {
                     insight_type: 'sql',
                 }
 
-                const sqlResponseSchema = z.array(z.any())
-
-                const result = await this.fetchWithSchema(
+                const result = await this.fetchJson<unknown[]>(
                     `${this.baseUrl}/api/environments/${projectId}/max_tools/create_and_query_insight/`,
-                    sqlResponseSchema,
                     {
                         method: 'POST',
                         body: JSON.stringify(requestBody),
@@ -1181,17 +1093,9 @@ export class ApiClient {
 
                 const url = `${this.baseUrl}/api/projects/${projectId}/dashboards/${searchParams.toString() ? `?${searchParams}` : ''}`
 
-                const simpleDashboardSchema = z.object({
-                    id: z.number(),
-                    name: z.string(),
-                    description: z.string().nullish(),
-                })
-
-                const responseSchema = z.object({
-                    results: z.array(simpleDashboardSchema),
-                })
-
-                const result = await this.fetchWithSchema(url, responseSchema)
+                const result = await this.fetchJson<{
+                    results: Array<{ id: number; name: string; description?: string | null }>
+                }>(url)
 
                 if (result.success) {
                     return { success: true, data: result.data.results }
@@ -1201,23 +1105,16 @@ export class ApiClient {
             },
 
             get: async ({ dashboardId }: { dashboardId: number }): Promise<Result<SimpleDashboard>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
-                    SimpleDashboardSchema
+                return this.fetchJson<SimpleDashboard>(
+                    `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`
                 )
             },
 
             create: async ({ data }: { data: CreateDashboardInput }): Promise<Result<{ id: number; name: string }>> => {
                 const validatedInput = CreateDashboardInputSchema.parse(data)
 
-                const createResponseSchema = z.object({
-                    id: z.number(),
-                    name: z.string(),
-                })
-
-                return this.fetchWithSchema(
+                return this.fetchJson<{ id: number; name: string }>(
                     `${this.baseUrl}/api/projects/${projectId}/dashboards/`,
-                    createResponseSchema,
                     {
                         method: 'POST',
                         body: JSON.stringify(validatedInput),
@@ -1232,14 +1129,8 @@ export class ApiClient {
                 dashboardId: number
                 data: any
             }): Promise<Result<{ id: number; name: string }>> => {
-                const updateResponseSchema = z.object({
-                    id: z.number(),
-                    name: z.string(),
-                })
-
-                return this.fetchWithSchema(
+                return this.fetchJson<{ id: number; name: string }>(
                     `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
-                    updateResponseSchema,
                     {
                         method: 'PATCH',
                         body: JSON.stringify(data),
@@ -1282,9 +1173,8 @@ export class ApiClient {
             }: {
                 data: { insightId: number; dashboardId: number }
             }): Promise<Result<any>> => {
-                return this.fetchWithSchema(
+                return this.fetchJson<unknown>(
                     `${this.baseUrl}/api/projects/${projectId}/insights/${data.insightId}/`,
-                    z.any(),
                     {
                         method: 'PATCH',
                         body: JSON.stringify({ dashboards: [data.dashboardId] }),
@@ -1319,22 +1209,13 @@ export class ApiClient {
                     }
                 })
 
-                const result = await this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
-                    z.object({
-                        id: z.number(),
-                        tiles: z.array(
-                            z.object({
-                                id: z.number(),
-                                layouts: z.record(z.string(), z.any()).nullish(),
-                            })
-                        ),
-                    }),
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify({ tiles }),
-                    }
-                )
+                const result = await this.fetchJson<{
+                    id: number
+                    tiles: Array<{ id: number; layouts?: Record<string, unknown> | null }>
+                }>(`${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ tiles }),
+                })
 
                 if (!result.success) {
                     return result
@@ -1364,11 +1245,7 @@ export class ApiClient {
     query({ projectId }: { projectId: string }): Endpoint {
         return {
             execute: async ({ queryBody }: { queryBody: any }): Promise<Result<{ results: any[] }>> => {
-                const responseSchema = z.object({
-                    results: z.array(z.any()),
-                })
-
-                return this.fetchWithSchema(`${this.baseUrl}/api/environments/${projectId}/query/`, responseSchema, {
+                return this.fetchJson<{ results: unknown[] }>(`${this.baseUrl}/api/environments/${projectId}/query/`, {
                     method: 'POST',
                     body: JSON.stringify({ query: queryBody }),
                 })
@@ -1379,7 +1256,7 @@ export class ApiClient {
     users(): Endpoint {
         return {
             me: async (): Promise<Result<ApiUser>> => {
-                const result = await this.fetchWithSchema(`${this.baseUrl}/api/users/@me/`, ApiUserSchema)
+                const result = await this.fetchJson<ApiUser>(`${this.baseUrl}/api/users/@me/`)
 
                 if (!result.success) {
                     return result
@@ -1413,11 +1290,7 @@ export class ApiClient {
 
                 const url = `${this.baseUrl}/api/projects/${projectId}/surveys/${searchParams.toString() ? `?${searchParams}` : ''}`
 
-                const responseSchema = z.object({
-                    results: z.array(SurveyListItemOutputSchema),
-                })
-
-                const result = await this.fetchWithSchema(url, responseSchema)
+                const result = await this.fetchJson<{ results: SurveyListItemOutput[] }>(url)
 
                 if (result.success) {
                     return { success: true, data: result.data.results }
@@ -1427,16 +1300,13 @@ export class ApiClient {
             },
 
             get: async ({ surveyId }: { surveyId: string }): Promise<Result<SurveyOutput>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`,
-                    SurveyOutputSchema
-                )
+                return this.fetchJson<SurveyOutput>(`${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`)
             },
 
             create: async ({ data }: { data: CreateSurveyInput }): Promise<Result<SurveyOutput>> => {
                 const validatedInput = CreateSurveyInputSchema.parse(data)
 
-                return this.fetchWithSchema(`${this.baseUrl}/api/projects/${projectId}/surveys/`, SurveyOutputSchema, {
+                return this.fetchJson<SurveyOutput>(`${this.baseUrl}/api/projects/${projectId}/surveys/`, {
                     method: 'POST',
                     body: JSON.stringify(validatedInput),
                 })
@@ -1451,14 +1321,10 @@ export class ApiClient {
             }): Promise<Result<SurveyOutput>> => {
                 const validatedInput = UpdateSurveyInputSchema.parse(data)
 
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`,
-                    SurveyOutputSchema,
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify(validatedInput),
-                    }
-                )
+                return this.fetchJson<SurveyOutput>(`${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`, {
+                    method: 'PATCH',
+                    body: JSON.stringify(validatedInput),
+                })
             },
 
             delete: async ({
@@ -1507,7 +1373,7 @@ export class ApiClient {
 
                 const url = `${this.baseUrl}/api/projects/${projectId}/surveys/stats/${searchParams.toString() ? `?${searchParams}` : ''}`
 
-                return this.fetchWithSchema(url, SurveyResponseStatsOutputSchema)
+                return this.fetchJson<SurveyResponseStatsOutput>(url)
             },
 
             stats: async (params: GetSurveySpecificStatsInput): Promise<Result<SurveyResponseStatsOutput>> => {
@@ -1517,7 +1383,7 @@ export class ApiClient {
 
                 const url = `${this.baseUrl}/api/projects/${projectId}/surveys/${validatedParams.survey_id}/stats/${searchParams.toString() ? `?${searchParams}` : ''}`
 
-                return this.fetchWithSchema(url, SurveyResponseStatsOutputSchema)
+                return this.fetchJson<SurveyResponseStatsOutput>(url)
             },
         }
     }
@@ -1541,14 +1407,10 @@ export class ApiClient {
                     },
                 }
 
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/logs/query/`,
-                    LogsQueryResponseSchema,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(queryBody),
-                    }
-                )
+                return this.fetchJson<LogsQueryResponse>(`${this.baseUrl}/api/projects/${projectId}/logs/query/`, {
+                    method: 'POST',
+                    body: JSON.stringify(queryBody),
+                })
             },
 
             attributes: async ({
@@ -1565,7 +1427,7 @@ export class ApiClient {
 
                 const url = `${this.baseUrl}/api/projects/${projectId}/logs/attributes/?${searchParams}`
 
-                return this.fetchWithSchema(url, LogsListAttributesResponseSchema)
+                return this.fetchJson<{ results: LogAttribute[]; count: number }>(url)
             },
 
             values: async ({
@@ -1581,10 +1443,7 @@ export class ApiClient {
 
                 const url = `${this.baseUrl}/api/projects/${projectId}/logs/values/?${searchParams}`
 
-                const result = await this.fetchWithSchema(
-                    url,
-                    z.object({ results: z.array(LogAttributeValueSchema), refreshing: z.boolean() })
-                )
+                const result = await this.fetchJson<{ results: LogAttributeValue[]; refreshing: boolean }>(url)
                 if (!result.success) {
                     return result
                 }
@@ -1598,7 +1457,7 @@ export class ApiClient {
             /**
              * List all actions in the project
              */
-            list: async ({ params }: { params?: ListActionsInput } = {}): Promise<Result<Array<ActionResponse>>> => {
+            list: async ({ params }: { params?: ListActionsInput } = {}): Promise<Result<Array<Schemas.Action>>> => {
                 const searchParams = new URLSearchParams()
 
                 if (params?.limit) {
@@ -1610,11 +1469,7 @@ export class ApiClient {
 
                 const url = `${this.baseUrl}/api/projects/${projectId}/actions/${searchParams.toString() ? `?${searchParams}` : ''}`
 
-                const responseSchema = z.object({
-                    results: z.array(ActionResponseSchema),
-                })
-
-                const result = await this.fetchWithSchema(url, responseSchema)
+                const result = await this.fetchJson<{ results: Schemas.Action[] }>(url)
 
                 if (result.success) {
                     return { success: true, data: result.data.results }
@@ -1626,17 +1481,14 @@ export class ApiClient {
             /**
              * Get a single action by ID
              */
-            get: async ({ actionId }: { actionId: number }): Promise<Result<ActionResponse>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
-                    ActionResponseSchema
-                )
+            get: async ({ actionId }: { actionId: number }): Promise<Result<Schemas.Action>> => {
+                return this.fetchJson<Schemas.Action>(`${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`)
             },
 
             /**
              * Create a new action
              */
-            create: async ({ data }: { data: CreateActionInput }): Promise<Result<ActionResponse>> => {
+            create: async ({ data }: { data: CreateActionInput }): Promise<Result<Schemas.Action>> => {
                 const body = {
                     name: data.name,
                     description: data.description,
@@ -1646,14 +1498,10 @@ export class ApiClient {
                     slack_message_format: data.slack_message_format,
                 }
 
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/actions/`,
-                    ActionResponseSchema,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(body),
-                    }
-                )
+                return this.fetchJson<Schemas.Action>(`${this.baseUrl}/api/projects/${projectId}/actions/`, {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                })
             },
 
             /**
@@ -1665,10 +1513,9 @@ export class ApiClient {
             }: {
                 actionId: number
                 data: UpdateActionInput
-            }): Promise<Result<ActionResponse>> => {
-                return this.fetchWithSchema(
+            }): Promise<Result<Schemas.Action>> => {
+                return this.fetchJson<Schemas.Action>(
                     `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
-                    ActionResponseSchema,
                     {
                         method: 'PATCH',
                         body: JSON.stringify(data),
@@ -1756,7 +1603,7 @@ export class ApiClient {
 
                 const url = `${this.baseUrl}/api/projects/${projectId}/search/${searchParams.toString() ? `?${searchParams}` : ''}`
 
-                return this.fetchWithSchema(url, SearchResponseSchema)
+                return this.fetchJson<SearchResponse>(url)
             },
         }
     }

@@ -150,6 +150,7 @@ export const UpdateFeatureFlagInputSchema = CreateFeatureFlagInputSchema.omit({
 
 export type UpdateFeatureFlagInput = z.infer<typeof UpdateFeatureFlagInputSchema>
 
+// Still used as a Zod schema in experiments.ts for composition
 export const FeatureFlagSchema = z.object({
     id: z.number(),
     key: z.string(),
@@ -160,5 +161,3 @@ export const FeatureFlagSchema = z.object({
     tags: z.array(z.string()).optional(),
     updated_at: z.string().nullish(),
 })
-
-export type FeatureFlag = z.infer<typeof FeatureFlagSchema>

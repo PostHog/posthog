@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import { PropertyDefinitionSchema } from '@/schema/properties'
+import type { PropertyDefinition } from '@/schema/properties'
 import { ProjectPropertyDefinitionsInputSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -33,7 +33,12 @@ export const propertyDefinitionsHandler: ToolBase<typeof schema>['handler'] = as
         throw new Error(`Failed to get property definitions for ${params.type}s: ${propDefsResult.error.message}`)
     }
 
-    const simplifiedProperties = PropertyDefinitionSchema.array().parse(propDefsResult.data)
+    const simplifiedProperties: PropertyDefinition[] = propDefsResult.data.map(
+        (def: { name: string; property_type?: string | null }) => ({
+            name: def.name,
+            property_type: def.property_type,
+        })
+    )
 
     return simplifiedProperties
 }
