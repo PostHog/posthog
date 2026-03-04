@@ -3,11 +3,13 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonInput, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { slugifyFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 
+import { ExperimentTemplates } from '../../ExperimentForm/ExperimentTemplates'
 import { SelectExistingFeatureFlagModal } from '../../ExperimentForm/SelectExistingFeatureFlagModal'
 import { selectExistingFeatureFlagModalLogic } from '../../ExperimentForm/selectExistingFeatureFlagModalLogic'
 import { VariantsPanelLinkFeatureFlag } from '../../ExperimentForm/VariantsPanelLinkFeatureFlag'
@@ -35,6 +37,8 @@ export function AboutStep(): JSX.Element {
         }
     }, 300)
 
+    const showTemplates = useFeatureFlag('EXPERIMENTS_TEMPLATES')
+
     const isDeparted = !!departedSteps.about
     const nameError = isDeparted && !experiment.name?.trim() ? 'Name is required' : undefined
     const featureFlagKeyError =
@@ -46,6 +50,8 @@ export function AboutStep(): JSX.Element {
     return (
         <div className="space-y-6">
             <h3 className="text-lg font-semibold">What are we testing?</h3>
+
+            {showTemplates && <ExperimentTemplates />}
 
             <LemonField.Pure label="Experiment name" error={nameError}>
                 <LemonInput
