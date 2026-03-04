@@ -25,6 +25,7 @@ Each eval has three parts:
 - Judge LLM must return JSON — parse with `json.loads()`
 - Judge JSON must put `"reasoning"` before the score field (e.g. `{"reasoning": "...", "correct": true}`) — this forces the model to analyze before committing to a score
 - Judge prompt must include a rubric with explicit per-level definitions and one anchor example per level (e.g. an example ACTIONABLE ticket and an example NOT_ACTIONABLE ticket) — this is the single highest-impact lever for judge consistency
+- If the production flow uses a reasoning model or has thinking/chain-of-thought enabled, the task function should return thoughts alongside the answer (e.g. `{"answer": "...", "thoughts": "..."}`) and the judge prompt should include them — this lets the judge catch cases where the model got the right answer for the wrong reason
 
 ## Running
 
