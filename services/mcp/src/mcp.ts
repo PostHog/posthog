@@ -62,7 +62,7 @@ export class MCP extends McpAgent<Env> {
 
     _sessionManager: SessionManager | undefined
 
-    _clientInfoResolved = false
+    _clientInfoPromise: Promise<void> | undefined
     _mcpClientName: string | undefined
     _mcpClientVersion: string | undefined
     _mcpProtocolVersion: string | undefined
@@ -92,11 +92,13 @@ export class MCP extends McpAgent<Env> {
     }
 
     async resolveClientInfo(): Promise<void> {
-        if (this._clientInfoResolved) {
-            return
+        if (!this._clientInfoPromise) {
+            this._clientInfoPromise = this._doResolveClientInfo()
         }
-        this._clientInfoResolved = true
+        return this._clientInfoPromise
+    }
 
+    private async _doResolveClientInfo(): Promise<void> {
         try {
             const initRequest = await this.getInitializeRequest()
             if (!initRequest || !('params' in initRequest)) {
@@ -175,6 +177,7 @@ export class MCP extends McpAgent<Env> {
                 baseUrl,
                 clientUserAgent: this.requestProperties.clientUserAgent,
                 mcpClientName: this._mcpClientName,
+                mcpClientVersion: this._mcpClientVersion,
                 mcpProtocolVersion: this._mcpProtocolVersion,
             })
         }

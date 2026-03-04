@@ -127,6 +127,7 @@ export interface ApiConfig {
     baseUrl: string
     clientUserAgent?: string | undefined
     mcpClientName?: string | undefined
+    mcpClientVersion?: string | undefined
     mcpProtocolVersion?: string | undefined
 }
 
@@ -165,7 +166,10 @@ export class ApiClient {
                       'x-posthog-mcp-user-agent': this.config.clientUserAgent,
                   }
                 : {}),
+            // Forward MCP clientInfo fields from the initialize request so the
+            // PostHog API can attach them to analytics events.
             ...(this.config.mcpClientName ? { 'x-posthog-mcp-client-name': this.config.mcpClientName } : {}),
+            ...(this.config.mcpClientVersion ? { 'x-posthog-mcp-client-version': this.config.mcpClientVersion } : {}),
             ...(this.config.mcpProtocolVersion
                 ? { 'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion }
                 : {}),

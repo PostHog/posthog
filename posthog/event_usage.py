@@ -310,6 +310,7 @@ def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
         "was_impersonated": is_impersonated_session(request),
         "mcp_user_agent": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-User-Agent")),
         "mcp_client_name": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Name")),
+        "mcp_client_version": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Version")),
         "mcp_protocol_version": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Protocol-Version")),
     }
 
