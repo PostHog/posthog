@@ -96,6 +96,11 @@ export function VercelConnect(): JSX.Element {
                 setLinkedOrgName(data.organization_name)
                 setSuccess(true)
                 setLinking(false)
+
+                const returnUrl = nextUrl || sessionInfo?.next_url
+                if (returnUrl) {
+                    window.location.href = returnUrl
+                }
             })
             .catch((err) => {
                 setError(err.message || 'Failed to link organization')
