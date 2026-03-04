@@ -41,7 +41,7 @@ export function domainFor(proxyRecord: ProxyRecord | undefined): string {
     return domain
 }
 
-const RISKY_DOMAIN_PATTERNS = /posthog|analytics|tracking|tracker|pixel|telemetry|measure|collect|beacon/i
+const RISKY_DOMAIN_PATTERNS = /\bph\.|posthog|analytics|tracking|tracker|pixel|telemetry|measure|collect|beacon/i
 
 function isRiskyDomain(domain: string): boolean {
     return RISKY_DOMAIN_PATTERNS.test(domain)

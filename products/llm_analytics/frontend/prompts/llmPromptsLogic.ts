@@ -176,10 +176,12 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, values }) => ({
-        [urls.llmAnalyticsPrompts()]: (_, searchParams) => {
+        [urls.llmAnalyticsPrompts()]: (_, searchParams, __, { method }) => {
             const newFilters = cleanFilters(searchParams)
             if (!objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)
+            } else if (method !== 'REPLACE') {
+                actions.loadPrompts(false)
             }
         },
     })),

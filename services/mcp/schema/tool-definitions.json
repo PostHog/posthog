@@ -149,6 +149,21 @@
             "readOnlyHint": true
         }
     },
+    "update-issue-status": {
+        "description": "Use this tool to update the status of an error tracking issue. Valid statuses are: active, resolved, archived, suppressed, or pending_release.",
+        "category": "Error tracking",
+        "feature": "error-tracking",
+        "summary": "Update the status of an error tracking issue.",
+        "title": "Update issue status",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "create-feature-flag": {
         "description": "Creates a new feature flag in the project. Once you have created a feature flag, you should: Ask the user if they want to add it to their codebase, Use the \"search-docs\" tool to find documentation on how to add feature flags to the codebase (search for the right language / framework), Clarify where it should be added and then add it.",
         "category": "Feature flags",

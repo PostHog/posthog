@@ -111,7 +111,7 @@ const handleRequest = async (
     // See: https://github.com/anthropics/claude-code/issues/2267
     const redirect = matchAuthServerRedirect(url.pathname)
     if (redirect) {
-        const authServer = getAuthorizationServerUrl(effectiveRegion)
+        const authServer = getAuthorizationServerUrl()
         const redirectTo = buildRedirectUrl(authServer, url.pathname, url.search, redirect)
 
         log.extend({ redirectTo })
@@ -141,9 +141,9 @@ const handleRequest = async (
         resourceUrl.pathname = resourcePath
         resourceUrl.search = ''
 
-        // Determine authorization server based on hostname or region param.
-        // POSTHOG_API_BASE_URL takes precedence for self-hosted, otherwise routes to US/EU.
-        const authorizationServer = getAuthorizationServerUrl(effectiveRegion)
+        // Determine authorization server for OAuth.
+        // POSTHOG_API_BASE_URL takes precedence for self-hosted, otherwise routes to oauth.posthog.com.
+        const authorizationServer = getAuthorizationServerUrl()
 
         return new Response(
             JSON.stringify({
