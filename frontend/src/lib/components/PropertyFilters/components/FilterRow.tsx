@@ -24,6 +24,7 @@ interface FilterRowProps {
     disablePopover?: boolean
     filterComponent: (onComplete: () => void) => JSX.Element
     label: string
+    labelClassName?: string
     openOnInsert?: boolean
     onRemove: (index: number) => void
     orFiltering?: boolean
@@ -44,7 +45,7 @@ export const FilterRow = React.memo(function FilterRow({
     openOnInsert = false,
     filterComponent,
     label,
-    labelClassName,
+    labelClassName = '',
     onRemove,
     orFiltering,
     errorMessage,
