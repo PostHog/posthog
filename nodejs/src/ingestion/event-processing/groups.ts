@@ -3,15 +3,19 @@ import { Properties } from '~/plugin-scaffold'
 import { GroupTypeToColumnIndex, ProjectId, TeamId } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 
-export function enrichPropertiesWithGroupTypes(properties: Properties, groupTypes: GroupTypeToColumnIndex): Properties {
+export function enrichPropertiesWithGroupTypes(
+    properties: Properties,
+    groupTypesToColumnIndex: GroupTypeToColumnIndex
+): Properties {
     const groups = properties.$groups
     if (typeof groups !== 'object' || groups === null || Array.isArray(groups)) {
         return properties
     }
     for (const [groupType, groupIdentifier] of Object.entries(groups)) {
-        if (groupType in groupTypes) {
+        if (groupType in groupTypesToColumnIndex) {
             // :TODO: Update event column instead
-            properties[`$group_${groupTypes[groupType]}`] = groupIdentifier
+            const groupIndex = groupTypesToColumnIndex[groupType]
+            properties[`$group_${groupIndex}`] = groupIdentifier
         }
     }
     return properties
