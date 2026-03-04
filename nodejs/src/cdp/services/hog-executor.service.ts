@@ -534,30 +534,6 @@ export class HogExecutorService {
                                 },
                             })
                         },
-                        produceToWarehouseWebhooks: (payload) => {
-                            if (!payload || typeof payload !== 'object') {
-                                throw new Error('[HogFunction] - produceToWarehouseWebhooks requires an object payload')
-                            }
-
-                            if (result.warehouseWebhookPayloads.length > 0) {
-                                throw new Error(
-                                    'produceToWarehouseWebhooks was called more than once. Only one call is allowed per function'
-                                )
-                            }
-
-                            const schemaId = invocation.hogFunction.inputs?.schema_id?.value
-                            if (!schemaId) {
-                                throw new Error(
-                                    '[HogFunction] - produceToWarehouseWebhooks requires schema_id to be set on the hog function inputs'
-                                )
-                            }
-
-                            result.warehouseWebhookPayloads.push({
-                                team_id: invocation.teamId,
-                                schema_id: schemaId,
-                                payload,
-                            })
-                        },
                         ...options.functions,
                     },
                 })

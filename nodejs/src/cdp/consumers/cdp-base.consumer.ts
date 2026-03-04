@@ -64,6 +64,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     segmentDestinationExecutorService: SegmentDestinationExecutorService
 
     protected kafkaProducer?: KafkaProducerWrapper
+    protected warehouseKafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
 
     protected heartbeat = () => {}
@@ -118,6 +119,10 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
             KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK).then((producer) => {
                 this.kafkaProducer = producer
             }),
+            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'WAREHOUSE_PRODUCER').then((producer) => {
+                this.warehouseKafkaProducer = producer
+                this.hogFunctionMonitoringService.setWarehouseKafkaProducer(producer)
+            }),
         ])
     }
 
@@ -126,8 +131,8 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.isStopping = true
 
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
-        logger.info('🔁', `${this.name} - stopping kafka producer`)
-        await this.kafkaProducer?.disconnect()
+        logger.info('🔁', `${this.name} - stopping kafka producers`)
+        await Promise.all([this.kafkaProducer?.disconnect(), this.warehouseKafkaProducer?.disconnect()])
         logger.info('👍', `${this.name} - stopped!`)
     }
 
