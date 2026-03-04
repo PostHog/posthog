@@ -20,6 +20,7 @@ from posthog.models import Cohort, PropertyDefinition
 from posthog.models.insight_variable import InsightVariable
 
 from products.data_warehouse.backend.models import ExternalDataSource, ExternalDataSourceType
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
@@ -212,6 +213,40 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(mock_create_for.call_args.kwargs["team"], self.team)
         self.assertEqual(mock_create_for.call_args.kwargs["direct_query_source_id"], str(source.id))
         self.assertIn("modifiers", mock_create_for.call_args.kwargs)
+
+    def test_metadata_with_direct_connection_does_not_allow_posthog_tables(self):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_user",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="SELECT * FROM persons LIMIT 1",
+                response=None,
+                connectionId="selected-connection",
+            ),
+            team=self.team,
+        )
+
+        self.assertFalse(metadata.isValid)
+        self.assertTrue(any("persons" in (error.message or "") for error in metadata.errors))
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_metadata_in_cohort(self):

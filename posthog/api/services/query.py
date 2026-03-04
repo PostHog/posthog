@@ -190,7 +190,7 @@ def process_query_model(
                 if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT
                 else None,
             )
-        result = get_hogql_autocomplete(query=query, team=team, database_arg=database)
+        return get_hogql_autocomplete(query=query, team=team, database_arg=database)
 
     if isinstance(query, HogQLMetadata):
         metadata_query = HogQLMetadata.model_validate(query)
