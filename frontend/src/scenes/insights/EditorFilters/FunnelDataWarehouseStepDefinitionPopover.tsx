@@ -57,9 +57,21 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
     const { selectItem } = useActions(taxonomicFilterLogic)
 
     const { localDefinition } = useValues(definitionPopoverLogic)
+    const { setLocalDefinition } = useActions(definitionPopoverLogic)
 
     const dataWarehouseLocalDefinition = localDefinition as Partial<DataWarehouseTableForInsight>
+    const activeFieldValue = dataWarehouseLocalDefinition[activeFieldKey]
     const selectedItemValue = group.getValue?.(dataWarehouseLocalDefinition) ?? null
+
+    const columnOptions = useMemo(
+        () =>
+            Object.values(table.fields).map((column) => ({
+                label: `${column.name} (${column.type})`,
+                value: column.name,
+                type: column.type,
+            })),
+        [table.fields]
+    )
 
     return (
         <div className="flex flex-col gap-3">
@@ -73,42 +85,8 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                     label: EDITABLE_FIELD_MAP[key].label,
                 }))}
             />
-            <ActiveField table={table} activeFieldKey={activeFieldKey} {...EDITABLE_FIELD_MAP[activeFieldKey]} />
 
-            <LemonButton
-                onClick={() => {
-                    selectItem(group, selectedItemValue, dataWarehouseLocalDefinition)
-                }}
-                type="primary"
-            >
-                Select
-            </LemonButton>
-        </div>
-    )
-}
-
-type ActiveFieldProps = { table: DataWarehouseTableForInsight; activeFieldKey: FunnelFieldKey } & EditableFieldProps
-
-function ActiveField({ table, activeFieldKey, shortExplanation }: ActiveFieldProps): JSX.Element {
-    const { localDefinition } = useValues(definitionPopoverLogic)
-    const { setLocalDefinition } = useActions(definitionPopoverLogic)
-
-    const dataWarehouseLocalDefinition = localDefinition as Partial<DataWarehouseTableForInsight>
-    const activeFieldValue = dataWarehouseLocalDefinition[activeFieldKey]
-
-    const columnOptions = useMemo(
-        () =>
-            Object.values(table.fields).map((column) => ({
-                label: `${column.name} (${column.type})`,
-                value: column.name,
-                type: column.type,
-            })),
-        [table.fields]
-    )
-
-    return (
-        <div>
-            <div className="text-secondary text-xs mb-4">{shortExplanation}</div>
+            <div className="text-secondary text-xs">{EDITABLE_FIELD_MAP[activeFieldKey].shortExplanation}</div>
             <LemonSelect
                 fullWidth
                 value={activeFieldValue}
@@ -119,6 +97,15 @@ function ActiveField({ table, activeFieldKey, shortExplanation }: ActiveFieldPro
                     } as Partial<DataWarehouseTableForInsight>)
                 }
             />
+
+            <LemonButton
+                onClick={() => {
+                    selectItem(group, selectedItemValue, dataWarehouseLocalDefinition)
+                }}
+                type="primary"
+            >
+                Select
+            </LemonButton>
         </div>
     )
 }
