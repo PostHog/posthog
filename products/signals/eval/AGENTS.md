@@ -23,6 +23,8 @@ Each eval has three parts:
 - Use a cheap model for the task, a stronger model for the judge
 - `experiment_name` and `EvalCase.name` must be unique
 - Judge LLM must return JSON — parse with `json.loads()`
+- Judge JSON must put `"reasoning"` before the score field (e.g. `{"reasoning": "...", "correct": true}`) — this forces the model to analyze before committing to a score
+- Judge prompt must include a rubric with explicit per-level definitions and one anchor example per level (e.g. an example ACTIONABLE ticket and an example NOT_ACTIONABLE ticket) — this is the single highest-impact lever for judge consistency
 
 ## Running
 
