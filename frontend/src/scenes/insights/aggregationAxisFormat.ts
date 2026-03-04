@@ -4,7 +4,7 @@ import { humanFriendlyCurrency, humanFriendlyDuration, humanFriendlyNumber, perc
 import { TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
-const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled', 'currency'] as const
+const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled', 'currency', 'short'] as const
 export type AggregationAxisFormat = (typeof formats)[number]
 
 export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[] = [

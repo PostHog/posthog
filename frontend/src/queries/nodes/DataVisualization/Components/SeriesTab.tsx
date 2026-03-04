@@ -154,7 +154,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
                     {type.name}
                 </LemonTag>
                 {series.settings?.formatting?.style && series.settings.formatting.style !== 'none' && (
-                    <LemonTag className="ml-1" type="secondary">
+                    <LemonTag className="ml-1" type="default">
                         {FORMATTING_STYLE_LABELS[series.settings.formatting.style] || series.settings.formatting.style}
                     </LemonTag>
                 )}
@@ -221,6 +221,8 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
 }
 
 const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
+    const { formatting } = useValues(ySeriesLogic(ySeriesLogicProps))
+
     return (
         <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="formatting" className="deprecated-space-y-4">
             {ySeriesLogicProps.series.column.type.isNumerical && (
@@ -241,7 +243,15 @@ const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSerie
             </LemonField>
             {ySeriesLogicProps.series.column.type.isNumerical && (
                 <LemonField name="decimalPlaces" label="Decimal places">
-                    <LemonInput type="number" min={0} />
+                    <LemonInput
+                        type="number"
+                        min={0}
+                        disabledReason={
+                            formatting.style === 'short'
+                                ? 'Decimal places has no effect when using short number format'
+                                : undefined
+                        }
+                    />
                 </LemonField>
             )}
         </Form>
