@@ -30,7 +30,7 @@ export interface PreflightCheckSummary {
 export interface EnvironmentConfigOption {
     key: string
     metric: string
-    value: string
+    value: string | undefined
 }
 
 export const preflightLogic = kea<preflightLogicType>([
@@ -254,7 +254,7 @@ export const preflightLogic = kea<preflightLogicType>([
                         key: 'site_url',
                         label: 'Site URL',
                     },
-                ]
+                ] as const
 
                 if (!preflight) {
                     return []

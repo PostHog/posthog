@@ -8,7 +8,7 @@ import { TimeLineView, convertForTimelineView } from 'scenes/session-recordings/
 import { PerformanceEvent } from '~/types'
 
 const TableView = ({ performanceEvent }: { performanceEvent: PerformanceEvent }): JSX.Element => {
-    const timingProperties = Object.entries(performanceEvent).reduce((acc, [key, val]) => {
+    const timingProperties = Object.entries(performanceEvent).reduce<Record<string, unknown>>((acc, [key, val]) => {
         if (key.includes('time') || key.includes('end') || key.includes('start')) {
             acc[key] = val
         }

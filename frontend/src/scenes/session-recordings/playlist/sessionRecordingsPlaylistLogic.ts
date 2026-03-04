@@ -887,7 +887,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 key: propertyKey,
                 value: propertyValue,
                 operator: PropertyOperator.Exact,
-            }
+            } as AnyPropertyFilter
 
             // Clone the current filter group structure and add to the first nested group
             const currentGroup = values.filters.filter_group

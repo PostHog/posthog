@@ -5,6 +5,7 @@ import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isKeyOf } from 'lib/utils/types'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -315,7 +316,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
         setProductKey: ({ productKey }) => {
-            if (!productKey) {
+            if (!productKey || !isKeyOf(productKey, availableOnboardingProducts)) {
                 window.location.href = urls.default()
                 return
             }
