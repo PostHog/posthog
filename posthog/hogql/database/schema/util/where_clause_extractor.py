@@ -16,6 +16,7 @@ from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_ex
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 SESSION_BUFFER_DAYS = 3
+DEFAULT_SESSION_LOOKBACK_DAYS = 30
 
 
 class WhereClauseExtractor(CloningVisitor):
@@ -365,10 +366,40 @@ class SessionMinTimestampWhereClauseExtractorV2(SessionMinTimestampWhereClauseEx
     timestamp_field = uuid_uint128_expr_to_timestamp_expr_v2(ast.Field(chain=["raw_sessions", "session_id_v7"]))
     time_buffer = ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)])
 
+    def get_inner_where(self, select_query: ast.SelectQuery) -> Optional[ast.Expr]:
+        result = super().get_inner_where(select_query)
+        if result is not None:
+            return result
+        if select_query.limit is not None and not select_query.order_by:
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=clone_expr(self.timestamp_field),
+                right=ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Sub,
+                    left=ast.Call(name="now", args=[]),
+                    right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=DEFAULT_SESSION_LOOKBACK_DAYS)]),
+                ),
+            )
+
 
 class SessionMinTimestampWhereClauseExtractorV3(SessionMinTimestampWhereClauseExtractor):
     timestamp_field = ast.Field(chain=["raw_sessions_v3", "session_timestamp"])
     time_buffer = ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)])
+
+    def get_inner_where(self, select_query: ast.SelectQuery) -> Optional[ast.Expr]:
+        result = super().get_inner_where(select_query)
+        if result is not None:
+            return result
+        if select_query.limit is not None and not select_query.order_by:
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=clone_expr(self.timestamp_field),
+                right=ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Sub,
+                    left=ast.Call(name="now", args=[]),
+                    right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=DEFAULT_SESSION_LOOKBACK_DAYS)]),
+                ),
+            )
 
     def session_id_str_to_timestamp_expr(self, session_id_str_expr: ast.Expr) -> Optional[ast.Expr]:
         # this is a roundabout way of doing it, but we want to match the logic in the clickhouse table definition

@@ -53,6 +53,17 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
         inner_where = self.inliner.get_inner_where(parse("SELECT * FROM sessions"))
         assert inner_where is None
 
+    def test_default_bound_with_limit(self):
+        actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions LIMIT 10")))
+        expected = f(
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= now() - toIntervalDay(30)"
+        )
+        assert expected == actual
+
+    def test_no_default_bound_with_limit_and_order_by(self):
+        actual = self.inliner.get_inner_where(parse("SELECT * FROM sessions ORDER BY $start_timestamp LIMIT 10"))
+        assert actual is None
+
     def test_handles_select_with_eq(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp = '2021-01-01'")))
         expected = f(
