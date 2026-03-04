@@ -5,7 +5,6 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
-import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { TimestampFormat } from '../../../types'
 import { safeClickhouseString } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
