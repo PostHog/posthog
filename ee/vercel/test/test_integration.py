@@ -161,11 +161,25 @@ class TestVercelIntegration(TestCase):
     def test_update_installation_not_found(self):
         VercelIntegration.update_installation(self.NONEXISTENT_INSTALLATION_ID, "pro200")
 
-    def test_delete_installation(self):
+    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_delete_installation(self, mock_license, mock_billing_manager):
+        mock_license.return_value = Mock()
+        mock_billing_manager.return_value = Mock()
+
         result = VercelIntegration.delete_installation(self.installation_id)
 
         assert result["finalized"]
         assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
+
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_delete_installation_aborts_without_license(self, mock_license):
+        mock_license.return_value = None
+
+        with self.assertRaises(RuntimeError):
+            VercelIntegration.delete_installation(self.installation_id)
+
+        assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
     @patch("ee.vercel.integration.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")

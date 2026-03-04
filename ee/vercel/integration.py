@@ -403,14 +403,16 @@ class VercelIntegration:
         organization = installation.organization
 
         license = get_cached_instance_license()
-        if license:
-            billing_manager = BillingManager(license)
-            billing_manager.deauthorize(organization, billing_provider=BillingProvider.VERCEL)
-            logger.info(
-                "Deauthorized billing for Vercel installation",
-                installation_id=installation_id,
-                organization_id=str(organization.id),
-            )
+        if not license:
+            raise RuntimeError("No license available to deauthorize billing")
+
+        billing_manager = BillingManager(license)
+        billing_manager.deauthorize(organization, billing_provider=BillingProvider.VERCEL)
+        logger.info(
+            "Deauthorized billing for Vercel installation",
+            installation_id=installation_id,
+            organization_id=str(organization.id),
+        )
 
         installation.delete()
         logger.info(
