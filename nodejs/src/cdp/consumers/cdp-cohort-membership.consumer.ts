@@ -63,14 +63,13 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
             for (const change of changes) {
                 deduped.set(`${change.team_id}:${change.cohort_id}:${change.person_id}`, change)
             }
-            const uniqueChanges = Array.from(deduped.values())
 
             // Build the VALUES clause for batch upsert
             const values: any[] = []
             const placeholders: string[] = []
             let paramIndex = 1
 
-            for (const change of uniqueChanges) {
+            for (const change of deduped.values()) {
                 const inCohort = change.status === 'entered'
                 placeholders.push(
                     `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, CURRENT_TIMESTAMP)`
