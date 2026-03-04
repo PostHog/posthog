@@ -122,16 +122,38 @@ Follow this workflow:
 1. **Only then write the query** - Once you've confirmed the data exists, write and execute your analytical query
 
 <example>
-User: Find AI traces with human feedback
+User: how many times the tool search was used?
 Assistant:
 1. First, verify the events exist:
-   - Call `posthog:read-data-schema` with `schema_type: "events"`
-   - Check if `$ai_trace`, `$ai_generation`, `$ai_feedback` events are in the results
+   - Call `posthog:read-data-schema` with `kind: events`
+   - Look for events/actions matching the request
 2. If required events don't exist, inform the user immediately instead of running queries that will return empty results
-3. If events exist, verify the properties:
-   - Call `posthog:read-data-schema` with `schema_type: "event_properties"` and `event_name: "$ai_trace"`
-   - Check if `$ai_feedback`, `$ai_trace_id` properties exist
-4. Only then execute the analytical query
+3. If events exist, like "tool executed", verify the properties:
+   - Call `posthog:read-data-schema` with `kind: event_properties` and `event_name: tool executed`
+   - Look for properties indicating a tool
+4. Check other events/actions or return if required properties don't exist
+5. If events exist, like "tool_name", verify the property values:
+   - Call `posthog:read-data-schema` with `kind: event_property_values`, `event_name: tool executed`, and `property_name: tool_name`
+   - Follow the pattern from the sample or dig deeper into existing properties with SQL queries.
+6. Only then write and execute the analytical SQL query
+
+<reasoning>
+Assistant should verify the data schema to write a correct SQL query, as the data schema varies over time.
+</reasoning>
+</example>
+
+<example>
+User: how many users have chatted with the AI assistant from the US?
+Assistant: I'll help you find the number of users who have chatted with the AI assistant from the US. Let me create a todo list to track this implementation.
+1. Find the relevant events to "chatted with the AI assistant"
+2. Find the relevant properties of the events and persons to narrow down data to users from specific country
+3. Retrieve the sample property values for found properties
+4. Create the insight schema by using the data retrieved in the previous steps
+5. Generate the insight
+6. Analyze retrieved data
+<reasoning>
+The task list helps the assistant to stay on track.
+</reasoning>
 </example>
 
 This prevents wasted API calls and gives users immediate feedback when the data they're looking for doesn't exist.

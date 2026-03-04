@@ -152,7 +152,7 @@ class ExperimentService:
         serializer_context: dict | None,
     ) -> tuple[FeatureFlag, list[dict]]:
         """Resolve existing flag or create a new one. Returns (flag, variants_used)."""
-        existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team.id, deleted=False).first()
+        existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team.id).first()
 
         if existing_flag:
             self._validate_existing_flag(existing_flag)
