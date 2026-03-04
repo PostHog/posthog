@@ -102,7 +102,7 @@ export function LLMAnalyticsEventCard({
                         traceId &&
                         !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] &&
                         (() => {
-                            const genSentiment = getGenerationSentiment(traceId, event.id)
+                            const genSentiment = getGenerationSentiment(event.id)
                             return genSentiment ? (
                                 <SentimentBar
                                     label={genSentiment.label}
