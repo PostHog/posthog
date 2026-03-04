@@ -17,7 +17,6 @@ import { journeyBuilderLogic } from './journeyBuilderLogic'
 export function CustomerJourneys(): JSX.Element {
     const mountedSceneLogic = useMountedLogic(customerAnalyticsSceneLogic)
     const mountedCustomerJourneysLogic = customerJourneysLogic()
-    useAttachedLogic(mountedCustomerJourneysLogic, mountedSceneLogic)
     const {
         journeyOptions,
         journeysLoading,
@@ -27,8 +26,11 @@ export function CustomerJourneys(): JSX.Element {
         activeJourneyFullQuery,
     } = useValues(mountedCustomerJourneysLogic)
     const { showAddJourneyModal, setActiveJourneyId, deleteJourney } = useActions(mountedCustomerJourneysLogic)
-    const { isBuilderOpen } = useValues(journeyBuilderLogic)
-    const { openBuilder } = useActions(journeyBuilderLogic)
+    const mountedJourneyBuilderLogic = journeyBuilderLogic()
+    const { isBuilderOpen } = useValues(mountedJourneyBuilderLogic)
+    const { openBuilder } = useActions(mountedJourneyBuilderLogic)
+    useAttachedLogic(mountedCustomerJourneysLogic, mountedSceneLogic)
+    useAttachedLogic(mountedJourneyBuilderLogic, mountedSceneLogic)
 
     if (journeysLoading) {
         return (

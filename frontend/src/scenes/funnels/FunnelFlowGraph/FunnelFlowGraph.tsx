@@ -56,8 +56,8 @@ function FunnelFlowGraphContent(): JSX.Element {
         isInsightVizNode(insightProps.query) &&
         Array.isArray(insightProps.query.source?.properties) &&
         insightProps.query.source.properties.length > 0
-    const isBuilderMode = !!journeyBuilderLogic.findMounted()
-    const mode = isProfileMode ? 'profile' : isBuilderMode ? 'builder' : undefined
+    const { isBuilderOpen } = useValues(journeyBuilderLogic())
+    const mode = isProfileMode ? 'profile' : isBuilderOpen ? 'builder' : undefined
     const { laidOutNodes, edges, fitViewOptions } = useValues(funnelFlowGraphLogic({ ...insightProps, mode }))
 
     const onInit = useCallback(
