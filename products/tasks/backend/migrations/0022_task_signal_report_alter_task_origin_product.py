@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("signals", "0008_alter_signalsourceconfig_source_product_and_more"),
-        ("tasks", "0020_sandbox_environment"),
+        ("tasks", "0021_alter_task_origin_product"),
     ]
 
     operations = [
@@ -30,6 +30,7 @@ class Migration(migrations.Migration):
                     ("error_tracking", "Error Tracking"),
                     ("eval_clusters", "Eval Clusters"),
                     ("user_created", "User Created"),
+                    ("slack", "Slack"),
                     ("support_queue", "Support Queue"),
                     ("session_summaries", "Session Summaries"),
                     ("signal_report", "Signal Report"),
