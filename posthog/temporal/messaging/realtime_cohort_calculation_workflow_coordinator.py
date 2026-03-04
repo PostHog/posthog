@@ -180,24 +180,21 @@ async def calculate_percentile_thresholds(
             min_percentile = inputs.min_percentile
             max_percentile = inputs.max_percentile
 
+            # Compute quantiles once to avoid duplicate allocation and sorting
+            quantiles = statistics.quantiles(durations_list, n=100, method="inclusive")
+
             # Special handling for p0: use 0 instead of calculating from data
             if min_percentile is None or min_percentile <= 0.0:
                 min_threshold = 0
             else:
-                # Calculate the specific percentile (convert to 0-1 range)
-                min_threshold = int(
-                    statistics.quantiles(durations_list, n=100, method="inclusive")[int(min_percentile) - 1]
-                )
+                min_threshold = int(quantiles[int(min_percentile) - 1])
 
             # Calculate max threshold
             if max_percentile is None or max_percentile >= 99.9:
                 # p100 case - use actual maximum from data
                 max_threshold = int(max(durations_list))
             else:
-                # Calculate the specific percentile (convert to 0-1 range)
-                max_threshold = int(
-                    statistics.quantiles(durations_list, n=100, method="inclusive")[int(max_percentile) - 1]
-                )
+                max_threshold = int(quantiles[int(max_percentile) - 1])
 
             return QueryPercentileThresholds(
                 min_threshold_ms=min_threshold,
@@ -372,6 +369,34 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
             workflow_logger.info("Duration percentile filtering: disabled (processing all cohorts)")
             thresholds = None
 
+        # Early exit for higher percentile schedules when insufficient duration data
+        # This prevents tripling the workload during feature launch when all schedules
+        # would otherwise process every cohort
+        if thresholds is None and inputs.duration_percentile_min is not None and inputs.duration_percentile_min >= 90.0:
+            min_p = inputs.duration_percentile_min if inputs.duration_percentile_min is not None else 0.0
+            max_p = inputs.duration_percentile_max if inputs.duration_percentile_max is not None else 100.0
+            workflow_logger.info(
+                f"Skipping p{min_p}-p{max_p} schedule execution: insufficient duration data for percentile filtering"
+            )
+            return
+
+        # Early exit for higher percentile schedules when all durations are identical
+        # This prevents multiple schedules from processing the same cohorts when
+        # min_threshold_ms == max_threshold_ms (all tiers would match the same set)
+        if (
+            thresholds is not None
+            and thresholds.min_threshold_ms == thresholds.max_threshold_ms
+            and inputs.duration_percentile_min is not None
+            and inputs.duration_percentile_min >= 90.0
+        ):
+            min_p = inputs.duration_percentile_min if inputs.duration_percentile_min is not None else 0.0
+            max_p = inputs.duration_percentile_max if inputs.duration_percentile_max is not None else 100.0
+            workflow_logger.info(
+                f"Skipping p{min_p}-p{max_p} schedule execution: identical duration thresholds "
+                f"({thresholds.min_threshold_ms}ms) would cause duplicate processing across tiers"
+            )
+            return
+
         # Step 1: Get selected cohort IDs based on filtering criteria
         selection_activity_input = CohortSelectionActivityInput(
             coordinator_inputs=inputs,
@@ -386,20 +411,9 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
 
         all_cohort_ids = selection_result.cohort_ids
 
-        # Check for early exit after executing all activities to maintain determinism
+        # Check for empty results after cohort selection
         if not all_cohort_ids:
             workflow_logger.warning("No realtime cohorts found matching selection criteria")
-            return
-
-        # Early exit for higher percentile schedules when insufficient duration data
-        # This prevents tripling the workload during feature launch when all schedules
-        # would otherwise process every cohort
-        if thresholds is None and inputs.duration_percentile_min is not None and inputs.duration_percentile_min >= 90.0:
-            min_p = inputs.duration_percentile_min if inputs.duration_percentile_min is not None else 0.0
-            max_p = inputs.duration_percentile_max if inputs.duration_percentile_max is not None else 100.0
-            workflow_logger.info(
-                f"Skipping p{min_p}-p{max_p} schedule execution: insufficient duration data for percentile filtering"
-            )
             return
 
         total_cohorts = len(all_cohort_ids)

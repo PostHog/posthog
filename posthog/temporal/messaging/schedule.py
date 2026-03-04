@@ -45,22 +45,6 @@ DEFAULT_BATCH_DELAY_MINUTES = 5
 COORDINATOR_EXECUTION_TIMEOUT_SECONDS: int | None = None
 
 
-async def create_realtime_cohort_calculation_schedule(
-    client: Client,
-    duration_percentile_min: float | None = None,
-    duration_percentile_max: float | None = None,
-    interval_minutes: int = 60,
-):
-    """Create or update the legacy schedule (wrapper around create_realtime_cohort_calculation_schedule_with_id)."""
-    await create_realtime_cohort_calculation_schedule_with_id(
-        client=client,
-        schedule_id=REALTIME_COHORT_CALCULATION_SCHEDULE_ID,
-        duration_percentile_min=duration_percentile_min,
-        duration_percentile_max=duration_percentile_max,
-        interval_minutes=interval_minutes,
-    )
-
-
 async def create_realtime_cohort_calculation_p0_p90_schedule(client: Client):
     """Create or update schedule for p0-p90 cohorts."""
     await create_realtime_cohort_calculation_schedule_with_id(
