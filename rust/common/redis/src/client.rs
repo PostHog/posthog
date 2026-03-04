@@ -478,20 +478,14 @@ impl Client for RedisClient {
 
     async fn batch_set_nx_ex(
         &self,
-        items: Vec<(String, String)>,
-        ttl_seconds: usize,
+        items: Vec<(String, String, usize)>,
     ) -> Result<Vec<bool>, CustomRedisError> {
         if items.is_empty() {
             return Ok(vec![]);
         }
         let mut pipe = redis::pipe();
-        for (k, v) in &items {
-            pipe.cmd("SET")
-                .arg(k)
-                .arg(v)
-                .arg("NX")
-                .arg("EX")
-                .arg(ttl_seconds);
+        for (k, v, ttl) in &items {
+            pipe.cmd("SET").arg(k).arg(v).arg("NX").arg("EX").arg(ttl);
         }
         let mut conn = self.connection.clone();
         let results: Vec<Option<String>> = pipe.query_async(&mut conn).await?;
