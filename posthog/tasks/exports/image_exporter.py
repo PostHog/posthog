@@ -284,7 +284,7 @@ def _screenshot_asset(
                     pass
                 capture_exception(e)
 
-        height = driver.execute_script(MEASURE_CONTENT_HEIGHT_JS)
+        height = int(driver.execute_script(MEASURE_CONTENT_HEIGHT_JS))
 
         effective_max = min(max_height_pixels, MAX_HEIGHT_PIXELS) if max_height_pixels else MAX_HEIGHT_PIXELS
         if height > effective_max:
@@ -355,7 +355,7 @@ def _screenshot_asset(
         # Allow a moment for any dynamic resizing
         driver.execute_script("return new Promise(resolve => setTimeout(resolve, 500))")
 
-        final_height = driver.execute_script(MEASURE_CONTENT_HEIGHT_JS)
+        final_height = int(driver.execute_script(MEASURE_CONTENT_HEIGHT_JS))
 
         if final_height > effective_max:
             logger.warning(
