@@ -56,6 +56,7 @@ from products.error_tracking.backend.api import (
 )
 from products.llm_analytics.backend.api import (
     ClusteringConfigViewSet,
+    ClusteringJobViewSet,
     DatasetItemViewSet,
     DatasetViewSet,
     EvaluationConfigViewSet,
@@ -1255,6 +1256,13 @@ environments_router.register(
     r"llm_analytics/clustering_config",
     ClusteringConfigViewSet,
     "environment_llm_analytics_clustering_config",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/clustering_jobs",
+    ClusteringJobViewSet,
+    "environment_llm_analytics_clustering_jobs",
     ["team_id"],
 )
 
