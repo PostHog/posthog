@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconFeatures } from '@posthog/icons'
+import { IconFeatures, IconRefresh } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import {
     AssigneeIconDisplay,
@@ -307,6 +307,37 @@ export function PropertyValue({
     // Disable comma splitting for user agent properties that contain commas in their values
     const isUserAgentProperty = ['$raw_user_agent', '$initial_raw_user_agent', '$user_agent'].includes(propertyKey)
 
+    const suggestionsLabel = PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
+        ? 'Suggested values (last 7 days)'
+        : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
+          ? 'Suggested values'
+          : null
+    const refreshDisabledReason =
+        propertyOptions?.status === 'loading' ? 'Loading values…' : isRefreshing ? 'Refreshing values…' : undefined
+    const titleNode = suggestionsLabel ? (
+        <span className="flex justify-between items-center gap-4">
+            {suggestionsLabel}
+            <LemonButton
+                size="xsmall"
+                icon={<IconRefresh />}
+                tooltip="Refresh values"
+                disabledReason={refreshDisabledReason}
+                onClick={() =>
+                    loadPropertyValues({
+                        endpoint,
+                        type: propertyDefinitionType,
+                        newInput: currentSearchInput.current || undefined,
+                        propertyKey,
+                        eventNames,
+                        properties: [],
+                        forceRefresh: true,
+                    })
+                }
+                noPadding
+            />
+        </span>
+    ) : undefined
+
     return (
         <LemonInputSelect
             className={inputClassName}
@@ -322,13 +353,7 @@ export function PropertyValue({
             size={size}
             disableCommaSplitting={isUserAgentProperty}
             status={validationError ? 'danger' : 'default'}
-            title={
-                PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
-                    ? 'Suggested values (last 7 days)'
-                    : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
-                      ? 'Suggested values'
-                      : undefined
-            }
+            title={titleNode}
             popoverClassName="max-w-200"
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)

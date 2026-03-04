@@ -5,7 +5,7 @@ endpoint via get_authenticators(). These tests verify that:
   1. Toolbar OAuth tokens (with TOOLBAR_OAUTH_SCOPES) grant access to every toolbar endpoint.
   2. Tokens with the exact required scope grant access; wrong scopes are rejected.
   3. Expired / invalid tokens are rejected.
-  4. Temporary token auth still works (backward compat).
+  4. Unauthenticated requests are rejected.
 """
 
 from datetime import timedelta
@@ -179,21 +179,6 @@ class TestToolbarEndpointOAuthAuth(APIBaseTest):
         )
         assert response.status_code in (401, 403)
 
-    # -- Temporary token backward compat ------------------------------------
-
-    @parameterized.expand(TOOLBAR_ENDPOINTS)
-    def test_temporary_token_still_works(self, _label, url_template, method, _scope):
-        self.client.logout()
-        self.user.temporary_token = "tmp_test_tok"
-        self.user.save(update_fields=["temporary_token"])
-
-        url = self._url(url_template)
-        sep = "&" if "?" in url else "?"
-        response = self._request(method, f"{url}{sep}temporary_token=tmp_test_tok")
-        assert response.status_code not in (401, 403), (
-            f"Temporary token should still work, got {response.status_code}: {response.content[:300]}"
-        )
-
 
 class TestUploadedMediaOAuthAuth(APIBaseTest):
     """uploaded_media is tested separately — its only toolbar action is POST (upload)."""
@@ -239,13 +224,6 @@ class TestUploadedMediaOAuthAuth(APIBaseTest):
         self.client.logout()
         response = self.client.post(self._url())
         assert response.status_code in (401, 403)
-
-    def test_temporary_token_still_works(self):
-        self.client.logout()
-        self.user.temporary_token = "tmp_media_tok"
-        self.user.save(update_fields=["temporary_token"])
-        response = self.client.post(f"{self._url()}?temporary_token=tmp_media_tok")
-        assert response.status_code != 401
 
 
 class TestHedgehogConfigOAuthAuth(APIBaseTest):

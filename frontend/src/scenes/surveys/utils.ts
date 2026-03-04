@@ -499,17 +499,151 @@ export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDa
     ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
 }
 
+export interface SurveyQueryFilters {
+    timestampFilter: string
+    answerFilterHogQLExpression: string
+    archivedResponsesFilter: string
+}
+
+export interface OpenEndedColumnMap {
+    [questionId: string]: {
+        columnIndex: number
+        questionIndex: number
+        type: SurveyQuestionType.Open | SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
+    }
+}
+
+export function buildAggregateQuery(
+    survey: Survey,
+    filters: SurveyQueryFilters,
+    dateRange?: SurveyDateRange | null
+): string | null {
+    const dedupFilter = buildPartialResponsesFilter(survey, dateRange)
+    const branches: string[] = []
+
+    const baseWhere = `event = '${SurveyEventName.SENT}'
+        AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
+        ${filters.timestampFilter}
+        ${filters.answerFilterHogQLExpression}
+        ${filters.archivedResponsesFilter}
+        ${dedupFilter}
+        AND {filters}`
+
+    for (const [index, question] of survey.questions.entries()) {
+        if (!question.id || question.type === SurveyQuestionType.Link) {
+            continue
+        }
+
+        const responseExpr = getSurveyResponse(question, index)
+
+        if (question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice) {
+            branches.push(`SELECT '${question.id}' AS question_id,
+                ${responseExpr} AS label,
+                count() AS cnt
+            FROM events
+            WHERE ${baseWhere} AND ${responseExpr} != ''
+            GROUP BY label`)
+        } else if (question.type === SurveyQuestionType.MultipleChoice) {
+            branches.push(`SELECT '${question.id}' AS question_id,
+                trim(BOTH '"\\'' FROM arrayJoin(${responseExpr})) AS label,
+                count() AS cnt
+            FROM events
+            WHERE ${baseWhere}
+            GROUP BY label HAVING label != ''`)
+
+            branches.push(`SELECT '${question.id}' AS question_id,
+                '__total__' AS label,
+                count() AS cnt
+            FROM events
+            WHERE ${baseWhere} AND length(${responseExpr}) > 0`)
+        } else if (question.type === SurveyQuestionType.Open) {
+            branches.push(`SELECT '${question.id}' AS question_id,
+                '__total__' AS label,
+                count() AS cnt
+            FROM events
+            WHERE ${baseWhere} AND ${responseExpr} != ''`)
+        }
+    }
+
+    if (branches.length === 0) {
+        return null
+    }
+
+    return branches.join('\nUNION ALL\n')
+}
+
+export function buildOpenEndedQuery(
+    survey: Survey,
+    filters: SurveyQueryFilters,
+    dateRange?: SurveyDateRange | null,
+    limit: number = 50000
+): { query: string; columnMap: OpenEndedColumnMap } | null {
+    const dedupFilter = buildPartialResponsesFilter(survey, dateRange)
+    const openColumns: string[] = []
+    const columnMap: OpenEndedColumnMap = {}
+    let columnIndex = 0
+
+    for (const [index, question] of survey.questions.entries()) {
+        if (!question.id || question.type === SurveyQuestionType.Link) {
+            continue
+        }
+
+        const isOpen = question.type === SurveyQuestionType.Open
+        const hasOpenChoice =
+            (question.type === SurveyQuestionType.SingleChoice ||
+                question.type === SurveyQuestionType.MultipleChoice) &&
+            (question as MultipleSurveyQuestion).hasOpenChoice
+
+        if (isOpen || hasOpenChoice) {
+            openColumns.push(`${getSurveyResponse(question, index)} AS q${index}_response`)
+            columnMap[question.id] = { columnIndex, questionIndex: index, type: question.type }
+            columnIndex++
+        }
+    }
+
+    if (openColumns.length === 0) {
+        return null
+    }
+
+    const query = `SELECT
+            ${openColumns.join(',\n')},
+            events.distinct_id,
+            events.timestamp
+        FROM events
+        WHERE event = '${SurveyEventName.SENT}'
+            AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
+            ${filters.timestampFilter}
+            ${filters.answerFilterHogQLExpression}
+            ${filters.archivedResponsesFilter}
+            ${dedupFilter}
+            AND {filters}
+        ORDER BY events.timestamp DESC
+        LIMIT ${limit}`
+
+    return { query, columnMap }
+}
+
 interface SanitizeSurveyOptions {
     keepEmptyConditions?: boolean
 }
 
 export function sanitizeSurvey(survey: Partial<Survey>, options?: SanitizeSurveyOptions): Partial<Survey> {
     const sanitizedQuestions =
-        survey.questions?.map((question) => ({
-            ...question,
-            question: sanitizeHTML(question.question ?? ''),
-            description: sanitizeHTML(question.description ?? ''),
-        })) || []
+        survey.questions?.map((question) => {
+            const sanitized = {
+                ...question,
+                question: sanitizeHTML(question.question ?? ''),
+                description: sanitizeHTML(question.description ?? ''),
+            }
+            if (
+                (sanitized.type === SurveyQuestionType.SingleChoice ||
+                    sanitized.type === SurveyQuestionType.MultipleChoice) &&
+                sanitized.choices
+            ) {
+                sanitized.choices = sanitized.choices.map((choice) => choice.trim())
+            }
+            return sanitized
+        }) || []
 
     const sanitizedAppearance = sanitizeSurveyAppearance(
         survey.appearance,

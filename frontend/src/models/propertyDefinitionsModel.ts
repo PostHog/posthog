@@ -153,7 +153,8 @@ const constructValuesEndpoint = (
     propertyKey: string,
     eventNames: string[] | undefined,
     newInput: string | undefined,
-    properties?: { key: string; values: string | string[] }[]
+    properties?: { key: string; values: string | string[] }[],
+    forceRefresh?: boolean
 ): string => {
     let basePath: string
 
@@ -181,7 +182,12 @@ const constructValuesEndpoint = (
         }
     }
 
-    return path + (newInput ? '&value=' + encodeURIComponent(newInput) : '') + eventParams
+    return (
+        path +
+        (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
+        (forceRefresh ? '&force_refresh=true' : '') +
+        eventParams
+    )
 }
 
 export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
@@ -207,6 +213,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             propertyKey: string
             eventNames?: string[]
             properties?: { key: string; values: string | string[] }[]
+            forceRefresh?: boolean
         }) => payload,
         setOptionsLoading: (key: string) => ({ key }),
         setOptions: (key: string, values: PropValue[], allowCustomValues: boolean, refreshing?: boolean) => ({
@@ -393,7 +400,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             }
         },
 
-        loadPropertyValues: async ({ endpoint, type, newInput, propertyKey, eventNames, properties }, breakpoint) => {
+        loadPropertyValues: async (
+            { endpoint, type, newInput, propertyKey, eventNames, properties, forceRefresh },
+            breakpoint
+        ) => {
             if (['cohort'].includes(type)) {
                 return
             }
@@ -401,7 +411,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 return
             }
 
-            if (localOptions[getPropertyKey(type, propertyKey)]) {
+            if (!forceRefresh && localOptions[getPropertyKey(type, propertyKey)]) {
                 actions.setOptions(propertyKey, localOptions[getPropertyKey(type, propertyKey)], false)
                 return
             }
@@ -427,7 +437,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     propertyKey,
                     eventNames,
                     newInput,
-                    properties
+                    properties,
+                    forceRefresh
                 ),
                 methodOptions
             )
