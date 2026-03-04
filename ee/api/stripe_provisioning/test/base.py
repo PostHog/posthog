@@ -25,11 +25,14 @@ class StripeProvisioningTestBase(APIBaseTest):
         sig = compute_signature(self.HMAC_SECRET, ts, body)
         return f"t={ts},v1={sig}"
 
-    def _post_signed(self, url: str, data: dict | None = None, content_type: str = "application/json", **kwargs):
+    def _post_signed(
+        self, url: str, data: dict | bytes | None = None, content_type: str = "application/json", **kwargs
+    ):
+        body: bytes
         if content_type == "application/json":
             body = json.dumps(data or {}).encode()
         else:
-            body = data if isinstance(data, bytes) else (data or b"")
+            body = data if isinstance(data, bytes) else b""
         sig = self._sign_body(body)
         return self.client.post(
             url,
