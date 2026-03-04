@@ -82,6 +82,8 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             (s) => [s.funnelsFilter],
             (funnelsFilter): boolean => {
                 const aggregateByHogQL = funnelsFilter?.funnelAggregateByHogQL
+
+                // Allow opening modal persons/groups
                 if (!aggregateByHogQL) {
                     return true
                 }
