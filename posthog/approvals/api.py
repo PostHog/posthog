@@ -35,7 +35,6 @@ class CharInFilter(django_filters.BaseInFilter, django_filters.CharFilter):
 class ChangeRequestFilterSet(django_filters.FilterSet):
     state = CharInFilter(field_name="state", lookup_expr="in")
     action_key = django_filters.CharFilter(field_name="action_key")
-    action_type = django_filters.CharFilter(field_name="action_key")
     requester = django_filters.NumberFilter(field_name="created_by_id")
     resource_type = django_filters.CharFilter(field_name="resource_type")
     resource_id = django_filters.CharFilter(field_name="resource_id")
