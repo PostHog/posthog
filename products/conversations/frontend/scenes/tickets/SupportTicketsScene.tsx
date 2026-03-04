@@ -230,7 +230,7 @@ export function SupportTicketsScene(): JSX.Element {
                                     mode="multiple"
                                     allowCustomValues
                                     value={tagsFilter}
-                                    options={tagsAvailable?.map((t) => ({ key: t, label: t })) || []}
+                                    options={tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []}
                                     onChange={setTagsFilter}
                                     placeholder="Select or type tags..."
                                     data-attr="tags-filter-input"
