@@ -9,6 +9,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
+import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/logsExportLogic'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
@@ -35,7 +36,9 @@ export function LogsViewer({ id }: LogsViewerProps): JSX.Element {
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>
                         <BindLogic logic={logsViewerLogic} props={{ id }}>
                             <BindLogic logic={logsExportLogic} props={{ id }}>
-                                <LogsViewerContent />
+                                <BindLogic logic={logsFilterHistoryLogic} props={{ id }}>
+                                    <LogsViewerContent />
+                                </BindLogic>
                             </BindLogic>
                         </BindLogic>
                     </BindLogic>

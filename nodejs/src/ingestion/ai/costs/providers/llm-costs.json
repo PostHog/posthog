@@ -4701,10 +4701,6 @@
                 "completion_token": 6e-7,
                 "cache_read_token": 7.5e-8
             },
-            "nebius-fp4": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 6e-7
-            },
             "novita-fp4": {
                 "prompt_token": 5e-8,
                 "completion_token": 2.5e-7
@@ -6867,12 +6863,8 @@
         "model": "z-ai/glm-4.6",
         "cost": {
             "default": {
-                "prompt_token": 3.5e-7,
-                "completion_token": 0.00000171
-            },
-            "ambient-bf16": {
-                "prompt_token": 3.5e-7,
-                "completion_token": 0.00000171
+                "prompt_token": 3.9e-7,
+                "completion_token": 0.0000019
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 4.4e-7,
