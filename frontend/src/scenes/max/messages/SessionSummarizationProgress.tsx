@@ -221,9 +221,11 @@ export function SessionSummarizationProgress({ updates }: { updates: object[] })
                                         </Link>
                                     </Tooltip>
                                     {session.active_duration_s > 0 && (
-                                        <span className="text-muted ml-auto shrink-0">
-                                            {formatDuration(session.active_duration_s)}
-                                        </span>
+                                        <Tooltip title="Duration of active interaction in this session">
+                                            <span className="text-muted ml-auto shrink-0 select-none">
+                                                {formatDuration(session.active_duration_s)}
+                                            </span>
+                                        </Tooltip>
                                     )}
                                 </div>
                             ))}
