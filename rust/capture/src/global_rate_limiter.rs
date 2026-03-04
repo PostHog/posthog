@@ -67,7 +67,10 @@ impl GlobalRateLimiter {
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
     ) -> anyhow::Result<Self> {
-        let prefix = format!("@posthog/capture/grl/{}", config.capture_mode.as_tag());
+        let prefix = format!(
+            "@ph/grl/capture/tok_distid/{}",
+            config.capture_mode.as_tag()
+        );
         Self::build(
             config,
             redis_instances,
@@ -85,10 +88,7 @@ impl GlobalRateLimiter {
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
     ) -> anyhow::Result<Self> {
-        let prefix = format!(
-            "@posthog/capture/grl_token/{}",
-            config.capture_mode.as_tag()
-        );
+        let prefix = format!("@ph/grl/capture/token/{}", config.capture_mode.as_tag());
         Self::build(
             config,
             redis_instances,
