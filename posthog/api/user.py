@@ -1039,7 +1039,12 @@ def toolbar_oauth_callback(request):
         base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
         quoted_code = urllib.parse.quote(code, safe="")
         quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
-        toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
+        # Include the server's redirect_uri so the client-side token exchange
+        # sends the exact value that was registered during authorization.
+        # Without this, reverse-proxy users get a redirect_uri mismatch
+        # because the toolbar's uiHost differs from settings.SITE_URL.
+        quoted_redirect_uri = urllib.parse.quote(f"{settings.SITE_URL}/toolbar_oauth/callback", safe="")
+        toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id},redirect_uri:{quoted_redirect_uri}"
         if original_fragment:
             fragment = f"{original_fragment}&{toolbar_param}"
         else:

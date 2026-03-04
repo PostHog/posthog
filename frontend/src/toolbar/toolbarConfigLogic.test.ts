@@ -263,6 +263,11 @@ describe('toolbar toolbarConfigLogic', () => {
                 '/#/dashboard&tab=1',
             ],
             ['handles percent-encoded delimiters', '#__posthog_toolbar=code%3Aabc%2Cclient_id%3Axyz', '/'],
+            [
+                'handles hash with redirect_uri param',
+                '#__posthog_toolbar=code:abc,client_id:xyz,redirect_uri:https%3A%2F%2Fus.posthog.com%2Ftoolbar_oauth%2Fcallback',
+                '/',
+            ],
         ])('%s', (_label, hash, expectedUrl) => {
             window.history.pushState({}, '', `/${hash}`)
 
@@ -270,6 +275,35 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
 
             expect(replaceStateSpy).toHaveBeenCalledWith(null, '', expectedUrl)
+        })
+
+        it('uses server-provided redirect_uri in token exchange for reverse proxy support', async () => {
+            const serverRedirectUri = 'https://us.posthog.com/toolbar_oauth/callback'
+            window.history.pushState(
+                {},
+                '',
+                `/#__posthog_toolbar=code:abc,client_id:xyz,redirect_uri:${encodeURIComponent(serverRedirectUri)}`
+            )
+
+            ;(global.fetch as jest.Mock).mockImplementation(() =>
+                Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () =>
+                        Promise.resolve({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 }),
+                })
+            )
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://proxy.example.com' })
+            logic.mount()
+
+            // Wait for async token exchange
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
+            const fetchCall = (global.fetch as jest.Mock).mock.calls[0]
+            const body = new URLSearchParams(fetchCall[1].body)
+            // Should use the server's redirect_uri, not the proxy's uiHost
+            expect(body.get('redirect_uri')).toBe(serverRedirectUri)
         })
 
         it('uses localStorage PKCE fallback when sessionStorage is empty', () => {
@@ -325,7 +359,22 @@ describe('toolbar toolbarConfigLogic', () => {
         it('returns code and clientId when hash matches', () => {
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
             const result = cleanToolbarAuthHash()
-            expect(result).toEqual({ code: 'abc', clientId: 'xyz' })
+            expect(result).toEqual({ code: 'abc', clientId: 'xyz', redirectUri: undefined })
+            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/')
+        })
+
+        it('returns redirectUri when present in hash', () => {
+            window.history.pushState(
+                {},
+                '',
+                '/#__posthog_toolbar=code:abc,client_id:xyz,redirect_uri:https%3A%2F%2Fus.posthog.com%2Ftoolbar_oauth%2Fcallback'
+            )
+            const result = cleanToolbarAuthHash()
+            expect(result).toEqual({
+                code: 'abc',
+                clientId: 'xyz',
+                redirectUri: 'https://us.posthog.com/toolbar_oauth/callback',
+            })
             expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/')
         })
 

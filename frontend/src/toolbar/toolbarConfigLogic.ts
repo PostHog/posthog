@@ -188,7 +188,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         const authParams = cleanToolbarAuthHash()
         const pendingCodeExchange = !!authParams
         if (authParams) {
-            exchangeCodeForTokens(values.uiHost, authParams.code, authParams.clientId, actions)
+            exchangeCodeForTokens(values.uiHost, authParams.code, authParams.clientId, actions, authParams.redirectUri)
             // Defensive retry: some SPAs re-apply the original URL on initial render,
             // undoing the replaceState above. Re-clean after a short delay.
             setTimeout(cleanToolbarAuthHash, 500)
@@ -239,7 +239,10 @@ async function exchangeCodeForTokens(
     uiHost: string,
     code: string,
     clientId: string,
-    actions: { setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => void }
+    actions: { setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => void },
+    /** Server-provided redirect_uri. When present, use it instead of deriving from uiHost.
+     *  This fixes a mismatch for reverse-proxy users whose uiHost differs from SITE_URL. */
+    serverRedirectUri?: string
 ): Promise<void> {
     let pkceData: { verifier?: string; ts?: number } = {}
     // Try sessionStorage first (primary), then localStorage (fallback for browsers
@@ -268,7 +271,7 @@ async function exchangeCodeForTokens(
         grant_type: 'authorization_code',
         client_id: clientId,
         code,
-        redirect_uri: `${uiHost}/toolbar_oauth/callback`,
+        redirect_uri: serverRedirectUri || `${uiHost}/toolbar_oauth/callback`,
         code_verifier: pkceData.verifier,
     })
 

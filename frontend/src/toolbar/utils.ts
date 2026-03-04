@@ -21,16 +21,17 @@ export const PKCE_STORAGE_KEY = '_postHogToolbarPKCE'
 
 /**
  * Clean `__posthog_toolbar=code:…,client_id:…` from the URL hash.
- * Returns the matched {code, clientId} if found, or null.
+ * Returns the matched {code, clientId, redirectUri?} if found, or null.
  */
-export function cleanToolbarAuthHash(): { code: string; clientId: string } | null {
+export function cleanToolbarAuthHash(): { code: string; clientId: string; redirectUri?: string } | null {
     let hash: string
     try {
         hash = decodeURIComponent(window.location.hash)
     } catch {
         hash = window.location.hash
     }
-    const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^&#]+)/)
+    // Match code and client_id (required), with optional redirect_uri
+    const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^,&#]+)(?:,redirect_uri:([^&#]+))?/)
     if (!codeMatch) {
         return null
     }
@@ -40,7 +41,7 @@ export function cleanToolbarAuthHash(): { code: string; clientId: string } | nul
         .replace(/^#&/, '#')
         .replace(/^#$/, '')
     history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
-    return { code: codeMatch[1], clientId: codeMatch[2] }
+    return { code: codeMatch[1], clientId: codeMatch[2], redirectUri: codeMatch[3] || undefined }
 }
 
 export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
