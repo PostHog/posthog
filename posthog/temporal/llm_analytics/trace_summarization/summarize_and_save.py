@@ -1,6 +1,7 @@
 """Activity for generating LLM summary and saving the result."""
 
 import time
+from dataclasses import dataclass
 from uuid import uuid4
 
 import structlog
@@ -29,74 +30,82 @@ from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummari
 logger = structlog.get_logger(__name__)
 
 
+@dataclass
+class SaveSummaryEventContext:
+    """Shared context for saving summary events to ClickHouse."""
+
+    summary_result: SummarizationResponse
+    text_repr_length: int
+    trace_id: str
+    trace_first_timestamp: str
+    mode: str
+    batch_run_id: str
+    job_id: int
+    job_name: str
+    team: Team
+    team_id: int
+
+
 def _save_trace_summary_event(
-    summary_result: SummarizationResponse,
-    text_repr_length: int,
+    ctx: SaveSummaryEventContext,
     event_count: int,
-    trace_id: str,
-    trace_first_timestamp: str,
-    mode: str,
-    batch_run_id: str,
-    team: Team,
-    team_id: int,
 ) -> None:
-    summary_bullets_json = [bullet.model_dump() for bullet in summary_result.summary_bullets]
-    summary_notes_json = [note.model_dump() for note in summary_result.interesting_notes]
+    sr = ctx.summary_result
+    summary_bullets_json = [bullet.model_dump() for bullet in sr.summary_bullets]
+    summary_notes_json = [note.model_dump() for note in sr.interesting_notes]
 
     properties = {
-        "$ai_trace_id": trace_id,
-        "$ai_batch_run_id": batch_run_id,
-        "$ai_summary_mode": mode,
-        "$ai_summary_title": summary_result.title,
-        "$ai_summary_flow_diagram": summary_result.flow_diagram,
+        "$ai_trace_id": ctx.trace_id,
+        "$ai_batch_run_id": ctx.batch_run_id,
+        "$ai_clustering_job_id": ctx.job_id,
+        "$ai_clustering_job_name": ctx.job_name,
+        "$ai_summary_mode": ctx.mode,
+        "$ai_summary_title": sr.title,
+        "$ai_summary_flow_diagram": sr.flow_diagram,
         "$ai_summary_bullets": summary_bullets_json,
         "$ai_summary_interesting_notes": summary_notes_json,
-        "$ai_text_repr_length": text_repr_length,
+        "$ai_text_repr_length": ctx.text_repr_length,
         "$ai_event_count": event_count,
-        "trace_timestamp": trace_first_timestamp,
+        "trace_timestamp": ctx.trace_first_timestamp,
     }
 
     create_event(
         event_uuid=uuid4(),
         event=constants.EVENT_NAME_TRACE_SUMMARY,
-        team=team,
-        distinct_id=f"trace_summary_{team_id}",
+        team=ctx.team,
+        distinct_id=f"trace_summary_{ctx.team_id}",
         properties=properties,
     )
 
 
 def _save_generation_summary_event(
-    summary_result: SummarizationResponse,
-    text_repr_length: int,
+    ctx: SaveSummaryEventContext,
     generation_id: str,
-    trace_id: str,
-    trace_first_timestamp: str,
-    mode: str,
-    batch_run_id: str,
-    team: Team,
-    team_id: int,
 ) -> None:
-    summary_bullets_json = [bullet.model_dump() for bullet in summary_result.summary_bullets]
-    summary_notes_json = [note.model_dump() for note in summary_result.interesting_notes]
+    sr = ctx.summary_result
+    summary_bullets_json = [bullet.model_dump() for bullet in sr.summary_bullets]
+    summary_notes_json = [note.model_dump() for note in sr.interesting_notes]
 
     properties = {
         "$ai_generation_id": generation_id,
-        "$ai_trace_id": trace_id,
-        "$ai_batch_run_id": batch_run_id,
-        "$ai_summary_mode": mode,
-        "$ai_summary_title": summary_result.title,
-        "$ai_summary_flow_diagram": summary_result.flow_diagram,
+        "$ai_trace_id": ctx.trace_id,
+        "$ai_batch_run_id": ctx.batch_run_id,
+        "$ai_clustering_job_id": ctx.job_id,
+        "$ai_clustering_job_name": ctx.job_name,
+        "$ai_summary_mode": ctx.mode,
+        "$ai_summary_title": sr.title,
+        "$ai_summary_flow_diagram": sr.flow_diagram,
         "$ai_summary_bullets": summary_bullets_json,
         "$ai_summary_interesting_notes": summary_notes_json,
-        "$ai_text_repr_length": text_repr_length,
-        "trace_timestamp": trace_first_timestamp,
+        "$ai_text_repr_length": ctx.text_repr_length,
+        "trace_timestamp": ctx.trace_first_timestamp,
     }
 
     create_event(
         event_uuid=uuid4(),
         event=constants.EVENT_NAME_GENERATION_SUMMARY,
-        team=team,
-        distinct_id=f"generation_summary_{team_id}",
+        team=ctx.team,
+        distinct_id=f"generation_summary_{ctx.team_id}",
         properties=properties,
     )
 
@@ -194,31 +203,25 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
         # Step 3: Save event to ClickHouse
         team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=input.team_id)
         t0 = time.monotonic()
+        save_ctx = SaveSummaryEventContext(
+            summary_result=summary_result,
+            text_repr_length=len(text_repr),
+            trace_id=input.trace_id,
+            trace_first_timestamp=input.trace_first_timestamp,
+            mode=input.mode,
+            batch_run_id=input.batch_run_id,
+            job_id=input.job_id,
+            job_name=input.job_name,
+            team=team,
+            team_id=input.team_id,
+        )
         if is_generation:
             assert input.generation_id is not None
             await database_sync_to_async(_save_generation_summary_event, thread_sensitive=False)(
-                summary_result,
-                len(text_repr),
-                input.generation_id,
-                input.trace_id,
-                input.trace_first_timestamp,
-                input.mode,
-                input.batch_run_id,
-                team,
-                input.team_id,
+                save_ctx, input.generation_id
             )
         else:
-            await database_sync_to_async(_save_trace_summary_event, thread_sensitive=False)(
-                summary_result,
-                len(text_repr),
-                input.event_count,
-                input.trace_id,
-                input.trace_first_timestamp,
-                input.mode,
-                input.batch_run_id,
-                team,
-                input.team_id,
-            )
+            await database_sync_to_async(_save_trace_summary_event, thread_sensitive=False)(save_ctx, input.event_count)
         save_duration_s = time.monotonic() - t0
 
         # Step 4: Request embedding

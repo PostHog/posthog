@@ -82,9 +82,13 @@ pub struct Config {
     #[envconfig(default = "60")]
     pub global_rate_limit_window_interval_secs: u64,
 
-    /// Time bucket granularity in seconds for the sliding window counters
-    #[envconfig(default = "20")]
-    pub global_rate_limit_bucket_interval_secs: u64,
+    /// Max staleness before re-sync with Redis (seconds)
+    #[envconfig(default = "15")]
+    pub global_rate_limit_sync_interval_secs: u64,
+
+    /// Background task cadence for pipeline reads + writes (milliseconds)
+    #[envconfig(default = "1000")]
+    pub global_rate_limit_tick_interval_ms: u64,
 
     /// CSV list of key=value pairs assigning custom global rate limit thresholds
     /// for particular keys.

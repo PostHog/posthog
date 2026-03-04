@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1028_repo_routing_rule"),
+        ("posthog", "1029_hogflow_draft_fields"),
     ]
 
     operations = [

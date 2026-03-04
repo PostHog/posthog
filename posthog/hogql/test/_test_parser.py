@@ -817,6 +817,21 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ast.SelectQuery(select=[ast.Constant(value=1)]),
             )
             self.assertEqual(
+                self._select("select total: 1 + 2"),
+                ast.SelectQuery(
+                    select=[
+                        ast.Alias(
+                            alias="total",
+                            expr=ast.ArithmeticOperation(
+                                op=ast.ArithmeticOperationOp.Add,
+                                left=ast.Constant(value=1),
+                                right=ast.Constant(value=2),
+                            ),
+                        )
+                    ]
+                ),
+            )
+            self.assertEqual(
                 self._select("select 1, 4, 'string'"),
                 ast.SelectQuery(
                     select=[
