@@ -9,7 +9,15 @@ import { NotebookNodeProps, NotebookNodeType } from '../types'
 
 const MAX_DEFAULT_HEIGHT = 1000
 
-const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeImageAttributes>): JSX.Element => {
+type NotebookNodeImageAttributes = {
+    file?: File
+    src?: string
+}
+
+export const NotebookNodeImageComponent = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodeImageAttributes>): JSX.Element => {
     const { file, src, height } = attributes
     const [uploading, setUploading] = useState(false)
     const [error, setError] = useState<string>()
@@ -40,7 +48,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
         // oxlint-disable-next-line exhaustive-deps
     }, [file])
 
-    const [objectUrl, setObjectUrl] = useState<string | null>(null)
+    const [objectUrl, setObjectUrl] = useState<string | undefined>(undefined)
 
     useEffect(() => {
         if (!file || !file.type || src) return
@@ -50,7 +58,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
 
         return () => {
             URL.revokeObjectURL(url)
-            setObjectUrl(null)
+            setObjectUrl(undefined)
         }
     }, [file, src])
 
@@ -87,15 +95,10 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
     )
 }
 
-type NotebookNodeImageAttributes = {
-    file?: File
-    src?: string
-}
-
 export const NotebookNodeImage = createPostHogWidgetNode<NotebookNodeImageAttributes>({
     nodeType: NotebookNodeType.Image,
     titlePlaceholder: 'Image',
-    Component,
+    Component: NotebookNodeImageComponent,
     serializedText: (attrs) => {
         // TODO file is null when this runs... should it be?
         return attrs?.file?.name || ''
