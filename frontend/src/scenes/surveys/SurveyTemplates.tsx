@@ -33,6 +33,7 @@ interface TemplateCardProps {
     reportSurveyTemplateClicked: (templateType: SurveyTemplateType) => void
     surveyAppearance: SurveyAppearance
     handleTemplateClick: (template: SurveyTemplate) => void
+    hideTag?: boolean
 }
 
 export function FeaturedTemplateCard({
@@ -78,7 +79,13 @@ export function FeaturedTemplateCard({
     )
 }
 
-export function TemplateCard({ template, idx, handleTemplateClick, surveyAppearance }: TemplateCardProps): JSX.Element {
+export function TemplateCard({
+    template,
+    idx,
+    handleTemplateClick,
+    surveyAppearance,
+    hideTag,
+}: TemplateCardProps): JSX.Element {
     return (
         <button
             className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left h-full group p-4 cursor-pointer overflow-hidden"
@@ -92,9 +99,11 @@ export function TemplateCard({ template, idx, handleTemplateClick, surveyAppeara
                     <h3 className="text-sm font-semibold text-default line-clamp-2 flex-1 mb-0">
                         {template.templateType}
                     </h3>
-                    <LemonTag type={template.tagType || 'default'} size="small" className="ml-2 flex-shrink-0">
-                        {template.category || 'General'}
-                    </LemonTag>
+                    {!hideTag && (
+                        <LemonTag type={template.tagType || 'default'} size="small" className="ml-2 flex-shrink-0">
+                            {template.category || 'General'}
+                        </LemonTag>
+                    )}
                 </div>
                 <p className="text-sm text-secondary leading-relaxed line-clamp-3">{template.description}</p>
             </div>
