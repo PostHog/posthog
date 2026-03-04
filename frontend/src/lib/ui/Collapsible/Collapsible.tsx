@@ -9,7 +9,7 @@ import {
     CollapsiblePrimitiveContent,
     CollapsiblePrimitiveTrigger,
     type CollapsiblePrimitiveProps,
-} from 'lib/ui/Collapsible/CollapsiblePrimitive'
+} from 'lib/ui/Collapsible/lib/CollapsiblePrimitive'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 
@@ -54,8 +54,11 @@ const triggerVariants = cva({
 })
 
 export interface CollapsibleTriggerProps extends React.ComponentProps<typeof CollapsiblePrimitiveTrigger> {
+    /** Only applies to the "menu" variant. Ignored for "container". */
     icon?: React.ReactNode
+    /** Only applies to the "menu" variant. Ignored for "container". */
     labelClassName?: string
+    /** Only applies to the "menu" variant. Ignored for "container". */
     hideChevron?: boolean
 }
 
