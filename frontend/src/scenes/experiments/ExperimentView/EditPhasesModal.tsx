@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconCheck, IconPencil, IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable, lemonToast } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
@@ -583,9 +584,7 @@ export function EditPhasesModal(): JSX.Element | null {
                                     )
                                 }
                                 return (
-                                    <span className="font-semibold">
-                                        {dayjs(row.phase.start_date).format('MMM D, YYYY')}
-                                    </span>
+                                    <TZLabel time={row.phase.start_date} formatDate="MMM D, YYYY" formatTime="h:mm A" />
                                 )
                             },
                         },
@@ -612,10 +611,10 @@ export function EditPhasesModal(): JSX.Element | null {
                                 if (isNewRow(row)) {
                                     return <span className="text-secondary text-xs">Active phase</span>
                                 }
-                                return (
-                                    <span className="font-semibold">
-                                        {row.phase.end_date ? dayjs(row.phase.end_date).format('MMM D, YYYY') : 'now'}
-                                    </span>
+                                return row.phase.end_date ? (
+                                    <TZLabel time={row.phase.end_date} formatDate="MMM D, YYYY" formatTime="h:mm A" />
+                                ) : (
+                                    <span className="text-secondary">now</span>
                                 )
                             },
                         },
