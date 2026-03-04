@@ -243,6 +243,7 @@ export function SessionSummarizationProgress({ updates }: { updates: object[] })
                                     <PersonDisplay
                                         person={session.distinct_id ? { distinct_id: session.distinct_id } : undefined}
                                         href={`/replay/${id}`}
+                                        maxLength={13}
                                         withIcon="xs"
                                         noPopover
                                         noEllipsis

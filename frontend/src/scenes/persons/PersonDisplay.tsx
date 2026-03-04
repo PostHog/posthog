@@ -71,6 +71,7 @@ export function PersonIcon({
 export function PersonDisplay({
     person,
     displayName,
+    maxLength,
     withIcon,
     noEllipsis,
     noPopover,
@@ -84,7 +85,7 @@ export function PersonDisplay({
     className,
     muted,
 }: PersonDisplayProps): JSX.Element {
-    const display = displayName || asDisplay(person)
+    const display = displayName || asDisplay(person, maxLength)
     const [visible, setVisible] = useState(false)
 
     const notebookNode = useNotebookNode()
