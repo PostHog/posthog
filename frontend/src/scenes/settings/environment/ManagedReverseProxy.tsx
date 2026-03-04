@@ -75,7 +75,9 @@ export function ManagedReverseProxy(): JSX.Element {
                         )}
                     >
                         {status === 'issuing' && <Spinner />}
-                        <span className="capitalize">{statusText[status] || status}</span>
+                        {(status === 'valid' || status == 'timed_out') && (
+                            <span className="capitalize">{statusText[status] || status}</span>
+                        )}
                         {status === 'waiting' && (
                             <Tooltip title="Waiting for DNS records to be created">
                                 <IconInfo className="cursor-pointer" />

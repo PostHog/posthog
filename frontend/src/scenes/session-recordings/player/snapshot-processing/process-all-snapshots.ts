@@ -619,8 +619,9 @@ export const parseEncodedSnapshots = async (
                 parsedLines.push(...chunkedSnapshots)
             } else {
                 const snapshotData = snapshotLine['data'] || []
-                const rawWindowId: string = snapshotLine['window_id'] || snapshotLine['windowId'] || ''
-                const windowId = registerFn(rawWindowId)
+                const rawWindowId =
+                    'window_id' in snapshotLine ? snapshotLine['window_id'] || '' : snapshotLine['windowId'] || ''
+                const windowId = registerFn(rawWindowId.toString())
 
                 for (const d of snapshotData) {
                     const snap = coerceToEventWithTime(d, sessionId)

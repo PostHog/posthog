@@ -726,7 +726,7 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             }
 
             const updatedEvents = events.map((event) => {
-                const fullProperties = eventDetails[event.id]
+                const fullProperties = eventDetails[parseInt(event.id)]
                 if (fullProperties) {
                     return {
                         ...event,

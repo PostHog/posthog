@@ -3,6 +3,7 @@ import { actions, afterMount, connect, kea, listeners, path, props, propsChanged
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 import { isEmptyObject } from 'lib/utils'
+import { Optional } from 'lib/utils/types'
 
 import {
     ActionType,
@@ -11,7 +12,6 @@ import {
     EntityType,
     EntityTypes,
     FilterType,
-    Optional,
     TemplateVariableStep,
 } from '~/types'
 
