@@ -54,6 +54,7 @@ export interface IngestionConsumerDeps {
     postgres: PostgresRouter
     redisPool: RedisPool
     kafkaProducer: KafkaProducerWrapper
+    kafkaMetricsProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
@@ -91,7 +92,7 @@ export class IngestionConsumer {
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
-    private topHog: TopHog
+    private topHog!: TopHog
 
     private joinedPipeline!: BatchPipeline<
         JoinedIngestionPipelineInput,
@@ -190,7 +191,7 @@ export class IngestionConsumer {
         this.kafkaProducer = this.deps.kafkaProducer
 
         this.topHog = new TopHog({
-            kafkaProducer: this.kafkaProducer!,
+            kafkaProducer: this.deps.kafkaMetricsProducer,
             topic: KAFKA_CLICKHOUSE_TOPHOG,
             pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
             lane: this.config.INGESTION_LANE ?? 'unknown',
@@ -213,6 +214,7 @@ export class IngestionConsumer {
                 this.kafkaOverflowProducer = producer
             }),
         ])
+
         this.topHog.start()
 
         // Initialize pipeline
