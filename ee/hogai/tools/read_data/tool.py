@@ -111,6 +111,13 @@ class ReadArtifact(BaseModel):
     artifact_id: str = Field(description="The ID of the artifact to read.")
 
 
+class ReadNotebook(BaseModel):
+    """Retrieves a saved notebook by its short ID. Returns the notebook content as simplified markdown with embedded insight and recording references."""
+
+    kind: Literal["notebook"] = "notebook"
+    notebook_id: str = Field(description="The short ID of the notebook.")
+
+
 class ReadErrorTrackingIssue(BaseModel):
     """Retrieves error tracking issue details including stack trace for analysis."""
 
@@ -189,6 +196,7 @@ ReadDataQuery = (
     | ReadBillingInfo
     | ReadErrorTrackingIssue
     | ReadArtifact
+    | ReadNotebook
     | ReadSurvey
     | ReadFeatureFlag
     | ReadExperiment
@@ -250,6 +258,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             ReadDashboard,
             ReadErrorTrackingIssue,
             ReadArtifact,
+            ReadNotebook,
             ReadSurvey,
             ReadFeatureFlag,
             ReadExperiment,
@@ -301,6 +310,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_data_warehouse_table_schema(data_warehouse_table.table_name), None
             case ReadArtifact() as schema:
                 return await self._read_artifact(schema.artifact_id), None
+            case ReadNotebook() as schema:
+                return await self._read_notebook(schema.notebook_id), None
             case ReadInsight() as schema:
                 return await self._read_insight(schema.insight_id, schema.execute)
             case ReadDashboard() as schema:
@@ -560,15 +571,40 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await context.format_schema()
 
             case NotebookArtifactContent():
+                from ee.hogai.tools.create_notebook.helpers import notebook_exists_for_artifact
+                from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc, tiptap_doc_to_text
+
+                tiptap_doc = blocks_to_tiptap_doc(content.blocks, title=content.title)
+                text = tiptap_doc_to_text(tiptap_doc)
+
                 lines = [f"# Notebook: {content.title or 'Untitled'}"]
-                for block in content.blocks:
-                    if hasattr(block, "content"):
-                        lines.append(block.content)
-                    elif hasattr(block, "query"):
-                        lines.append(f"[Visualization: {block.query.model_dump_json(exclude_none=True)}]")
+                if text:
+                    lines.append(text)
+
+                is_saved = await notebook_exists_for_artifact(self._team, artifact_id)
+                if is_saved:
+                    lines.append(f"\n[This notebook has been saved to the database. URL: /notebooks/{artifact_id}]")
+                else:
+                    lines.append("\n[This is a transient notebook artifact. It has not been saved to the database.]")
+
                 return "\n\n".join(lines)
 
         raise MaxToolFatalError(f"Unknown artifact type: {type(content).__name__}")
+
+    async def _read_notebook(self, notebook_id: str) -> str:
+        from products.notebooks.backend.models import Notebook
+
+        from ee.hogai.context.notebook.context import NotebookContext
+
+        try:
+            notebook = await Notebook.objects.aget(short_id=notebook_id, team=self._team, deleted=False)
+        except Notebook.DoesNotExist:
+            raise MaxToolRetryableError(f"Notebook with short_id={notebook_id} not found.")
+
+        await self.check_object_access(notebook, "viewer", action="read")
+
+        ctx = NotebookContext.from_model(self._team, notebook)
+        return ctx.format()
 
     async def _read_feature_flag(self, flag_id: int | None, flag_key: str | None) -> str:
         if flag_id is None and flag_key is None:
