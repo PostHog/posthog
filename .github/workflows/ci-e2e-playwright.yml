@@ -12,7 +12,7 @@ on:
             - master
 
 permissions:
-    contents: write
+    contents: read
     pull-requests: write
 
 env:
@@ -695,6 +695,9 @@ jobs:
         runs-on: ubuntu-latest
         needs: [playwright, detect-snapshot-mode, changes]
         if: always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        permissions:
+            contents: write
+            pull-requests: write
         steps:
             # Use GitHub app token so Actions run after commiting updated snapshots
             - name: Get app token

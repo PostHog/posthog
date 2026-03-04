@@ -43,7 +43,7 @@ env:
     SANDBOX_JWT_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
 
 permissions:
-    contents: write
+    contents: read
     pull-requests: write
 
 jobs:
@@ -184,15 +184,19 @@ jobs:
         steps:
             - name: Detect mode
               id: detect
+              env:
+                  PR_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+                  REPO: ${{ github.repository }}
+                  HAS_NO_SNAPSHOT_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'no-snapshot-update') }}
+                  AUTHOR: ${{ github.actor }}
               run: |
-                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+                  if [ "$PR_REPO" != "$REPO" ] && [ -n "$PR_REPO" ]; then
                     echo "mode=check" >> $GITHUB_OUTPUT
                     echo "Fork detected - running in CHECK mode (no commits allowed)"
-                  elif [ "${{ contains(github.event.pull_request.labels.*.name, 'no-snapshot-update') }}" == "true" ]; then
+                  elif [ "$HAS_NO_SNAPSHOT_LABEL" == "true" ]; then
                     echo "mode=check" >> $GITHUB_OUTPUT
                     echo "::notice::🔍 Running in CHECK mode - 'no-snapshot-update' label detected"
                   else
-                    AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
                     # Dependabot is excluded - it creates new PRs that may need snapshot updates
                     # Other bots (github-actions, posthog-bot) commit snapshots and must use CHECK mode to avoid loops
@@ -592,10 +596,8 @@ jobs:
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
               run: |
-                  # Read the changed files from the output
-                  CHANGED_FILES="${{ needs.changes.outputs.migrations_files }}"
-
                   # If no migration files changed, exit
                   if [ -z "$CHANGED_FILES" ]; then
                     echo "No migration files changed"
@@ -772,13 +774,15 @@ jobs:
             - name: Check migrations
               # Skip migration safety check on master push (no migration_files from path filter)
               if: github.event_name != 'push'
+              env:
+                  MIGRATIONS_FILES: ${{ needs.changes.outputs.migrations_files }}
               run: |
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
                   # Check migration safety using old SQL-based checker (still uses stdin from git diff)
-                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | grep -v 'rust/persons_migrations' | python manage.py test_migrations_are_safe
+                  echo "$MIGRATIONS_FILES" | grep -v migrations/0001_ | grep -v 'rust/persons_migrations' | python manage.py test_migrations_are_safe
 
             - name: Check CH migrations
               run: |
