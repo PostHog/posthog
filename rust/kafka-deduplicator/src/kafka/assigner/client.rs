@@ -13,10 +13,11 @@ use crate::kafka::types::Partition;
 pub struct AssignerGrpcClient {
     client: KafkaAssignerClient<Channel>,
     consumer_name: String,
+    topic: String,
 }
 
 impl AssignerGrpcClient {
-    pub async fn connect(endpoint: &str, consumer_name: String) -> Result<Self> {
+    pub async fn connect(endpoint: &str, consumer_name: String, topic: String) -> Result<Self> {
         let client = KafkaAssignerClient::connect(endpoint.to_string())
             .await
             .with_context(|| format!("Failed to connect to kafka-assigner at {endpoint}"))?;
@@ -24,12 +25,14 @@ impl AssignerGrpcClient {
         info!(
             endpoint = endpoint,
             consumer_name = consumer_name.as_str(),
+            topic = topic.as_str(),
             "Connected to kafka-assigner"
         );
 
         Ok(Self {
             client,
             consumer_name,
+            topic,
         })
     }
 
@@ -42,12 +45,14 @@ impl AssignerGrpcClient {
             .client
             .register(proto::RegisterRequest {
                 consumer_name: self.consumer_name.clone(),
+                topic: self.topic.clone(),
             })
             .await
             .context("register RPC failed")?;
 
         info!(
             consumer_name = self.consumer_name.as_str(),
+            topic = self.topic.as_str(),
             "Registered with kafka-assigner"
         );
 

@@ -10,11 +10,20 @@ use tonic::{Request, Response, Status};
 use crate::consumer_registry::{ConsumerConnection, ConsumerRegistry};
 use crate::grpc::convert;
 use crate::store::KafkaAssignerStore;
-use crate::types::{AssignmentEvent, ConsumerStatus, RegisteredConsumer};
+use crate::types::{AssignmentEvent, ConsumerStatus, RegisteredConsumer, TopicConfig};
+
+/// Kafka connection settings for admin metadata lookups.
+#[derive(Clone)]
+pub struct KafkaConfig {
+    pub hosts: String,
+    pub tls: bool,
+    pub metadata_timeout: Duration,
+}
 
 pub struct KafkaAssignerService {
     registry: Arc<ConsumerRegistry>,
     store: Arc<KafkaAssignerStore>,
+    kafka_config: KafkaConfig,
     stream_channel_size: usize,
     consumer_lease_ttl: i64,
     consumer_keepalive_interval: Duration,
@@ -22,7 +31,19 @@ pub struct KafkaAssignerService {
 
 impl KafkaAssignerService {
     pub fn new(store: Arc<KafkaAssignerStore>, registry: Arc<ConsumerRegistry>) -> Self {
-        Self::with_config(store, registry, 64, 30, Duration::from_secs(10))
+        let kafka_config = KafkaConfig {
+            hosts: "localhost:9092".to_string(),
+            tls: false,
+            metadata_timeout: Duration::from_secs(15),
+        };
+        Self::with_config(
+            store,
+            registry,
+            kafka_config,
+            64,
+            30,
+            Duration::from_secs(10),
+        )
     }
 
     pub fn from_config(
@@ -30,9 +51,15 @@ impl KafkaAssignerService {
         registry: Arc<ConsumerRegistry>,
         config: &crate::config::Config,
     ) -> Self {
+        let kafka_config = KafkaConfig {
+            hosts: config.kafka_hosts.clone(),
+            tls: config.kafka_tls,
+            metadata_timeout: config.kafka_metadata_timeout(),
+        };
         Self::with_config(
             store,
             registry,
+            kafka_config,
             config.stream_channel_size,
             config.consumer_lease_ttl_secs,
             config.consumer_keepalive_interval(),
@@ -42,6 +69,7 @@ impl KafkaAssignerService {
     fn with_config(
         store: Arc<KafkaAssignerStore>,
         registry: Arc<ConsumerRegistry>,
+        kafka_config: KafkaConfig,
         stream_channel_size: usize,
         consumer_lease_ttl: i64,
         consumer_keepalive_interval: Duration,
@@ -49,10 +77,58 @@ impl KafkaAssignerService {
         Self {
             registry,
             store,
+            kafka_config,
             stream_channel_size,
             consumer_lease_ttl,
             consumer_keepalive_interval,
         }
+    }
+
+    /// Ensure a `TopicConfig` exists in etcd for the given topic.
+    ///
+    /// If one already exists, this is a no-op. Otherwise, fetch the partition
+    /// count from Kafka broker metadata and store the config in etcd.
+    async fn ensure_topic_config(&self, topic: &str) -> Result<(), Status> {
+        let existing = self
+            .store
+            .get_topic_config(topic)
+            .await
+            .map_err(|e| Status::internal(format!("failed to check topic config: {e}")))?;
+
+        if existing.is_some() {
+            return Ok(());
+        }
+
+        tracing::info!(topic, "topic config not found in etcd, fetching from Kafka");
+
+        let kafka_config = self.kafka_config.clone();
+        let topic_owned = topic.to_string();
+
+        let partition_count = tokio::task::spawn_blocking(move || {
+            crate::kafka_admin::fetch_partition_count(
+                &kafka_config.hosts,
+                kafka_config.tls,
+                &topic_owned,
+                kafka_config.metadata_timeout,
+            )
+        })
+        .await
+        .map_err(|e| Status::internal(format!("metadata fetch task panicked: {e}")))?
+        .map_err(|e| Status::internal(format!("failed to fetch partition count: {e}")))?;
+
+        let config = TopicConfig {
+            topic: topic.to_string(),
+            partition_count,
+        };
+
+        self.store
+            .set_topic_config(&config)
+            .await
+            .map_err(|e| Status::internal(format!("failed to store topic config: {e}")))?;
+
+        tracing::info!(topic, partition_count, "stored topic config in etcd");
+
+        Ok(())
     }
 }
 
@@ -66,9 +142,16 @@ impl KafkaAssigner for KafkaAssignerService {
     ) -> Result<Response<Self::RegisterStream>, Status> {
         let req = request.into_inner();
         let consumer_name = req.consumer_name;
+        let topic = req.topic;
 
         assignment_coordination::util::validate_identifier(&consumer_name)
             .map_err(|e| Status::invalid_argument(format!("invalid consumer_name: {e}")))?;
+
+        if !topic.is_empty() {
+            assignment_coordination::util::validate_identifier(&topic)
+                .map_err(|e| Status::invalid_argument(format!("invalid topic: {e}")))?;
+            self.ensure_topic_config(&topic).await?;
+        }
 
         // Grant an etcd lease for this consumer's registration.
         let lease_id = self
