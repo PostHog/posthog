@@ -4295,6 +4295,44 @@ class TestPostgresPrinter(BaseTest):
     def test_simple_identifiers_render_without_quotes(self):
         self.assertEqual(self._expr("count(id)"), "count(id)")
 
+    @parameterized.expand(
+        [
+            ("toStartOfSecond(timestamp)", "date_trunc('second', events.timestamp)"),
+            ("toStartOfMinute(timestamp)", "date_trunc('minute', events.timestamp)"),
+            ("toStartOfHour(timestamp)", "date_trunc('hour', events.timestamp)"),
+            ("toStartOfDay(timestamp)", "date_trunc('day', events.timestamp)"),
+            ("toStartOfWeek(timestamp)", "date_trunc('week', events.timestamp)"),
+            ("toStartOfMonth(timestamp)", "date_trunc('month', events.timestamp)"),
+            ("toStartOfQuarter(timestamp)", "date_trunc('quarter', events.timestamp)"),
+            ("toStartOfYear(timestamp)", "date_trunc('year', events.timestamp)"),
+            ("toStartOfISOYear(timestamp)", "date_trunc('year', events.timestamp)"),
+        ]
+    )
+    def test_to_start_of_functions_render_as_date_trunc(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            (
+                "toStartOfFiveMinutes(timestamp)",
+                "date_trunc('hour', events.timestamp) + "
+                "(floor(extract(minute from events.timestamp) / 5)::int * interval '1 minute')",
+            ),
+            (
+                "toStartOfTenMinutes(timestamp)",
+                "date_trunc('hour', events.timestamp) + "
+                "(floor(extract(minute from events.timestamp) / 10)::int * interval '1 minute')",
+            ),
+            (
+                "toStartOfFifteenMinutes(timestamp)",
+                "date_trunc('hour', events.timestamp) + "
+                "(floor(extract(minute from events.timestamp) / 15)::int * interval '1 minute')",
+            ),
+        ]
+    )
+    def test_to_start_of_minute_bucket_functions_render_in_postgres(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
     def test_reserved_identifiers_are_quoted(self):
         printed = self._select("SELECT events.event AS select FROM events")
 

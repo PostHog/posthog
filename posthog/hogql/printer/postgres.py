@@ -31,6 +31,45 @@ class PostgresPrinter(HogQLPrinter):
         return self.visit(node.type)
 
     def visit_call(self, node: ast.Call):
+        if node.name in {
+            "toStartOfSecond",
+            "toStartOfMinute",
+            "toStartOfHour",
+            "toStartOfDay",
+            "toStartOfWeek",
+            "toStartOfMonth",
+            "toStartOfQuarter",
+            "toStartOfYear",
+            "toStartOfISOYear",
+        }:
+            start_of_units: dict[str, str] = {
+                "toStartOfSecond": "second",
+                "toStartOfMinute": "minute",
+                "toStartOfHour": "hour",
+                "toStartOfDay": "day",
+                "toStartOfWeek": "week",
+                "toStartOfMonth": "month",
+                "toStartOfQuarter": "quarter",
+                "toStartOfYear": "year",
+                # PostgreSQL date_trunc does not support isoyear, so use calendar year truncation.
+                "toStartOfISOYear": "year",
+            }
+            truncated_arg = self.visit(node.args[0])
+            return f"date_trunc('{start_of_units[node.name]}', {truncated_arg})"
+
+        if node.name in {"toStartOfFiveMinutes", "toStartOfTenMinutes", "toStartOfFifteenMinutes"}:
+            minute_bucket_sizes: dict[str, int] = {
+                "toStartOfFiveMinutes": 5,
+                "toStartOfTenMinutes": 10,
+                "toStartOfFifteenMinutes": 15,
+            }
+            bucket_arg = self.visit(node.args[0])
+            bucket_size = minute_bucket_sizes[node.name]
+            return (
+                f"date_trunc('hour', {bucket_arg}) + "
+                f"(floor(extract(minute from {bucket_arg}) / {bucket_size})::int * interval '1 minute')"
+            )
+
         # No function call validation for postgres
         args = [self.visit(arg) for arg in node.args]
         return f"{node.name}({', '.join(args)})"
