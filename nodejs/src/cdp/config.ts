@@ -1,4 +1,3 @@
-import type { CommonConfig } from '../common/config'
 import { ConfigOf, defineConfig } from '../config/define-config'
 import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_JSON, KAFKA_LOG_ENTRIES } from '../config/kafka-topics'
 import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
@@ -102,5 +101,4 @@ export const cdpConfigDefs = defineConfig({
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: (): number => (isTestEnv() ? 5 : 1000),
 })
 
-// DISABLE_OPENTELEMETRY_TRACING is owned by CommonConfig but historically part of CdpConfig
-export type CdpConfig = ConfigOf<typeof cdpConfigDefs> & Pick<CommonConfig, 'DISABLE_OPENTELEMETRY_TRACING'>
+export type CdpConfig = ConfigOf<typeof cdpConfigDefs>
