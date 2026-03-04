@@ -2529,7 +2529,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_mean_metric_with_mixed_event_and_person_breakdown(self):
+    def test_mean_metric_with_null_type_defaults_to_event_breakdown(self):
         """Test backward compatibility: type=None defaults to event property"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
