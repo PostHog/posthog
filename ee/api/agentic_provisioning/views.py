@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import secrets
+from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
 from django.core.cache import cache
+from django.utils import timezone
 
 import structlog
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.models.integration import StripeIntegration
+from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken, find_oauth_refresh_token
+from posthog.models.user import User
+from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.security.outbound_proxy import external_requests
 
 from ee.settings import BILLING_SERVICE_URL
@@ -16,6 +24,12 @@ from ee.settings import BILLING_SERVICE_URL
 from .signature import SUPPORTED_VERSIONS, verify_stripe_signature
 
 logger = structlog.get_logger(__name__)
+
+AUTH_CODE_TTL_SECONDS = 300
+AUTH_CODE_CACHE_PREFIX = "stripe_app_auth_code:"
+
+STRIPE_APP_NAME = "PostHog Stripe App"
+
 
 # ---------------------------------------------------------------------------
 # Service catalog — fetched from the billing service and mapped to the
@@ -130,3 +144,288 @@ def provisioning_services(request: Request) -> Response:
         return error
 
     return Response({"data": _get_services(), "next_cursor": ""})
+
+
+# ---------------------------------------------------------------------------
+# POST /provisioning/account_requests
+# ---------------------------------------------------------------------------
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+def account_requests(request: Request) -> Response:
+    error = verify_stripe_signature(request)
+    if error:
+        return error
+
+    data = request.data
+    email = data.get("email")
+    if not email:
+        return Response(
+            {"type": "error", "error": {"code": "invalid_request", "message": "email is required"}}, status=400
+        )
+
+    scopes = data.get("scopes", [])
+    confirmation_secret = data.get("confirmation_secret", "")
+    expires_at_str = data.get("expires_at", "")
+    configuration = data.get("configuration") or {}
+    orchestrator = data.get("orchestrator") or {}
+
+    if expires_at_str:
+        from django.utils.dateparse import parse_datetime
+
+        expires_at = parse_datetime(expires_at_str)
+        if expires_at and expires_at < timezone.now():
+            return Response(
+                {"type": "error", "error": {"code": "expired", "message": "Account request has expired"}},
+                status=400,
+            )
+
+    stripe_account_id = ""
+    if orchestrator.get("type") == "stripe" and orchestrator.get("stripe"):
+        stripe_account_id = orchestrator["stripe"].get("account", "")
+
+    region = configuration.get("region", "US").upper()
+
+    existing_user = User.objects.filter(email=email).first()
+
+    if existing_user:
+        return _handle_existing_user(request, existing_user, confirmation_secret, scopes, region)
+
+    return _handle_new_user(request, data, email, scopes, stripe_account_id, region, configuration)
+
+
+def _handle_existing_user(
+    request: Request,
+    user: User,
+    confirmation_secret: str,
+    scopes: list[str],
+    region: str,
+) -> Response:
+    authorize_url = _build_authorize_url(confirmation_secret, scopes)
+    return Response(
+        {
+            "type": "requires_auth",
+            "requires_auth": {
+                "type": "redirect",
+                "redirect": {"url": authorize_url},
+            },
+        }
+    )
+
+
+def _handle_new_user(
+    request: Request,
+    data: dict,
+    email: str,
+    scopes: list[str],
+    stripe_account_id: str,
+    region: str,
+    configuration: dict,
+) -> Response:
+    name = data.get("name", "")
+    first_name = name.split(" ")[0] if name else ""
+
+    organization, team, user = User.objects.bootstrap(
+        organization_name=f"Stripe ({email})",
+        email=email,
+        password=None,
+        first_name=first_name,
+    )
+
+    code = secrets.token_urlsafe(32)
+    cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
+    cache.set(
+        cache_key,
+        {
+            "user_id": user.id,
+            "org_id": str(organization.id),
+            "team_id": team.id,
+            "stripe_account_id": stripe_account_id,
+            "scopes": scopes,
+            "region": region,
+        },
+        timeout=AUTH_CODE_TTL_SECONDS,
+    )
+
+    return Response({"type": "oauth", "oauth": {"code": code}})
+
+
+def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
+    base = settings.SITE_URL.rstrip("/")
+    scope_str = " ".join(scopes)
+    oauth_app = _get_stripe_oauth_app()
+    client_id = oauth_app.client_id if oauth_app else ""
+    return (
+        f"{base}/oauth/authorize?response_type=code&client_id={client_id}&state={confirmation_secret}&scope={scope_str}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /oauth/token
+# ---------------------------------------------------------------------------
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+def oauth_token(request: Request) -> Response:
+    error = verify_stripe_signature(request)
+    if error:
+        return error
+
+    grant_type = request.data.get("grant_type", "")
+
+    if grant_type == "authorization_code":
+        return _exchange_authorization_code(request)
+    elif grant_type == "refresh_token":
+        return _exchange_refresh_token(request)
+    else:
+        return Response(
+            {"error": "unsupported_grant_type", "error_description": f"Unsupported grant_type: {grant_type}"},
+            status=400,
+        )
+
+
+def _exchange_authorization_code(request: Request) -> Response:
+    code = request.data.get("code", "")
+    if not code:
+        return Response({"error": "invalid_request", "error_description": "code is required"}, status=400)
+
+    cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
+    code_data = cache.get(cache_key)
+    if code_data is None:
+        return Response(
+            {"error": "invalid_grant", "error_description": "Invalid or expired authorization code"}, status=400
+        )
+
+    cache.delete(cache_key)
+
+    user_id = code_data["user_id"]
+    team_id = code_data["team_id"]
+    scopes = code_data.get("scopes", [])
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({"error": "invalid_grant", "error_description": "User not found"}, status=400)
+
+    oauth_app = _get_stripe_oauth_app()
+    scope_str = " ".join(scopes) if scopes else StripeIntegration.SCOPES
+
+    access_token_value = generate_random_oauth_access_token(None)
+    access_token = OAuthAccessToken.objects.create(
+        application=oauth_app,
+        token=access_token_value,
+        user=user,
+        expires=timezone.now() + timedelta(days=365),
+        scope=scope_str,
+        scoped_teams=[team_id],
+    )
+
+    refresh_token_value = generate_random_oauth_refresh_token(None)
+    OAuthRefreshToken.objects.create(
+        application=oauth_app,
+        token=refresh_token_value,
+        user=user,
+        access_token=access_token,
+        scoped_teams=[team_id],
+    )
+
+    account_id = str(code_data.get("org_id", ""))
+
+    return Response(
+        {
+            "token_type": "bearer",
+            "access_token": access_token_value,
+            "refresh_token": refresh_token_value,
+            "expires_in": 365 * 24 * 3600,
+            "account": {
+                "id": account_id,
+                "payment_credentials": "provider",
+            },
+        }
+    )
+
+
+def _exchange_refresh_token(request: Request) -> Response:
+    refresh_token_value = request.data.get("refresh_token", "")
+    if not refresh_token_value:
+        return Response({"error": "invalid_request", "error_description": "refresh_token is required"}, status=400)
+
+    old_refresh = find_oauth_refresh_token(refresh_token_value)
+    if old_refresh is None:
+        return Response({"error": "invalid_grant", "error_description": "Invalid or revoked refresh token"}, status=400)
+
+    oauth_app = old_refresh.application
+    user = old_refresh.user
+    scoped_teams = old_refresh.scoped_teams
+    old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
+
+    old_access = old_refresh.access_token
+    old_refresh.access_token = None
+    old_refresh.revoked = timezone.now()
+    old_refresh.save(update_fields=["access_token", "revoked"])
+
+    if old_access:
+        old_access.delete()
+
+    new_access_value = generate_random_oauth_access_token(None)
+    new_access = OAuthAccessToken.objects.create(
+        application=oauth_app,
+        token=new_access_value,
+        user=user,
+        expires=timezone.now() + timedelta(days=365),
+        scope=old_scope,
+        scoped_teams=scoped_teams,
+    )
+
+    new_refresh_value = generate_random_oauth_refresh_token(None)
+    OAuthRefreshToken.objects.create(
+        application=oauth_app,
+        token=new_refresh_value,
+        user=user,
+        access_token=new_access,
+        scoped_teams=scoped_teams,
+    )
+
+    return Response(
+        {
+            "token_type": "bearer",
+            "access_token": new_access_value,
+            "refresh_token": new_refresh_value,
+            "expires_in": 365 * 24 * 3600,
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_stripe_oauth_app():
+    from posthog.models.oauth import OAuthApplication
+
+    if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
+        try:
+            return OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
+        except OAuthApplication.DoesNotExist:
+            pass
+
+    existing = OAuthApplication.objects.filter(name=STRIPE_APP_NAME).first()
+    if existing:
+        return existing
+
+    from oauthlib.common import generate_token
+
+    return OAuthApplication.objects.create(
+        name=STRIPE_APP_NAME,
+        client_id=generate_token(),
+        client_secret="",
+        client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        redirect_uris="https://localhost",
+        algorithm="RS256",
+    )
