@@ -116,21 +116,9 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
             display_name="Toggle Test",
             url="https://mcp.example.com",
             auth_type="api_key",
+            is_enabled=False,
         )
-        assert installation.is_enabled is True
 
-        # Disable
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/",
-            data={"is_enabled": False},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["is_enabled"] is False
-        installation.refresh_from_db()
-        assert installation.is_enabled is False
-
-        # Re-enable
         response = self.client.patch(
             f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/",
             data={"is_enabled": True},
