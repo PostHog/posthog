@@ -858,7 +858,6 @@ export const WebStatsTableTile = ({
             if (breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign && breakdownValue) {
                 const values = breakdownValue.split(' / ')
                 const sourceValue = values[0]
-                const drillDownTabChange = getDrillDownTabChange(utmCampaign.key, values[2] ?? null)
                 if (sourceValue && sourceValue !== BREAKDOWN_NULL_DISPLAY) {
                     if (sourceValue.startsWith(BREAKDOWN_REFERRER_PREFIX)) {
                         togglePropertyFilter(
@@ -874,6 +873,7 @@ export const WebStatsTableTile = ({
                     togglePropertyFilter(utmMedium.type, utmMedium.key, values[1])
                 }
                 if (values[2] && values[2] !== BREAKDOWN_NULL_DISPLAY) {
+                    const drillDownTabChange = getDrillDownTabChange(utmCampaign.key, values[2])
                     togglePropertyFilter(utmCampaign.type, utmCampaign.key, values[2], drillDownTabChange)
                 }
                 return
