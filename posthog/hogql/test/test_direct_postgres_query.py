@@ -248,3 +248,34 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertIn("FROM\n    second_schema.posthog_team", sql)
         self.assertEqual(executor.direct_postgres_source_id, str(second_source.id))
+
+    def test_selected_connection_rejects_clickhouse_only_tables(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT * FROM persons",
+            team=self.team,
+            connection_id=str(source.id),
+            selected_direct_source_id=str(source.id),
+        )
+
+        with self.assertRaises(ExposedHogQLError) as error:
+            executor.execute()
+
+        self.assertEqual(str(error.exception), "Table not found in the selected connection.")

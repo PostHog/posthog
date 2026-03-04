@@ -253,7 +253,7 @@ class HogQLQueryExecutor:
 
         if len(direct_source_ids) == 0:
             if self.connection_id is not None:
-                raise ExposedHogQLError("The selected connection requires querying tables from that source.")
+                raise ExposedHogQLError("Table not found in the selected connection.")
             return
 
         if self.selected_direct_source_id is None:
@@ -510,10 +510,10 @@ class HogQLQueryExecutor:
         self._apply_limit()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
-        if self._should_use_direct_postgres():
+        if self.connection_id is not None or self._should_use_direct_postgres():
             self._maybe_prepare_direct_postgres_query()
-            assert self.direct_postgres_sql is not None
-            return self.direct_postgres_sql, self.context
+            if self.direct_postgres_sql is not None:
+                return self.direct_postgres_sql, self.context
         with self.timings.measure("_generate_clickhouse_sql"):
             self._generate_clickhouse_sql()
         assert self.clickhouse_sql
@@ -528,7 +528,7 @@ class HogQLQueryExecutor:
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
 
-        if self._should_use_direct_postgres():
+        if self.connection_id is not None or self._should_use_direct_postgres():
             self._maybe_prepare_direct_postgres_query()
         else:
             with self.timings.measure("_generate_clickhouse_sql"):
