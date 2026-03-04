@@ -144,11 +144,10 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
-# Intents map to products/features developers work on
     duckgres:
         description: 'Duckgres query server (DuckDB with Postgres wire protocol)'
         requires: [core_infra]
-        docker_profiles: []
+        docker_profiles: [duckgres]
 
 # Intents map to products/features developers work on
 intents:
