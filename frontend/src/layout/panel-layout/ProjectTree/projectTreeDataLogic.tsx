@@ -462,7 +462,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                   href: item.href,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    lemonToast.success('Shortcut created successfully', {
+                    const isAIFirst = values.featureFlags[FEATURE_FLAGS.AI_FIRST]
+                    lemonToast.success(isAIFirst ? 'Added to starred' : 'Shortcut created successfully', {
                         button: {
                             label: 'View',
                             dataAttr: 'project-tree-view-shortcuts',
@@ -477,6 +478,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
                 deleteShortcut: async ({ id }) => {
                     await api.fileSystemShortcuts.delete(id)
+                    const isAIFirst = values.featureFlags[FEATURE_FLAGS.AI_FIRST]
+                    if (isAIFirst) {
+                        lemonToast.success('Removed from starred')
+                    }
                     return values.shortcutData.filter((s) => s.id !== id)
                 },
             },
