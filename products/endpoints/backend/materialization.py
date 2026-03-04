@@ -52,6 +52,7 @@ class MaterializableVariable:
     operator: ast.CompareOperationOp = ast.CompareOperationOp.Eq
     column_ast: Optional[ast.Expr] = None
     value_wrapper_fns: Optional[list[str]] = None
+    bucket_fn: Optional[str] = None  # e.g. "toStartOfDay" for range variables on timestamp
 
 
 @dataclass
@@ -64,6 +65,30 @@ class VariableUsageInWhere:
     column_ast: Optional[ast.Expr] = None
     value_wrapper_fns: Optional[list[str]] = None
 
+
+RANGE_OPS = frozenset(
+    {
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+    }
+)
+
+# Aggregate functions that can be re-aggregated at read time.
+# avg/uniq cannot be naively re-aggregated (avg needs sum+count, uniq needs uniqMerge).
+REAGGREGATABLE_FUNCTIONS: dict[str, str] = {
+    "count": "sum",
+    "sum": "sum",
+    "min": "min",
+    "max": "max",
+}
+
+# Aggregates that CANNOT be re-aggregated — reject materialization when range vars present.
+# Names are lowercased to match the .lower() comparison in analyze_variables_for_materialization.
+NON_REAGGREGATABLE_FUNCTIONS = frozenset(
+    {"avg", "uniq", "uniqexact", "avgweighted", "countdistinct", "countdistinctif"}
+)
 
 SUPPORTED_MATERIALIZATION_OPS = frozenset(
     {
@@ -82,6 +107,7 @@ SUPPORTED_MATERIALIZATION_OPS = frozenset(
 
 def analyze_variables_for_materialization(
     hogql_query: dict[str, Any],
+    bucket_overrides: dict[str, str] | None = None,
 ) -> tuple[bool, str, list[MaterializableVariable]]:
     """
     Check if query variables can be materialized.
@@ -158,6 +184,23 @@ def analyze_variables_for_materialization(
                 value_wrapper_fns=variable_usage.value_wrapper_fns,
             )
         )
+
+    # Detect range pairs: two variables on the same column with complementary range operators.
+    # Single >= without an upper bound is intentionally unsupported — unbounded ranges
+    # have no semantic bucket boundary, making bucketed materialization meaningless.
+    _detect_range_pairs(result_vars, bucket_overrides=bucket_overrides)
+
+    # If range variables exist, check that all aggregates can be re-aggregated
+    has_range_vars = any(v.bucket_fn is not None for v in result_vars)
+    if has_range_vars and isinstance(ast_node, ast.SelectQuery) and ast_node.select:
+        for expr in ast_node.select:
+            agg_name = _extract_aggregate_name(expr)
+            if agg_name and agg_name.lower() in NON_REAGGREGATABLE_FUNCTIONS:
+                return (
+                    False,
+                    f"Aggregate function '{agg_name}' cannot be re-aggregated for range variable materialization",
+                    [],
+                )
 
     return True, "OK", result_vars
 
@@ -274,33 +317,113 @@ class VariableInWhereFinder(TraversingVisitor):
         return []
 
 
-def transform_select_for_materialized_table(select_exprs: list[ast.Expr], team: Team) -> list[ast.Expr]:
+SUPPORTED_BUCKET_FUNCTIONS: dict[str, str] = {
+    "hour": "toStartOfHour",
+    "day": "toStartOfDay",
+    "week": "toStartOfWeek",
+    "month": "toStartOfMonth",
+}
+
+
+def _detect_range_pairs(
+    variables: list[MaterializableVariable],
+    bucket_overrides: dict[str, str] | None = None,
+) -> None:
+    """Detect range variable pairs on the same column and set bucket_fn.
+
+    Two variables on the same column_chain with complementary range operators
+    (e.g. GtEq + Lt) form a range pair. Both get bucket_fn = "toStartOfDay"
+    by default, or the override from bucket_overrides if provided.
+
+    Variables that already use a function call column (column_ast is set, e.g.
+    toDate(timestamp)) are excluded — they already do their own bucketing.
+    """
+    by_column: dict[str, list[MaterializableVariable]] = {}
+    for var in variables:
+        # Skip variables that already have function-call bucketing
+        if var.column_ast is not None:
+            continue
+        key = ".".join(var.column_chain) if var.column_chain else var.column_expression
+        by_column.setdefault(key, []).append(var)
+
+    for col_key, col_vars in by_column.items():
+        range_vars = [v for v in col_vars if v.operator in RANGE_OPS]
+        if len(range_vars) >= 2:
+            fn = "toStartOfDay"
+            if bucket_overrides and col_key in bucket_overrides:
+                override = bucket_overrides[col_key]
+                fn = SUPPORTED_BUCKET_FUNCTIONS.get(override, override)
+            for v in range_vars:
+                v.bucket_fn = fn
+
+
+def _extract_aggregate_name(expr: ast.Expr) -> Optional[str]:
+    """Extract the aggregate function name from a SELECT expression, if any.
+
+    Handles two distinct-count syntaxes:
+    - count(DISTINCT x): HogQL parses as Call(name="count", distinct=True) → returns "countDistinct"
+    - countDistinct(x): HogQL parses as Call(name="countDistinct") → returns "countDistinct"
+
+    The name is also checked against NON_REAGGREGATABLE_FUNCTIONS directly because
+    find_hogql_aggregation doesn't recognize all ClickHouse-native function variants.
+    """
+    if isinstance(expr, ast.Alias):
+        return _extract_aggregate_name(expr.expr)
+    if isinstance(expr, ast.Call):
+        if expr.name == "count" and getattr(expr, "distinct", False):
+            return "countDistinct"
+
+        from posthog.hogql.functions.mapping import find_hogql_aggregation
+
+        if find_hogql_aggregation(expr.name):
+            return expr.name
+
+        # Some aggregate names (countDistinct, countDistinctIf) aren't in the
+        # HogQL aggregation registry but are valid ClickHouse aggregates
+        if expr.name.lower() in NON_REAGGREGATABLE_FUNCTIONS:
+            return expr.name
+    return None
+
+
+@dataclass
+class MaterializedColumn:
+    """A column in the materialized table with metadata for read-time re-aggregation."""
+
+    expr: ast.Expr
+    is_aggregate: bool
+    reaggregate_fn: Optional[str] = None  # e.g. "sum" for count/sum, "min" for min, etc.
+
+
+def transform_select_for_materialized_table(select_exprs: list[ast.Expr], team: Team) -> list[MaterializedColumn]:
     """
     Transform SELECT expressions to reference pre-computed columns in materialized table.
 
-    The materialized table has pre-aggregated data, so we need to select the
-    column names directly instead of re-computing expressions.
+    Returns list of MaterializedColumn with re-aggregation metadata.
 
     Examples:
-    - count() -> Field(chain=["count()"])
-    - count() as total -> Field(chain=["total"])
-    - toStartOfDay(timestamp) as date -> Field(chain=["date"])
+    - count() -> MaterializedColumn(Field(chain=["count()"]), is_aggregate=True, reaggregate_fn="sum")
+    - count() as total -> MaterializedColumn(Field(chain=["total"]), is_aggregate=True, reaggregate_fn="sum")
+    - toStartOfDay(timestamp) as date -> MaterializedColumn(Field(chain=["date"]), is_aggregate=False)
     """
-    transformed: list[ast.Expr] = []
+    result: list[MaterializedColumn] = []
     for expr in select_exprs:
+        agg_name = _extract_aggregate_name(expr)
+        is_agg = agg_name is not None
+        reaggregate_fn = REAGGREGATABLE_FUNCTIONS.get(agg_name.lower()) if agg_name else None
         if isinstance(expr, ast.Alias):
-            transformed.append(ast.Field(chain=[expr.alias]))
+            field = ast.Field(chain=[expr.alias])
         else:
-            expr_str = expr.to_hogql()
-            transformed.append(ast.Field(chain=[expr_str]))
+            field = ast.Field(chain=[expr.to_hogql()])
+        result.append(MaterializedColumn(expr=field, is_aggregate=is_agg, reaggregate_fn=reaggregate_fn))
 
-    return transformed
+    return result
 
 
 def transform_query_for_materialization(
     hogql_query: dict[str, Any],
     variable_infos: MaterializableVariable | list[MaterializableVariable],
     team: Team,
+    bucket_overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """
     Transform query by:
@@ -314,9 +437,24 @@ def transform_query_for_materialization(
     Example (multi, same column):
         Before: SELECT count() FROM events WHERE hour >= {variables.start} AND hour < {variables.end}
         After:  SELECT count(), hour AS start, hour AS end FROM events GROUP BY hour
+
+    If bucket_overrides is provided, re-runs range pair detection with the overrides
+    so that bucket_fn on the variable_infos is updated before the transform.
     """
+    import copy
+
     if isinstance(variable_infos, MaterializableVariable):
         variable_infos = [variable_infos]
+
+    variable_infos = copy.deepcopy(variable_infos)
+
+    # Re-apply range pair detection with overrides if provided
+    if bucket_overrides:
+        # Reset existing bucket_fn values so detection can re-apply with overrides
+        for v in variable_infos:
+            if v.bucket_fn is not None:
+                v.bucket_fn = None
+        _detect_range_pairs(variable_infos, bucket_overrides=bucket_overrides)
 
     query_str = hogql_query.get("query")
     if not query_str:
@@ -396,30 +534,36 @@ class MaterializationTransformer(CloningVisitor):
         Uses the original AST expression when available (e.g. for function calls
         like toDate(timestamp) that can't be reconstructed from column_chain).
         Always returns a fresh copy to avoid sharing AST nodes between SELECT and GROUP BY.
+        When bucket_fn is set, wraps the column expression with the bucket function.
         """
         if var.column_ast is not None:
-            return CloningVisitor().visit(var.column_ast)
-
-        chain = var.column_chain
-
-        if len(chain) >= 2 and chain[0] == "properties":
-            properties_chain: list[str | int] = ["properties"]
-            return ast.Call(
-                name="JSONExtractString",
-                args=[
-                    ast.Field(chain=properties_chain),
-                    ast.Constant(value=chain[1]),
-                ],
-            )
-        elif len(chain) >= 3 and chain[1] == "properties":
-            field_chain: list[str | int] = list(chain[:2])
-            return ast.Call(
-                name="JSONExtractString",
-                args=[ast.Field(chain=field_chain), ast.Constant(value=chain[2])],
-            )
+            base = CloningVisitor().visit(var.column_ast)
         else:
-            simple_chain: list[str | int] = list(chain)
-            return ast.Field(chain=simple_chain)
+            chain = var.column_chain
+
+            if len(chain) >= 2 and chain[0] == "properties":
+                properties_chain: list[str | int] = ["properties"]
+                base = ast.Call(
+                    name="JSONExtractString",
+                    args=[
+                        ast.Field(chain=properties_chain),
+                        ast.Constant(value=chain[1]),
+                    ],
+                )
+            elif len(chain) >= 3 and chain[1] == "properties":
+                field_chain: list[str | int] = list(chain[:2])
+                base = ast.Call(
+                    name="JSONExtractString",
+                    args=[ast.Field(chain=field_chain), ast.Constant(value=chain[2])],
+                )
+            else:
+                simple_chain: list[str | int] = list(chain)
+                base = ast.Field(chain=simple_chain)
+
+        if var.bucket_fn:
+            return ast.Call(name=var.bucket_fn, args=[base])
+
+        return base
 
     def _remove_variable_from_where(self, where_node: Optional[ast.Expr]) -> Optional[ast.Expr]:
         if where_node is None:

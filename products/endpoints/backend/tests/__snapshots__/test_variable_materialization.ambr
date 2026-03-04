@@ -177,12 +177,12 @@
   '''
   SELECT
       count(),
-      hour AS start_hour,
-      hour AS end_hour
+      toStartOfDay(hour) AS start_hour,
+      toStartOfDay(hour) AS end_hour
   FROM
       events
   GROUP BY
-      hour
+      toStartOfDay(hour)
   LIMIT 50000
   '''
 # ---
@@ -215,13 +215,13 @@
   SELECT
       count(),
       event AS name,
-      hour AS start_hour,
-      hour AS end_hour
+      toStartOfDay(hour) AS start_hour,
+      toStartOfDay(hour) AS end_hour
   FROM
       events
   GROUP BY
       event,
-      hour
+      toStartOfDay(hour)
   LIMIT 50000
   '''
 # ---
