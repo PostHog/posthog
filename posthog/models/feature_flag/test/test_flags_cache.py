@@ -25,6 +25,7 @@ from posthog.models.feature_flag.flags_cache import (
     clear_flags_cache,
     flags_hypercache,
     get_flags_from_cache,
+    get_teams_with_flags_queryset,
     update_flags_cache,
 )
 
@@ -2189,3 +2190,32 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
 
         result = _get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == set()
+
+
+class TestGetTeamsWithFlagsQueryset(BaseTest):
+    def test_includes_team_with_active_flag(self):
+        FeatureFlag.objects.create(team=self.team, key="active-flag", created_by=self.user)
+        qs = get_teams_with_flags_queryset()
+        assert self.team.id in qs.values_list("id", flat=True)
+
+    def test_includes_team_with_soft_deleted_flag(self):
+        FeatureFlag.objects.create(team=self.team, key="del", created_by=self.user, deleted=True)
+        qs = get_teams_with_flags_queryset()
+        assert self.team.id in qs.values_list("id", flat=True)
+
+    def test_includes_team_with_inactive_flag(self):
+        FeatureFlag.objects.create(team=self.team, key="off", created_by=self.user, active=False)
+        qs = get_teams_with_flags_queryset()
+        assert self.team.id in qs.values_list("id", flat=True)
+
+    def test_excludes_team_with_no_flags(self):
+        team_no_flags = Team.objects.create(organization=self.organization, name="No Flags")
+        qs = get_teams_with_flags_queryset()
+        assert team_no_flags.id not in qs.values_list("id", flat=True)
+
+    def test_team_with_multiple_flags_returned_once(self):
+        FeatureFlag.objects.create(team=self.team, key="flag-1", created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="flag-2", created_by=self.user)
+        qs = get_teams_with_flags_queryset()
+        team_ids = list(qs.values_list("id", flat=True))
+        assert team_ids.count(self.team.id) == 1
