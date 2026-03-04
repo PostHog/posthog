@@ -57,6 +57,15 @@ SLACK_USER_INFO_CACHE_TTL_SECONDS = 600
 
 _GITHUB_REPOS_PER_PAGE = 100
 _MAX_GITHUB_REPOS = 500
+REPO_LIST_CACHE_TTL_SECONDS = 300
+
+
+def _repo_list_cache_key(team_id: int) -> str:
+    return f"twig:repo_list:v1:{team_id}"
+
+
+def _invalidate_repo_list_cache(team_id: int) -> None:
+    cache.delete(_repo_list_cache_key(team_id))
 
 
 @dataclass
@@ -739,6 +748,14 @@ def _post_repo_picker_message(
         },
     )
 
+    # Pre-warm the repo list cache so the external_select options request
+    # is served from cache rather than hitting the GitHub API inline.
+    # Non-fatal: the dropdown will still work, it will just fetch on demand.
+    try:
+        _get_full_repo_names(integration)
+    except Exception:
+        logger.warning("repo_list_prewarm_failed", team_id=integration.team_id, exc_info=True)
+
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
     """Extract an explicit org/repo token from message text, if it matches connected repos."""
@@ -806,8 +823,14 @@ def _collect_thread_messages(
 
 def _get_full_repo_names(integration: Integration) -> list[str]:
     """Return canonical org/repo names across all GitHub integrations for the team, or [] if unavailable."""
+    cache_key = _repo_list_cache_key(integration.team_id)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     github_records = Integration.objects.filter(team=integration.team, kind="github")
     if not github_records.exists():
+        cache.set(cache_key, [], timeout=REPO_LIST_CACHE_TTL_SECONDS)
         return []
 
     all_repos: set[str] = set()
@@ -827,13 +850,18 @@ def _get_full_repo_names(integration: Integration) -> list[str]:
                         team_id=integration.team_id,
                         cap=_MAX_GITHUB_REPOS,
                     )
-                    return sorted(all_repos)
+                    result = sorted(all_repos)
+                    cache.set(cache_key, result, timeout=REPO_LIST_CACHE_TTL_SECONDS)
+                    return result
 
             if len(repo_names) < _GITHUB_REPOS_PER_PAGE:
                 break
             page += 1
 
-    return sorted(all_repos)
+    result = sorted(all_repos)
+    if result:
+        cache.set(cache_key, result, timeout=REPO_LIST_CACHE_TTL_SECONDS)
+    return result
 
 
 def select_repository(
@@ -915,7 +943,7 @@ def _match_repo_rule(
     try:
         from posthog.llm.gateway_client import get_llm_client
 
-        client = get_llm_client("twig")
+        client = get_llm_client("slack-twig")
         response = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": prompt}],

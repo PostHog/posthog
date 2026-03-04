@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
@@ -48,6 +49,41 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+/**
+ * Check whether the authenticated user has access to PostHog Code.
+ * @summary Check access
+ */
+export const getCodeInvitesCheckAccessRetrieveUrl = () => {
+    return `/api/code/invites/check-access/`
+}
+
+export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getCodeInvitesCheckAccessRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Redeem a PostHog Code invite code to enable access.
+ * @summary Redeem invite code
+ */
+export const getCodeInvitesRedeemCreateUrl = () => {
+    return `/api/code/invites/redeem/`
+}
+
+export const codeInvitesRedeemCreate = async (
+    codeInviteRedeemRequestApi: CodeInviteRedeemRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getCodeInvitesRedeemCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(codeInviteRedeemRequestApi),
+    })
+}
 
 /**
  * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.

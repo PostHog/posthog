@@ -225,6 +225,22 @@ else
   warn_step "Environment vars  ${C_DIM}(.env not found)${C_RESET}"
 fi
 
+# ── Step 5: Rust toolchain check ───────────────────────────────────
+_flox_rustc_ver=$(rustc --version 2>/dev/null | awk '{print $2}')
+_rustup_rustc="$HOME/.cargo/bin/rustc"
+if [[ -x "$_rustup_rustc" ]] && [[ -n "$_flox_rustc_ver" ]]; then
+  _rustup_rustc_ver=$("$_rustup_rustc" --version 2>/dev/null | awk '{print $2}')
+  if [[ -n "$_rustup_rustc_ver" ]] && [[ "$_flox_rustc_ver" != "$_rustup_rustc_ver" ]]; then
+    warn_step "Rust toolchain mismatch: flox has rustc ${_flox_rustc_ver}, rustup has ${_rustup_rustc_ver}"
+    echo -e "    ${C_DIM}Building outside flox will use a different compiler and invalidate the entire cargo cache.${C_RESET}"
+    echo -e "    ${C_DIM}Fix: ${C_BOLD}rustup toolchain remove stable${C_RESET}${C_DIM} or always build inside flox.${C_RESET}"
+  else
+    done_step "Rust toolchain (rustc ${_flox_rustc_ver})"
+  fi
+elif [[ -n "$_flox_rustc_ver" ]]; then
+  done_step "Rust toolchain (rustc ${_flox_rustc_ver})"
+fi
+
 # ── Summary ─────────────────────────────────────────────────────────
 _activation_end=$(date +%s)
 _activation_time=$(( _activation_end - _activation_start ))

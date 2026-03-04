@@ -68,8 +68,8 @@ export const ExperimentMeanMetricSchema = z
         metric_type: z.literal('mean'),
         source: ExperimentMetricSourceSchema,
     })
-    .merge(ExperimentMetricBasePropertiesSchema)
-    .merge(ExperimentMetricOutlierHandlingSchema)
+    .extend(ExperimentMetricBasePropertiesSchema.shape)
+    .extend(ExperimentMetricOutlierHandlingSchema.shape)
 
 export type ExperimentMeanMetric = z.infer<typeof ExperimentMeanMetricSchema>
 
@@ -84,7 +84,7 @@ export const ExperimentFunnelMetricSchema = z
         series: z.array(ExperimentFunnelMetricStepSchema),
         funnel_order_type: z.any().optional(), // StepOrderValue
     })
-    .merge(ExperimentMetricBasePropertiesSchema)
+    .extend(ExperimentMetricBasePropertiesSchema.shape)
 
 export type ExperimentFunnelMetric = z.infer<typeof ExperimentFunnelMetricSchema>
 
@@ -99,7 +99,7 @@ export const ExperimentRatioMetricSchema = z
         numerator: ExperimentMetricSourceSchema,
         denominator: ExperimentMetricSourceSchema,
     })
-    .merge(ExperimentMetricBasePropertiesSchema)
+    .extend(ExperimentMetricBasePropertiesSchema.shape)
 
 export type ExperimentRatioMetric = z.infer<typeof ExperimentRatioMetricSchema>
 
@@ -364,7 +364,7 @@ export const ExperimentCreatePayloadSchema = ToolExperimentCreateSchema.transfor
         // Optional holdout
         holdout_id: input.holdout_id || null,
     }
-}).pipe(ExperimentApiPayloadSchema)
+})
 
 export type ExperimentCreatePayload = z.output<typeof ExperimentCreatePayloadSchema>
 
@@ -402,7 +402,14 @@ export const ExperimentUpdateTransformSchema = ToolExperimentUpdateInputSchema.t
         }
     }
 
-    // Handle experiment state management
+    // Handle experiment state management (restart first, then launch to allow restart+relaunch)
+    if (input.restart === true) {
+        updatePayload.start_date = null
+        updatePayload.end_date = null
+        updatePayload.conclusion = null
+        updatePayload.conclusion_comment = null
+    }
+
     if (input.launch === true) {
         updatePayload.start_date = new Date().toISOString()
     }
@@ -413,12 +420,6 @@ export const ExperimentUpdateTransformSchema = ToolExperimentUpdateInputSchema.t
         if (input.conclusion_comment !== undefined) {
             updatePayload.conclusion_comment = input.conclusion_comment
         }
-    }
-
-    if (input.restart === true) {
-        updatePayload.end_date = null
-        updatePayload.conclusion = null
-        updatePayload.conclusion_comment = null
     }
 
     if (input.archive !== undefined) {
@@ -547,7 +548,7 @@ export const ExperimentUpdatePayloadSchema = z
                 minimum_detectable_effect: z.number().nullish(),
                 recommended_running_time: z.number().nullish(),
                 recommended_sample_size: z.number().nullish(),
-                variant_screenshot_media_ids: z.record(z.array(z.string())).optional(),
+                variant_screenshot_media_ids: z.record(z.string(), z.array(z.string())).optional(),
             })
             .optional(),
 
