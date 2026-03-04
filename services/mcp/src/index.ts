@@ -2,7 +2,7 @@ import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from 
 import { ErrorCode } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
-import { hash } from '@/lib/utils'
+import { hash, sanitizeUserAgent } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
@@ -202,11 +202,8 @@ const handleRequest = async (
         request.headers.get('x-posthog-organization-id') || url.searchParams.get('organization_id') || undefined
     const projectId = request.headers.get('x-posthog-project-id') || url.searchParams.get('project_id') || undefined
 
-    // Extract posthog/foo identifier from the client's User-Agent (e.g. "posthog/wizard")
-    // so we can forward it in outgoing API requests for source attribution
-    const clientUserAgent = request.headers.get('User-Agent') || ''
-    const clientIdentifierMatch = clientUserAgent.match(/posthog\/([\w.-]+)/)
-    const clientIdentifier = clientIdentifierMatch ? clientIdentifierMatch[0] : undefined
+    const rawUserAgent = request.headers.get('User-Agent') || undefined
+    const clientUserAgent = sanitizeUserAgent(rawUserAgent)
 
     Object.assign(ctx.props, {
         apiToken: token,
@@ -214,7 +211,7 @@ const handleRequest = async (
         sessionId: sessionId || undefined,
         organizationId,
         projectId,
-        clientIdentifier,
+        clientUserAgent,
     })
 
     // Search params are used to build up the list of available tools. If no features are provided, all tools are available.

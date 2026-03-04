@@ -11,6 +11,7 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.oauth.toolbar_service import (
     CALLBACK_PATH,
     ToolbarOAuthError,
@@ -21,6 +22,7 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.models import Organization, Team, User
 
 
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestToolbarOAuthPrimitives(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -660,6 +662,7 @@ class TestTokenEndpointStatusRemapping(APIBaseTest):
         assert cm.exception.status_code == expected_status
 
 
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestToolbarOAuthCallbackExchange(APIBaseTest):
     def setUp(self):
         super().setUp()
