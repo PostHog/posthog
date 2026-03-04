@@ -23,6 +23,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -34,6 +35,7 @@ import { isSurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetec
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { insightsModel } from '~/models/insightsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 import {
@@ -112,6 +114,8 @@ export function InsightMeta({
     const { exportContext, insightData } = useValues(insightDataLogic(insightProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
+    const { updateInsightDirect } = useActions(insightsModel)
+    const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showCompactTile =
@@ -263,6 +267,19 @@ export function InsightMeta({
                         {insight.description}
                     </LemonMarkdown>
                 ) : null
+            }
+            metaDescriptionText={insight.description || ''}
+            onMetaSave={
+                canEditInsight
+                    ? (updates) => {
+                          updateInsightDirect(insight, updates)
+                          if (updates.description && !tile?.show_description && toggleShowDescription) {
+                              toggleShowDescription()
+                          }
+                          const attribute = updates.name !== undefined ? 'name' : 'description'
+                          reportDashboardInsightMetaUpdated(dashboardId, insight.id, attribute)
+                      }
+                    : undefined
             }
             metaDetails={
                 <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />

@@ -137,7 +137,18 @@ export class RecordingService {
         )
 
         const deleted = results.filter((r) => r.ok && r.status === 'deleted')
+        const alreadyDeleted = results.filter((r) => r.ok && r.status === 'already_deleted')
         const failed = results.filter((r) => !r.ok)
+
+        if (deleted.length > 0) {
+            RecordingApiMetrics.incrementRecordingsDeleted('deleted', deleted.length)
+        }
+        if (alreadyDeleted.length > 0) {
+            RecordingApiMetrics.incrementRecordingsDeleted('already_deleted', alreadyDeleted.length)
+        }
+        if (failed.length > 0) {
+            RecordingApiMetrics.incrementRecordingsDeleted('failed', failed.length)
+        }
 
         await this.propagateDeletion(
             deleted.map((r) => r.sessionId),

@@ -331,8 +331,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             event="recording list filters changed",
             distinct_id=self.user.distinct_id,
             properties={
+                "source": ANY,
                 "$current_url": ANY,
                 "$session_id": ANY,
+                "was_impersonated": ANY,
+                "mcp_user_agent": ANY,
                 "partial_filter_chosen_my_filter": "something",
             },
             groups=ANY,

@@ -45,7 +45,8 @@ const defaultProperties: Record<string, any> = {
 
 export function daysAgo(days: number): string {
     const date = new Date()
-    date.setDate(date.getDate() - days)
+    date.setUTCDate(date.getUTCDate() - days)
+    date.setUTCHours(0, 1, 0, 0)
     return date.toISOString()
 }
 

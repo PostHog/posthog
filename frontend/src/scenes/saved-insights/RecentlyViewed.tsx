@@ -18,6 +18,7 @@ export function RecentlyViewed(): JSX.Element {
         <CompactList
             title="Recently viewed"
             viewAllURL={urls.savedInsights(SavedInsightsTabs.All)}
+            viewAllDataAttr="insights-home-tab-recently-viewed-view-all"
             loading={recentInsightsLoading}
             emptyMessage={{
                 title: 'You have no recently viewed insights',
@@ -32,6 +33,7 @@ export function RecentlyViewed(): JSX.Element {
                     insight={insight}
                     isExpanded={expandedInsightIds.has(insight.short_id)}
                     onToggle={() => toggleInsightExpanded(insight.short_id)}
+                    dataAttr="recently-viewed-insight-item"
                 />
             )}
             contentHeightBehavior="fit-content"

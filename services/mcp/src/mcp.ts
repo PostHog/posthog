@@ -41,7 +41,7 @@ export type RequestProperties = {
     version?: number
     organizationId?: string
     projectId?: string
-    clientIdentifier?: string
+    clientUserAgent?: string
 }
 
 export class MCP extends McpAgent<Env> {
@@ -138,7 +138,7 @@ export class MCP extends McpAgent<Env> {
             this._api = new ApiClient({
                 apiToken: this.requestProperties.apiToken,
                 baseUrl,
-                clientIdentifier: this.requestProperties.clientIdentifier,
+                clientUserAgent: this.requestProperties.clientUserAgent,
             })
         }
 
@@ -183,11 +183,11 @@ export class MCP extends McpAgent<Env> {
         }
     }
 
-    registerTool<TSchema extends z.ZodRawShape>(
-        tool: Tool<z.ZodObject<TSchema>>,
-        handler: (params: z.infer<z.ZodObject<TSchema>>) => Promise<any>
+    registerTool<TSchema extends z.ZodObject>(
+        tool: Tool<TSchema>,
+        handler: (params: z.infer<TSchema>) => Promise<any>
     ): void {
-        const wrappedHandler = async (params: z.infer<z.ZodObject<TSchema>>): Promise<any> => {
+        const wrappedHandler = async (params: z.infer<TSchema>): Promise<any> => {
             const validation = tool.schema.safeParse(params)
 
             if (!validation.success) {
@@ -276,7 +276,7 @@ export class MCP extends McpAgent<Env> {
                 annotations: tool.annotations,
                 ...(normalizedMeta ? { _meta: normalizedMeta } : {}),
             },
-            wrappedHandler as unknown as ToolCallback<TSchema>
+            wrappedHandler as unknown as ToolCallback<TSchema['shape']>
         )
     }
 
@@ -328,7 +328,8 @@ export class MCP extends McpAgent<Env> {
         })
 
         for (const tool of allTools) {
-            this.registerTool(tool, async (params) => tool.handler(context, params))
+            const typedTool = tool as Tool<z.ZodObject>
+            this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
         }
     }
 }

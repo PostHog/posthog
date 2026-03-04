@@ -93,8 +93,8 @@ const actionGet = (): ToolBase<typeof ActionGetSchema> => ({
     },
 })
 
-const ActionUpdateSchema = ActionsPartialUpdateParams.omit({ project_id: true }).merge(
-    ActionsPartialUpdateBody.omit({ deleted: true, last_calculated_at: true, _create_in_folder: true })
+const ActionUpdateSchema = ActionsPartialUpdateParams.omit({ project_id: true }).extend(
+    ActionsPartialUpdateBody.omit({ deleted: true, last_calculated_at: true, _create_in_folder: true }).shape
 )
 
 const actionUpdate = (): ToolBase<typeof ActionUpdateSchema> => ({

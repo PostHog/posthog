@@ -1,9 +1,11 @@
 import { StoryFn } from '@storybook/react'
+import { useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { useStorybookMocks } from '~/mocks/browser'
 import { InsightVizNode, Node } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
@@ -37,15 +39,21 @@ function setLegendFilter(query: Node | null | undefined, showLegend: boolean): N
     return query
 }
 
+interface InsightStoryOptions {
+    openSidePanel?: boolean
+}
+
 let shortCounter = 0
 export function createInsightStory(
     insight: Partial<QueryBasedInsightModel>,
     mode: 'view' | 'edit' = 'view',
-    showLegend: boolean = false
+    showLegend: boolean = false,
+    options: InsightStoryOptions = {}
 ): StoryFn<typeof App> {
     const count = shortCounter++
     return function InsightStory() {
         document.body.classList.add('storybook-test-runner')
+        useMountedLogic(sceneLayoutLogic)
 
         useStorybookMocks({
             get: {
@@ -82,6 +90,9 @@ export function createInsightStory(
 
         useOnMountEffect(() => {
             router.actions.push(`/insights/${insight.short_id}${count}${mode === 'edit' ? '/edit' : ''}`)
+            if (options.openSidePanel) {
+                sceneLayoutLogic.actions.setScenePanelOpen(true)
+            }
         })
 
         return <App />

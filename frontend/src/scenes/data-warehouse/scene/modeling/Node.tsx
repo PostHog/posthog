@@ -19,6 +19,7 @@ const NODE_TYPE_SETTINGS: Record<DataModelingNodeType, { label: string; color: s
     table: { label: 'table', color: 'var(--muted)' },
     view: { label: 'view', color: 'var(--primary-3000)' },
     matview: { label: 'matview', color: 'var(--success)' },
+    endpoint: { label: 'endpoint', color: 'var(--purple)' },
 }
 
 function NodeHandles({ handles }: { handles: NodeHandle[] }): JSX.Element {
@@ -184,6 +185,7 @@ function NodeMetadata({
     const shortHandSyncInterval = syncIntervalToShorthand(syncInterval)
     switch (type) {
         case 'matview':
+        case 'endpoint':
             return (
                 <div className="flex items-center bg-primary dark:bg-primary/60 rounded-b-lg px-2.5 py-1.5 justify-between">
                     <div className="flex gap-1 text-[10px]">
@@ -252,7 +254,7 @@ const NodeInner = React.memo(function NodeInner({
 
     const nodeTypeSettings = NODE_TYPE_SETTINGS[type]
 
-    const canRun = type === 'matview' || type === 'view'
+    const canRun = type === 'matview' || type === 'view' || type === 'endpoint'
     const canOpenInEditor = type !== 'table' && savedQueryId
     const shouldRenderArrows = canRun && isHovered && !isRunning
 
@@ -297,7 +299,7 @@ const NodeInner = React.memo(function NodeInner({
                 <NodeTags color={nodeTypeSettings.color} label={nodeTypeSettings.label} userTag={userTag} />
                 <NodeLabelAndAction
                     label={name}
-                    showAction={canRun && type === 'matview'}
+                    showAction={canRun && (type === 'matview' || type === 'endpoint')}
                     isActionRunning={isRunning ?? false}
                     action={onMaterialize}
                 />
@@ -365,12 +367,19 @@ const NodeComponent = React.memo(function NodeComponent(props: { id: string; dat
         [id, materializeNode]
     )
 
-    const canOpenInEditor = type !== 'table' && savedQueryId
+    const canOpenInEditor = type !== 'table' && type !== 'endpoint' && savedQueryId
     const handleNodeClick = useCallback((): void => {
-        if (canOpenInEditor) {
+        if (type === 'endpoint') {
+            const versionMatch = props.data.name.match(/^(.+)_v(\d+)$/)
+            if (versionMatch) {
+                newTab(urls.endpoint(versionMatch[1], parseInt(versionMatch[2])))
+            } else {
+                newTab(urls.endpoint(props.data.name))
+            }
+        } else if (canOpenInEditor) {
             newTab(urls.sqlEditor({ view_id: savedQueryId }))
         }
-    }, [canOpenInEditor, savedQueryId, newTab])
+    }, [type, canOpenInEditor, savedQueryId, newTab])
 
     const handleMouseEnter = useCallback(() => setHoveredNodeId(id), [id, setHoveredNodeId])
     const handleMouseLeave = useCallback(() => setHoveredNodeId(null), [setHoveredNodeId])

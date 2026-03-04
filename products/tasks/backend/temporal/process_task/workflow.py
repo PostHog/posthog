@@ -17,6 +17,7 @@ from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnaps
 
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .activities.execute_task_in_sandbox import ExecuteTaskOutput
+from .activities.forward_pending_message import forward_pending_user_message
 from .activities.get_sandbox_for_repository import (
     GetSandboxForRepositoryInput,
     GetSandboxForRepositoryOutput,
@@ -50,6 +51,7 @@ class ProcessTaskOutput:
 
 
 INACTIVITY_TIMEOUT_MINUTES = 5
+PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 
 
 @temporalio.workflow.defn(name="process-task")
@@ -80,6 +82,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
         sandbox_id = None
+        sandbox_cleaned = False
+        timed_out = False
         run_id = input.run_id
         self._slack_thread_context = input.slack_thread_context
 
@@ -121,6 +125,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
 
+            try:
+                await self._forward_pending_user_message()
+            except Exception as e:
+                workflow.logger.warning(
+                    "forward_pending_user_message_failed_non_fatal",
+                    run_id=self.context.run_id,
+                    error=str(e),
+                )
+
             # Wait for completion signal or inactivity timeout.
             # Heartbeat signals reset the inactivity timer, keeping the workflow alive
             # as long as the agent is actively producing logs.
@@ -131,6 +144,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         timeout=timedelta(minutes=INACTIVITY_TIMEOUT_MINUTES),
                     )
                 except TimeoutError:
+                    timed_out = True
                     break
 
                 if self._heartbeat_received and not self._task_completed:
@@ -139,6 +153,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             if self._task_completed:
                 await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
+            elif timed_out:
+                await self._update_task_run_status("completed", error_message="Run timed out due to inactivity")
 
             await self._post_slack_update()
 
@@ -183,6 +199,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if sandbox_id:
                 await self._read_sandbox_logs(sandbox_id)
                 await self._cleanup_sandbox(sandbox_id)
+                sandbox_cleaned = True
+
+            if sandbox_cleaned and self._slack_thread_context and self._context:
+                await self._post_slack_update(sandbox_cleaned=True)
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         return await workflow.execute_activity(
@@ -230,6 +250,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
+    async def _forward_pending_user_message(self) -> None:
+        await workflow.execute_activity(
+            forward_pending_user_message,
+            self.context.run_id,
+            start_to_close_timeout=timedelta(seconds=PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
     async def _track_workflow_event(self, event_name: str, properties: dict) -> None:
         track_input = TrackWorkflowEventInput(
             event_name=event_name,
@@ -274,7 +302,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
-    async def _post_slack_update(self) -> None:
+    async def _post_slack_update(self, sandbox_cleaned: bool = False) -> None:
         if not self._slack_thread_context:
             return
         await workflow.execute_activity(
@@ -282,6 +310,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             PostSlackUpdateInput(
                 run_id=self.context.run_id,
                 slack_thread_context=self._slack_thread_context,
+                sandbox_cleaned=sandbox_cleaned,
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=2),

@@ -29,6 +29,8 @@ export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARN', 
 export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'ERROR']
 export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
+export const LOG_GROUP_LIMIT = 10
+export const LOG_GROUP_TOTAL_LOGS_LIMIT = 500
 
 export type LogsViewerLogicProps = {
     logicKey?: string
@@ -153,9 +155,10 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => 
             ${hogql.raw(buildBoundaryFilters(request))}
             ${hogql.raw(buildSearchFilters(request))}
             ORDER BY timestamp ${hogql.raw(request.order)}
-            LIMIT ${LOG_VIEWER_LIMIT}
+            LIMIT ${LOG_GROUP_LIMIT}
         )
-        ORDER BY timestamp DESC`
+        ORDER BY timestamp DESC
+        LIMIT ${LOG_GROUP_TOTAL_LOGS_LIMIT}`
 
     const response = await api.queryHogQL(
         query,

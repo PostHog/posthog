@@ -19,10 +19,11 @@ export interface SubscriptionsModalProps extends SubscriptionBaseProps {
     closeModal: () => void
     subscriptionId: number | 'new' | null
     inline?: boolean
+    'data-attr'?: string
 }
 
 export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element {
-    const { closeModal, dashboardId, insightShortId, subscriptionId, isOpen, inline } = props
+    const { closeModal, dashboardId, insightShortId, subscriptionId, isOpen, inline, 'data-attr': dataAttr } = props
     const { push } = useActions(router)
     const { userLoading } = useValues(userLogic)
 
@@ -30,7 +31,15 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
         return <Spinner className="text-2xl" />
     }
     return (
-        <LemonModal onClose={closeModal} isOpen={isOpen} width={600} simple title="" inline={inline}>
+        <LemonModal
+            onClose={closeModal}
+            isOpen={isOpen}
+            width={600}
+            simple
+            title=""
+            inline={inline}
+            data-attr={dataAttr}
+        >
             <PayGateMini
                 feature={AvailableFeature.SUBSCRIPTIONS}
                 handleSubmit={closeModal}
