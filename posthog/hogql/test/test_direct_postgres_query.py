@@ -1,12 +1,14 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
+import psycopg
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.query import HogQLQueryExecutor, postgres_oid_to_clickhouse_type
+from posthog.hogql.query import HogQLQueryExecutor, postgres_error_to_message, postgres_oid_to_clickhouse_type
 
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import DataWarehouseTable
@@ -292,3 +294,64 @@ class TestDirectPostgresQuery(APIBaseTest):
             executor.execute()
 
         self.assertEqual(str(error.exception), "Table not found in the selected connection.")
+
+    def test_postgres_error_to_message_uses_primary_message(self):
+        error = psycopg.errors.GroupingError(
+            'column "posthog_dashboard.name" must appear in the GROUP BY clause or be used in an aggregate function'
+        )
+        self.assertEqual(
+            postgres_error_to_message(error),
+            'column "posthog_dashboard.name" must appear in the GROUP BY clause or be used in an aggregate function',
+        )
+
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_execute_direct_postgres_query_exposes_database_errors(self, mock_connect):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
+                "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+            },
+        )
+
+        mocked_cursor = MagicMock()
+        mocked_cursor.execute.side_effect = psycopg.errors.GroupingError(
+            'column "posthog_dashboard.name" must appear in the GROUP BY clause or be used in an aggregate function'
+        )
+        mocked_connection = MagicMock()
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        executor = HogQLQueryExecutor(
+            query="SELECT name, count(id) FROM posthog_dashboard LIMIT 100",
+            team=self.team,
+            connection_id=str(source.id),
+            selected_direct_source_id=str(source.id),
+        )
+
+        with self.assertRaises(ExposedHogQLError) as error:
+            executor.execute()
+
+        self.assertIn("must appear in the GROUP BY clause", str(error.exception))

@@ -89,6 +89,22 @@ def postgres_oid_to_clickhouse_type(oid: int | None) -> str:
     return POSTGRES_OID_TO_CLICKHOUSE_TYPE.get(oid, "String")
 
 
+def postgres_error_to_message(error: Exception) -> str:
+    if isinstance(error, psycopg.Error):
+        diag = getattr(error, "diag", None)
+        message_primary = getattr(diag, "message_primary", None) if diag else None
+        message_detail = getattr(diag, "message_detail", None) if diag else None
+        if message_primary and message_detail:
+            return f"{message_primary} {message_detail}"
+        if message_primary:
+            return message_primary
+
+    message = str(error).strip()
+    if not message:
+        return "Postgres query failed."
+    return message.splitlines()[0]
+
+
 @dataclasses.dataclass
 class HogQLQueryExecutor:
     query: Union[str, ast.SelectQuery, ast.SelectSetQuery]
@@ -398,18 +414,26 @@ class HogQLQueryExecutor:
         )
         source_config = source.job_inputs or {}
 
-        with psycopg.connect(
-            host=source_config.get("host"),
-            port=source_config.get("port", 5432),
-            dbname=source_config.get("database"),
-            user=source_config.get("user"),
-            password=source_config.get("password"),
-            sslmode="prefer",
-        ) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
-                results = cursor.fetchall()
-                description = cursor.description or []
+        try:
+            with psycopg.connect(
+                host=source_config.get("host"),
+                port=source_config.get("port", 5432),
+                dbname=source_config.get("database"),
+                user=source_config.get("user"),
+                password=source_config.get("password"),
+                sslmode="prefer",
+            ) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
+                    results = cursor.fetchall()
+                    description = cursor.description or []
+        except Exception as error:
+            if self.debug:
+                self.results = []
+                self.error = postgres_error_to_message(error)
+                self.types = []
+                return
+            raise ExposedHogQLError(postgres_error_to_message(error)) from error
 
         self.results = results
         self.types = [
