@@ -248,8 +248,9 @@ pub fn extract_timeout_type(error: &SqlxError) -> Option<&'static str> {
 pub fn is_transient_error(error: &SqlxError) -> bool {
     match error {
         // Connection/pool issues: usually transient.
+        // Note: PoolTimedOut is deliberately excluded — pool exhaustion is systemic,
+        // not transient. Retrying amplifies load on an already-overloaded pool.
         SqlxError::Io(_)
-        | SqlxError::PoolTimedOut
         | SqlxError::PoolClosed
         // TLS/handshake can be transient (network/cert rollover).
         | SqlxError::Tls(_) => true,
@@ -309,9 +310,9 @@ mod tests {
 
     #[test]
     fn test_is_transient_error_connection_errors() {
-        // Test that database connection errors trigger retries
+        // PoolTimedOut is NOT transient — pool exhaustion is systemic, retrying amplifies load
         let pool_timeout_error = SqlxError::PoolTimedOut;
-        assert!(is_transient_error(&pool_timeout_error));
+        assert!(!is_transient_error(&pool_timeout_error));
 
         let pool_closed_error = SqlxError::PoolClosed;
         assert!(is_transient_error(&pool_closed_error));
