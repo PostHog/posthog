@@ -38,6 +38,7 @@ import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
+import { FormContentStorage } from 'scenes/surveys/forms/formTypes'
 
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -3617,7 +3618,7 @@ export interface Survey extends WithAccessControl {
     _create_in_folder?: string | null
     headline_summary?: string | null
     headline_response_count?: number | null
-    form_content?: Record<string, unknown> | null
+    form_content?: FormContentStorage | null
 }
 
 export enum SurveyMatchType {
