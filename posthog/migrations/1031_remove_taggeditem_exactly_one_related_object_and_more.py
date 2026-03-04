@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("conversations", "0023_ticket_sla_due_at_index"),
         ("event_definitions", "0002_schemapropertygroupproperty_is_optional_in_types"),
-        ("posthog", "1029_hogflow_draft_fields"),
+        ("posthog", "1030_add_last_calculation_duration_ms"),
     ]
 
     operations = [
