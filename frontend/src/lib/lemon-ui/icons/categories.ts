@@ -83,7 +83,7 @@ export const OBJECTS = {
         'IconNewspaper',
         'IconAIText',
     ],
-}
+} as const
 
 export const TECHNOLOGY = {
     Workflows: [
@@ -189,7 +189,7 @@ export const TECHNOLOGY = {
         'IconSwift',
         'IconElixir',
     ],
-}
+} as const
 
 export const ELEMENTS = {
     Actions: [
@@ -284,7 +284,7 @@ export const ELEMENTS = {
         'IconPercentage',
         'IconSquareRoot',
     ],
-}
+} as const
 
 export const TEAMS_AND_COMPANIES = {
     Analytics: [
@@ -321,7 +321,7 @@ export const TEAMS_AND_COMPANIES = {
         'IconRewindPlay',
         'IconVideoCamera',
     ],
-    'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting', 'IconBalance'],
+    'Feature Success': ['IconFlask', 'IconTestTube', 'IconSplitTesting', 'IconBalance'],
     Modeling: ['IconDirectedGraph'],
     Pipeline: ['IconWebhooks', 'IconDecisionTree', 'IconEndpoints'],
     'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
@@ -329,4 +329,4 @@ export const TEAMS_AND_COMPANIES = {
     ErrorTracking: ['IconIssue'],
     LLMAnalytics: ['IconLlmAnalytics', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement', 'IconScatter'],
     PostHogAI: ['IconBrain'],
-}
+} as const
