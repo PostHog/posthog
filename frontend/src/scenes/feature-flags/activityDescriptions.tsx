@@ -82,10 +82,16 @@ const featureFlagActionsMapping: Record<
                 changes.push(<>changed the filter conditions to apply to no users</>)
             } else {
                 filtersAfter.payloads &&
-                    Object.keys(filtersAfter.payloads).forEach((key: string) => {
-                        const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
-                        changes.push(<SentenceList listParts={[changedPayload]} prefix="changed payload to" />)
-                    })
+                    Object.keys(filtersAfter.payloads)
+                        .filter((key) => {
+                            const before = filtersBefore?.payloads?.[key]?.toString() || null
+                            const after = filtersAfter.payloads?.[key]?.toString() || null
+                            return before !== after
+                        })
+                        .forEach((key: string) => {
+                            const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
+                            changes.push(<SentenceList listParts={[changedPayload]} prefix="changed payload to" />)
+                        })
 
                 const groupAdditions: (string | JSX.Element | null)[] = []
                 const groupRemovals: (string | JSX.Element | null)[] = []
@@ -177,40 +183,54 @@ const featureFlagActionsMapping: Record<
             )
         } else if (isMultivariateFlag) {
             filtersAfter.payloads &&
-                Object.keys(filtersAfter.payloads).forEach((key: string) => {
-                    const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
-                    changes.push(
-                        <SentenceList
-                            listParts={[
-                                <span key={key} className="highlighted-activity">
-                                    {changedPayload}
-                                </span>,
-                            ]}
-                            prefix={
-                                <span>
-                                    changed payload on <b>variant: {key}</b> to
-                                </span>
-                            }
-                        />
-                    )
-                })
+                Object.keys(filtersAfter.payloads)
+                    .filter((key) => {
+                        const before = filtersBefore?.payloads?.[key]?.toString() || null
+                        const after = filtersAfter.payloads?.[key]?.toString() || null
+                        return before !== after
+                    })
+                    .forEach((key: string) => {
+                        const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
+                        changes.push(
+                            <SentenceList
+                                listParts={[
+                                    <span key={key} className="highlighted-activity">
+                                        {changedPayload}
+                                    </span>,
+                                ]}
+                                prefix={
+                                    <span>
+                                        changed payload on <b>variant: {key}</b> to
+                                    </span>
+                                }
+                            />
+                        )
+                    })
 
             // Identify removed variants
             const beforeVariants = new Set((filtersBefore?.multivariate?.variants || []).map((v) => v.key))
             const afterVariants = new Set((filtersAfter?.multivariate?.variants || []).map((v) => v.key))
             const removedVariants = [...beforeVariants].filter((key) => !afterVariants.has(key))
 
-            // First add the rollout percentage changes
-            changes.push(
-                <SentenceList
-                    listParts={(filtersAfter.multivariate?.variants || []).map((v) => (
-                        <div key={v.key} className="highlighted-activity">
-                            {v.key}: <strong>{v.rollout_percentage}%</strong>
-                        </div>
-                    ))}
-                    prefix="changed the rollout percentage for the variants to"
-                />
+            // Only show rollout percentage changes if they actually changed
+            const beforeVariantMap = new Map(
+                (filtersBefore?.multivariate?.variants || []).map((v) => [v.key, v.rollout_percentage])
             )
+            const changedVariants = (filtersAfter.multivariate?.variants || []).filter(
+                (v) => beforeVariantMap.get(v.key) !== v.rollout_percentage
+            )
+            if (changedVariants.length > 0) {
+                changes.push(
+                    <SentenceList
+                        listParts={changedVariants.map((v) => (
+                            <div key={v.key} className="highlighted-activity">
+                                {v.key}: <strong>{v.rollout_percentage}%</strong>
+                            </div>
+                        ))}
+                        prefix="changed the rollout percentage for the variants to"
+                    />
+                )
+            }
 
             // Then add removed variants if any
             if (removedVariants.length > 0) {
