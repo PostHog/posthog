@@ -1,15 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconAI, IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -55,6 +59,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         hasUnsavedChanges,
         draftContent,
         draftIsPrivate,
+        suggesting,
     } = useValues(logic)
     const {
         setStatus,
@@ -65,7 +70,21 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         loadOlderMessages,
         setDraftContent,
         setDraftIsPrivate,
+        suggestReply,
     } = useActions(logic)
+
+    const aiSuggestionEnabled = useFeatureFlag('PRODUCT_SUPPORT_AI_SUGGESTION')
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const { preflight } = useValues(preflightLogic)
+    const aiAvailable = preflight?.openai_available
+
+    const aiDisabledReason = !aiAvailable
+        ? 'AI features are not available on this instance'
+        : !dataProcessingAccepted
+          ? dataProcessingApprovalDisabledReason || 'AI data processing must be approved for your organization'
+          : suggesting
+            ? 'Generating suggestion...'
+            : null
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -118,7 +137,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 }}
             />
 
-            <div className="flex flex-col lg:flex-row items-start">
+            <div className="flex flex-col lg:flex-row items-start pt-4">
                 <div
                     style={{ width: chatPanelWidth(desiredSize) }}
                     className="relative shrink-0 pr-2 max-w-full lg:max-w-[calc(100%-300px)] mb-4 lg:mb-0"
@@ -140,6 +159,22 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onDraftChange={setDraftContent}
                         isPrivate={draftIsPrivate}
                         onPrivateChange={setDraftIsPrivate}
+                        extraActions={
+                            aiSuggestionEnabled ? (
+                                <AIConsentPopoverWrapper>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconAI />}
+                                        onClick={suggestReply}
+                                        loading={suggesting}
+                                        disabledReason={aiDisabledReason}
+                                    >
+                                        Suggest reply
+                                    </LemonButton>
+                                </AIConsentPopoverWrapper>
+                            ) : undefined
+                        }
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} />
