@@ -15,7 +15,6 @@ import numpy as np
 import structlog
 import temporalio
 from asgiref.sync import sync_to_async
-from future.moves.builtins import str
 from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
