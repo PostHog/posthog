@@ -12,7 +12,10 @@ import { FlaggedFeature } from '../FlaggedFeature'
 import { metalyticsLogic } from '../Metalytics/metalyticsLogic'
 import { SceneDataAttrKeyProps } from './utils'
 
-export function SceneMetalyticsSummaryButton({ dataAttrKey }: SceneDataAttrKeyProps): JSX.Element | null {
+export function SceneMetalyticsSummaryButton({
+    dataAttrKey,
+    disabledReasons,
+}: SceneDataAttrKeyProps): JSX.Element | null {
     const { instanceId, viewCount, viewCountLoading } = useValues(metalyticsLogic)
     const safeViewCount = viewCount?.views ?? 0
     const safeUniqueUsers = viewCount?.users ?? 0
@@ -29,6 +32,7 @@ export function SceneMetalyticsSummaryButton({ dataAttrKey }: SceneDataAttrKeyPr
                 tooltip={`${safeUniqueUsers} PostHog members have viewed this a total of ${safeViewCount} times. Click to see more.`}
                 menuItem
                 disabled={viewCountLoading}
+                disabledReasons={disabledReasons}
                 data-attr={`${dataAttrKey}-metalytics-summary-button`}
             >
                 {viewCountLoading ? <Spinner textColored /> : <IconPulse />}

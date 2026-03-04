@@ -16875,6 +16875,64 @@
             "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
             "type": "object"
         },
+        "GithubIssueSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "html_url": {
+                    "type": "string"
+                },
+                "labels": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "locked": {
+                    "type": "boolean"
+                },
+                "number": {
+                    "type": "number"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            },
+            "required": ["html_url", "number", "labels", "created_at", "updated_at", "locked", "state"],
+            "type": "object"
+        },
+        "GithubIssueSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/GithubIssueSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "github",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "issue",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "GoalLine": {
             "additionalProperties": false,
             "properties": {
@@ -19102,6 +19160,58 @@
         "LinkedinAdsTableKeywords": {
             "enum": ["campaigns"],
             "type": "string"
+        },
+        "LlmEvalSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "evaluation_id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "target_event_id": {
+                    "type": "string"
+                },
+                "target_event_type": {
+                    "type": "string"
+                },
+                "trace_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["evaluation_id", "trace_id"],
+            "type": "object"
+        },
+        "LlmEvaluationSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/LlmEvalSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "llm_analytics",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "evaluation",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
         },
         "LoadingBlock": {
             "additionalProperties": false,
@@ -30631,6 +30741,93 @@
             "required": ["type", "session_id", "timestamp_ms"],
             "type": "object"
         },
+        "SessionReplaySegment": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "distinct_id": {
+                    "type": "string"
+                },
+                "end_time": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "start_time": {
+                    "type": "string"
+                }
+            },
+            "required": ["session_id", "start_time", "end_time", "distinct_id", "content"],
+            "type": "object"
+        },
+        "SessionSegmentClusterMetrics": {
+            "additionalProperties": false,
+            "properties": {
+                "active_users_in_period": {
+                    "type": "number"
+                },
+                "occurrence_count": {
+                    "type": "number"
+                },
+                "relevant_user_count": {
+                    "type": "number"
+                }
+            },
+            "required": ["relevant_user_count", "active_users_in_period", "occurrence_count"],
+            "type": "object"
+        },
+        "SessionSegmentClusterSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "actionable": {
+                    "type": "boolean"
+                },
+                "label_title": {
+                    "type": "string"
+                },
+                "metrics": {
+                    "$ref": "#/definitions/SessionSegmentClusterMetrics"
+                },
+                "segments": {
+                    "items": {
+                        "$ref": "#/definitions/SessionReplaySegment"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["label_title", "actionable", "segments", "metrics"],
+            "type": "object"
+        },
+        "SessionSegmentClusterSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/SessionSegmentClusterSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "session_replay",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "session_segment_cluster",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "SessionsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -30892,6 +31089,27 @@
                     "type": "boolean"
                 }
             },
+            "type": "object"
+        },
+        "SignalInput": {
+            "discriminator": {
+                "propertyName": "source_type"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/SessionSegmentClusterSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/LlmEvaluationSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/ZendeskTicketSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/GithubIssueSignalInput"
+                }
+            ],
+            "required": ["source_type"],
             "type": "object"
         },
         "SimilarIssue": {
@@ -32122,6 +32340,7 @@
                 "log_attributes",
                 "log_resource_attributes",
                 "replay",
+                "replay_saved_filters",
                 "revenue_analytics_properties",
                 "resources",
                 "error_tracking_properties",
@@ -35242,6 +35461,61 @@
                     "type": "boolean"
                 }
             },
+            "type": "object"
+        },
+        "ZendeskTicketSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tags": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            },
+            "required": ["url", "type", "tags", "created_at", "priority", "status"],
+            "type": "object"
+        },
+        "ZendeskTicketSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/ZendeskTicketSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "zendesk",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "ticket",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
             "type": "object"
         },
         "integer": {

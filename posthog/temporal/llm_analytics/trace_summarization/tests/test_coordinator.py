@@ -2,6 +2,7 @@
 
 import pytest
 
+from posthog.temporal.llm_analytics.shared_activities import JobConfig, resolve_level_jobs_for_team
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_ITEMS_PER_WINDOW,
@@ -126,3 +127,41 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         r1["failed_team_ids"].append(123)
 
         assert r2["failed_team_ids"] == []
+
+    @pytest.mark.parametrize(
+        "team_jobs,analysis_level,legacy_event_filters,expected_job_ids",
+        [
+            pytest.param(
+                [],
+                "trace",
+                [{"event": "$ai_generation"}],
+                [0],
+                id="falls_back_to_legacy_when_no_jobs_exist",
+            ),
+            pytest.param(
+                [
+                    JobConfig(job_id=11, name="trace-job", analysis_level="trace", event_filters=[]),
+                    JobConfig(job_id=22, name="gen-job", analysis_level="generation", event_filters=[]),
+                ],
+                "trace",
+                [{"event": "$ai_generation"}],
+                [11],
+                id="uses_matching_jobs_when_present",
+            ),
+            pytest.param(
+                [JobConfig(job_id=33, name="gen-job", analysis_level="generation", event_filters=[])],
+                "trace",
+                [{"event": "$ai_generation"}],
+                [],
+                id="skips_when_only_other_level_jobs_exist",
+            ),
+        ],
+    )
+    def test_resolve_level_jobs_for_team(self, team_jobs, analysis_level, legacy_event_filters, expected_job_ids):
+        result = resolve_level_jobs_for_team(
+            team_jobs=team_jobs,
+            analysis_level=analysis_level,
+            legacy_event_filters=legacy_event_filters,
+        )
+
+        assert [job.job_id for job in result] == expected_job_ids

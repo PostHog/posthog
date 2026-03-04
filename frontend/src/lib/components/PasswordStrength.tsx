@@ -11,8 +11,12 @@ export type ValidatedPasswordResult = {
 }
 
 export function validatePassword(password: string = ''): ValidatedPasswordResult {
-    // Checks the validation against the zxcvbn library
-    // and any other custom validation we have
+    if (password.length > 72) {
+        return {
+            score: 0,
+            feedback: 'Maximum 72 characters',
+        }
+    }
 
     const result = zxcvbn(password)
 

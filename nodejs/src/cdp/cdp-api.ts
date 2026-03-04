@@ -29,6 +29,7 @@ import { BatchExportHogFunctionService, NotFoundError, ParseError } from './serv
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
@@ -89,6 +90,7 @@ export class CdpApi {
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             config.SITE_URL,
             deps.teamManager,
+            new GroupsManagerService(deps.teamManager, deps.groupRepository),
             this.hogFunctionManager,
             this.hogExecutor,
             this.hogWatcher,
