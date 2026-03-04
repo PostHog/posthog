@@ -9219,52 +9219,38 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         self.assertEqual(sorted(data["evaluation_tags"]), ["app", "docs"])
 
     @pytest.mark.ee
-    def test_evaluation_tags_validation(self):
-        """Test that evaluation_tags must be a subset of tags"""
-        # Valid case: evaluation_tags is subset of tags
+    def test_evaluation_contexts_independent_from_tags(self):
+        """Evaluation contexts are independent from tags — no subset constraint."""
+        # Contexts and tags can be completely different
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
-                "name": "Valid evaluation tags",
-                "key": "valid-eval-tags",
+                "name": "Independent contexts",
+                "key": "independent-contexts",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
-                "tags": ["app", "marketing", "docs"],
-                "evaluation_tags": ["app", "docs"],
+                "tags": ["app", "docs"],
+                "evaluation_tags": ["production", "staging"],
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(sorted(response.json()["evaluation_tags"]), ["production", "staging"])
+        self.assertEqual(sorted(response.json()["evaluation_contexts"]), ["production", "staging"])
 
-        # Invalid case: evaluation_tags contains tag not in tags
+        # Contexts without any tags
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
-                "name": "Invalid evaluation tags",
-                "key": "invalid-eval-tags",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
-                "tags": ["app", "docs"],
-                "evaluation_tags": ["app", "marketing"],  # 'marketing' not in tags
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Evaluation tags must be a subset of tags", str(response.data))
-        self.assertIn("marketing", str(response.data))
-
-        # Edge case: empty tags but non-empty evaluation_tags
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "No tags but has evaluation tags",
-                "key": "no-tags-eval-tags",
+                "name": "Contexts without tags",
+                "key": "contexts-no-tags",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "tags": [],
-                "evaluation_tags": ["app"],
+                "evaluation_tags": ["production"],
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Evaluation tags must be a subset of tags", str(response.data))
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["evaluation_contexts"], ["production"])
 
     @pytest.mark.ee
     def test_evaluation_tags_hidden_when_feature_flag_disabled(self):
@@ -9320,8 +9306,8 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
 
     @pytest.mark.ee
     def test_evaluation_tags_in_cache(self):
+        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
         from posthog.models.feature_flag import set_feature_flags_for_team_in_cache
-        from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -9331,9 +9317,9 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             created_by=self.user,
         )
 
-        # Create evaluation tags
-        app_tag = Tag.objects.create(name="app", team_id=self.team.id)
-        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=app_tag)
+        # Create evaluation context
+        ctx = EvaluationContext.objects.create(name="app", team=self.team)
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
 
         # Set flags in cache
         set_feature_flags_for_team_in_cache(self.team.project_id)

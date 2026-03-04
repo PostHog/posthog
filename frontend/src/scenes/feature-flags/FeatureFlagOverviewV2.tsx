@@ -206,7 +206,7 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                 </label>
                                 <TagsDisplay
                                     tags={featureFlag.tags || []}
-                                    evaluationTags={featureFlag.evaluation_tags || []}
+                                    evaluationTags={featureFlag.evaluation_contexts || []}
                                     flagId={featureFlag.id}
                                     hasEvaluationTags={hasEvaluationTags}
                                 />

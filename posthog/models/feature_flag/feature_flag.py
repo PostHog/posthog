@@ -602,8 +602,8 @@ def get_feature_flags(
 
     qs = qs.annotate(
         evaluation_tag_names_agg=ArrayAgg(
-            "evaluation_tags__tag__name",
-            filter=Q(evaluation_tags__isnull=False),
+            "flag_evaluation_contexts__evaluation_context__name",
+            filter=Q(flag_evaluation_contexts__isnull=False),
             distinct=True,
         )
     )
@@ -673,6 +673,7 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
                 # This avoids N+1 queries when the Rust service needs to access evaluation
                 # tags for many flags at once.
                 evaluation_tags_list = flag_data.pop("evaluation_tags", None)
+                flag_data.pop("evaluation_contexts", None)
                 flag = FeatureFlag(**flag_data)
                 # Store the evaluation tags as a private attribute. The evaluation_tag_names
                 # property will check this first before falling back to a database query.

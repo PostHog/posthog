@@ -440,7 +440,7 @@ export function OverViewTab({
                 return enabledFeatureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
                     <FeatureFlagEvaluationTags
                         tags={tags}
-                        evaluationTags={featureFlag.evaluation_tags || []}
+                        evaluationTags={featureFlag.evaluation_contexts || []}
                         flagId={featureFlag.id}
                         context="static"
                     />

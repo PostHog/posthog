@@ -341,21 +341,23 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     {hasEvaluationTags ? (
                                                         <LemonField name="tags">
                                                             {({ value: formTags, onChange: onChangeTags }) => (
-                                                                <LemonField name="evaluation_tags">
+                                                                <LemonField name="evaluation_contexts">
                                                                     {({
-                                                                        value: formEvalTags,
-                                                                        onChange: onChangeEvalTags,
+                                                                        value: formEvalContexts,
+                                                                        onChange: onChangeEvalContexts,
                                                                     }) => (
                                                                         <FeatureFlagEvaluationTags
                                                                             tags={formTags}
-                                                                            evaluationTags={formEvalTags || []}
+                                                                            evaluationTags={formEvalContexts || []}
                                                                             context="form"
                                                                             onChange={(
                                                                                 updatedTags,
-                                                                                updatedEvaluationTags
+                                                                                updatedEvaluationContexts
                                                                             ) => {
                                                                                 onChangeTags(updatedTags)
-                                                                                onChangeEvalTags(updatedEvaluationTags)
+                                                                                onChangeEvalContexts(
+                                                                                    updatedEvaluationContexts
+                                                                                )
                                                                             }}
                                                                             tagsAvailable={availableTags.filter(
                                                                                 (tag: string) =>

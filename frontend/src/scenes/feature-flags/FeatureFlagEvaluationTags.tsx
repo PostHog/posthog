@@ -9,12 +9,9 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { colorForString } from 'lib/utils'
 
+import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
 import { featureFlagEvaluationTagsLogic } from './featureFlagEvaluationTagsLogic'
 import { featureFlagLogic } from './featureFlagLogic'
-
-// Utility function to keep evaluation tags in sync with regular tags
-const syncEvaluationTags = (tags: string[], evaluationTags: string[]): string[] =>
-    evaluationTags.filter((tag) => tags.includes(tag))
 
 interface FeatureFlagEvaluationTagsProps {
     tags: string[]
@@ -47,6 +44,7 @@ export function FeatureFlagEvaluationTags({
         useActions(logic)
 
     const { featureFlagLoading } = useValues(featureFlagLogic)
+    const { availableContexts } = useValues(defaultEvaluationContextsLogic)
 
     const handleSave = (): void => {
         if (onSave) {
@@ -64,89 +62,57 @@ export function FeatureFlagEvaluationTags({
     }
 
     const handleTagsChange = (newTags: string[]): void => {
-        // Sync evaluation tags when tags change
-        const syncedEvaluationTags = syncEvaluationTags(newTags, localEvaluationTags)
-
         setLocalTags(newTags)
-        setLocalEvaluationTags(syncedEvaluationTags)
-
         if (onChange) {
-            onChange(newTags, syncedEvaluationTags)
+            onChange(newTags, localEvaluationTags)
         }
     }
 
-    const toggleEvaluationTag = (tag: string): void => {
-        const newEvaluationTags = localEvaluationTags.includes(tag)
-            ? localEvaluationTags.filter((t: string) => t !== tag)
-            : [...localEvaluationTags, tag]
-
-        setLocalEvaluationTags(newEvaluationTags)
-
+    const handleEvaluationContextsChange = (newContexts: string[]): void => {
+        setLocalEvaluationTags(newContexts)
         if (onChange) {
-            onChange(localTags, newEvaluationTags)
+            onChange(localTags, newContexts)
         }
     }
 
     if (isEditing) {
-        return (
-            <div className={clsx(className, 'flex flex-col gap-2')}>
-                <LemonInputSelect
-                    mode="multiple"
-                    allowCustomValues
-                    value={localTags}
-                    options={tagsAvailable?.map((t: string) => ({ key: t, label: t }))}
-                    onChange={handleTagsChange}
-                    onBlur={() => {
-                        // Exit editing mode if no tags were added
-                        if (localTags.length === 0) {
-                            setIsEditing(false)
-                        }
-                    }}
-                    loading={featureFlagLoading}
-                    data-attr="feature-flag-tags-input"
-                    placeholder='Add tags like "v2-launch", "experiment", or contexts like "marketing", "checkout"'
-                    autoFocus
-                />
+        const contextOptions = [...new Set([...availableContexts, ...localEvaluationTags])]
+            .sort()
+            .map((c: string) => ({ key: c, label: c }))
 
-                {localTags.length > 0 && (
-                    <div className="flex flex-col gap-2">
-                        <div className="text-xs text-muted">
-                            Click the bolt to mark a tag as an evaluation context, restricting where this flag
-                            evaluates.
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                            {localTags.map((tag: string) => {
-                                const isEvaluationTag = localEvaluationTags.includes(tag)
-                                return (
-                                    <Tooltip
-                                        key={tag}
-                                        title={
-                                            isEvaluationTag
-                                                ? 'Evaluation context – click to remove'
-                                                : 'Click to mark as evaluation context'
-                                        }
-                                    >
-                                        <LemonTag
-                                            type={isEvaluationTag ? 'success' : colorForString(tag)}
-                                            icon={
-                                                <IconBolt
-                                                    className={clsx(
-                                                        'cursor-pointer transition-opacity',
-                                                        isEvaluationTag ? 'opacity-100' : 'opacity-30 hover:opacity-60'
-                                                    )}
-                                                />
-                                            }
-                                            onClick={() => toggleEvaluationTag(tag)}
-                                            className="cursor-pointer"
-                                        >
-                                            {tag}
-                                        </LemonTag>
-                                    </Tooltip>
-                                )
-                            })}
-                        </div>
+        return (
+            <div className={clsx(className, 'flex flex-col gap-3')}>
+                <div className="flex flex-col gap-1">
+                    <div className="text-xs font-semibold">Tags</div>
+                    <LemonInputSelect
+                        mode="multiple"
+                        allowCustomValues
+                        value={localTags}
+                        options={tagsAvailable?.map((t: string) => ({ key: t, label: t }))}
+                        onChange={handleTagsChange}
+                        loading={featureFlagLoading}
+                        data-attr="feature-flag-tags-input"
+                        placeholder='Add tags like "v2-launch", "experiment"'
+                        autoFocus
+                    />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                    <div className="text-xs font-semibold">Evaluation contexts</div>
+                    <div className="text-xs text-muted">
+                        Restrict where this flag evaluates at runtime (e.g., "production", "staging").
                     </div>
-                )}
+                    <LemonInputSelect
+                        mode="multiple"
+                        allowCustomValues
+                        value={localEvaluationTags}
+                        options={contextOptions}
+                        onChange={handleEvaluationContextsChange}
+                        loading={featureFlagLoading}
+                        data-attr="feature-flag-evaluation-contexts-input"
+                        placeholder='Add contexts like "production", "staging"'
+                    />
+                </div>
 
                 {onSave && !onChange && (
                     <div className="flex gap-1">
@@ -155,8 +121,8 @@ export function FeatureFlagEvaluationTags({
                             variant="outline"
                             onClick={handleSave}
                             disabled={featureFlagLoading}
-                            tooltip="Save tags"
-                            aria-label="Save tags"
+                            tooltip="Save"
+                            aria-label="Save"
                         >
                             <IconCheck />
                         </ButtonPrimitive>
@@ -178,30 +144,31 @@ export function FeatureFlagEvaluationTags({
     return (
         <div className={clsx(className, 'inline-flex flex-wrap gap-1 items-center')}>
             {tags.length > 0 &&
-                tags.map((tag) => {
-                    const isEvaluationTag = evaluationTags.includes(tag)
-                    return (
-                        <Tooltip key={tag} title={isEvaluationTag ? 'Evaluation context' : undefined}>
-                            <LemonTag
-                                type={isEvaluationTag ? 'success' : colorForString(tag)}
-                                icon={isEvaluationTag ? <IconBolt /> : undefined}
-                            >
-                                {tag}
-                            </LemonTag>
-                        </Tooltip>
-                    )
-                })}
+                tags.map((tag) => (
+                    <LemonTag key={tag} type={colorForString(tag)}>
+                        {tag}
+                    </LemonTag>
+                ))}
+
+            {evaluationTags.length > 0 &&
+                evaluationTags.map((ctx) => (
+                    <Tooltip key={`ctx-${ctx}`} title="Evaluation context">
+                        <LemonTag type="success" icon={<IconBolt />}>
+                            {ctx}
+                        </LemonTag>
+                    </Tooltip>
+                ))}
 
             {!staticOnly && (
                 <LemonTag
                     type="none"
                     onClick={() => setIsEditing(true)}
                     data-attr="button-edit-tags"
-                    icon={tags.length > 0 ? <IconPencil /> : <IconPlus />}
+                    icon={tags.length > 0 || evaluationTags.length > 0 ? <IconPencil /> : <IconPlus />}
                     className="border border-dashed cursor-pointer"
                     size="medium"
                 >
-                    {tags.length > 0 ? 'Edit' : 'Add tags'}
+                    {tags.length > 0 || evaluationTags.length > 0 ? 'Edit' : 'Add tags'}
                 </LemonTag>
             )}
         </div>

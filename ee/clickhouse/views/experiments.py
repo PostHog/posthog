@@ -22,8 +22,15 @@ from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.cohort import Cohort
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
-from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
+from posthog.models.evaluation_context import FeatureFlagEvaluationContext
+from posthog.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentMetricResult,
+    ExperimentSavedMetric,
+    ExperimentTimeseriesRecalculation,
+)
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
@@ -507,7 +514,7 @@ class EnterpriseExperimentsViewSet(
         has_evaluation_tags = request.query_params.get("has_evaluation_tags")
         if has_evaluation_tags is not None:
             filter_value = has_evaluation_tags.lower() in ("true", "1", "yes")
-            queryset = queryset.annotate(eval_tag_count=Count("evaluation_tags"))
+            queryset = queryset.annotate(eval_tag_count=Count("flag_evaluation_contexts"))
             if filter_value:
                 queryset = queryset.filter(eval_tag_count__gt=0)
             else:
@@ -529,8 +536,8 @@ class EnterpriseExperimentsViewSet(
             "analytics_dashboards",
             "surveys_linked_flag",
             Prefetch(
-                "evaluation_tags",
-                queryset=FeatureFlagEvaluationTag.objects.select_related("tag"),
+                "flag_evaluation_contexts",
+                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
             ),
             Prefetch(
                 "team__cohort_set",

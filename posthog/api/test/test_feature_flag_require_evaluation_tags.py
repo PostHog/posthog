@@ -4,6 +4,7 @@ from unittest.mock import patch
 from rest_framework import status
 
 from posthog.models import FeatureFlag, Tag
+from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 
 
@@ -373,6 +374,8 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         )
         tag = Tag.objects.create(name="production", team_id=self.team.id)
         FeatureFlagEvaluationTag.objects.create(feature_flag=flag_with_tags, tag=tag)
+        ctx = EvaluationContext.objects.create(name="production", team=self.team)
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag_with_tags, evaluation_context=ctx)
 
         # Create flag without evaluation tags
         FeatureFlag.objects.create(

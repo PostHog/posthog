@@ -142,6 +142,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "RemoteConfig",
         "TeamConversationsSlackConfig",
         "TeamCustomerAnalyticsConfig",
+        "TeamDefaultEvaluationContext",
         "TeamDefaultEvaluationTag",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",

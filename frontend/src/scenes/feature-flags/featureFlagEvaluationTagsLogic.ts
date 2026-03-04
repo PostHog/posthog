@@ -69,7 +69,7 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
             if (typeof flagId === 'number') {
                 featureFlagLogic({ id: flagId }).actions.saveFeatureFlag({
                     tags: values.localTags,
-                    evaluation_tags: values.localEvaluationTags,
+                    evaluation_contexts: values.localEvaluationTags,
                 })
             }
         },

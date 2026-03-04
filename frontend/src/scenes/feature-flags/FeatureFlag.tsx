@@ -630,14 +630,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     {({ value: formTags, onChange: onChangeTags }) => (
                                         <>
                                             {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                                <LemonField name="evaluation_tags">
-                                                    {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
+                                                <LemonField name="evaluation_contexts">
+                                                    {({ value: formEvalContexts, onChange: onChangeEvalContexts }) => (
                                                         <FeatureFlagEvaluationTags
                                                             tags={formTags}
-                                                            evaluationTags={formEvalTags || []}
-                                                            onChange={(updatedTags, updatedEvaluationTags) => {
+                                                            evaluationTags={formEvalContexts || []}
+                                                            onChange={(updatedTags, updatedEvaluationContexts) => {
                                                                 onChangeTags(updatedTags)
-                                                                onChangeEvalTags(updatedEvaluationTags)
+                                                                onChangeEvalContexts(updatedEvaluationContexts)
                                                             }}
                                                             tagsAvailable={tags.filter(
                                                                 (tag: string) => !formTags?.includes(tag)
@@ -730,12 +730,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
                                     <FeatureFlagEvaluationTags
                                         tags={featureFlag.tags}
-                                        evaluationTags={featureFlag.evaluation_tags || []}
-                                        onSave={(updatedTags, updatedEvaluationTags) => {
+                                        evaluationTags={featureFlag.evaluation_contexts || []}
+                                        onSave={(updatedTags, updatedEvaluationContexts) => {
                                             const updatedFlag = {
                                                 ...featureFlag,
                                                 tags: updatedTags,
-                                                evaluation_tags: updatedEvaluationTags,
+                                                evaluation_contexts: updatedEvaluationContexts,
                                             }
                                             updateFlag(updatedFlag)
                                             saveFeatureFlag(updatedFlag)
@@ -1683,7 +1683,7 @@ function FeatureFlagRollout({
                                 {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
                                     <FeatureFlagEvaluationTags
                                         tags={featureFlag.tags}
-                                        evaluationTags={featureFlag.evaluation_tags || []}
+                                        evaluationTags={featureFlag.evaluation_contexts || []}
                                         flagId={featureFlag.id}
                                         context="static"
                                     />
