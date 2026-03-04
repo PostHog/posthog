@@ -12,7 +12,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { newTabPreferencesLogic } from 'scenes/new-tab/newTabPreferencesLogic'
 import { NewTabScene } from 'scenes/new-tab/NewTabScene'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -103,9 +102,8 @@ function HomePageContent(): JSX.Element {
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
     const isAIFirst = useFeatureFlag('AI_FIRST')
-    const { aiFirstSearchEnabled } = useValues(newTabPreferencesLogic)
 
-    if (isAIFirst && aiFirstSearchEnabled) {
+    if (isAIFirst) {
         return (
             <div className="-m-4">
                 <NewTabScene />

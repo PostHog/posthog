@@ -192,7 +192,7 @@ export function AiFirstNavBar({ children }: { children?: React.ReactNode }): JSX
                         <Collapsible
                             open={expandedNavSections.ai ?? true}
                             onOpenChange={() => toggleNavSection('ai')}
-                            className={cn('px-1 mt-2', isLayoutNavCollapsed && 'mt-0')}
+                            className={cn('px-1', isLayoutNavCollapsed && 'mt-0')}
                         >
                             {!isLayoutNavCollapsed && (
                                 <Collapsible.Trigger icon={<IconSparkles />}>PostHog AI</Collapsible.Trigger>
@@ -236,7 +236,7 @@ export function AiFirstNavBar({ children }: { children?: React.ReactNode }): JSX
                         <Collapsible
                             open={expandedNavSections.project ?? true}
                             onOpenChange={() => toggleNavSection('project')}
-                            className="px-1 mt-2"
+                            className="px-1 mt-1"
                         >
                             <Collapsible.Trigger
                                 icon={!isLayoutNavCollapsed ? <IconFolder /> : undefined}
@@ -314,7 +314,7 @@ export function AiFirstNavBar({ children }: { children?: React.ReactNode }): JSX
                         <Collapsible
                             open={expandedNavSections.apps ?? false}
                             onOpenChange={() => toggleNavSection('apps')}
-                            className="px-2 mt-2 group/colorful-product-icons colorful-product-icons-true"
+                            className="px-2 mt-1 group/colorful-product-icons colorful-product-icons-true"
                         >
                             <SectionTrigger
                                 icon={<IconApps />}
