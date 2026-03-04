@@ -22,6 +22,7 @@ import { isInsightVizNode } from '~/queries/utils'
 import { journeyBuilderLogic } from 'products/customer_analytics/frontend/components/CustomerJourneys/journeyBuilderLogic'
 
 import { funnelDataLogic } from '../funnelDataLogic'
+import { BuilderPathFlowNode } from './BuilderPathFlowNode'
 import { BuilderStepNode } from './BuilderStepNode'
 import { JourneyFlowEdge, ProfileFlowEdge } from './FunnelFlowEdge'
 import { AnyFlowNode, funnelFlowGraphLogic } from './funnelFlowGraphLogic'
@@ -40,6 +41,7 @@ const NODE_TYPES = {
     journeyCreate: BuilderStepNode,
     profile: ProfileFlowNode,
     pathNode: PathFlowNode,
+    builderPathNode: BuilderPathFlowNode,
 } as NodeTypes
 
 const PROFILE_GRAPH_HEIGHT = 140

@@ -79,7 +79,7 @@ async function layoutNodes(
         id: 'root',
         layoutOptions: { ...ELK_OPTIONS, ...elkOptionsOverride },
         children: nodes.map((node) => {
-            const isPathNode = node.type === 'pathNode'
+            const isPathNode = node.type === 'pathNode' || node.type === 'builderPathNode'
             return {
                 id: node.id,
                 width: isPathNode ? PATH_NODE_WIDTH : (elkNodeSize?.width ?? NODE_WIDTH),
@@ -150,6 +150,10 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
         nodeType: [
             () => [(_, props) => props.mode],
             (mode): string => (mode === 'profile' ? 'profile' : mode === 'builder' ? 'journeyCreate' : 'journey'),
+        ],
+        pathNodeType: [
+            () => [(_, props) => props.mode],
+            (mode): string => (mode === 'builder' ? 'builderPathNode' : 'pathNode'),
         ],
         edgeType: [(s) => [s.isProfileMode], (isProfileMode): string => (isProfileMode ? 'profile' : 'journey')],
         nodeWidth: [
@@ -235,11 +239,12 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                 }),
         ],
         expandedPathElements: [
-            (s) => [s.funnelNodes, s.expandedPath, s.expandedPathResults],
+            (s) => [s.funnelNodes, s.expandedPath, s.expandedPathResults, s.pathNodeType],
             (
                 funnelNodes,
                 expandedPath,
-                expandedPathResults
+                expandedPathResults,
+                pathNodeType
             ): {
                 nodes: Node<PathFlowNodeData>[]
                 edges: Edge<PathFlowEdgeData>[]
@@ -263,7 +268,8 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                     bridgeConfig.sourceStepId,
                     bridgeConfig.targetStepId,
                     bridgeConfig.isDropOff || undefined,
-                    funnelStepByEventName
+                    funnelStepByEventName,
+                    pathNodeType
                 )
                 return { nodes, edges, hiddenEdgeId: bridgeConfig.hiddenEdgeId }
             },
