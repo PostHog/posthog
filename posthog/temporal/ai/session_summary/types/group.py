@@ -57,6 +57,22 @@ class SessionGroupSummaryOfSummariesInputs:
     extra_summary_context: ExtraSummaryContext | None = None
 
 
+class SessionStatusChange(TypedDict):
+    id: str
+    status: str
+
+
+class SessionProgressStreamData(TypedDict):
+    """Structured progress data yielded with SESSION_PROGRESS updates, consumed by the frontend widget."""
+
+    type: Literal["progress"]
+    status_changes: list[SessionStatusChange]
+    phase: str
+    completed_count: int
+    total_count: int
+    patterns_found: list[str]
+
+
 class WorkflowProgress(TypedDict):
     session_statuses: dict[str, str]  # session_id → status
     phase: str

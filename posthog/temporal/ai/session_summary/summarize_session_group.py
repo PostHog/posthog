@@ -48,6 +48,8 @@ from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryInputs,
     SessionGroupSummaryOfSummariesInputs,
     SessionGroupSummaryPatternsExtractionChunksInputs,
+    SessionProgressStreamData,
+    SessionStatusChange,
     SessionSummaryStreamUpdate,
     WorkflowProgress,
 )
@@ -687,7 +689,7 @@ async def _start_session_group_summary_workflow(
 ) -> AsyncGenerator[
     tuple[
         SessionSummaryStreamUpdate,
-        tuple[EnrichedSessionGroupSummaryPatternsList, str] | str | dict,
+        tuple[EnrichedSessionGroupSummaryPatternsList, str] | str | SessionProgressStreamData,
     ],
     None,
 ]:
@@ -783,14 +785,14 @@ async def _start_session_group_summary_workflow(
             )
             if has_changes:
                 # Collect status changes since last poll
-                status_changes: list[dict[str, str]] = []
+                status_changes: list[SessionStatusChange] = []
                 for sid, status in current_progress["session_statuses"].items():
                     if previous_progress is None or previous_progress["session_statuses"].get(sid) != status:
-                        status_changes.append({"id": sid, "status": status})
+                        status_changes.append(SessionStatusChange(id=sid, status=status))
                 completed_count = sum(
                     1 for s in current_progress["session_statuses"].values() if s in ("summarized", "failed")
                 )
-                progress_dict: dict = {
+                progress_dict: SessionProgressStreamData = {
                     "type": "progress",
                     "status_changes": status_changes,
                     "phase": current_progress["phase"],
@@ -825,7 +827,7 @@ async def execute_summarize_session_group(
 ) -> AsyncGenerator[
     tuple[
         SessionSummaryStreamUpdate,
-        tuple[EnrichedSessionGroupSummaryPatternsList, str] | str | dict,
+        tuple[EnrichedSessionGroupSummaryPatternsList, str] | str | SessionProgressStreamData,
     ],
     None,
 ]:

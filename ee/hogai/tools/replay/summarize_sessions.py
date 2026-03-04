@@ -1,7 +1,7 @@
 import json
 import asyncio
 from textwrap import dedent
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import structlog
 import posthoganalytics
@@ -12,9 +12,11 @@ from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.ai.session_summary.summarize_session_group import (
+from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
+from posthog.temporal.ai.session_summary.types.group import (
+    SessionProgressStreamData,
+    SessionStatusChange,
     SessionSummaryStreamUpdate,
-    execute_summarize_session_group,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -230,21 +232,21 @@ class SummarizeSessionsTool(MaxTool):
         if content:
             self.dispatcher.update(content)
 
-    def _dispatch_structured_update(self, data: dict) -> None:
+    def _dispatch_structured_update(self, data: SessionProgressStreamData | dict) -> None:
         """Push structured JSON update directly, bypassing prepare_reasoning_progress_message truncation."""
         self.dispatcher.update(json.dumps(data))
 
     def _dispatch_session_progress(self, session_id: str, status: str, completed: int, total: int) -> None:
         """Push a per-session progress update to the frontend widget."""
         self._dispatch_structured_update(
-            {
-                "type": "progress",
-                "status_changes": [{"id": session_id, "status": status}],
-                "phase": "watching_sessions",
-                "completed_count": completed,
-                "total_count": total,
-                "patterns_found": [],
-            }
+            SessionProgressStreamData(
+                type="progress",
+                status_changes=[SessionStatusChange(id=session_id, status=status)],
+                phase="watching_sessions",
+                completed_count=completed,
+                total_count=total,
+                patterns_found=[],
+            )
         )
 
     def _get_session_metadata(self, session_ids: list[str]) -> dict[str, dict]:
@@ -262,11 +264,11 @@ class SummarizeSessionsTool(MaxTool):
             if meta:
                 start_time = meta.get("start_time")
                 result[sid] = {
-                    "first_url": meta.get("first_url") or "",
-                    "active_duration_s": int(meta.get("active_seconds") or 0),
-                    "distinct_id": meta.get("distinct_id") or "",
+                    "first_url": meta["first_url"],
+                    "active_duration_s": int(meta["active_seconds"]),
+                    "distinct_id": meta["distinct_id"],
                     "start_time": start_time.isoformat() if start_time else None,
-                    "snapshot_source": meta.get("snapshot_source") or "web",
+                    "snapshot_source": meta["snapshot_source"],
                 }
             else:
                 result[sid] = {
@@ -382,8 +384,8 @@ class SummarizeSessionsTool(MaxTool):
                     self._stream_progress(progress_message=data)
                 # Structured per-session progress
                 elif update_type == SessionSummaryStreamUpdate.SESSION_PROGRESS:
-                    if isinstance(data, dict):
-                        self._dispatch_structured_update(data)
+                    assert isinstance(data, dict)
+                    self._dispatch_structured_update(cast(SessionProgressStreamData, data))
                 # Final summary result
                 elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
                     if not isinstance(data, tuple) or len(data) != 2:
