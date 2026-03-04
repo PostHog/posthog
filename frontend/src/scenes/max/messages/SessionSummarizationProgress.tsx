@@ -5,6 +5,8 @@ import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress/LemonProgress'
 
+const VIDEO_ANALYSIS_PLAYBACK_SPEED = 8
+
 interface SessionInfo {
     first_url: string
     active_duration_s: number
@@ -152,7 +154,7 @@ export function SessionSummarizationProgress({ updates }: { updates: object[] })
     const progressPercent = totalCount > 0 ? (completedCount / totalCount) * 100 : 0
     const isComplete = completedCount >= totalCount && totalCount > 0
 
-    // ETA based on remaining sessions' active durations
+    // ETA based on remaining sessions' active durations at playback speed
     let etaText: string | null = null
     if (phase === 'watching_sessions' && !isComplete && summarizingStartedAt.current) {
         let maxRemainingDuration = 0
@@ -161,9 +163,11 @@ export function SessionSummarizationProgress({ updates }: { updates: object[] })
                 maxRemainingDuration = Math.max(maxRemainingDuration, session.active_duration_s)
             }
         }
+        // Analysis watches at VIDEO_ANALYSIS_PLAYBACK_SPEED, so actual wait = active_duration / speed
+        const analysisTime = maxRemainingDuration / VIDEO_ANALYSIS_PLAYBACK_SPEED
         // Subtract elapsed time since we started (sessions run concurrently)
         const elapsed = (Date.now() - summarizingStartedAt.current) / 1000
-        const remaining = maxRemainingDuration - elapsed
+        const remaining = analysisTime - elapsed
         if (remaining > 0) {
             etaText = formatEta(remaining)
         }
