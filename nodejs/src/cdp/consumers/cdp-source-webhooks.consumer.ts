@@ -81,7 +81,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
         this.promiseScheduler = new PromiseScheduler()
-        this.cyclotronJobQueue = new CyclotronJobQueue(config, 'hog')
+        this.cyclotronJobQueue = new CyclotronJobQueue(config)
     }
 
     public async getWebhook(webhookId: string): Promise<{ hogFlow?: HogFlow; hogFunction: HogFunctionType } | null> {
@@ -457,7 +457,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             : await this.executeHogFunction(req, hogFunction, hogFunctionState)
 
         void this.promiseScheduler.schedule(
-            Promise.all([this.hogFunctionMonitoringService.flush(), this.hogWatcher.observeResultsBuffered(result)])
+            this.hogFunctionMonitoringService.flush(),
+            this.hogWatcher.observeResultsBuffered(result)
         )
 
         return result

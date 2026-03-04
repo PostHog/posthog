@@ -1856,7 +1856,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.saveEditModeChanges()
             }
 
-            if (mode) {
+            if (mode || source) {
                 eventUsageLogic.actions.reportDashboardModeToggled(values.dashboard, mode, source)
             }
         },

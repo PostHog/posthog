@@ -155,7 +155,7 @@ async def prepare_data_modeling_ducklake_metadata_activity(
                 saved_query_name=saved_query.name,
                 normalized_name=normalized_name,
                 source_table_uri=model.table_uri,
-                schema_name="posthog_data_modeling",
+                schema_name=f"posthog_data_modeling_team_{inputs.team_id}",
                 table_name=sanitize_ducklake_identifier(model.model_label or normalized_name, default_prefix="model"),
                 verification_queries=list(get_data_modeling_verification_queries(model.model_label)),
                 partition_column=partition_column,

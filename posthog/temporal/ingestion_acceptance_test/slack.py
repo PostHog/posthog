@@ -117,11 +117,12 @@ def _build_context_block(config: Config, result: TestSuiteResult) -> dict[str, A
     }
 
 
-def send_slack_timeout_notification(config: Config) -> bool:
+def send_slack_timeout_notification(config: Config, running_tests: list[str] | None = None) -> bool:
     """Send a timeout notification to Slack via incoming webhook.
 
     Args:
         config: Configuration containing the Slack webhook URL.
+        running_tests: List of test names that were still running when the timeout occurred.
 
     Returns:
         True if notification was sent successfully or skipped, False on send failure.
@@ -152,6 +153,18 @@ def send_slack_timeout_notification(config: Config) -> bool:
             ],
         },
     ]
+
+    if running_tests:
+        test_list = "\n".join(f"• {name}" for name in running_tests)
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f":red_circle: *Still running ({len(running_tests)}):*\n{test_list}",
+                },
+            }
+        )
 
     try:
         response = external_requests.post(

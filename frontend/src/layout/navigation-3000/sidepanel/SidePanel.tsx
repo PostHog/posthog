@@ -174,6 +174,16 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
         selectedTab &&
         sidePanelOpen &&
         (visibleTabs.includes(selectedTab) || (selectedTab === SidePanelTab.Info && scenePanelIsPresent))
+
+    // If the persisted state says the panel is open but the selected tab isn't
+    // available in this context (e.g. Info tab on a scene without a ScenePanel),
+    // close the panel so other components like SceneTitlePanelButton stay in sync.
+    useEffect(() => {
+        if (sidePanelOpen && selectedTab && !sidePanelOpenAndAvailable) {
+            closeSidePanel()
+        }
+    }, [sidePanelOpen, selectedTab, sidePanelOpenAndAvailable, closeSidePanel])
+
     const sidePanelWidth = !visibleTabs.length
         ? 0
         : sidePanelOpenAndAvailable

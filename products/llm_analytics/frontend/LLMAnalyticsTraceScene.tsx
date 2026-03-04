@@ -42,7 +42,6 @@ import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -60,6 +59,10 @@ import { EventContentDisplayAsync, EventContentGeneration } from './components/E
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
 import { SentimentBar } from './components/SentimentTag'
+import {
+    ConversationDisplayOption,
+    ConversationMessagesDisplay,
+} from './ConversationDisplay/ConversationMessagesDisplay'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
@@ -87,6 +90,7 @@ import {
     getSessionStartTimestamp,
     getTraceTimestamp,
     isLLMEvent,
+    normalizeMessages,
     removeMilliseconds,
     sanitizeTraceUrlSearchParams,
 } from './utils'
@@ -758,19 +762,33 @@ function TreeNodeChildren({
 function EventContentDisplay({
     input,
     output,
-    raisedError,
+    searchQuery,
+    displayOption,
 }: {
     input: unknown
     output: unknown
-    raisedError?: boolean
+    searchQuery?: string
+    displayOption?: ConversationDisplayOption
 }): JSX.Element {
-    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
-    const { searchQuery } = useValues(traceLogic)
     if (!input && !output) {
-        // If we have no data here we should not render anything
-        // In future plan to point docs to show how to add custom trace events
         return <></>
     }
+
+    const inputMessages = normalizeMessages(input, 'user')
+    const outputMessages = normalizeMessages(output, 'assistant')
+
+    if (inputMessages.length > 0 || outputMessages.length > 0) {
+        return (
+            <ConversationMessagesDisplay
+                inputNormalized={inputMessages}
+                outputNormalized={outputMessages}
+                errorData={undefined}
+                searchQuery={searchQuery}
+                displayOption={displayOption}
+            />
+        )
+    }
+
     return (
         <LLMInputOutput
             inputDisplay={
@@ -783,14 +801,7 @@ function EventContentDisplay({
                 </div>
             }
             outputDisplay={
-                <div
-                    className={cn(
-                        'p-2 text-xs border rounded',
-                        !raisedError
-                            ? 'bg-[var(--color-bg-fill-success-tertiary)]'
-                            : 'bg-[var(--color-bg-fill-error-tertiary)]'
-                    )}
-                >
+                <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-success-tertiary)]">
                     {isObject(output) ? (
                         <HighlightedJSONViewer src={output} collapsed={4} searchQuery={searchQuery} />
                     ) : (
@@ -1098,6 +1109,8 @@ const EventContent = React.memo(
                                                             <EventContentDisplay
                                                                 input={event.inputState}
                                                                 output={event.outputState}
+                                                                searchQuery={searchQuery}
+                                                                displayOption={displayOption}
                                                             />
                                                         </>
                                                     )}
