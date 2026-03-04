@@ -26,7 +26,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
-from posthog.rate_limit import CodeInviteRedeemThrottle
+from posthog.rate_limit import CodeInviteCheckAccessThrottle, CodeInviteRedeemThrottle
 from posthog.storage import object_storage
 
 from .models import CodeInvite, CodeInviteRedemption, Task, TaskRun
@@ -941,8 +941,12 @@ class CodeInviteViewSet(viewsets.ViewSet):
 
     scope_object = "task"
 
-    throttle_classes = [CodeInviteRedeemThrottle]
     http_method_names = ["get", "post", "head", "options"]
+
+    def get_throttles(self):
+        if self.action == "check_access":
+            return [CodeInviteCheckAccessThrottle()]
+        return [CodeInviteRedeemThrottle()]
 
     def get_permissions(self):
         # Both endpoints are user-account-level operations (not project data).

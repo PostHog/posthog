@@ -737,7 +737,12 @@ class RestoreRedeemThrottle(SimpleRateThrottle):
 
 class CodeInviteRedeemThrottle(UserRateThrottle):
     scope = "code_invite_redeem"
-    rate = "10/hour"
+    rate = "20/hour"
+
+
+class CodeInviteCheckAccessThrottle(UserRateThrottle):
+    scope = "code_invite_check_access"
+    rate = "20000/hour"
 
 
 class ToolbarOAuthRefreshThrottle(IPThrottle):
