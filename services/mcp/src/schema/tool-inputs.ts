@@ -481,6 +481,25 @@ export const DemoMcpUiAppsSchema = z.object({
     message: z.string().optional().describe('Optional message to include in the demo data'),
 })
 
+// Prompts
+export const PromptListSchema = z.object({
+    search: z.string().optional().describe('Filter prompts by name'),
+})
+
+export const PromptGetSchema = z.object({
+    name: z.string().describe('The name of the prompt to retrieve'),
+})
+
+export const PromptCreateSchema = z.object({
+    name: z.string().describe('Unique name (letters, numbers, hyphens, underscores only)'),
+    prompt: z.any().describe('The prompt content (string or JSON object)'),
+})
+
+export const PromptUpdateSchema = z.object({
+    name: z.string().describe('The name of the prompt to update'),
+    prompt: z.any().describe('The updated prompt content'),
+})
+
 // PostHog AI tools
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
