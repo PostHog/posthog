@@ -18,6 +18,7 @@ import type {
     PaginatedTicketListApi,
     PatchedConversationApi,
     PatchedTicketApi,
+    SuggestReplyResponseApi,
     TicketApi,
 } from './api.schemas'
 
@@ -356,14 +357,11 @@ export const getConversationsTicketsSuggestReplyCreateUrl = (projectId: string, 
 export const conversationsTicketsSuggestReplyCreate = async (
     projectId: string,
     id: string,
-    ticketApi: NonReadonly<TicketApi>,
     options?: RequestInit
-): Promise<TicketApi> => {
-    return apiMutator<TicketApi>(getConversationsTicketsSuggestReplyCreateUrl(projectId, id), {
+): Promise<SuggestReplyResponseApi> => {
+    return apiMutator<SuggestReplyResponseApi>(getConversationsTicketsSuggestReplyCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(ticketApi),
     })
 }
 
