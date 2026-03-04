@@ -83,7 +83,7 @@ All routes are defined in `rust/feature-flags/src/router.rs`.
 | `/flags`             | POST   | `endpoint::flags`                     | Feature flag evaluation (primary endpoint)                                                                               |
 | `/flags`             | GET    | `endpoint::flags`                     | Returns minimal response with empty flags                                                                                |
 | `/decide`            | POST   | `endpoint::flags`                     | Same handler as `/flags`, response format varies via `X-Original-Endpoint: decide` header                                |
-| `/flags/definitions` | GET    | `flag_definitions::flags_definitions` | **WIP, not routed in production.** Flag definitions for local SDK evaluation (requires secret token or personal API key) |
+| `/flags/definitions` | GET    | `flag_definitions::flags_definitions` | Flag definitions for local SDK evaluation (requires secret token or personal API key). Supports ETag/If-None-Match for 304 responses. |
 | `/`                  | GET    | `index`                               | Returns `"feature flags"` (basic health check)                                                                           |
 | `/_readiness`        | GET    | `readiness`                           | Kubernetes readiness probe, tests all 4 DB pool connections                                                              |
 | `/_liveness`         | GET    | `liveness`                            | Kubernetes liveness probe, heartbeat-based                                                                               |
@@ -117,16 +117,36 @@ The response format depends on the `v` query parameter and the endpoint:
 | `v=1`     | `/decide` | `DecideV1Response`: list of active flag keys                                                 |
 | `v=2`     | `/decide` | `DecideV2Response`: flat `feature_flags: { key: value }` map                                 |
 
-### `/flags/definitions` endpoint (under construction)
+### `/flags/definitions` endpoint
 
-**Not live in production.** This endpoint is under active development and is not routed by Contour. Local evaluation is currently served by Django at `/api/feature_flag/local_evaluation` (see [Django API endpoints](django-api-endpoints.md)), which remains the production endpoint for server-side SDKs.
+This endpoint serves flag definitions for SDKs that evaluate flags locally. It replaces the Django local evaluation endpoint at `/api/feature_flag/local_evaluation` (see [Django API endpoints](django-api-endpoints.md)).
 
-The goal is for this Rust endpoint to replace the Django local evaluation endpoint. When complete, it will serve flag definitions for SDKs that evaluate flags locally, authenticated via:
+Authentication:
 
 - Team secret API token (`Authorization: Bearer phx_...`), or
 - Personal API key with `feature_flag:read` scope
 
-Current implementation returns flag definitions with cohort data from HyperCache. No PostgreSQL fallback -- if cache misses, the endpoint returns an error. Rate limited per team (default 600/minute).
+The endpoint returns flag definitions with cohort data from HyperCache. No PostgreSQL fallback -- if cache misses, the endpoint returns a 503 error. Rate limited per team (default 600/minute).
+
+#### ETag support
+
+The endpoint supports `If-None-Match` conditional requests per RFC 7232 to avoid redundant data transfer for polling SDKs. ETags are read from Redis, where Django stores them at `{cache_key}:etag` (pickle-serialized). Both weak (`W/"..."`) and strong (`"..."`) ETag formats are handled.
+
+Flow:
+
+1. Parse `If-None-Match` header from the client request
+2. Read the current ETag from Redis
+3. If match → return 304 Not Modified with `ETag` and `Cache-Control: private, must-revalidate` headers, skipping the full data fetch
+4. If no match → return 200 with data and the same headers
+5. If ETag read fails → graceful degradation to 200 with full data (no ETag header)
+
+#### Cache and ETag metrics
+
+| Metric | Labels | Purpose |
+| --- | --- | --- |
+| `flags_flag_definitions_cache_hit_total` | `source`: `redis`, `s3`, `fallback` | Track cache hit source |
+| `flags_flag_definitions_cache_miss_total` | `reason`: `cache_miss`, `s3_error`, `redis_error`, `json_parse_error`, `timeout` | Track cache miss reasons |
+| `flags_flag_definitions_etag_total` | `result`: `hit`, `miss`, `none`, `redis_error` | Track ETag match rate (`hit` = 304, `miss` = stale ETag, `none` = no If-None-Match header, `redis_error` = ETag read failed) |
 
 ## Request and response types
 
