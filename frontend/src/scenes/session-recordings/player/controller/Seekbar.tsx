@@ -122,7 +122,7 @@ export function Seekbar(): JSX.Element {
     const { timestampFormat } = useValues(playerSettingsLogic)
 
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(logicProps))
-    const { sessionPlayerData, sessionPlayerMetaData, sourceLoadingStates, snapshotStore } = useValues(
+    const { sessionPlayerData, sessionPlayerMetaData, effectiveSourceLoadingStates, snapshotStore } = useValues(
         sessionRecordingDataCoordinatorLogic(logicProps)
     )
 
@@ -168,7 +168,7 @@ export function Seekbar(): JSX.Element {
                     {useSnapshotStore ? (
                         <>
                             <SeekbarSources
-                                sourceLoadingStates={sourceLoadingStates}
+                                sourceLoadingStates={effectiveSourceLoadingStates}
                                 recordingStartMs={sessionPlayerData.start?.valueOf() ?? 0}
                                 recordingEndMs={sessionPlayerData.end?.valueOf() ?? 0}
                             />

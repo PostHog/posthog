@@ -30,10 +30,14 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
 from posthog.models.group.util import create_group, raw_create_group_ch
-from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
-from posthog.models.property_definition import PropertyType
+from posthog.models.group_type_mapping import (
+    GROUP_TYPE_MAPPING_SERIALIZER_FIELDS,
+    GroupTypeMapping,
+    invalidate_group_types_cache,
+)
 from posthog.models.user import User
 
+from products.event_definitions.backend.models.property_definition import PropertyType
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.notebooks.backend.util import (
     create_bullet_list,
@@ -111,6 +115,7 @@ class GroupsTypesViewSet(
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
+        invalidate_group_types_cache(self.team.project_id)
         return self.list(request, *args, **kwargs)
 
     @action(methods=["PUT"], detail=False)
@@ -131,7 +136,12 @@ class GroupsTypesViewSet(
         dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
         group_type_mapping.detail_dashboard_id = dashboard.id
         group_type_mapping.save()
+        invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
+
+    def perform_destroy(self, instance):
+        super().perform_destroy(instance)
+        invalidate_group_types_cache(self.team.project_id)
 
     @action(methods=["PUT"], detail=False)
     def set_default_columns(self, request: request.Request, **kw):
@@ -144,6 +154,7 @@ class GroupsTypesViewSet(
 
         group_type_mapping.default_columns = request.data["default_columns"]
         group_type_mapping.save()
+        invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
 
 
@@ -705,7 +716,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             rows = sync_execute(query, params)
 
             span.set_attribute("result_count", len(rows))
-            return response.Response([{"name": name, "count": count} for name, count in rows])
+            return response.Response(
+                {"results": [{"name": name, "count": count} for name, count in rows], "refreshing": False}
+            )
 
     def _is_crm_enabled(self, user: User) -> bool:
         return posthoganalytics.feature_enabled(

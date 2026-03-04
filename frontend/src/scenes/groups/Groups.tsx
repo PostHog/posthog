@@ -23,7 +23,6 @@ import { QueryContext } from '~/queries/types'
 
 import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
 
-import { getCRMColumns } from './crm/utils'
 import { groupsListLogic } from './groupsListLogic'
 import { groupsSceneLogic } from './groupsSceneLogic'
 
@@ -74,11 +73,6 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             title: groupTypeName,
         },
     } as QueryContext['columns']
-    let hiddenColumns = [] as string[]
-    if (hasCustomerAnalyticsEnabled) {
-        columns = getCRMColumns(groupTypeName, groupTypeIndex)
-        hiddenColumns.push('key')
-    }
 
     return (
         <SceneContent>
@@ -111,7 +105,7 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             <Query
                 uniqueKey={`groups-query-${tabId}`}
                 attachTo={groupsSceneLogic({ tabId })}
-                query={{ ...query, hiddenColumns, showCount: true, showTableViews: true }}
+                query={{ ...query, showCount: true, showTableViews: true }}
                 setQuery={setQuery}
                 context={{
                     refresh: 'blocking',

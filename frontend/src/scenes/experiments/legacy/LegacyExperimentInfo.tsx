@@ -192,7 +192,7 @@ export function LegacyExperimentInfo(): JSX.Element | null {
                             <ExperimentLastRefresh
                                 isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
                                 lastRefresh={lastRefresh}
-                                onClick={() => refreshExperimentResults(true)}
+                                onClick={() => refreshExperimentResults(true, 'manual')}
                             />
                         )}
                         <LegacyExperimentDates />

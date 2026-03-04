@@ -6,6 +6,7 @@ import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/s
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
 import { LLMProviderKeysSettings } from '@posthog/products-llm-analytics/frontend/settings/LLMProviderKeysSettings'
+import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreSettings'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
@@ -62,6 +63,7 @@ import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegratio
 import { ExperimentRecalculationTime } from './environment/ExperimentRecalculationTime'
 import {
     DefaultEvaluationContexts,
+    DefaultReleaseConditions,
     FlagChangeConfirmationSettings,
     FlagPersistenceSettings,
     FlagsSecureApiKeys,
@@ -105,6 +107,7 @@ import {
     WebSnippetV2,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { TwigSlackIntegration } from './environment/TwigSlackIntegration'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
@@ -113,6 +116,7 @@ import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { MembersPlatformAddonAd } from './organization/MembersPlatformAddonAd'
+import { OAuthApps } from './organization/OAuthApps'
 import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
@@ -131,7 +135,6 @@ import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
-import { SqlEditorTabPreference } from './user/SqlEditorTabPreference'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -328,18 +331,47 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'mcp-server',
-        title: 'MCP server',
+        id: 'environment-twig',
+        title: 'Twig',
+        flag: 'TASKS',
+        settings: [
+            {
+                id: 'integration-twig-slack',
+                title: 'Slack integration',
+                component: <TwigSlackIntegration />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'posthog-mcp',
+        title: 'PostHog MCP',
         group: 'AI',
         settings: [
             {
-                id: 'mcp-server-configure',
+                id: 'posthog-mcp-configure',
                 title: 'Model Context Protocol (MCP) server',
                 description:
                     'Connect PostHog to AI tools like Claude, Cursor, and Copilot via the MCP protocol for data-driven AI assistance.',
                 docsUrl: 'https://posthog.com/docs/model-context-protocol',
                 component: <MCPServerSettings />,
                 keywords: ['ai', 'llm', 'claude', 'cursor', 'copilot'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'mcp-servers',
+        title: 'MCP servers',
+        group: 'AI',
+        flag: 'MCP_SERVERS',
+        settings: [
+            {
+                id: 'mcp-servers-manage',
+                title: 'MCP servers',
+                description: 'Install and manage MCP servers for your AI agents.',
+                component: <McpStoreSettings />,
+                keywords: ['mcp', 'server', 'install', 'oauth', 'ai', 'agent'],
             },
         ],
     },
@@ -771,15 +803,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['headers', 'payload', 'body', 'request', 'response'],
             },
             {
-                id: 'web-vitals-autocapture',
-                title: 'Web vitals',
-                description: 'Capture web vitals metrics alongside session recordings for performance analysis.',
-                docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
-                platformSupport: FEATURE_SUPPORT.webVitals,
-                component: <WebVitalsAutocaptureSettings />,
-                keywords: ['lcp', 'cls', 'fcp', 'inp', 'performance'],
-            },
-            {
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 description:
@@ -908,6 +931,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'DEFAULT_EVALUATION_ENVIRONMENTS',
                 component: <DefaultEvaluationContexts />,
                 keywords: ['evaluation', 'default', 'context', 'tag'],
+            },
+            {
+                id: 'feature-flag-default-release-conditions',
+                title: 'Default release conditions',
+                description:
+                    'Automatically apply default release conditions to newly created feature flags. Users can still modify them during flag creation.',
+                component: <DefaultReleaseConditions />,
+                keywords: ['release', 'conditions', 'default', 'rollout', 'groups'],
             },
             {
                 id: 'feature-flag-secure-api-key',
@@ -1416,6 +1447,20 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-oauth-apps',
+        title: 'OAuth applications',
+        settings: [
+            {
+                id: 'organization-oauth-apps-list',
+                title: 'OAuth applications',
+                description: 'View applications that have been authorized to connect to your organization.',
+                component: <OAuthApps />,
+                keywords: ['oauth', 'app', 'client', 'integration', 'api', 'authentication', 'third-party'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-proxy',
         title: 'Managed reverse proxy',
         settings: [
@@ -1534,13 +1579,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Theme',
                 component: <ThemeSwitcher onlyLabel />,
                 keywords: ['dark mode', 'light mode', 'appearance', 'color scheme'],
-            },
-            {
-                id: 'sql-editor-tab-preference',
-                title: 'SQL editor new tab behavior',
-                description: 'Configure whether new SQL queries open in new tabs or reuse existing ones.',
-                component: <SqlEditorTabPreference />,
-                keywords: ['sql', 'editor', 'tab', 'query'],
             },
             {
                 id: 'optout',

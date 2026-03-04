@@ -16,6 +16,7 @@ use crate::flags::flag_models::{
     FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters, FlagPropertyGroup,
 };
 use crate::flags::flag_operations::flags_require_db_preparation;
+use crate::handler::canonical_log::{install_rayon_canonical_log, take_rayon_canonical_log};
 use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_BATCH_EVALUATION_COUNTER,
@@ -56,18 +57,35 @@ pub struct FlagEvaluationOverrides {
     pub request_hash_key_override: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum EvaluationType {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvaluationType {
     Sequential,
     Parallel,
 }
 
+impl EvaluationType {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            EvaluationType::Sequential => "sequential",
+            EvaluationType::Parallel => "parallel",
+        }
+    }
+
+    /// Promote evaluation type across dependency levels:
+    /// None → Sequential, None → Parallel, Sequential → Parallel.
+    /// Parallel is sticky — once set, it never demotes back to Sequential.
+    pub fn promote(current: Option<Self>, level_type: Self) -> Option<Self> {
+        match (current, level_type) {
+            (_, Self::Parallel) => Some(Self::Parallel),
+            (None, Self::Sequential) => Some(Self::Sequential),
+            (current, Self::Sequential) => current,
+        }
+    }
+}
+
 impl std::fmt::Display for EvaluationType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EvaluationType::Sequential => write!(f, "sequential"),
-            EvaluationType::Parallel => write!(f, "parallel"),
-        }
+        f.write_str(self.as_str())
     }
 }
 
@@ -225,6 +243,8 @@ pub struct FeatureFlagMatcher {
     /// Dispatcher for bounded-concurrency Rayon batch evaluation.
     /// `None` in tests that don't exercise the parallel path.
     rayon_dispatcher: Option<RayonDispatcher>,
+    /// When true, skip all writes to PostgreSQL and Redis.
+    skip_writes: bool,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -271,6 +291,7 @@ impl FeatureFlagMatcher {
             flag_evaluation_state: FlagEvaluationState::default(),
             parallel_eval_threshold: DEFAULT_PARALLEL_EVAL_THRESHOLD,
             rayon_dispatcher: None,
+            skip_writes: false,
         }
     }
 
@@ -281,6 +302,11 @@ impl FeatureFlagMatcher {
 
     pub fn with_rayon_dispatcher(mut self, dispatcher: RayonDispatcher) -> Self {
         self.rayon_dispatcher = Some(dispatcher);
+        self
+    }
+
+    pub fn with_skip_writes(mut self, skip_writes: bool) -> Self {
+        self.skip_writes = skip_writes;
         self
     }
 
@@ -486,24 +512,32 @@ impl FeatureFlagMatcher {
         let mut writing_hash_key_override = false;
 
         if should_write {
-            if let Err(e) = set_feature_flag_hash_key_overrides(
-                // NB: this is the only method that writes to the database
-                &self.router,
-                self.team_id,
-                target_distinct_ids.clone(),
-                hash_key.clone(),
-            )
-            .await
-            {
-                error!("Failed to set feature flag hash key overrides for team {} distinct_id {} hash_key {}: {:?}", self.team_id, self.distinct_id, hash_key, e);
-                inc(
-                    FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), e.evaluation_error_code())],
-                    1,
+            if self.skip_writes {
+                tracing::debug!(
+                    team_id = self.team_id,
+                    distinct_id = %self.distinct_id,
+                    "SKIP_WRITES: skipping hash key override write to PostgreSQL"
                 );
-                return (None, true);
+            } else {
+                if let Err(e) = set_feature_flag_hash_key_overrides(
+                    // NB: this is the only method that writes to the database
+                    &self.router,
+                    self.team_id,
+                    target_distinct_ids.clone(),
+                    hash_key.clone(),
+                )
+                .await
+                {
+                    error!("Failed to set feature flag hash key overrides for team {} distinct_id {} hash_key {}: {:?}", self.team_id, self.distinct_id, hash_key, e);
+                    inc(
+                        FLAG_EVALUATION_ERROR_COUNTER,
+                        &[("reason".to_string(), e.evaluation_error_code())],
+                        1,
+                    );
+                    return (None, true);
+                }
+                writing_hash_key_override = true;
             }
-            writing_hash_key_override = true;
         }
 
         inc(
@@ -800,6 +834,15 @@ impl FeatureFlagMatcher {
             EvaluationType::Sequential
         };
 
+        // Record evaluation type in canonical log for E2E latency metrics.
+        // Skip if no flags to evaluate (all deleted or already evaluated) — lets the
+        // metric label stay None → "none" rather than incorrectly reporting Sequential.
+        if !flags_to_evaluate.is_empty() {
+            with_canonical_log(|log| {
+                log.evaluation_type = EvaluationType::promote(log.evaluation_type, eval_type);
+            });
+        }
+
         let labels = [("evaluation_type".to_string(), eval_type.to_string())];
         histogram(FLAG_BATCH_SIZE, &labels, flags_to_evaluate.len() as f64);
         inc(FLAG_BATCH_EVALUATION_COUNTER, &labels, 1);
@@ -996,16 +1039,15 @@ impl FeatureFlagMatcher {
             .map(FlagSnapshot::from_flag)
             .collect();
 
-        // TODO: Canonical log counters (cohorts_evaluated, flags_device_id_bucketing,
-        // property_cache_hits/misses, hash_key_override_status) are silently lost on rayon
-        // threads because CANONICAL_LOG uses tokio::task_local!. Fix by adding a thread_local!
-        // fallback: install a fresh FlagsCanonicalLogLine per flag eval, take it after, send
-        // deltas back through the oneshot channel, and merge into the real canonical log here.
-        // See: https://github.com/PostHog/posthog/issues/47752
+        // Each rayon thread accumulates evaluation counters in a thread-local
+        // FlagsCanonicalLogLine. After evaluation, the per-flag deltas are
+        // returned alongside each flag result and merged into the request's
+        // tokio task-local canonical log.
         let work = move || {
             flags_to_evaluate
                 .into_par_iter()
                 .map(|flag| {
+                    let _guard = install_rayon_canonical_log();
                     let result = matcher.evaluate_single_flag(
                         &flag,
                         &precomputed_property_overrides,
@@ -1013,9 +1055,10 @@ impl FeatureFlagMatcher {
                         &hash_overrides,
                         &req_hash_override,
                     );
-                    (flag, result)
+                    let delta = take_rayon_canonical_log();
+                    (flag, result, delta)
                 })
-                .collect()
+                .collect::<Vec<_>>()
         };
 
         let result = match &self.rayon_dispatcher {
@@ -1033,10 +1076,23 @@ impl FeatureFlagMatcher {
             }
         };
 
-        result.unwrap_or_else(|| {
+        let results_with_deltas = result.unwrap_or_else(|| {
             error!("Rayon parallel evaluation task was dropped (likely panicked)");
             Self::build_panic_fallback(flag_snapshots, team_id)
-        })
+                .into_iter()
+                .map(|(flag, result)| (flag, result, None))
+                .collect()
+        });
+
+        results_with_deltas
+            .into_iter()
+            .map(|(flag, result, delta)| {
+                if let Some(delta) = delta {
+                    with_canonical_log(|log| log.merge_rayon_delta(&delta));
+                }
+                (flag, result)
+            })
+            .collect()
     }
 
     /// Constructs per-flag error results from lightweight snapshots when the
@@ -2054,6 +2110,46 @@ impl FeatureFlagMatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_promote_evaluation_type_none_to_sequential() {
+        assert_eq!(
+            EvaluationType::promote(None, EvaluationType::Sequential),
+            Some(EvaluationType::Sequential)
+        );
+    }
+
+    #[test]
+    fn test_promote_evaluation_type_none_to_parallel() {
+        assert_eq!(
+            EvaluationType::promote(None, EvaluationType::Parallel),
+            Some(EvaluationType::Parallel)
+        );
+    }
+
+    #[test]
+    fn test_promote_evaluation_type_sequential_to_parallel() {
+        assert_eq!(
+            EvaluationType::promote(Some(EvaluationType::Sequential), EvaluationType::Parallel),
+            Some(EvaluationType::Parallel)
+        );
+    }
+
+    #[test]
+    fn test_promote_evaluation_type_parallel_stays_sticky() {
+        assert_eq!(
+            EvaluationType::promote(Some(EvaluationType::Parallel), EvaluationType::Sequential),
+            Some(EvaluationType::Parallel)
+        );
+    }
+
+    #[test]
+    fn test_promote_evaluation_type_sequential_stays_sequential() {
+        assert_eq!(
+            EvaluationType::promote(Some(EvaluationType::Sequential), EvaluationType::Sequential),
+            Some(EvaluationType::Sequential)
+        );
+    }
 
     #[test]
     fn test_panic_fallback_preserves_flag_identity() {

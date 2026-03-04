@@ -21,6 +21,7 @@ import searchDocs from './documentation/searchDocs'
 // Error Tracking
 import errorDetails from './errorTracking/errorDetails'
 import listErrors from './errorTracking/listErrors'
+import updateIssueStatus from './errorTracking/updateIssueStatus'
 // Experiments
 import createExperiment from './experiments/create'
 import deleteExperiment from './experiments/delete'
@@ -34,6 +35,8 @@ import deleteFeatureFlag from './featureFlags/delete'
 import getAllFeatureFlags from './featureFlags/getAll'
 import getFeatureFlagDefinition from './featureFlags/getDefinition'
 import updateFeatureFlag from './featureFlags/update'
+// Generated tools (from definitions/*.yaml)
+import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import createInsight from './insights/create'
 import deleteInsight from './insights/delete'
@@ -107,6 +110,7 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Error Tracking
     'list-errors': listErrors,
     'error-details': errorDetails,
+    'update-issue-status': updateIssueStatus,
 
     // Logs
     'logs-query': logsQuery,
@@ -177,6 +181,7 @@ export const getToolsFromContext = async (
     context: Context,
     options?: ToolFilterOptions
 ): Promise<Tool<ZodObjectAny>[]> => {
+    const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
     const excludeTools = options?.excludeTools ?? []
     const allowedToolNames = getFilteredToolNames(options).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []
@@ -186,7 +191,7 @@ export const getToolsFromContext = async (
         if (toolName === 'docs-search' && context.env.INKEEP_API_KEY) {
             toolBases.push(searchDocs())
         } else {
-            const toolFactory = TOOL_MAP[toolName]
+            const toolFactory = effectiveMap[toolName]
             if (toolFactory) {
                 toolBases.push(toolFactory())
             }

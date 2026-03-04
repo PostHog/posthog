@@ -99,12 +99,14 @@ export function FeatureFlagReleaseConditions({
     showTrashIconWithOneCondition = false,
     removedLastConditionCallback,
     evaluationRuntime,
+    isDisabled,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
     isSuper?: boolean
     excludeTitle?: boolean
     showTrashIconWithOneCondition?: boolean
     removedLastConditionCallback?: () => void
+    isDisabled?: boolean
 }): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -354,7 +356,9 @@ export function FeatureFlagReleaseConditions({
                                 allowRelativeDateOptions
                                 excludedProperties={
                                     featureFlagKey
-                                        ? { [TaxonomicFilterGroupType.FeatureFlags]: [featureFlagKey] }
+                                        ? {
+                                              [TaxonomicFilterGroupType.FeatureFlags]: [featureFlagKey],
+                                          }
                                         : undefined
                                 }
                                 errorMessages={
@@ -472,6 +476,17 @@ export function FeatureFlagReleaseConditions({
                                     return ''
                                 })()}{' '}
                                 <span>of total {aggregationTargetName}.</span>
+                                {filters.aggregation_group_type_index == null && (
+                                    <div>
+                                        A user may have multiple{' '}
+                                        <Link
+                                            to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
+                                            target="_blank"
+                                        >
+                                            profiles
+                                        </Link>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -598,6 +613,12 @@ export function FeatureFlagReleaseConditions({
                 )
             }
         >
+            {isDisabled && !readOnly && (
+                <LemonBanner type="info" className="mb-3">
+                    This flag is currently <b>disabled</b>. These release conditions won't take effect until you enable
+                    it.
+                </LemonBanner>
+            )}
             {!readOnly &&
                 !filterGroups.every(
                     (group) => filterGroups.filter((g) => g.variant === group.variant && g.variant !== null).length < 2

@@ -4934,6 +4934,296 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Firefox: user3 returned on Day 1
         self.assertEqual(firefox_result["values"][1]["count"], 1)
 
+    def test_retention_aggregation_different_events_interval_0_includes_return_after_start(self):
+        # When start and return events are different, return events that happen after the
+        # start event within interval 0 should be included in the interval 0 aggregation.
+        # This is the primary use case: e.g. "signed_up" (no revenue) → "purchased" (revenue).
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        Person.objects.create(team=self.team, distinct_ids=["user2"])
+
+        # user1: signed_up at hour 10, then purchased at hour 12 (after signup) → should be counted
+        # user1: purchased at hour 14 on day 1
+        _create_events(
+            self.team,
+            [("user1", _date(0, hour=10)), ("user1", _date(1, hour=5))],
+            event="signed_up",
+        )
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0, hour=12), {"revenue": 50}),
+                ("user1", _date(1, hour=5), {"revenue": 100}),
+            ],
+            event="purchased",
+        )
+
+        # user2: signed_up at hour 9, then purchased at hour 11 (after signup) → should be counted
+        _create_events(self.team, [("user2", _date(0, hour=9))], event="signed_up")
+        _create_events(self.team, [("user2", _date(0, hour=11), {"revenue": 30})], event="purchased")
+
+        flush_persons_and_events()
+
+        result_sum = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": "signed_up", "type": "events"},
+                    "returningEntity": {"id": "purchased", "type": "events"},
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        day0_values = result_sum[0]["values"]
+        # Interval 0: user1(50) + user2(30) = 80 — return events after start event in same interval
+        self.assertEqual(day0_values[0]["aggregation_value"], 80)
+        # Interval 1: user1(100) only — user2 didn't return on day 1
+        self.assertEqual(day0_values[1]["aggregation_value"], 100)
+
+    def test_retention_aggregation_different_events_interval_0_excludes_return_before_start(self):
+        # Return events that happen BEFORE the start event in the same interval must NOT be
+        # counted in interval 0, even when start and return events are different event types.
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+
+        # user1: purchased at hour 8 (before signup) → should NOT count for interval 0
+        # user1: signed_up at hour 10
+        # user1: purchased at hour 12 (after signup) → should count
+        _create_events(self.team, [("user1", _date(0, hour=10))], event="signed_up")
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0, hour=8), {"revenue": 999}),
+                ("user1", _date(0, hour=12), {"revenue": 50}),
+            ],
+            event="purchased",
+        )
+
+        flush_persons_and_events()
+
+        result_sum = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": "signed_up", "type": "events"},
+                    "returningEntity": {"id": "purchased", "type": "events"},
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        day0_values = result_sum[0]["values"]
+        # Interval 0: only 50 (hour-12 purchase), NOT 999 (hour-8 purchase before signup)
+        self.assertEqual(day0_values[0]["aggregation_value"], 50)
+
+    def test_retention_aggregation_same_events_interval_0_unchanged(self):
+        # When start and return events are the same, the interval 0 behavior is unchanged:
+        # only the start event itself contributes to interval 0 (no double-counting).
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user1", _date(1), {"revenue": 20}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result_sum = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        day0_values = result_sum[0]["values"]
+        # Interval 0: 10 (just the start event value, no double-counting from return event)
+        self.assertEqual(day0_values[0]["aggregation_value"], 10)
+        # Interval 1: 20
+        self.assertEqual(day0_values[1]["aggregation_value"], 20)
+
+    def test_retention_aggregation_different_events_avg_interval_0(self):
+        # AVG aggregation with different start/return events includes return events in interval 0.
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        Person.objects.create(team=self.team, distinct_ids=["user2"])
+
+        _create_events(
+            self.team,
+            [("user1", _date(0, hour=10)), ("user2", _date(0, hour=9))],
+            event="signed_up",
+        )
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0, hour=12), {"revenue": 50}),
+                ("user2", _date(0, hour=11), {"revenue": 30}),
+            ],
+            event="purchased",
+        )
+
+        flush_persons_and_events()
+
+        result_avg = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": "signed_up", "type": "events"},
+                    "returningEntity": {"id": "purchased", "type": "events"},
+                    "aggregationType": "avg",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        day0_values = result_avg[0]["values"]
+        # Interval 0: (50 + 30) / 2 = 40 — avg of return events after start events per user
+        self.assertEqual(day0_values[0]["aggregation_value"], 40)
+
+    def test_retention_aggregation_person_property_sum(self):
+        """Aggregating on a person property reads person.properties, not event.properties."""
+        Person.objects.create(team=self.team, distinct_ids=["high_value"], properties={"account_value": 100})
+        Person.objects.create(team=self.team, distinct_ids=["low_value"], properties={"account_value": 10})
+
+        # Both users perform $pageview on Day 0 and Day 1.
+        # The event itself has no revenue property — value comes solely from person properties.
+        _create_events(
+            self.team,
+            [
+                ("high_value", _date(0)),
+                ("high_value", _date(1)),
+                ("low_value", _date(0)),
+                ("low_value", _date(1)),
+            ],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "account_value",
+                    "aggregationPropertyType": "person",
+                },
+            }
+        )
+
+        # Day 0 cohort (both users started):
+        # interval 0: high_value (100) + low_value (10) = 110
+        # interval 1: both returned — high_value (100) + low_value (10) = 110
+        day0_values = result[0]["values"]
+        self.assertEqual(day0_values[0]["count"], 2)
+        self.assertEqual(day0_values[0]["aggregation_value"], 110)
+        self.assertEqual(day0_values[1]["count"], 2)
+        self.assertEqual(day0_values[1]["aggregation_value"], 110)
+
+    def test_retention_aggregation_person_property_avg(self):
+        """AVG over a person property divides the sum by the number of distinct actors."""
+        Person.objects.create(team=self.team, distinct_ids=["user_a"], properties={"score": 80})
+        Person.objects.create(team=self.team, distinct_ids=["user_b"], properties={"score": 60})
+
+        _create_events(
+            self.team,
+            [
+                ("user_a", _date(0)),
+                ("user_a", _date(1)),
+                ("user_b", _date(0)),
+                ("user_b", _date(1)),
+            ],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "avg",
+                    "aggregationProperty": "score",
+                    "aggregationPropertyType": "person",
+                },
+            }
+        )
+
+        # Day 0 cohort: avg((80 + 60) / 2) = 70
+        day0_values = result[0]["values"]
+        self.assertEqual(day0_values[0]["count"], 2)
+        self.assertEqual(day0_values[0]["aggregation_value"], 70)
+        self.assertEqual(day0_values[1]["count"], 2)
+        self.assertEqual(day0_values[1]["aggregation_value"], 70)
+
+    def test_retention_aggregation_person_property_no_self_join(self):
+        """Using person property aggregation must not generate a self-join (events__events)."""
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.modifiers import create_default_modifiers_for_team
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        runner = RetentionQueryRunner(
+            team=self.team,
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "account_value",
+                    "aggregationPropertyType": "person",
+                },
+            },
+        )
+        actor_query = runner.actor_query()
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql, _ = prepare_and_print_ast(actor_query, context, "clickhouse", pretty=True)
+
+        self.assertNotIn("events__events", sql, "Self-join detected with person property aggregation")
+        self.assertIn("_start_event_data", sql)
+        self.assertIn("_return_event_data", sql)
+        # person properties are accessed via the persons join, not via event properties
+        self.assertIn("person", sql)
+
+    def test_retention_aggregation_event_property_default(self):
+        """Omitting aggregationPropertyType defaults to event property behaviour."""
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.modifiers import create_default_modifiers_for_team
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        runner = RetentionQueryRunner(
+            team=self.team,
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            },
+        )
+        actor_query = runner.actor_query()
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql, _ = prepare_and_print_ast(actor_query, context, "clickhouse", pretty=True)
+
+        self.assertNotIn("events__events", sql)
+        # event property access should be present, not person property access
+        self.assertIn("properties", sql)
+
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
     def run_query(self, query, *, limit_context: Optional[LimitContext] = None):

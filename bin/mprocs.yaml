@@ -172,6 +172,10 @@ procs:
         shell: 'cd services/mcp && pnpm run build:ui-apps -- --watch'
         capability: mcp_server
 
+    stripe-app:
+        shell: 'bin/start-stripe-app'
+        capability: stripe_app
+
     migrate-postgres:
         shell: 'bin/wait-for-docker && bin/check_ducklake_up && bin/migrate --scope=postgres'
         capability: core_infra

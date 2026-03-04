@@ -21,7 +21,7 @@ import { INTEGER_REGEX_MATCH_GROUPS, OPTIONAL_PROJECT_NON_CAPTURE_GROUP } from '
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes
-    const { experiment, experimentLoading, experimentMissing, isExperimentRunning, legacyPrimaryMetricsResults } =
+    const { experiment, experimentLoading, experimentMissing, isExperimentLaunched, legacyPrimaryMetricsResults } =
         useValues(experimentLogic({ experimentId: id }))
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
     const { expanded } = useValues(notebookNodeLogic)
@@ -81,7 +81,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                                 </div>
                             </>
                         )}
-                        {isExperimentRunning && (
+                        {isExperimentLaunched && (
                             <>
                                 <LemonDivider className="my-0" />
                                 <div className="p-2">

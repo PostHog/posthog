@@ -267,12 +267,12 @@ pub struct Config {
     // Limits memory usage by bounding the number of in-flight HTTP connections
     // Critical during rebalance when many partitions are assigned simultaneously
     // Higher values speed up rebalance; streaming bounds memory per download to ~8KB
-    #[envconfig(default = "100")]
+    #[envconfig(default = "1000")]
     pub max_concurrent_checkpoint_file_downloads: usize,
 
     // Maximum concurrent S3 file uploads during checkpoint export
     // Less critical than downloads since uploads are bounded by max_concurrent_checkpoints
-    #[envconfig(default = "100")]
+    #[envconfig(default = "1000")]
     pub max_concurrent_checkpoint_file_uploads: usize,
 
     // Maximum time allowed for a complete checkpoint import for a single partition (seconds).
@@ -293,6 +293,14 @@ pub struct Config {
     pub consumer_name: Option<String>,
 
     //// End kafka-assigner mode configuration ////
+
+    /// Fail-open mode: bypass all deduplication and forward events directly to output topic.
+    /// When enabled, the deduplicator skips store operations, checkpoint import/export,
+    /// and treats all events as unique. Use as an emergency kill switch when the
+    /// deduplication store is causing issues.
+    #[envconfig(default = "false")]
+    pub fail_open: bool,
+
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
 
