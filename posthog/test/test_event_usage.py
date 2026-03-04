@@ -4,7 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
-from posthog.event_usage import report_user_action
+from posthog.event_usage import _sanitize_user_agent, report_user_action
 
 
 class TestReportUserAction(BaseTest):
@@ -20,6 +20,22 @@ class TestReportUserAction(BaseTest):
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": None,
+                },
+            ),
+            (
+                "includes_mcp_user_agent_from_header",
+                {
+                    "Referer": "http://app.posthog.com/insights",
+                    "X-Posthog-Session-Id": "sess-123",
+                    "X-Posthog-Mcp-User-Agent": "posthog/cursor 1.0",
+                },
+                None,
+                {
+                    "source": "api",
+                    "$current_url": "http://app.posthog.com/insights",
+                    "$session_id": "sess-123",
+                    "was_impersonated": False,
+                    "mcp_user_agent": "posthog/cursor 1.0",
                 },
             ),
             (
@@ -81,3 +97,18 @@ class TestReportUserAction(BaseTest):
 
         mock_capture.assert_called_once()
         assert mock_capture.call_args[1]["properties"] == {"key": "val"}
+
+
+class TestSanitizeUserAgent(BaseTest):
+    @parameterized.expand(
+        [
+            ("passthrough", "posthog/wizard 1.0", "posthog/wizard 1.0"),
+            ("strips_control_chars", "agent\x00with\x1fnulls", "agentwithnulls"),
+            ("truncates_to_max_length", "a" * 1500, "a" * 1000),
+            ("strips_whitespace", "  spaces  ", "spaces"),
+            ("empty_string_returns_none", "", None),
+            ("none_returns_none", None, None),
+        ]
+    )
+    def test_sanitize_user_agent(self, _name, input_value, expected):
+        assert _sanitize_user_agent(input_value) == expected
