@@ -491,6 +491,7 @@ def provisioning_resources_create(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
         return auth_error
+    assert access_token is not None
 
     error = verify_stripe_signature(request)
     if error:
@@ -546,6 +547,7 @@ def provisioning_resource_detail(request: Request, resource_id: str) -> Response
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
         return auth_error
+    assert access_token is not None
 
     error = verify_stripe_signature(request)
     if error:
@@ -612,6 +614,7 @@ def deep_links(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
         return auth_error
+    assert access_token is not None
 
     error = verify_stripe_signature(request)
     if error:
