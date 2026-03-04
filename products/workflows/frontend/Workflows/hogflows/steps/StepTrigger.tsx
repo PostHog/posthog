@@ -706,21 +706,9 @@ function FrequencySection(): JSX.Element {
     )
 }
 
-function conversionUsesAndLogic(conversion: { filters?: any[]; bytecode?: (string | number)[] } | undefined): boolean {
-    const filters = conversion?.filters
-    const bytecode = conversion?.bytecode
-    if (!filters || filters.length <= 1 || !bytecode || bytecode.length < 2) {
-        return false
-    }
-    // Hog bytecode AND opcode is 3, appearing as second-to-last element followed by the operand count
-    return bytecode[bytecode.length - 2] === 3 && bytecode[bytecode.length - 1] === filters.length
-}
-
 function ConversionGoalSection(): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
-
-    const useOrFiltering = !conversionUsesAndLogic(workflow.conversion)
 
     return (
         <div className="flex flex-col py-2 w-full">
@@ -729,10 +717,8 @@ function ConversionGoalSection(): JSX.Element {
                 <span className="text-md font-semibold">Conversion goal (optional)</span>
             </span>
             <p>
-                Define what a user must do to be considered converted.{' '}
-                {useOrFiltering
-                    ? 'If any condition is met, the user will be considered converted.'
-                    : 'All conditions must be met for the user to be considered converted.'}
+                Define what a user must do to be considered converted. All conditions must be met for the user to be
+                considered converted.
             </p>
 
             <div className="flex flex-col gap-4 max-w-240">
@@ -749,7 +735,6 @@ function ConversionGoalSection(): JSX.Element {
                         pageKey="workflow-conversion-properties"
                         hideBehavioralCohorts
                         operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
-                        orFiltering={useOrFiltering}
                         logicalRowDivider
                     />
                 </div>
