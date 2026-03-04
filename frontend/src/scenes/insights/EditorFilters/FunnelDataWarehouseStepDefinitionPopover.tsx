@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DefinitionPopoverRendererProps, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
@@ -41,19 +42,24 @@ export function FunnelDataWarehouseStepDefinitionPopover({
         return defaultView
     }
 
-    return <FunnelDataWarehouseStepDefinitionPopoverContent table={item as DataWarehouseTableForInsight} />
-}
-
-type FunnelDataWarehouseStepDefinitionPopoverContentProps = {
-    table: DataWarehouseTableForInsight
+    return <FunnelDataWarehouseStepDefinitionPopoverContent item={item} group={group} />
 }
 
 function FunnelDataWarehouseStepDefinitionPopoverContent({
-    table,
-}: FunnelDataWarehouseStepDefinitionPopoverContentProps): JSX.Element {
-    const logic = funnelDataWarehouseStepDefinitionPopoverLogic({ tableName: table.name })
-    const { activeFieldKey } = useValues(logic)
-    const { setActiveFieldKey } = useActions(logic)
+    item,
+    group,
+}: Omit<DefinitionPopoverRendererProps, 'defaultView'>): JSX.Element {
+    const table = item as DataWarehouseTableForInsight
+
+    const { activeFieldKey } = useValues(funnelDataWarehouseStepDefinitionPopoverLogic({ tableName: table.name }))
+    const { setActiveFieldKey } = useActions(funnelDataWarehouseStepDefinitionPopoverLogic({ tableName: table.name }))
+
+    const { selectItem } = useActions(taxonomicFilterLogic)
+
+    const { localDefinition } = useValues(definitionPopoverLogic)
+
+    const dataWarehouseLocalDefinition = localDefinition as Partial<DataWarehouseTableForInsight>
+    const selectedItemValue = group.getValue?.(dataWarehouseLocalDefinition) ?? null
 
     return (
         <div className="flex flex-col gap-3">
@@ -68,6 +74,15 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                 }))}
             />
             <ActiveField table={table} activeFieldKey={activeFieldKey} {...EDITABLE_FIELD_MAP[activeFieldKey]} />
+
+            <LemonButton
+                onClick={() => {
+                    selectItem(group, selectedItemValue, dataWarehouseLocalDefinition)
+                }}
+                type="primary"
+            >
+                Select
+            </LemonButton>
         </div>
     )
 }
