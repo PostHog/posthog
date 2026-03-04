@@ -590,22 +590,21 @@ class TestPersonhogEnvInjection:
         registry._processes["backend"] = {"shell": "./bin/start-backend", "capability": ""}
         return intent_map, registry
 
-    def test_personhog_env_injected_when_capability_active(self) -> None:
-        intent_map, registry = self._make_fixtures(with_personhog=True)
+    @parameterized.expand(
+        [
+            (True, ["personhog"], True),
+            (False, ["feature_flags"], False),
+        ]
+    )
+    def test_personhog_env_injection(self, with_personhog: bool, intents: list[str], should_inject: bool) -> None:
+        intent_map, registry = self._make_fixtures(with_personhog=with_personhog)
         resolver = IntentResolver(intent_map, registry)
-        resolved = resolver.resolve(["personhog"])
+        resolved = resolver.resolve(intents)
         config = MprocsGenerator(registry).generate(resolved)
 
         shell = config.procs["backend"]["shell"]
-        assert "PERSONHOG_ADDR" in shell
-        assert "PERSONHOG_ENABLED" in shell
-        assert "PERSONHOG_ROLLOUT_PERCENTAGE" in shell
-
-    def test_personhog_env_not_injected_without_capability(self) -> None:
-        intent_map, registry = self._make_fixtures(with_personhog=False)
-        resolver = IntentResolver(intent_map, registry)
-        resolved = resolver.resolve(["feature_flags"])
-        config = MprocsGenerator(registry).generate(resolved)
-
-        shell = config.procs["backend"]["shell"]
-        assert "PERSONHOG_ADDR" not in shell
+        for var in ["PERSONHOG_ADDR", "PERSONHOG_ENABLED", "PERSONHOG_ROLLOUT_PERCENTAGE"]:
+            if should_inject:
+                assert var in shell
+            else:
+                assert var not in shell
