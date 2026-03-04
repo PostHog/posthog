@@ -939,8 +939,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         canAutoPreview: [
-            (s) => [s.dashboard],
-            (dashboard) => {
+            (s) => [s.dashboard, s.featureFlags],
+            (dashboard, _featureFlags) => {
                 const payload = getFeatureFlagPayload(FEATURE_FLAGS.DASHBOARD_AUTO_PREVIEW_LIMIT)
                 const limit = typeof payload === 'number' ? payload : DEFAULT_AUTO_PREVIEW_TILE_LIMIT
                 return (dashboard?.tiles.length || 0) < limit
