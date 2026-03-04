@@ -208,6 +208,8 @@ class TestVercelPermission(VercelTestBase):
 class TestVercelPermissionIntegration(VercelTestBase):
     client_id_patcher: Any
     jwks_patcher: Any
+    license_patcher: Any
+    billing_patcher: Any
     mock_get_jwks: Any
 
     @classmethod
