@@ -2,6 +2,8 @@ import { useLayoutEffect, useRef } from 'react'
 
 import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
+
 import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
 export interface TablePreviewProps {
@@ -11,6 +13,7 @@ export interface TablePreviewProps {
     loading?: boolean
     selectedKey?: string | null
     bordered?: boolean
+    className?: string
 }
 
 const SELECTED_COLUMN_CLASS = 'TablePreview__selected-column'
@@ -22,6 +25,7 @@ export function TablePreview({
     loading = false,
     selectedKey = null,
     bordered = false,
+    className,
 }: TablePreviewProps): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
     const tableName = table?.name
@@ -69,7 +73,7 @@ export function TablePreview({
         : []
 
     return (
-        <div ref={containerRef} className="flex-1 min-w-0">
+        <div ref={containerRef} className={cn('flex-1 min-w-0', className)}>
             <div
                 className={
                     bordered
