@@ -1,3 +1,7 @@
+---
+docs: true
+---
+
 # Implementing MCP tools
 
 MCP tools are atomic capabilities – CRUD operations and simple actions that agents compose into workflows.
