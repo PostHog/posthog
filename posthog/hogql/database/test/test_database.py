@@ -944,6 +944,192 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert isinstance(direct_table, Table)
         assert "properties" in direct_table.fields
 
+    def test_adds_foreign_key_joins_for_direct_postgres_tables(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        team_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_team",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "name": {"hogql": "string", "clickhouse": "String", "schema_valid": True},
+            },
+        )
+        activitylog_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "team_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+
+        ExternalDataSchema.objects.create(name="posthog_team", team=self.team, source=source, table=team_table)
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [
+                        {
+                            "column": "team_id",
+                            "target_table": "posthog_team",
+                            "target_column": "id",
+                        }
+                    ]
+                }
+            },
+        )
+
+        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        activitylog = database.get_table("posthog_activitylog")
+        team = database.get_table("posthog_team")
+
+        assert isinstance(activitylog.fields.get("team"), LazyJoin)
+        assert isinstance(team.fields.get("posthog_activitylogs"), LazyJoin)
+
+    def test_direct_postgres_foreign_key_join_allows_user_traversal(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        user_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_user",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "email": {"hogql": "string", "clickhouse": "String", "schema_valid": True},
+            },
+        )
+        team_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_team",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "user_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+
+        ExternalDataSchema.objects.create(name="posthog_user", team=self.team, source=source, table=user_table)
+        ExternalDataSchema.objects.create(
+            name="posthog_team",
+            team=self.team,
+            source=source,
+            table=team_table,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [
+                        {
+                            "column": "user_id",
+                            "target_table": "posthog_user",
+                            "target_column": "id",
+                        }
+                    ]
+                }
+            },
+        )
+
+        db = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+
+        prepare_and_print_ast(parse_select("SELECT t.user.email FROM posthog_team t"), context, dialect="postgres")
+
+    def test_adds_foreign_key_joins_for_non_direct_postgres_tables(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="ph3",
+        )
+        team_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_team",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "name": {"hogql": "string", "clickhouse": "String", "schema_valid": True},
+            },
+        )
+        activitylog_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "team_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+
+        ExternalDataSchema.objects.create(name="posthog_team", team=self.team, source=source, table=team_table)
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [
+                        {
+                            "column": "team_id",
+                            "target_table": "posthog_team",
+                            "target_column": "id",
+                        }
+                    ]
+                }
+            },
+        )
+
+        database = Database.create_for(team=self.team)
+        activitylog = database.get_table("postgres.ph3.posthog_activitylog")
+        team = database.get_table("postgres.ph3.posthog_team")
+
+        assert isinstance(activitylog.fields.get("team"), LazyJoin)
+        assert isinstance(team.fields.get("posthog_activitylogs"), LazyJoin)
+
     def test_serialize_direct_postgres_table_uses_prefixed_name_in_default_mode(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team

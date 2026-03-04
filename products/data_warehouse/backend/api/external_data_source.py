@@ -122,6 +122,21 @@ def postgres_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dic
     return resolved_columns
 
 
+def postgres_schema_metadata(
+    columns: list[tuple[str, str, bool]], foreign_keys: list[tuple[str, str, str]] | None = None
+) -> dict[str, Any]:
+    return {
+        "columns": [
+            {"name": column_name, "data_type": postgres_type, "is_nullable": nullable}
+            for column_name, postgres_type, nullable in columns
+        ],
+        "foreign_keys": [
+            {"column": column_name, "target_table": target_table, "target_column": target_column}
+            for column_name, target_table, target_column in (foreign_keys or [])
+        ],
+    }
+
+
 def get_password_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that have PASSWORD type from a source config's fields."""
     password_fields: set[str] = set()
@@ -604,6 +619,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             source_schema = next(
                 (source_schema for source_schema in source_schemas if source_schema.name == schema_name), None
             )
+            schema_metadata = postgres_schema_metadata(
+                source_schema.columns if source_schema else [],
+                source_schema.foreign_keys if source_schema else [],
+            )
 
             schema_model = ExternalDataSchema.objects.create(
                 name=schema_name,
@@ -618,9 +637,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     {
                         "incremental_field": incremental_field,
                         "incremental_field_type": incremental_field_type,
+                        "schema_metadata": schema_metadata,
                     }
                     if requires_incremental_fields and access_method == ExternalDataSource.AccessMethod.WAREHOUSE
-                    else {}
+                    else {"schema_metadata": schema_metadata}
                 ),
             )
 
@@ -825,6 +845,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
                     expected_table_name = f"{table_prefix}{source_schema.name}".lower()
                     expected_columns = postgres_columns_to_dwh_columns(source_schema.columns)
+                    schema_metadata = postgres_schema_metadata(source_schema.columns, source_schema.foreign_keys)
+
+                    existing_sync_type_config = schema_model.sync_type_config if schema_model.sync_type_config else {}
+                    schema_model.sync_type_config = {**existing_sync_type_config, "schema_metadata": schema_metadata}
+                    schema_model.save(update_fields=["sync_type_config", "updated_at"])
 
                     table_model = schema_model.table
                     if table_model is None or table_model.deleted:

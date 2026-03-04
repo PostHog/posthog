@@ -805,7 +805,13 @@ class TestExternalDataSource(APIBaseTest):
     def test_reload_direct_external_data_source_refreshes_schemas(self, mock_trigger, mock_get_source):
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
-            SourceSchema(name="table_a", supports_incremental=False, supports_append=False),
+            SourceSchema(
+                name="table_a",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False), ("user_id", "integer", False)],
+                foreign_keys=[("user_id", "posthog_user", "id")],
+            ),
         ]
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -834,6 +840,11 @@ class TestExternalDataSource(APIBaseTest):
                 name="test_postgres_table_a",
             ).count(),
             1,
+        )
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="table_a")
+        self.assertEqual(
+            schema.sync_type_config.get("schema_metadata", {}).get("foreign_keys"),
+            [{"column": "user_id", "target_table": "posthog_user", "target_column": "id"}],
         )
 
     def test_database_schema(self):

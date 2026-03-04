@@ -42,6 +42,7 @@ from posthog.hogql.database.models import (
     FunctionCallTable,
     IntegerDatabaseField,
     LazyJoin,
+    LazyJoinToAdd,
     SavedQuery,
     StringArrayDatabaseField,
     StringDatabaseField,
@@ -126,6 +127,7 @@ from posthog.models.team.team import WeekStartDay
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
@@ -806,6 +808,7 @@ class Database(BaseModel):
         warehouse_tables: TableNode = TableNode()
         self_managed_warehouse_tables: TableNode = TableNode()
         views: TableNode = TableNode()
+        warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
 
         with timings.measure("data_warehouse_saved_query"):
             with timings.measure("select"):
@@ -937,6 +940,8 @@ class Database(BaseModel):
                         s3_table.name = joined_table_chain
                         warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
 
+                    warehouse_tables_to_process.append((s3_table, table))
+
         def define_mappings(root_node: TableNode, get_table: Callable):
             table: Table | None = None
 
@@ -1058,6 +1063,10 @@ class Database(BaseModel):
         database._add_warehouse_tables(warehouse_tables)
         database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
         database._add_views(views)
+
+        with timings.measure("warehouse_foreign_keys"):
+            for warehouse_table, table in warehouse_tables_to_process:
+                _add_foreign_key_lazy_joins(warehouse_table, table, database)
 
         with timings.measure("data_warehouse_joins"):
             for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
@@ -1340,6 +1349,179 @@ def _constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> 
 
 
 HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
+
+
+def _foreign_key_join_function(
+    from_field: list[str | int], to_field: list[str | int]
+) -> Callable[[LazyJoinToAdd, HogQLContext, ast.SelectQuery], ast.JoinExpr]:
+    def _join_function(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery):
+        join_table = join_to_add.lazy_join.resolve_table(context)
+
+        if isinstance(join_table.name, str):
+            join_table_chain: list[str | int] = join_table.name.split(".")
+        else:
+            join_table_chain = [join_to_add.to_table]
+
+        if not join_to_add.fields_accessed:
+            raise ResolutionError(f"No fields requested from {join_to_add.to_table}")
+
+        left = ast.Field(chain=[join_to_add.from_table, *from_field])
+        right = ast.Field(chain=[join_to_add.to_table, *to_field])
+
+        return ast.JoinExpr(
+            table=ast.SelectQuery(
+                select=[
+                    ast.Alias(alias=alias, expr=ast.Field(chain=chain))
+                    for alias, chain in join_to_add.fields_accessed.items()
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=join_table_chain)),
+            ),
+            join_type="LEFT JOIN",
+            alias=join_to_add.to_table,
+            constraint=ast.JoinConstraint(
+                expr=ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=left, right=right),
+                constraint_type="ON",
+            ),
+        )
+
+    return _join_function
+
+
+def _reverse_foreign_key_field_name(from_table: str, target_table: str) -> str:
+    from_base = from_table.split(".")[-1]
+    target_base = target_table.split(".")[-1]
+
+    if from_base.startswith(target_base):
+        reverse_name = from_base[len(target_base) :].lstrip("_") or from_base
+    else:
+        reverse_name = from_base
+
+    if not reverse_name.endswith("s"):
+        reverse_name = f"{reverse_name}s"
+
+    return reverse_name
+
+
+def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehouseTable, database: Database) -> None:
+    def _get_foreign_keys(schema: ExternalDataSchema) -> list[dict[str, str]] | None:
+        if schema.foreign_keys:
+            return schema.foreign_keys
+
+        metadata = schema.sync_type_config.get("schema_metadata") if schema.sync_type_config else None
+        if isinstance(metadata, dict):
+            foreign_keys = metadata.get("foreign_keys")
+            if isinstance(foreign_keys, list):
+                return foreign_keys
+        return None
+
+    schemas = (
+        list(warehouse_table.externaldataschema_set.all()) if hasattr(warehouse_table, "externaldataschema_set") else []
+    )
+    schema_with_foreign_keys = next((schema for schema in schemas if _get_foreign_keys(schema)), None)
+
+    foreign_keys = _get_foreign_keys(schema_with_foreign_keys) if schema_with_foreign_keys else None
+    if foreign_keys is None:
+        foreign_keys = []
+
+    def _add_join(column: str, target_table: str, target_column: str) -> None:
+        if not column or not target_table or not target_column:
+            return
+
+        from_field = get_join_field_chain(column)
+        to_field = get_join_field_chain(target_column)
+        if from_field is None or to_field is None:
+            return
+
+        field_name = column[:-3] if column.endswith("_id") and len(column) > 3 else column
+        if hogql_table.fields.get(field_name):
+            return
+
+        join_table: Table | str = target_table
+        if isinstance(join_table, str) and isinstance(hogql_table.name, str):
+            if "." in hogql_table.name and "." not in join_table:
+                join_table = ".".join([*hogql_table.name.split(".")[:-1], join_table])
+
+        hogql_table.fields[field_name] = LazyJoin(
+            from_field=from_field,
+            to_field=to_field,
+            join_table=join_table,
+            join_function=_foreign_key_join_function(from_field, to_field),
+        )
+
+        target_table_name: str | None
+        if isinstance(join_table, Table) and isinstance(join_table.name, str):
+            target_table_name = join_table.name
+        elif isinstance(join_table, str):
+            target_table_name = join_table
+        else:
+            target_table_name = None
+
+        source_table_name = hogql_table.name if isinstance(hogql_table.name, str) else None
+        if target_table_name is None or source_table_name is None:
+            return
+
+        reverse_field_name = _reverse_foreign_key_field_name(source_table_name, target_table_name)
+
+        try:
+            target_hogql_table = database.get_table(target_table_name)
+        except QueryError:
+            return
+
+        if target_hogql_table.fields.get(reverse_field_name) is None:
+            target_hogql_table.fields[reverse_field_name] = LazyJoin(
+                from_field=to_field,
+                to_field=from_field,
+                join_table=hogql_table,
+                join_function=_foreign_key_join_function(to_field, from_field),
+            )
+
+    for foreign_key in foreign_keys:
+        _add_join(
+            foreign_key.get("column", ""),
+            foreign_key.get("target_table", ""),
+            foreign_key.get("target_column", ""),
+        )
+
+    if foreign_keys:
+        return
+
+    # Fallback inference when explicit FK metadata is unavailable.
+    # This keeps direct Postgres ergonomics high for common *_id columns.
+    if not isinstance(hogql_table.name, str):
+        return
+
+    source_parts = hogql_table.name.split(".")
+    namespace = source_parts[:-1]
+
+    known_target_overrides = {
+        "team": ["posthog_team", "team"],
+        "user": ["posthog_user", "user"],
+        "person": ["posthog_person", "persons", "person"],
+        "organization": ["posthog_organization", "organization"],
+    }
+
+    def _candidate_target_tables(base_name: str) -> list[str]:
+        local_candidates = [base_name, f"{base_name}s", f"posthog_{base_name}"]
+        local_candidates = [*known_target_overrides.get(base_name, []), *local_candidates]
+        scoped_candidates = [".".join([*namespace, name]) for name in local_candidates] if namespace else []
+        return [*scoped_candidates, *local_candidates]
+
+    columns = warehouse_table.columns or {}
+    for column_name in columns.keys():
+        if not column_name.endswith("_id") or len(column_name) <= 3:
+            continue
+        field_name = column_name[:-3]
+        if hogql_table.fields.get(field_name):
+            continue
+
+        target_table_name = next(
+            (candidate for candidate in _candidate_target_tables(field_name) if database.has_table(candidate)),
+            None,
+        )
+        if target_table_name is None:
+            continue
+
+        _add_join(column_name, target_table_name, "id")
 
 
 def serialize_fields(
