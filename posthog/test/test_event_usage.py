@@ -19,6 +19,7 @@ class TestReportUserAction(BaseTest):
                     "$current_url": "http://app.posthog.com/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
+                    "mcp_user_agent": None,
                 },
             ),
             (
@@ -30,6 +31,7 @@ class TestReportUserAction(BaseTest):
                     "$current_url": "http://app.posthog.com/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
+                    "mcp_user_agent": None,
                     "key": "val",
                 },
             ),
@@ -42,6 +44,7 @@ class TestReportUserAction(BaseTest):
                     "$current_url": "override",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
+                    "mcp_user_agent": None,
                 },
             ),
             (
@@ -53,6 +56,7 @@ class TestReportUserAction(BaseTest):
                     "$current_url": None,
                     "$session_id": None,
                     "was_impersonated": False,
+                    "mcp_user_agent": None,
                     "key": "val",
                 },
             ),
