@@ -87,7 +87,7 @@ export function EditSubscription({
             props={logicProps}
             formKey="subscription"
             enableFormOnSubmit
-            className="LemonModal__layout"
+            className="flex flex-1 flex-col min-h-0"
         >
             <LemonModal.Header>
                 <div className="flex items-center gap-2">
@@ -97,7 +97,7 @@ export function EditSubscription({
                 </div>
             </LemonModal.Header>
 
-            <LemonModal.Content className="deprecated-space-y-2 flex-1 overflow-y-auto">
+            <LemonModal.Content className="deprecated-space-y-2 flex-1 min-h-0">
                 {!subscription ? (
                     subscriptionLoading ? (
                         <div className="deprecated-space-y-4">
