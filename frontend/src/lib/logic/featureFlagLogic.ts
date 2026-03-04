@@ -8,7 +8,9 @@ import { AppContext } from '~/types'
 
 import type { featureFlagLogicType } from './featureFlagLogicType'
 
-export type FeatureFlagsSet = Partial<Record<FeatureFlagKey, boolean | string>>
+export type FeatureFlagsSet = {
+    [flag in FeatureFlagKey]?: boolean | string
+}
 
 const eventsNotified: Record<string, boolean> = {}
 function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefined): void {
