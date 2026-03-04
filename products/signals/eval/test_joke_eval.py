@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from posthoganalytics.ai.openai import OpenAI
+from posthoganalytics.ai.openai import AsyncOpenAI
 
 from products.signals.eval.framework import EvalCase, EvalMetric, run_eval
 
@@ -10,9 +10,9 @@ TASK_MODEL = "gpt-5-nano-2025-08-07"
 JUDGE_MODEL = "gpt-5.2-2025-12-11"
 
 
-def tell_joke(client: OpenAI, case: EvalCase) -> str:
+async def tell_joke(client: AsyncOpenAI, case: EvalCase) -> str:
     topic = case.input["topic"]
-    response = client.chat.completions.create(
+    response = await client.chat.completions.create(
         model=TASK_MODEL,
         messages=[{"role": "user", "content": f"Tell me a short joke about {topic}"}],
         posthog_distinct_id="llma_eval",
@@ -20,8 +20,8 @@ def tell_joke(client: OpenAI, case: EvalCase) -> str:
     return response.choices[0].message.content or ""
 
 
-def judge_monkey_joke(client: OpenAI, case: EvalCase, output: str) -> EvalMetric:
-    response = client.chat.completions.create(
+async def judge_monkey_joke(client: AsyncOpenAI, case: EvalCase, output: str) -> EvalMetric:
+    response = await client.chat.completions.create(
         model=JUDGE_MODEL,
         messages=[
             {
@@ -58,8 +58,8 @@ CASES = [
 
 
 @pytest.mark.django_db
-def test_monkey_joke_eval(posthog_client, openai_client):
-    results = run_eval(
+async def test_monkey_joke_eval(posthog_client, openai_client):
+    results = await run_eval(
         client=posthog_client,
         openai_client=openai_client,
         experiment_name="joke-monkey-detection",
@@ -70,8 +70,8 @@ def test_monkey_joke_eval(posthog_client, openai_client):
     assert len(results) == len(CASES)
 
 
-def judge_walrus_joke(client: OpenAI, case: EvalCase, output: str) -> EvalMetric:
-    response = client.chat.completions.create(
+async def judge_walrus_joke(client: AsyncOpenAI, case: EvalCase, output: str) -> EvalMetric:
+    response = await client.chat.completions.create(
         model=JUDGE_MODEL,
         messages=[
             {
@@ -108,8 +108,8 @@ WALRUS_CASES = [
 
 
 @pytest.mark.django_db
-def test_walrus_joke_eval(posthog_client, openai_client):
-    results = run_eval(
+async def test_walrus_joke_eval(posthog_client, openai_client):
+    results = await run_eval(
         client=posthog_client,
         openai_client=openai_client,
         experiment_name="joke-walrus-detection",

@@ -1,13 +1,15 @@
 import uuid
+import asyncio
 import traceback
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
 from posthoganalytics import Posthog
-from posthoganalytics.ai.openai import OpenAI
+from posthoganalytics.ai.openai import AsyncOpenAI
 
 DISTINCT_ID = "llma_eval"
+DEFAULT_CONCURRENCY = 10
 
 
 def deterministic_uuid(name: str) -> str:
@@ -91,23 +93,22 @@ def capture_evaluation(
     )
 
 
-def run_eval(
-    client: Posthog,
-    openai_client: OpenAI,
-    experiment_name: str,
-    cases: list[EvalCase],
-    task_fn: Callable[[OpenAI, EvalCase], Any],
-    judge_fn: Callable[[OpenAI, EvalCase, Any], EvalMetric],
-) -> list[EvalResult]:
-    experiment_id = deterministic_uuid(experiment_name)
-    results: list[EvalResult] = []
+TaskFn = Callable[[AsyncOpenAI, EvalCase], Awaitable[Any]]
+JudgeFn = Callable[[AsyncOpenAI, EvalCase, Any], Awaitable[EvalMetric]]
 
-    # TODO: Make async?
-    for case in cases:
+
+async def _run_case(
+    semaphore: asyncio.Semaphore,
+    openai_client: AsyncOpenAI,
+    case: EvalCase,
+    task_fn: TaskFn,
+    judge_fn: JudgeFn,
+) -> EvalResult:
+    async with semaphore:
         result = EvalResult(case=case)
 
         try:
-            result.output = task_fn(openai_client, case)
+            result.output = await task_fn(openai_client, case)
         except Exception as e:
             result.error = traceback.format_exc()
             result.metric = EvalMetric(
@@ -119,7 +120,7 @@ def run_eval(
 
         if result.error is None:
             try:
-                result.metric = judge_fn(openai_client, case, result.output)
+                result.metric = await judge_fn(openai_client, case, result.output)
             except Exception as e:
                 result.error = traceback.format_exc()
                 result.metric = EvalMetric(
@@ -129,27 +130,55 @@ def run_eval(
                     error_message=str(e),
                 )
 
-        if result.metric:
+        return result
+
+
+async def run_eval(
+    client: Posthog,
+    openai_client: AsyncOpenAI,
+    experiment_name: str,
+    cases: list[EvalCase],
+    task_fn: TaskFn,
+    judge_fn: JudgeFn,
+    max_concurrency: int = DEFAULT_CONCURRENCY,
+) -> list[EvalResult]:
+    experiment_id = deterministic_uuid(experiment_name)
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    results = await asyncio.gather(
+        *[_run_case(semaphore, openai_client, case, task_fn, judge_fn) for case in cases],
+        return_exceptions=True,
+    )
+
+    eval_results: list[EvalResult] = []
+    for i, r in enumerate(results):
+        if isinstance(r, BaseException):
+            r = EvalResult(
+                case=cases[i],
+                error=str(r),
+                metric=EvalMetric(name="error", status="error", error_code="unexpected", error_message=str(r)),
+            )
+        eval_results.append(r)
+
+        if r.metric:
             capture_evaluation(
                 client=client,
                 experiment_id=experiment_id,
                 experiment_name=experiment_name,
-                item_id=deterministic_uuid(f"{experiment_name}:{case.name}"),
-                item_name=case.name,
-                metric=result.metric,
-                input=case.input,
-                output=result.output,
-                expected=case.expected,
+                item_id=deterministic_uuid(f"{experiment_name}:{r.case.name}"),
+                item_name=r.case.name,
+                metric=r.metric,
+                input=r.case.input,
+                output=r.output,
+                expected=r.case.expected,
             )
-
-        results.append(result)
 
     client.flush()
 
     print(f"\n{'=' * 60}")  # noqa: T201
     print(f"Eval: {experiment_name}")  # noqa: T201
     print(f"{'=' * 60}")  # noqa: T201
-    for r in results:
+    for r in eval_results:
         score_str = f"{r.metric.score}" if r.metric and r.metric.score is not None else "N/A"
         status = r.metric.status if r.metric else "unknown"
         print(f"  {r.case.name}: score={score_str} status={status}")  # noqa: T201
@@ -157,4 +186,4 @@ def run_eval(
             print(f"    error: {r.error.splitlines()[-1]}")  # noqa: T201
     print(f"{'=' * 60}\n")  # noqa: T201
 
-    return results
+    return eval_results

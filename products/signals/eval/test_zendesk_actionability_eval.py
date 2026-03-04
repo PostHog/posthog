@@ -5,7 +5,8 @@ from typing import Any
 import pytest
 
 from google.genai import types
-from posthoganalytics.ai.openai import OpenAI
+from posthoganalytics.ai.gemini import AsyncClient as AsyncGeminiClient
+from posthoganalytics.ai.openai import AsyncOpenAI
 
 from posthog.temporal.data_imports.signals.zendesk_tickets import ZENDESK_ACTIONABILITY_PROMPT, zendesk_ticket_emitter
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
@@ -46,12 +47,10 @@ def load_zendesk_cases() -> list[EvalCase]:
     return cases
 
 
-def check_actionability(client: OpenAI, case: EvalCase) -> dict[str, Any]:
+async def check_actionability(client: AsyncOpenAI, case: EvalCase) -> dict[str, Any]:
     """Mirrors production: call Gemini with thinking enabled."""
-    from posthoganalytics.ai.gemini import Client as GeminiClient
-
-    gemini = GeminiClient(posthog_client=client._ph_client)
-    response = gemini.models.generate_content(
+    gemini = AsyncGeminiClient(posthog_client=client._ph_client)
+    response = await gemini.models.generate_content(
         model=GEMINI_MODEL,
         contents=[case.input["prompt"]],
         config=types.GenerateContentConfig(
@@ -112,11 +111,11 @@ Respond with JSON: {{"reasoning": "...", "correct": true/false}}
 </instructions>"""
 
 
-def judge_actionability(client: OpenAI, case: EvalCase, output: dict[str, Any]) -> EvalMetric:
+async def judge_actionability(client: AsyncOpenAI, case: EvalCase, output: dict[str, Any]) -> EvalMetric:
     thoughts = output.get("thoughts")
     thoughts_section = f"\n<classifier_thoughts>\n{thoughts}\n</classifier_thoughts>\n" if thoughts else ""
 
-    response = client.chat.completions.create(
+    response = await client.chat.completions.create(
         model=JUDGE_MODEL,
         messages=[
             {
@@ -146,11 +145,11 @@ def judge_actionability(client: OpenAI, case: EvalCase, output: dict[str, Any]) 
 
 
 @pytest.mark.django_db
-def test_zendesk_actionability_eval(posthog_client, openai_client):
+async def test_zendesk_actionability_eval(posthog_client, openai_client):
     cases = load_zendesk_cases()
     assert len(cases) > 0, "No zendesk ticket fixtures found"
 
-    results = run_eval(
+    results = await run_eval(
         client=posthog_client,
         openai_client=openai_client,
         experiment_name="zendesk-actionability-check",

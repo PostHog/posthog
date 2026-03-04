@@ -5,7 +5,7 @@ import pytest
 
 from dotenv import load_dotenv
 from posthoganalytics import Posthog
-from posthoganalytics.ai.openai import OpenAI
+from posthoganalytics.ai.openai import AsyncOpenAI
 
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
@@ -25,4 +25,4 @@ def posthog_client():
 
 @pytest.fixture
 def openai_client(posthog_client):
-    return OpenAI(posthog_client=posthog_client)
+    return AsyncOpenAI(posthog_client=posthog_client)
