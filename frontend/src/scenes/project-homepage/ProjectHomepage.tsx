@@ -23,6 +23,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DashboardPlacement } from '~/types'
 
+import { AiFirstHomepage } from './ai-first/AiFirstHomepage'
+
 export const scene: SceneExport = {
     component: ProjectHomepage,
     logic: projectHomepageLogic,
@@ -105,8 +107,8 @@ export function ProjectHomepage(): JSX.Element {
 
     if (isAIFirst) {
         return (
-            <div className="-m-4">
-                <NewTabScene />
+            <div className="-m-4 grow h-full">
+                <AiFirstHomepage />
             </div>
         )
     }
