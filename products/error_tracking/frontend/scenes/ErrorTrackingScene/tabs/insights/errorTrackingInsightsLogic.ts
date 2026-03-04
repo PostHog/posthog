@@ -11,10 +11,16 @@ import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, Universal
 import { issueFiltersLogic } from '../../../../components/IssueFilters/issueFiltersLogic'
 import { ERROR_TRACKING_SCENE_LOGIC_KEY } from '../../errorTrackingSceneLogic'
 import type { errorTrackingInsightsLogicType } from './errorTrackingInsightsLogicType'
-import { buildCrashFreeSessionsQuery, buildExceptionVolumeQuery, InsightQueryFilters } from './queries'
+import {
+    buildAffectedUsersQuery,
+    buildCrashFreeSessionsQuery,
+    buildExceptionVolumeQuery,
+    InsightQueryFilters,
+} from './queries'
 
 export interface InsightsSummaryStats {
     totalExceptions: number
+    affectedUsers: number
     totalSessions: number
     crashSessions: number
     crashFreeRate: number
@@ -70,6 +76,11 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             (dateRange, filters): InsightVizNode<TrendsQuery> =>
                 buildExceptionVolumeQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
         ],
+        affectedUsersQuery: [
+            (s) => [s.dateRange, s.insightQueryFilters],
+            (dateRange, filters): InsightVizNode<TrendsQuery> =>
+                buildAffectedUsersQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
+        ],
         crashFreeSessionsQuery: [
             (s) => [s.dateRange, s.insightQueryFilters],
             (dateRange, filters): InsightVizNode<TrendsQuery> =>
@@ -88,6 +99,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                         query: `
                             SELECT
                                 countIf(event = '$exception') as total_exceptions,
+                                uniqIf(distinct_id, event = '$exception') as affected_users,
                                 uniqIf($session_id, notEmpty($session_id)) as total_sessions,
                                 uniqIf($session_id, event = '$exception' AND notEmpty($session_id)) as crash_sessions
                             FROM events
@@ -104,12 +116,18 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                     if (!row) {
                         return null
                     }
-                    const [totalExceptions, totalSessions, crashSessions] = row as [number, number, number]
+                    const [totalExceptions, affectedUsers, totalSessions, crashSessions] = row as [
+                        number,
+                        number,
+                        number,
+                        number,
+                    ]
                     const crashFreeRate =
                         totalSessions > 0 ? ((totalSessions - crashSessions) / totalSessions) * 100 : 100
 
                     return {
                         totalExceptions,
+                        affectedUsers,
                         totalSessions,
                         crashSessions,
                         crashFreeRate: Math.round(crashFreeRate * 100) / 100,

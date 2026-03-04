@@ -49,6 +49,35 @@ export function buildExceptionVolumeQuery(
     }
 }
 
+export function buildAffectedUsersQuery(
+    dateFrom: string,
+    dateTo: string | null,
+    { filterGroup, filterTestAccounts }: InsightQueryFilters
+): InsightVizNode<TrendsQuery> {
+    const interval = getInterval(dateFrom, dateTo)
+    return {
+        kind: NodeKind.InsightVizNode,
+        source: {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$exception',
+                    custom_name: 'Affected users',
+                    math: BaseMathType.UniqueUsers,
+                },
+            ],
+            interval,
+            dateRange: { date_from: dateFrom, date_to: dateTo },
+            trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+            filterTestAccounts,
+            properties: filterGroup as PropertyGroupFilter,
+        },
+        showHeader: false,
+        showTable: false,
+    }
+}
+
 export function buildCrashFreeSessionsQuery(
     dateFrom: string,
     dateTo: string | null,

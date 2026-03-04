@@ -6,7 +6,7 @@ import { InsightsFilters } from './InsightsFilters'
 import { SummaryStats } from './SummaryStats'
 
 export function ErrorTrackingInsights(): JSX.Element {
-    const { exceptionVolumeQuery, crashFreeSessionsQuery } = useValues(errorTrackingInsightsLogic)
+    const { exceptionVolumeQuery, affectedUsersQuery, crashFreeSessionsQuery } = useValues(errorTrackingInsightsLogic)
 
     return (
         <div className="space-y-4">
@@ -25,6 +25,12 @@ export function ErrorTrackingInsights(): JSX.Element {
                         description="Exceptions per day"
                         query={exceptionVolumeQuery}
                         chartKey="exception_volume"
+                    />
+                    <ChartCard
+                        title="Affected users"
+                        description="Unique users experiencing exceptions"
+                        query={affectedUsersQuery}
+                        chartKey="affected_users"
                     />
                     <ChartCard
                         title="Crash-free sessions"
