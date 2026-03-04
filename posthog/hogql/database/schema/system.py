@@ -280,6 +280,26 @@ actions: PostgresTable = PostgresTable(
     },
 )
 
+hog_flows: PostgresTable = PostgresTable(
+    name="hog_flows",
+    postgres_table_name="posthog_hogflow",
+    access_scope="hog_flow",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+        "status": StringDatabaseField(name="status"),
+        "version": IntegerDatabaseField(name="version"),
+        "exit_condition": StringDatabaseField(name="exit_condition"),
+        "trigger": StringJSONDatabaseField(name="trigger"),
+        "edges": StringJSONDatabaseField(name="edges"),
+        "actions": StringJSONDatabaseField(name="actions"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 notebooks: PostgresTable = PostgresTable(
     name="notebooks",
     postgres_table_name="posthog_notebook",
@@ -330,6 +350,7 @@ class SystemTables(TableNode):
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
         "groups": TableNode(name="groups", table=groups),
         "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
+        "hog_flows": TableNode(name="hog_flows", table=hog_flows),
         "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
         "insights": TableNode(name="insights", table=insights),

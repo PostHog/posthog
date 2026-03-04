@@ -55,7 +55,7 @@ export type Context = {
     sessionManager: SessionManager
 }
 
-export type Tool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
+export type Tool<TSchema extends z.ZodType = z.ZodType> = {
     name: string
     title: string
     description: string
@@ -71,14 +71,14 @@ export type Tool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
     _meta?: ToolMeta
 }
 
-export type ToolBase<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = Omit<
+export type ToolBase<TSchema extends z.ZodType = z.ZodType> = Omit<
     Tool<TSchema>,
     'title' | 'description' | 'scopes' | 'annotations'
 > & {
     _meta?: ToolMeta
 }
 
-export type ZodObjectAny = z.ZodObject<any, any, any, any, any>
+export type ZodObjectAny = z.ZodType<any>
 
 export type ToolUiMeta = {
     resourceUri: string

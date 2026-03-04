@@ -2,7 +2,13 @@ from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
+from django.test import override_settings
 
+from posthog.api.oauth.test_dcr import generate_rsa_key
+
+
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestToolbarOAuthAuthorize(APIBaseTest):
     def setUp(self):
         super().setUp()

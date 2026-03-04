@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { LemonTag, Link } from '@posthog/lemon-ui'
@@ -13,7 +14,6 @@ import { Survey, SurveyAppearance } from '~/types'
 
 import { AbsoluteCornerBadge } from './components/AbsoluteCornerBadge'
 import {
-    NewSurvey,
     QuickSurveyFromTemplate,
     SurveyTemplate,
     SurveyTemplateType,
@@ -22,7 +22,6 @@ import {
 } from './constants'
 import { QuickSurveyModal } from './QuickSurveyModal'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
-import { surveyLogic } from './surveyLogic'
 
 export const scene: SceneExport = {
     component: SurveyTemplates,
@@ -31,7 +30,6 @@ export const scene: SceneExport = {
 interface TemplateCardProps {
     template: SurveyTemplate
     idx: number
-    setSurveyTemplateValues?: (values: Partial<NewSurvey>) => void
     reportSurveyTemplateClicked: (templateType: SurveyTemplateType) => void
     surveyAppearance: SurveyAppearance
     handleTemplateClick: (template: SurveyTemplate) => void
@@ -128,7 +126,6 @@ export function TemplateCard({ template, idx, handleTemplateClick, surveyAppeara
 }
 
 export function SurveyTemplates(): JSX.Element {
-    const { setSurveyTemplateValues } = useActions(surveyLogic({ id: 'new' }))
     const { reportSurveyTemplateClicked } = useActions(eventUsageLogic)
     const { currentTeam } = useValues(teamLogic)
     const surveyAppearance = {
@@ -164,7 +161,6 @@ export function SurveyTemplates(): JSX.Element {
                             key={idx}
                             template={template}
                             idx={idx}
-                            setSurveyTemplateValues={setSurveyTemplateValues}
                             reportSurveyTemplateClicked={reportSurveyTemplateClicked}
                             surveyAppearance={surveyAppearance}
                             handleTemplateClick={(template) => {
@@ -172,16 +168,7 @@ export function SurveyTemplates(): JSX.Element {
                                     setQuickSurveyContext(template.quickSurvey)
                                     setQuickModalOpen(true)
                                 } else {
-                                    setSurveyTemplateValues({
-                                        name: template.templateType,
-                                        questions: template.questions ?? [],
-                                        appearance: {
-                                            ...defaultSurveyAppearance,
-                                            ...template.appearance,
-                                            ...surveyAppearance,
-                                        },
-                                        conditions: template.conditions ?? null,
-                                    })
+                                    router.actions.push(urls.surveyWizard('new', template.templateType))
                                 }
                                 reportSurveyTemplateClicked(template.templateType)
                             }}

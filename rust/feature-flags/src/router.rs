@@ -8,7 +8,8 @@ use std::{
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
-    http::Method,
+    error_handling::HandleErrorLayer,
+    http::{Method, StatusCode},
     routing::{any, get},
     Router,
 };
@@ -16,12 +17,15 @@ use common_cache::NegativeCache;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
+use common_metrics::inc;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use health::{readiness_handler, HealthRegistry};
 use metrics::gauge;
 use sqlx::PgPool;
 use tower::limit::ConcurrencyLimitLayer;
+use tower::timeout::TimeoutLayer;
+use tower::ServiceBuilder;
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
     trace::TraceLayer,
@@ -36,7 +40,10 @@ use crate::{
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdCollection},
     metrics::{
-        consts::{FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER},
+        consts::{
+            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER,
+            FLAG_REQUEST_TIMEOUT_COUNTER,
+        },
         utils::team_id_label_filter,
     },
     rayon_dispatcher::RayonDispatcher,
@@ -190,6 +197,12 @@ pub fn router(
 
     // flags endpoint
     // IP rate limiting is now handled in the endpoint handler for better control and log-only mode support
+    //
+    // Layer ordering (outermost to innermost, last .layer() call on Router is outermost):
+    // 1. HandleErrorLayer (outermost): converts timeout errors into 503 responses.
+    // 2. TimeoutLayer: cancels the entire request after request_timeout_ms,
+    //    ensuring zombie tasks don't hold connections after Envoy kills the downstream.
+    // 3. ConcurrencyLimitLayer (innermost): bounds in-flight requests.
     let flags_router = Router::new()
         .route("/flags", any(endpoint::flags))
         .route("/flags/", any(endpoint::flags))
@@ -203,7 +216,26 @@ pub fn router(
         )
         .route("/decide", any(endpoint::flags))
         .route("/decide/", any(endpoint::flags))
-        .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
+        .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
+        .layer(
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(|err: tower::BoxError| async move {
+                    let is_timeout = err.is::<tower::timeout::error::Elapsed>();
+                    tracing::warn!(error = %err, timeout = is_timeout, "Request aborted by tower layer");
+                    if is_timeout {
+                        inc(FLAG_REQUEST_TIMEOUT_COUNTER, &[], 1);
+                    }
+                    let body = if is_timeout {
+                        "Request timed out"
+                    } else {
+                        "Service unavailable"
+                    };
+                    (StatusCode::SERVICE_UNAVAILABLE, body)
+                }))
+                .layer(TimeoutLayer::new(Duration::from_millis(
+                    config.request_timeout_ms,
+                ))),
+        );
 
     let router = Router::new()
         .merge(status_router)

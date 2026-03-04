@@ -234,7 +234,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "has_rollout_percentage": has_rollout_percentage,
                 "config_length": config_length,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -297,7 +298,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                     "evaluation_name": instance.name,
                     "was_enabled": old_enabled_value,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
         elif changed_fields:
             event_properties: dict[str, Any] = {
@@ -318,7 +320,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 cast(User, self.request.user),
                 "llma evaluation updated",
                 event_properties,
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
     @llma_track_latency("llma_evaluations_list")

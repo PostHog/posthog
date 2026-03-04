@@ -424,9 +424,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
                 const initialVersion = logic.values.storeVersion
                 const store = logic.values.snapshotStore!
                 store.setSources([SOURCE_A])
-                // storeVersion is a selector driven by snapshotsBySourceSuccessCount,
-                // so we need to trigger re-evaluation
-                logic.actions.loadSnapshotsForSourceSuccess({ sources: [SOURCE_A] })
+                logic.actions.storeUpdated()
 
                 expect(logic.values.storeVersion).toBeGreaterThan(initialVersion)
             })

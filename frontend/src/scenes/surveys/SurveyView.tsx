@@ -93,7 +93,6 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
     const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
-    const { guidedEditorEnabled } = useValues(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
@@ -208,15 +207,9 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         data-attr="edit-survey"
                                         onClick={
-                                            guidedEditorEnabled && survey.type === SurveyType.Popover
-                                                ? undefined
-                                                : () => editingSurvey(true)
+                                            survey.type === SurveyType.Popover ? undefined : () => editingSurvey(true)
                                         }
-                                        to={
-                                            guidedEditorEnabled && survey.type === SurveyType.Popover
-                                                ? urls.surveyWizard(id)
-                                                : undefined
-                                        }
+                                        to={survey.type === SurveyType.Popover ? urls.surveyWizard(id) : undefined}
                                         type="secondary"
                                         size="small"
                                     >

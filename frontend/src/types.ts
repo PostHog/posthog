@@ -2229,6 +2229,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     last_modified_by: UserBasicType | null
     last_viewed_at?: string | null
     viewers?: UserBasicType[]
+    view_count?: number
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
@@ -2238,6 +2239,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     alerts?: AlertType[]
     query?: Node | null
     query_status?: QueryStatus
+    is_cached?: boolean
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }
@@ -4052,6 +4054,10 @@ export interface PreflightStatus {
         available: boolean
         client_id?: string
     }
+    twig_slack_service: {
+        available: boolean
+        client_id?: string
+    }
     data_warehouse_integrations: {
         hubspot: {
             client_id?: string
@@ -4617,8 +4623,6 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Action/event filter defition */
         action?: ActionFilter | null
         yAxisID?: string
-        /** Total number of respondents for survey questions (for per-respondent percentage calculation) */
-        totalResponses?: number
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }

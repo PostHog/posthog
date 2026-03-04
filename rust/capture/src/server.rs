@@ -114,6 +114,80 @@ fn spawn_connection_handler(
     });
 }
 
+type EventRestrictionState = (
+    Option<EventRestrictionService>,
+    Option<CancellationToken>,
+    Option<JoinHandle<()>>,
+);
+
+fn create_event_restriction_service(config: &Config) -> EventRestrictionState {
+    if !config.event_restrictions_enabled {
+        return (None, None, None);
+    }
+
+    let Some(ref redis_url) = config.event_restrictions_redis_url else {
+        warn!("Event restrictions enabled but EVENT_RESTRICTIONS_REDIS_URL not set");
+        return (None, None, None);
+    };
+
+    let service = EventRestrictionService::new(
+        config.capture_mode,
+        Duration::from_secs(config.event_restrictions_fail_open_after_secs),
+    );
+
+    let cancel_token = CancellationToken::new();
+
+    let service_clone = service.clone();
+    let refresh_interval = Duration::from_secs(config.event_restrictions_refresh_interval_secs);
+    let task_cancel_token = cancel_token.clone();
+
+    // Capture values needed by the repository factory
+    let redis_url = redis_url.clone();
+    let response_timeout = if config.redis_response_timeout_ms == 0 {
+        None
+    } else {
+        Some(Duration::from_millis(config.redis_response_timeout_ms))
+    };
+    let connection_timeout = if config.redis_connection_timeout_ms == 0 {
+        None
+    } else {
+        Some(Duration::from_millis(config.redis_connection_timeout_ms))
+    };
+
+    let handle = tokio::spawn(async move {
+        service_clone
+            .start_refresh_task(
+                || {
+                    let url = redis_url.clone();
+                    async move {
+                        let repo = RedisRestrictionsRepository::new(
+                            url,
+                            response_timeout,
+                            connection_timeout,
+                        )
+                        .await?;
+                        let result: Arc<
+                            dyn crate::event_restrictions::EventRestrictionsRepository,
+                        > = Arc::new(repo);
+                        Ok(result)
+                    }
+                },
+                refresh_interval,
+                task_cancel_token,
+            )
+            .await;
+    });
+
+    info!(
+        pipeline = %config.capture_mode.as_pipeline_name(),
+        refresh_interval_secs = config.event_restrictions_refresh_interval_secs,
+        fail_open_after_secs = config.event_restrictions_fail_open_after_secs,
+        "Event restrictions enabled"
+    );
+
+    (Some(service), Some(cancel_token), Some(handle))
+}
+
 async fn create_sink(
     config: &Config,
     redis_client: Arc<RedisClient>,
@@ -334,65 +408,8 @@ where
             None
         };
 
-    // Create event restriction service if enabled and redis URL is configured
-    let (event_restriction_service, event_restrictions_cancel, event_restrictions_handle): (
-        Option<EventRestrictionService>,
-        Option<CancellationToken>,
-        Option<JoinHandle<()>>,
-    ) = if config.event_restrictions_enabled {
-        if let Some(ref redis_url) = config.event_restrictions_redis_url {
-            let repository = Arc::new(
-                RedisRestrictionsRepository::new(
-                    redis_url.clone(),
-                    if config.redis_response_timeout_ms == 0 {
-                        None
-                    } else {
-                        Some(Duration::from_millis(config.redis_response_timeout_ms))
-                    },
-                    if config.redis_connection_timeout_ms == 0 {
-                        None
-                    } else {
-                        Some(Duration::from_millis(config.redis_connection_timeout_ms))
-                    },
-                )
-                .await
-                .expect("failed to create event restrictions repository"),
-            );
-
-            let service = EventRestrictionService::new(
-                config.capture_mode,
-                Duration::from_secs(config.event_restrictions_fail_open_after_secs),
-            );
-
-            // Create cancellation token for graceful shutdown
-            let cancel_token = CancellationToken::new();
-
-            // Spawn background refresh task with cancellation support
-            let service_clone = service.clone();
-            let refresh_interval =
-                Duration::from_secs(config.event_restrictions_refresh_interval_secs);
-            let task_cancel_token = cancel_token.clone();
-            let handle = tokio::spawn(async move {
-                service_clone
-                    .start_refresh_task(repository, refresh_interval, task_cancel_token)
-                    .await;
-            });
-
-            info!(
-                pipeline = %config.capture_mode.as_pipeline_name(),
-                refresh_interval_secs = config.event_restrictions_refresh_interval_secs,
-                fail_open_after_secs = config.event_restrictions_fail_open_after_secs,
-                "Event restrictions enabled"
-            );
-
-            (Some(service), Some(cancel_token), Some(handle))
-        } else {
-            warn!("Event restrictions enabled but EVENT_RESTRICTIONS_REDIS_URL not set");
-            (None, None, None)
-        }
-    } else {
-        (None, None, None)
-    };
+    let (event_restriction_service, event_restrictions_cancel, event_restrictions_handle) =
+        create_event_restriction_service(&config);
 
     let app = router::router(
         crate::time::SystemTime {},
