@@ -5,7 +5,7 @@ import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { DataWarehouseTable, ManualLinkSourceType } from '~/types'
+import { ManualLinkSourceType } from '~/types'
 
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
@@ -55,8 +55,7 @@ export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
     const { table } = useValues(dataWarehouseTableLogic)
 
     const provider = manualLinkingProvider ?? 'aws'
-    const isCsvFormat =
-        (table as DataWarehouseTable)?.format === 'CSV' || (table as DataWarehouseTable)?.format === 'CSVWithNames'
+    const isCsvFormat = table?.format === 'CSV' || table?.format === 'CSVWithNames'
 
     return (
         <Form
