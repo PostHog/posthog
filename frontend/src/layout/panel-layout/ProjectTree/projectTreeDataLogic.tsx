@@ -18,6 +18,7 @@ import { userLogic } from 'scenes/userLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import {
     getDefaultTreeData,
+    getDefaultTreeDataAndPeople,
     getDefaultTreeNew,
     getDefaultTreePersons,
     getDefaultTreeProducts,
@@ -1004,6 +1005,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         ['products://', getDefaultTreeProducts()],
                         ['data://', getDefaultTreeData()],
                         ['persons://', [...getDefaultTreePersons(), ...groupItems]],
+                        ['data-and-people://', [...getDefaultTreeDataAndPeople(), ...groupItems]],
                         ['new://', getDefaultTreeNew()],
                     ]
                     const staticItems = data.map(([protocol, files]) => ({

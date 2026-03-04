@@ -1,18 +1,19 @@
 import { Collapsible } from '@base-ui/react/collapsible'
-import { Menubar } from '@base-ui/react/menubar'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
-import { useCallback, useRef } from 'react'
+import { useRef } from 'react'
 
 import {
+    IconApps,
     IconChevronRight,
     IconClock,
+    IconDatabase,
     IconFolder,
+    IconFolderOpen,
     IconHome,
     IconNotification,
     IconSearch,
     IconSparkles,
-    IconStar,
 } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
@@ -29,12 +30,8 @@ import { AiChatListItem } from 'scenes/max/components/List/AiChatListItem'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
-import { AppsMenu } from '~/layout/panel-layout/ai-first/AppsMenu'
-import { DataMenu } from '~/layout/panel-layout/ai-first/DataMenu'
-import { FilesMenu } from '~/layout/panel-layout/ai-first/FilesMenu'
 import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
-import { RecentsMenu } from '~/layout/panel-layout/ai-first/RecentsMenu'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { maxGlobalLogic } from '~/scenes/max/maxGlobalLogic'
 import { ActivityTab } from '~/types'
@@ -60,8 +57,8 @@ function SectionChevron({ open }: { open: boolean }): JSX.Element {
     return (
         <IconChevronRight
             className={cn(
-                'size-3 text-tertiary opacity-0 group-hover:opacity-100 transition-all duration-150',
-                open && 'rotate-90'
+                'size-3 text-tertiary opacity-100 group-hover:opacity-100 transition-all duration-150',
+                open && 'rotate-90 opacity-50'
             )}
         />
     )
@@ -80,7 +77,10 @@ function SectionTrigger({
 }): JSX.Element {
     return (
         <Collapsible.Trigger
-            className={cn('flex items-center w-full py-1 cursor-pointer group pl-2', isCollapsed && 'px-px')}
+            className={cn(
+                'flex items-center py-1 cursor-pointer group pl-2 sticky top-0 bg-surface-tertiary z-10 -mx-1 px-2 w-[calc(100%+(var(--spacing)*2))]',
+                isCollapsed && 'mx-0 w-full px-px'
+            )}
         >
             <Label
                 intent="menu"
@@ -97,44 +97,65 @@ function SectionTrigger({
     )
 }
 
-function MenubarWithHoverCone({
-    children,
-    className,
-    debug = false,
-    ...menubarProps
-}: React.ComponentProps<typeof Menubar> & { debug?: boolean }): JSX.Element {
-    const coneRef = useRef<HTMLDivElement>(null)
-
-    const handleMouseMove = useCallback((e: React.MouseEvent) => {
-        const el = coneRef.current
-        if (!el) {
-            return
-        }
-        const rect = el.getBoundingClientRect()
-        el.style.setProperty('--cone-x', `${e.clientX - rect.left}px`)
-        el.style.setProperty('--cone-y', `${e.clientY - rect.top}px`)
-    }, [])
-
-    return (
-        <div ref={coneRef} className="menubar-hover-cone relative" onMouseMove={handleMouseMove}>
-            <Menubar className={className} {...menubarProps}>
-                {children}
-            </Menubar>
-            <div className={cn('menubar-hover-cone-overlay', debug && 'debug')} />
-        </div>
-    )
-}
-
-export function AiFirstNavBar(): JSX.Element {
+export function AiFirstNavBar({ children }: { children?: React.ReactNode }): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
-    const { toggleLayoutNavCollapsed, toggleNavSection } = useActions(panelLayoutLogic)
-    const { isLayoutPanelVisible, isLayoutNavCollapsed, expandedNavSections } = useValues(panelLayoutLogic)
+    const {
+        showLayoutPanel,
+        setActivePanelIdentifier,
+        clearActivePanelIdentifier,
+        toggleLayoutNavCollapsed,
+        toggleNavSection,
+    } = useActions(panelLayoutLogic)
+    const {
+        isLayoutPanelVisible,
+        isLayoutNavCollapsed,
+        expandedNavSections,
+        activePanelIdentifier,
+        activePanelIdentifierFromUrlAiFirst,
+    } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const { toggleCommand } = useActions(commandLogic)
     const { conversationHistory, currentConversationId } = useValues(maxGlobalLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const recentChats = conversationHistory.slice(0, 3)
+
+    function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
+        if (activePanelIdentifier !== item) {
+            setActivePanelIdentifier(item)
+            showLayoutPanel(true)
+        } else if (activePanelIdentifier === item) {
+            clearActivePanelIdentifier()
+            showLayoutPanel(false)
+        }
+    }
+
+    const panelTriggerItems: {
+        identifier: PanelLayoutNavIdentifier
+        label: string
+        icon: React.ReactNode
+    }[] = [
+        {
+            identifier: 'DataAndPeople',
+            label: 'Data',
+            icon: <IconDatabase />,
+        },
+        {
+            identifier: 'Project',
+            label: 'Files',
+            icon: <IconFolderOpen className="stroke-[1.2]" />,
+        },
+        {
+            identifier: 'Products',
+            label: 'Apps',
+            icon: <IconApps />,
+        },
+        {
+            identifier: 'Shortcuts',
+            label: 'Recents',
+            icon: <IconClock />,
+        },
+    ]
 
     return (
         <div className="flex gap-0 relative">
@@ -270,28 +291,56 @@ export function AiFirstNavBar(): JSX.Element {
                                     isCollapsed={isLayoutNavCollapsed}
                                 />
 
-                                <MenubarWithHoverCone
-                                    orientation="vertical"
-                                    modal={false}
-                                    className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}
-                                >
-                                    <AppsMenu isCollapsed={isLayoutNavCollapsed} />
-                                    <DataMenu isCollapsed={isLayoutNavCollapsed} />
-                                    <FilesMenu isCollapsed={isLayoutNavCollapsed} />
-                                    <RecentsMenu isCollapsed={isLayoutNavCollapsed} />
-                                </MenubarWithHoverCone>
+                                <div className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}>
+                                    {panelTriggerItems.map((item) => {
+                                        const isActive =
+                                            activePanelIdentifier === item.identifier ||
+                                            activePanelIdentifierFromUrlAiFirst === item.identifier
+                                        const tooltip = isLayoutNavCollapsed
+                                            ? isLayoutPanelVisible && activePanelIdentifier === item.identifier
+                                                ? `Close ${item.label.toLowerCase()}`
+                                                : `Open ${item.label.toLowerCase()}`
+                                            : undefined
+
+                                        return (
+                                            <ButtonPrimitive
+                                                key={item.identifier}
+                                                active={isActive}
+                                                className="group"
+                                                menuItem={!isLayoutNavCollapsed}
+                                                iconOnly={isLayoutNavCollapsed}
+                                                tooltip={tooltip}
+                                                tooltipPlacement="right"
+                                                onClick={() => handlePanelTriggerClick(item.identifier)}
+                                                data-attr={`menu-item-${item.identifier.toLowerCase()}`}
+                                            >
+                                                <span className="size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50">
+                                                    {item.icon}
+                                                </span>
+                                                {!isLayoutNavCollapsed && (
+                                                    <>
+                                                        <span className="truncate">{item.label}</span>
+                                                        <span className="ml-auto pr-1">
+                                                            <IconChevronRight className="size-3 text-tertiary" />
+                                                        </span>
+                                                    </>
+                                                )}
+                                            </ButtonPrimitive>
+                                        )
+                                    })}
+                                </div>
                             </Collapsible.Panel>
                         </Collapsible.Root>
 
                         <Collapsible.Root
-                            open={expandedNavSections.favorites ?? true}
-                            onOpenChange={() => toggleNavSection('favorites')}
-                            className="px-1 mt-2"
+                            open={expandedNavSections.apps ?? false}
+                            onOpenChange={() => toggleNavSection('apps')}
+                            className="px-1 mt-2 group/colorful-product-icons colorful-product-icons-true"
                         >
                             <SectionTrigger
-                                icon={<IconStar />}
-                                label="Starred"
-                                open={expandedNavSections.favorites ?? true}
+                                icon={<IconApps />}
+                                label={isLayoutNavCollapsed ? 'Apps' : 'All apps'}
+                                open={expandedNavSections.apps ?? false}
                                 isCollapsed={isLayoutNavCollapsed}
                             />
                             <Collapsible.Panel
@@ -301,7 +350,7 @@ export function AiFirstNavBar(): JSX.Element {
                                 )}
                             >
                                 <ProjectTree
-                                    root="shortcuts://"
+                                    root="products://"
                                     onlyTree
                                     treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'}
                                 />
@@ -330,6 +379,8 @@ export function AiFirstNavBar(): JSX.Element {
                     />
                 )}
             </nav>
+
+            {children}
         </div>
     )
 }
