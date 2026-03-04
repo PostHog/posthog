@@ -68,7 +68,7 @@ async def fetch_all_clustering_jobs_activity(
         for job in jobs:
             result.setdefault(job.team_id, []).append(
                 JobConfig(
-                    job_id=job.id,
+                    job_id=str(job.id),
                     name=job.name,
                     analysis_level=cast(AnalysisLevel, job.analysis_level),
                     event_filters=job.event_filters,
