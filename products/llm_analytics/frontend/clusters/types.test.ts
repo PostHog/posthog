@@ -1,4 +1,4 @@
-import { getLevelFromRunId, getTimestampBoundsFromRunId } from './types'
+import { getJobIdFromRunId, getLevelFromRunId, getTimestampBoundsFromRunId } from './types'
 
 describe('getLevelFromRunId', () => {
     it.each([
@@ -43,5 +43,33 @@ describe('getTimestampBoundsFromRunId', () => {
         // Should return some valid date range (last 7 days fallback)
         expect(result.dayStart).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
         expect(result.dayEnd).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
+    })
+})
+
+describe('getJobIdFromRunId', () => {
+    it.each([
+        { runId: '2_trace_20260122_000043_17', expected: 17, description: 'returns job_id when token is numeric' },
+        {
+            runId: '2_trace_20260122_000043_17_production',
+            expected: 17,
+            description: 'returns job_id when numeric token has a label suffix after it',
+        },
+        {
+            runId: '2_trace_20260122_000043_1-baseline',
+            expected: null,
+            description: 'rejects job_id token with non-numeric suffix',
+        },
+        {
+            runId: '2_trace_20260122_000043_baseline',
+            expected: null,
+            description: 'rejects non-numeric job_id token',
+        },
+        {
+            runId: '2_trace_20260122_000043_0',
+            expected: null,
+            description: 'rejects zero job_id',
+        },
+    ])('returns $expected for $description', ({ runId, expected }) => {
+        expect(getJobIdFromRunId(runId)).toBe(expected)
     })
 })

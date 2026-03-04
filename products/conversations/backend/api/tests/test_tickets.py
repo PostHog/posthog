@@ -61,6 +61,33 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.json()["id"], str(self.ticket.id))
         self.assertEqual(response.json()["status"], Status.NEW)
 
+    def test_retrieve_ticket_by_ticket_number(self, mock_on_commit):
+        """Test retrieving a ticket by ticket_number instead of UUID."""
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.ticket_number}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(self.ticket.id))
+        self.assertEqual(response.json()["ticket_number"], self.ticket.ticket_number)
+
+    def test_retrieve_ticket_by_uuid_still_works(self, mock_on_commit):
+        """Test that UUID lookup still works for backward compatibility."""
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(self.ticket.id))
+
+    def test_retrieve_ticket_invalid_identifier_returns_404(self, mock_on_commit):
+        """Test that invalid identifier returns 404."""
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/invalid/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_update_ticket_by_ticket_number(self, mock_on_commit):
+        """Test updating a ticket using ticket_number."""
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.ticket_number}/",
+            {"status": "resolved"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "resolved")
+
     def test_retrieve_ticket_marks_as_read(self, mock_on_commit):
         self.ticket.unread_team_count = 5
         self.ticket.save()
@@ -601,10 +628,11 @@ class TestTicketAPI(APIBaseTest):
             )
 
         # Query count should be constant regardless of number of tickets
-        # Includes: session, user, org, team, permissions, feature flag check, count query, tickets query,
-        # person distinct_id query (batch), person prefetch, all distinct_ids query (batch)
+        # Includes: session, user, org, team, permissions, feature flag permission org lookup,
+        # count query, tickets query, person distinct_id query (batch), person prefetch,
+        # all distinct_ids query (batch)
         # Note: message stats are denormalized, no subqueries needed
-        with self.assertNumQueries(13):
+        with self.assertNumQueries(14):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total

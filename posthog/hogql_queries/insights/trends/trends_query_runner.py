@@ -487,6 +487,18 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 final_result = [item for item in final_result if not self._is_other_breakdown(item["breakdown_value"])]
             has_more = True
 
+        # Weekend filtering is two layers: the WHERE clause (in trends_query_builder) excludes
+        # weekend events from aggregation, and this post-processor removes weekend date buckets
+        # from the response so the chart x-axis shows only weekdays.
+        # For week/month intervals we keep all buckets since they span multiple days.
+        # For hour/minute intervals we skip bucket removal to avoid discarding all data on weekends.
+        if (
+            self.query.trendsFilter
+            and self.query.trendsFilter.hideWeekends
+            and self.query_date_range.interval_name not in ("hour", "minute", "week", "month")
+        ):
+            final_result = self._filter_weekend_buckets(final_result)
+
         return TrendsQueryResponse(
             results=final_result,
             hasMore=has_more,
@@ -667,6 +679,57 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
             res.append(series_object)
         return res
+
+    def _filter_weekend_buckets(self, results: list[dict]) -> list[dict]:
+        filtered = []
+        for series_result in results:
+            days = series_result.get("days")
+            if not days:
+                filtered.append(series_result)
+                continue
+
+            # Build weekday mask — parse date string and check day of week
+            weekday_indices = []
+            for i, day_str in enumerate(days):
+                try:
+                    dt = datetime.strptime(day_str[:10], "%Y-%m-%d")
+                    if dt.weekday() < 5:  # Mon=0..Fri=4
+                        weekday_indices.append(i)
+                except (ValueError, TypeError):
+                    weekday_indices.append(i)  # Keep unparseable entries
+
+            if len(weekday_indices) == len(days):
+                # No weekends found, nothing to filter
+                filtered.append(series_result)
+                continue
+
+            new_result = {**series_result}
+            new_result["days"] = [days[i] for i in weekday_indices]
+
+            if "data" in new_result and isinstance(new_result["data"], list):
+                new_result["data"] = [new_result["data"][i] for i in weekday_indices]
+
+            if "labels" in new_result and isinstance(new_result["labels"], list):
+                new_result["labels"] = [new_result["labels"][i] for i in weekday_indices]
+
+            # Recompute count from filtered data
+            if "data" in new_result and new_result.get("count") is not None:
+                if (
+                    self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
+                    and new_result["data"]
+                ):
+                    new_result["count"] = new_result["data"][-1]
+                else:
+                    new_result["count"] = float(sum(new_result["data"]))
+
+            # Filter action.days too
+            if "action" in new_result and "days" in new_result["action"]:
+                action_days = new_result["action"]["days"]
+                new_result["action"] = {**new_result["action"]}
+                new_result["action"]["days"] = [d for d in action_days if d.weekday() < 5]
+
+            filtered.append(new_result)
+        return filtered
 
     @cached_property
     def _earliest_timestamp(self) -> datetime | None:

@@ -56,6 +56,7 @@ class TestAccessControlSystemTables(BaseTest):
         assert "surveys" not in system_node.children
         assert "data_warehouse_sources" not in system_node.children
         assert "actions" not in system_node.children
+        assert "hog_flows" not in system_node.children
         assert "notebooks" not in system_node.children
         assert "error_tracking_issues" not in system_node.children
         # But tracked in denied list for clear error messages
@@ -66,6 +67,7 @@ class TestAccessControlSystemTables(BaseTest):
         assert "system.surveys" in database._denied_tables
         assert "system.data_warehouse_sources" in database._denied_tables
         assert "system.actions" in database._denied_tables
+        assert "system.hog_flows" in database._denied_tables
         assert "system.notebooks" in database._denied_tables
         assert "system.error_tracking_issues" in database._denied_tables
         # Unscoped tables remain

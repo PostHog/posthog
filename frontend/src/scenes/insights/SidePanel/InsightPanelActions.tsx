@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCode2, IconPencil, IconPeople, IconShare } from '@posthog/icons'
+import { IconCode2, IconPencil, IconPeople } from '@posthog/icons'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
@@ -19,7 +19,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
@@ -29,7 +28,7 @@ import { ExporterFormat, InsightLogicProps, InsightShortId, QueryBasedInsightMod
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 
 import { insightModalsLogic } from '../insightModalsLogic'
-import { openSaveAsCohortDialog, openShareTemplateDialog } from './insightSidePanelDialogs'
+import { openSaveAsCohortDialog } from './insightSidePanelDialogs'
 
 const RESOURCE_TYPE = 'insight'
 
@@ -44,11 +43,9 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
     const { createStaticCohort } = useActions(exportsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openCreateFromInsightModal } = useActions(endpointLogic({ tabId: insightProps.tabId || '' }))
-    const { preflight } = useValues(preflightLogic)
     const { push } = useActions(router)
     const { openAddToDashboardModal, openTerraformModal } = useActions(insightModalsLogic(insightLogicProps))
 
-    const siteUrl = preflight?.site_url || window.location.origin
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
     const canExport = exportContext != null && insight.short_id != null
     const canEditInSqlEditor =
@@ -67,44 +64,61 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                 dataAttrKey={RESOURCE_TYPE}
                 onClick={() => setInsightMetadata({ favorited: !insight.favorited })}
                 isFavorited={insight.favorited ?? false}
+                disabledReasons={
+                    !isSavedInsight ? { 'You must save the insight first before favoriting it': true } : undefined
+                }
             />
 
-            {insight.short_id && (
-                <SceneAddToNotebookDropdownMenu shortId={insight.short_id} dataAttrKey={RESOURCE_TYPE} />
-            )}
+            <SceneAddToNotebookDropdownMenu
+                shortId={insight.short_id}
+                dataAttrKey={RESOURCE_TYPE}
+                disabledReasons={
+                    !isSavedInsight
+                        ? { 'You must save the insight first before adding it to a notebook': true }
+                        : undefined
+                }
+            />
 
             <SceneAddToDashboardButton
                 dashboard={isSavedInsight ? { onClick: openAddToDashboardModal } : undefined}
                 dataAttrKey={RESOURCE_TYPE}
+                disabledReasons={
+                    !isSavedInsight
+                        ? { 'You must save the insight first before adding it to a dashboard': true }
+                        : undefined
+                }
             />
 
-            {isSavedInsight && <SceneSubscribeButton insight={insight} dataAttrKey={RESOURCE_TYPE} />}
+            <SceneSubscribeButton
+                insight={insight}
+                dataAttrKey={RESOURCE_TYPE}
+                disabledReasons={
+                    !isSavedInsight ? { 'You must save the insight first before subscribing to it': true } : undefined
+                }
+            />
 
-            {isSavedInsight && (
-                <SceneAlertsButton
-                    insightId={insight.id!}
-                    insightShortId={insight.short_id as InsightShortId}
-                    insightLogicProps={insightLogicProps}
-                    dataAttrKey={RESOURCE_TYPE}
-                />
-            )}
+            <SceneAlertsButton
+                insightId={insight.id!}
+                insightShortId={insight.short_id as InsightShortId}
+                insightLogicProps={insightLogicProps}
+                dataAttrKey={RESOURCE_TYPE}
+                disabledReasons={
+                    !isSavedInsight ? { 'You must save the insight first before adding alerts to it': true } : undefined
+                }
+            />
 
-            {isSavedInsight && (
-                <SceneShareButton
-                    buttonProps={{
-                        menuItem: true,
-                        onClick: () => push(urls.insightSharing(insight.short_id!)),
-                    }}
-                    dataAttrKey={RESOURCE_TYPE}
-                />
-            )}
-
-            {!insight.short_id && (
-                <ButtonPrimitive onClick={() => openShareTemplateDialog(query, siteUrl)} menuItem>
-                    <IconShare />
-                    Share as template...
-                </ButtonPrimitive>
-            )}
+            <SceneShareButton
+                buttonProps={{
+                    menuItem: true,
+                    onClick: () => push(urls.insightSharing(insight.short_id!)),
+                }}
+                dataAttrKey={RESOURCE_TYPE}
+                disabledReasons={
+                    !isSavedInsight
+                        ? { 'You must save the insight first before sharing it as a template': true }
+                        : undefined
+                }
+            />
 
             {canExport ? (
                 <SceneExportDropdownMenu
@@ -134,8 +148,16 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                 Manage with Terraform
             </ButtonPrimitive>
 
-            {isSavedInsight && featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
-                <ButtonPrimitive onClick={openCreateFromInsightModal} menuItem>
+            {featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
+                <ButtonPrimitive
+                    onClick={openCreateFromInsightModal}
+                    menuItem
+                    disabledReasons={
+                        !isSavedInsight
+                            ? { 'You must save the insight first before creating an endpoint from it': true }
+                            : undefined
+                    }
+                >
                     <IconCode2 />
                     Create endpoint
                 </ButtonPrimitive>

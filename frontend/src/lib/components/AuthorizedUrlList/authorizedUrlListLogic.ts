@@ -166,7 +166,7 @@ export function appEditorUrl(
 
 /**
  * Builds a direct toolbar launch URL that navigates to the app with toolbar params in the hash.
- * Unlike appEditorUrl which goes through redirect_to_site (generating a temporaryToken),
+ * Unlike appEditorUrl which goes through redirect_to_site,
  * this constructs the URL client-side so the toolbar uses OAuth for authentication.
  */
 function directToolbarUrl(

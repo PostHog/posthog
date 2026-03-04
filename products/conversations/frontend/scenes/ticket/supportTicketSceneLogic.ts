@@ -1,8 +1,11 @@
 import { JSONContent } from '@tiptap/core'
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
@@ -132,6 +135,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // Draft message state (persists across tab switches)
         setDraftContent: (content: JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
+
+        // AI suggestion
+        suggestReply: true,
+        setSuggesting: (suggesting: boolean) => ({ suggesting }),
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -283,6 +290,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setDraftIsPrivate: (_, { isPrivate }) => isPrivate,
             },
         ],
+        suggesting: [
+            false,
+            {
+                suggestReply: () => true,
+                setSuggesting: (_, { suggesting }) => suggesting,
+            },
+        ],
     }),
     selectors({
         hasUnsavedChanges: [
@@ -321,6 +335,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             [message.created_by.first_name, message.created_by.last_name].filter(Boolean).join(' ') ||
                             message.created_by.email ||
                             'Support'
+                    } else if (authorType === 'AI') {
+                        displayName = 'PostHog Assistant'
                     } else if (authorType === 'customer') {
                         // For Slack messages, use the per-message author info
                         const slackAuthorName = message.item_context?.slack_author_name
@@ -377,6 +393,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             try {
                 const ticket = await api.conversationsTickets.get(props.id.toString())
+
+                // If accessed via UUID, redirect to ticket_number URL for cleaner URLs
+                const isUuid = props.id.toString().includes('-')
+                if (isUuid && ticket.ticket_number) {
+                    router.actions.replace(urls.supportTicketDetail(ticket.ticket_number))
+                    return
+                }
+
                 actions.setTicket(ticket)
                 actions.loadMessages()
 
@@ -432,14 +456,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
         },
         loadMessages: async () => {
-            if (props.id === 'new') {
+            if (props.id === 'new' || !values.ticket?.id) {
                 actions.setMessages([])
                 return
             }
             try {
                 const response = await api.comments.list({
                     scope: 'conversations_ticket',
-                    item_id: props.id.toString(),
+                    item_id: values.ticket.id,
                 })
                 // Reverse to show oldest first (bottom = newest)
                 actions.setMessages((response.results || []).reverse())
@@ -450,7 +474,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         },
         loadOlderMessages: async () => {
             const currentMessages = values.messages
-            if (props.id === 'new' || currentMessages.length === 0 || !values.hasMoreMessages) {
+            if (props.id === 'new' || !values.ticket?.id || currentMessages.length === 0 || !values.hasMoreMessages) {
                 actions.setOlderMessagesLoading(false)
                 actions.setHasMoreMessages(false)
                 return
@@ -460,7 +484,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const oldestMessage = currentMessages[0]
                 const response = await api.comments.list({
                     scope: 'conversations_ticket',
-                    item_id: props.id.toString(),
+                    item_id: values.ticket.id,
                 })
 
                 const allMessages = response.results || []
@@ -475,8 +499,32 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setOlderMessagesLoading(false)
             }
         },
+        suggestReply: async () => {
+            try {
+                await api.conversationsTickets.suggestReply(props.id.toString())
+                actions.loadMessages()
+            } catch (error: any) {
+                // Parse error response for specific error messages
+                const errorData = error?.data || {}
+                const errorDetail = errorData.detail || 'Failed to generate AI suggestion'
+                const errorType = errorData.error_type
+
+                // Show more specific error messages based on error type
+                if (errorType === 'timeout') {
+                    lemonToast.error('AI service timed out. Please try again.')
+                } else if (errorType === 'rate_limit') {
+                    lemonToast.error('Too many requests. Please wait a moment and try again.')
+                } else if (errorType === 'validation_error') {
+                    lemonToast.error('AI returned an invalid response. Please try again.')
+                } else {
+                    lemonToast.error(errorDetail)
+                }
+            } finally {
+                actions.setSuggesting(false)
+            }
+        },
         sendMessage: async ({ content, richContent, isPrivate, onSuccess }) => {
-            if (props.id === 'new') {
+            if (props.id === 'new' || !values.ticket?.id) {
                 actions.setMessageSending(false)
                 return
             }
@@ -486,7 +534,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         content,
                         rich_content: richContent,
                         scope: 'conversations_ticket',
-                        item_id: props.id.toString(),
+                        item_id: values.ticket.id,
                         item_context: {
                             author_type: 'support',
                             is_private: isPrivate,
