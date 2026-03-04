@@ -721,6 +721,9 @@ export function ControlledDefinitionPopover({
         return null
     }
 
+    const isDataWarehouseFunnelWidePopover =
+        group.type === TaxonomicFilterGroupType.DataWarehouse && !!definitionPopoverRenderer
+
     const defaultView = <DefinitionView group={group} />
     const customView = definitionPopoverRenderer?.({ item, group, defaultView }) ?? defaultView
 
@@ -728,7 +731,9 @@ export function ControlledDefinitionPopover({
         <Popover
             visible={visible}
             referenceElement={highlightedItemElement}
-            className="click-outside-block hotkey-block"
+            className={cn('click-outside-block hotkey-block', {
+                'definition-popover--data-warehouse-funnel-wide': isDataWarehouseFunnelWidePopover,
+            })}
             overlay={
                 <DefinitionPopover.Wrapper>
                     <DefinitionPopover.Header
