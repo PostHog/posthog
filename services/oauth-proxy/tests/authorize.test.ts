@@ -27,7 +27,12 @@ describe('handleAuthorize', () => {
     })
 
     it('redirects to US authorize with translated client_id and proxy callback when _region=us', async () => {
-        const mapping = { us_client_id: 'us_real_id', eu_client_id: 'eu_real_id', created_at: Date.now() }
+        const mapping = {
+            us_client_id: 'us_real_id',
+            eu_client_id: 'eu_real_id',
+            redirect_uris: ['http://localhost:3000/callback'],
+            created_at: Date.now(),
+        }
         mockKVGet(mockKV, (_key: string, type?: unknown) => {
             if (type === 'json') {
                 return Promise.resolve(mapping)
@@ -50,7 +55,12 @@ describe('handleAuthorize', () => {
     })
 
     it('redirects to EU authorize with translated client_id and proxy callback when _region=eu', async () => {
-        const mapping = { us_client_id: 'us_real_id', eu_client_id: 'eu_real_id', created_at: Date.now() }
+        const mapping = {
+            us_client_id: 'us_real_id',
+            eu_client_id: 'eu_real_id',
+            redirect_uris: ['http://localhost:3000/callback'],
+            created_at: Date.now(),
+        }
         mockKVGet(mockKV, (_key: string, type?: unknown) => {
             if (type === 'json') {
                 return Promise.resolve(mapping)
@@ -72,8 +82,38 @@ describe('handleAuthorize', () => {
         expect(location.searchParams.has('_region')).toBe(false)
     })
 
+    it('rejects unregistered redirect_uri to prevent open redirects', async () => {
+        const mapping = {
+            us_client_id: 'us_id',
+            eu_client_id: 'eu_id',
+            redirect_uris: ['http://localhost:3000/callback'],
+            created_at: Date.now(),
+        }
+        mockKVGet(mockKV, (_key: string, type?: unknown) => {
+            if (type === 'json') {
+                return Promise.resolve(mapping)
+            }
+            return Promise.resolve(null)
+        })
+
+        const request = new Request(
+            'https://oauth.posthog.com/oauth/authorize/?client_id=us_id&redirect_uri=https://attacker.com/steal&response_type=code&state=abc&_region=eu'
+        )
+        const response = await handleAuthorize(request, mockKV)
+
+        expect(response.status).toBe(400)
+        const data = (await response.json()) as Record<string, unknown>
+        expect(data.error).toBe('invalid_request')
+        expect(data.error_description).toBe('redirect_uri is not registered for this client')
+    })
+
     it('stores region selection and callback redirect_uri keyed by state and client_id', async () => {
-        const mapping = { us_client_id: 'us_id', eu_client_id: 'eu_id', created_at: Date.now() }
+        const mapping = {
+            us_client_id: 'us_id',
+            eu_client_id: 'eu_id',
+            redirect_uris: ['http://localhost:3000/callback'],
+            created_at: Date.now(),
+        }
         mockKVGet(mockKV, (_key: string, type?: unknown) => {
             if (type === 'json') {
                 return Promise.resolve(mapping)
@@ -103,6 +143,30 @@ describe('handleAuthorize', () => {
         expect(callbackByState![1]).toBe('http://localhost:3000/callback')
         expect(callbackByClient).toBeTruthy()
         expect(callbackByClient![1]).toBe('http://localhost:3000/callback')
+    })
+
+    it('passes redirect_uri through without interception for legacy clients (no stored redirect_uris)', async () => {
+        const mapping = { us_client_id: 'us_id', eu_client_id: 'eu_id', created_at: Date.now() }
+        mockKVGet(mockKV, (_key: string, type?: unknown) => {
+            if (type === 'json') {
+                return Promise.resolve(mapping)
+            }
+            return Promise.resolve(null)
+        })
+
+        const request = new Request(
+            'https://oauth.posthog.com/oauth/authorize/?client_id=us_id&redirect_uri=http://localhost:3000/callback&response_type=code&_region=eu'
+        )
+        const response = await handleAuthorize(request, mockKV)
+
+        expect(response.status).toBe(302)
+        const location = new URL(response.headers.get('location')!)
+        expect(location.searchParams.get('redirect_uri')).toBe('http://localhost:3000/callback')
+
+        // No callback redirect_uri should be stored
+        const putCalls = vi.mocked(mockKV.put).mock.calls
+        const callbackPuts = putCalls.filter(([key]) => (key as string).startsWith('callback:'))
+        expect(callbackPuts).toHaveLength(0)
     })
 
     it('sets security headers on region picker page', async () => {

@@ -1,5 +1,5 @@
 import { type Region, baseUrlForRegion } from '@/lib/constants'
-import { getClientMapping, putCallbackRedirectUri, putRegionSelection } from '@/lib/kv'
+import { type ClientMapping, getClientMapping, putCallbackRedirectUri, putRegionSelection } from '@/lib/kv'
 
 import REGION_PICKER_HTML from '../static/region-picker.html'
 
@@ -36,13 +36,29 @@ export async function handleAuthorize(request: Request, kv: KVNamespace): Promis
 async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNamespace): Promise<Response> {
     const clientId = url.searchParams.get('client_id')
     const state = url.searchParams.get('state')
+    const originalRedirectUri = url.searchParams.get('redirect_uri')
     let regionalClientId = clientId
+    let mapping: ClientMapping | null = null
 
     // Translate proxy client_id to regional client_id if we have a mapping
     if (clientId) {
-        const mapping = await getClientMapping(kv, clientId)
+        mapping = await getClientMapping(kv, clientId)
         if (mapping) {
             regionalClientId = region === 'eu' ? mapping.eu_client_id : mapping.us_client_id
+        }
+    }
+
+    // Validate redirect_uri against registered URIs to prevent open redirects.
+    // Only enforced for clients registered through the proxy (which have stored redirect_uris).
+    if (mapping?.redirect_uris && originalRedirectUri) {
+        if (!mapping.redirect_uris.includes(originalRedirectUri)) {
+            return new Response(
+                JSON.stringify({
+                    error: 'invalid_request',
+                    error_description: 'redirect_uri is not registered for this client',
+                }),
+                { status: 400, headers: { 'Content-Type': 'application/json' } }
+            )
         }
     }
 
@@ -57,14 +73,16 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
         kvWrites.push(putRegionSelection(kv, clientId, region))
     }
 
-    // Store original redirect_uri so the proxy can intercept the callback
-    // and forward to the client, preventing the client from seeing the regional URL.
-    const originalRedirectUri = url.searchParams.get('redirect_uri')
-    if (state && originalRedirectUri) {
-        kvWrites.push(putCallbackRedirectUri(kv, state, originalRedirectUri))
-    }
-    if (clientId && originalRedirectUri) {
-        kvWrites.push(putCallbackRedirectUri(kv, clientId, originalRedirectUri))
+    // Store original redirect_uri and intercept callback only for clients with stored
+    // redirect_uris (the proxy callback URL is only in their registered redirect_uris).
+    // Legacy clients without redirect_uris fall through to regional server validation.
+    if (mapping?.redirect_uris && originalRedirectUri) {
+        if (state) {
+            kvWrites.push(putCallbackRedirectUri(kv, state, originalRedirectUri))
+        }
+        if (clientId) {
+            kvWrites.push(putCallbackRedirectUri(kv, clientId, originalRedirectUri))
+        }
     }
 
     await Promise.all(kvWrites)
@@ -75,6 +93,7 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
 
     // Replace redirect_uri with proxy's own callback so the client always
     // talks back to the proxy (not directly to the regional server).
+    // Only for proxy-registered clients where the proxy callback is a registered URI.
     const proxyCallbackUrl = `${url.protocol}//${url.host}/oauth/callback/`
 
     // Copy all params except our internal _region param
@@ -84,7 +103,7 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
         }
         if (key === 'client_id' && regionalClientId) {
             regionalUrl.searchParams.set(key, regionalClientId)
-        } else if (key === 'redirect_uri') {
+        } else if (key === 'redirect_uri' && mapping?.redirect_uris) {
             regionalUrl.searchParams.set(key, proxyCallbackUrl)
         } else {
             regionalUrl.searchParams.set(key, value)

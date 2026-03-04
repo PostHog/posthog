@@ -5,6 +5,7 @@ export interface ClientMapping {
     eu_client_id: string
     us_client_secret?: string
     eu_client_secret?: string
+    redirect_uris?: string[]
     created_at: number
 }
 
