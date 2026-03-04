@@ -183,7 +183,7 @@ export function PersonsModal({
                                                   const breakdown = Array.isArray(query.breakdown)
                                                       ? [...query.breakdown]
                                                       : []
-                                                  breakdown[index] = v
+                                                  breakdown[index] = v.toString()
                                                   updateActorsQuery({ breakdown })
                                               }}
                                               options={values}

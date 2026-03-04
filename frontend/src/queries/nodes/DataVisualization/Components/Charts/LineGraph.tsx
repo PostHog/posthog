@@ -261,7 +261,9 @@ export const LineGraph = ({
                 datasets,
             }
 
-            const annotations = goalLines.reduce(
+            const annotations = goalLines.reduce<{
+                annotations: Record<string, LineAnnotationOptions & { type: 'line' }>
+            }>(
                 (acc, cur, curIndex) => {
                     const line: LineAnnotationOptions = {
                         borderWidth: 2,
@@ -321,8 +323,8 @@ export const LineGraph = ({
 
                     return acc
                 },
-                { annotations: {} } as AnnotationPluginOptions
-            )
+                { annotations: {} }
+            ) as AnnotationPluginOptions
 
             const tickOptions: Partial<TickOptions> = {
                 color: colors.axisLabel as Color,

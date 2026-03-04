@@ -71,7 +71,7 @@ const productBenefits = [
 export function SignupLeftContainer(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
 
-    const getRegionUrl = (region: string): string => {
+    const getRegionUrl = (region: Region): string => {
         const { pathname, search, hash } = router.values.currentLocation
         return `https://${CLOUD_HOSTNAMES[region]}${pathname}${search}${hash}`
     }
