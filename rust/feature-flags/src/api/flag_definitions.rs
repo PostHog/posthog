@@ -408,10 +408,7 @@ mod tests {
         // value. This means it will never match a stored ETag, which is safe —
         // the client just gets a 200 with full data instead of a 304.
         let val = axum::http::HeaderValue::from_static("*");
-        assert_eq!(
-            extract_etag_from_header(Some(&val)),
-            Some("*".to_string())
-        );
+        assert_eq!(extract_etag_from_header(Some(&val)), Some("*".to_string()));
     }
 
     #[test]
