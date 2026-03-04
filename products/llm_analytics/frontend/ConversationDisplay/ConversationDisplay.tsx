@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import React from 'react'
 
-import { IconPlay } from '@posthog/icons'
+import { IconChat } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { EventType } from '~/types'
@@ -74,12 +74,12 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                     <LemonButton
                         type="secondary"
                         size="small"
-                        icon={<IconPlay />}
+                        icon={<IconChat />}
                         onClick={handleTryInPlayground}
                         tooltip="Try this prompt in the playground"
                         data-attr="try-in-playground-conversation"
                     >
-                        Open in Playground
+                        Try in Playground
                     </LemonButton>
                 )}
             </header>
