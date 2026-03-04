@@ -190,10 +190,16 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         },
     })),
     propsChanged(({ actions, props }, oldProps) => {
+        const previousConnectionId =
+            oldProps.sourceQuery?.kind === NodeKind.HogQLQuery ? (oldProps.sourceQuery.connectionId ?? null) : null
+        const nextConnectionId =
+            props.sourceQuery?.kind === NodeKind.HogQLQuery ? (props.sourceQuery.connectionId ?? null) : null
+
         if (
             props.query !== oldProps.query ||
             props.language !== oldProps.language ||
-            props.editor !== oldProps.editor
+            props.editor !== oldProps.editor ||
+            nextConnectionId !== previousConnectionId
         ) {
             actions.reloadMetadata()
         }

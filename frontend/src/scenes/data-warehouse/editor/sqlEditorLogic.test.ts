@@ -104,7 +104,7 @@ describe('sqlEditorLogic', () => {
                 '/api/user_home_settings/@me/': {},
             },
             post: {
-                '/api/environments/:team_id/query/': { results: [] },
+                '/api/environments/:team_id/query/': { tables: {}, joins: [] },
             },
             patch: {
                 '/api/user_home_settings/@me/': [200],
@@ -280,6 +280,28 @@ describe('sqlEditorLogic', () => {
                 path: urls.endpoints(),
                 iconType: 'endpoints',
             })
+        })
+
+        it('reads connection id from hash and keeps it in URL sync', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+
+            expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
+            expect(router.values.hashParams.c).toEqual('conn-123')
+
+            logic.actions.setQueryInput('SELECT 2')
+            await new Promise((resolve) => setTimeout(resolve, 600))
+
+            expect(router.values.hashParams.q).toEqual('SELECT 2')
+            expect(router.values.hashParams.c).toEqual('conn-123')
         })
     })
 })

@@ -17,7 +17,7 @@ export function ConnectionSelector(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(externalDataSourcesLogic)
     const { loadSources } = useActions(externalDataSourcesLogic)
     const { sourceQuery } = useValues(sqlEditorLogic)
-    const { setSourceQuery } = useActions(sqlEditorLogic)
+    const { setSourceQuery, syncUrlWithQuery } = useActions(sqlEditorLogic)
     const { setConnection, loadDatabase } = useActions(databaseTableListLogic)
 
     useEffect(() => {
@@ -39,11 +39,11 @@ export function ConnectionSelector(): JSX.Element {
             ? [{ value: LOADING_CONNECTIONS, label: 'Loading...', disabled: true }]
             : directPostgresSources.map((source) => ({
                   value: source.id,
-                  label: source.prefix || source.id,
+                  label: `${source.prefix ? source.prefix : source.id} (Postgres)`,
               }))
 
         return [
-            { value: POSTHOG_WAREHOUSE, label: 'PostHog Data Warehouse' },
+            { value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' },
             ...sourceOptions,
             { value: ADD_POSTGRES_DIRECT_CONNECTION, label: '+ Add postgres direct connection' },
         ]
@@ -74,6 +74,7 @@ export function ConnectionSelector(): JSX.Element {
                     } as typeof sourceQuery)
                     setConnection(null)
                     loadDatabase()
+                    syncUrlWithQuery()
                     return
                 }
 
@@ -92,6 +93,7 @@ export function ConnectionSelector(): JSX.Element {
                 } as typeof sourceQuery)
                 setConnection(nextValue)
                 loadDatabase()
+                syncUrlWithQuery()
             }}
             options={options}
         />

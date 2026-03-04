@@ -19,6 +19,7 @@ import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { objectsEqual, removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -123,6 +124,10 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     const hash: Record<string, any> = {
         q: values.queryInput ?? '',
     }
+    const connectionId = values.sourceQuery?.source.connectionId
+    if (connectionId) {
+        hash['c'] = connectionId
+    }
     if (values.activeTab?.view) {
         hash['view'] = values.activeTab.view.id
     }
@@ -187,6 +192,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
+            databaseTableListLogic,
+            ['setConnection', 'loadDatabase'],
         ],
     })),
     actions(() => ({
@@ -1416,11 +1423,28 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !searchParams.open_draft &&
                 !searchParams.output_tab &&
                 !hashParams.q &&
+                !hashParams.c &&
                 !hashParams.view &&
                 !hashParams.insight &&
                 values.queryInput !== null
             ) {
                 return
+            }
+
+            const connectionIdFromHash =
+                typeof hashParams.c === 'string' && hashParams.c !== '' ? hashParams.c : undefined
+            const currentConnectionId = values.sourceQuery.source.connectionId || undefined
+
+            if (connectionIdFromHash !== currentConnectionId) {
+                actions.setSourceQuery({
+                    ...values.sourceQuery,
+                    source: {
+                        ...values.sourceQuery.source,
+                        connectionId: connectionIdFromHash,
+                    },
+                })
+                actions.setConnection(connectionIdFromHash ? connectionIdFromHash : null)
+                actions.loadDatabase()
             }
 
             let tabAdded = false

@@ -164,9 +164,6 @@ export const QueryDatabase = (): JSX.Element => {
                     case 'batch_export':
                         return 'batch export'
                     case 'data_warehouse':
-                        if ((item.record.table?.source as any)?.access_method === 'direct') {
-                            return 'direct'
-                        }
                         return ''
                     case 'posthog':
                         // Return "" to not clutter the interface
