@@ -1,1 +1,1 @@
-0018_alter_clusteringjob_id
+0018_migrate_clustering_configs_to_jobs
