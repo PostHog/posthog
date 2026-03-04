@@ -939,8 +939,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         canAutoPreview: [
-            (s) => [s.dashboard, s.featureFlags],
-            (dashboard, _featureFlags) => {
+            (s) => [s.dashboard],
+            (dashboard) => {
                 const payload = getFeatureFlagPayload(FEATURE_FLAGS.DASHBOARD_AUTO_PREVIEW_LIMIT)
                 const limit = typeof payload === 'number' ? payload : DEFAULT_AUTO_PREVIEW_TILE_LIMIT
                 return (dashboard?.tiles.length || 0) < limit
@@ -954,7 +954,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.urlFilters],
             (urlFilters) => Object.values(urlFilters).some((filter) => filter !== undefined),
         ],
-        showEditBarApplyPopover: [
+        showApplyFiltersBanner: [
             (s) => [s.canAutoPreview, s.hasIntermittentFilters],
             (canAutoPreview, hasIntermittentFilters) => !canAutoPreview && hasIntermittentFilters,
         ],

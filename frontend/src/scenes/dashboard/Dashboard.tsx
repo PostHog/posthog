@@ -73,7 +73,7 @@ function DashboardScene(): JSX.Element {
         hasVariables,
         refreshAnalysisResult,
         analysisRating,
-        showEditBarApplyPopover,
+        showApplyFiltersBanner,
         loadingPreview,
         cancellingPreview,
         hasUrlFilters,
@@ -158,7 +158,7 @@ function DashboardScene(): JSX.Element {
                         </LemonBanner>
                     )}
 
-                    {showEditBarApplyPopover && (
+                    {showApplyFiltersBanner && (
                         <LemonBanner type="info" className="mb-2">
                             <div className="flex items-center justify-between gap-2">
                                 <span>Filters are not automatically applied on large dashboards.</span>
