@@ -19,6 +19,10 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+export type RecentItem =
+    | (QueryBasedInsightModel & { itemType: 'insight' })
+    | (DashboardBasicType & { itemType: 'dashboard' })
+
 import type { projectHomepageLogicType } from './projectHomepageLogicType'
 
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
@@ -76,6 +80,19 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                     return []
                 }
                 return [createMaxContextHelpers.dashboard(dashboard)]
+            },
+        ],
+        recentItems: [
+            (s) => [s.recentInsights, s.recentDashboards],
+            (recentInsights, recentDashboards): RecentItem[] => {
+                return [
+                    ...recentInsights.map((i) => ({ ...i, itemType: 'insight' as const })),
+                    ...recentDashboards.map((d) => ({ ...d, itemType: 'dashboard' as const })),
+                ]
+                    .sort(
+                        (a, b) => new Date(b.last_viewed_at || 0).getTime() - new Date(a.last_viewed_at || 0).getTime()
+                    )
+                    .slice(0, 5)
             },
         ],
         recentDashboards: [

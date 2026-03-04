@@ -8,25 +8,15 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
 
-import { DashboardBasicType, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { SavedInsightsTabs } from '~/types'
 
-import { projectHomepageLogic } from '../project-homepage/projectHomepageLogic'
+import { RecentItem, projectHomepageLogic } from '../project-homepage/projectHomepageLogic'
 import { InsightRow } from './InsightRow'
 
-type RecentItem = (QueryBasedInsightModel & { itemType: 'insight' }) | (DashboardBasicType & { itemType: 'dashboard' })
-
 export function RecentlyViewed(): JSX.Element {
-    const { recentInsights, recentInsightsLoading, expandedInsightIds, recentDashboards } =
-        useValues(projectHomepageLogic)
+    const { recentInsightsLoading, expandedInsightIds, recentItems } = useValues(projectHomepageLogic)
     const { loadRecentInsights, toggleInsightExpanded } = useActions(projectHomepageLogic)
     useOnMountEffect(loadRecentInsights)
-
-    const items: RecentItem[] = [
-        ...recentInsights.map((i) => ({ ...i, itemType: 'insight' as const })),
-        ...recentDashboards.map((d) => ({ ...d, itemType: 'dashboard' as const })),
-    ]
-        .sort((a, b) => new Date(b.last_viewed_at || 0).getTime() - new Date(a.last_viewed_at || 0).getTime())
-        .slice(0, 5)
 
     return (
         <CompactList
@@ -40,7 +30,7 @@ export function RecentlyViewed(): JSX.Element {
                 buttonText: 'View insights',
                 buttonTo: urls.savedInsights(),
             }}
-            items={items}
+            items={recentItems}
             renderRow={(item: RecentItem) => {
                 if (item.itemType === 'insight') {
                     return (
