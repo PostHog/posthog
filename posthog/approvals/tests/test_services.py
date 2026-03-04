@@ -5,14 +5,14 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.approvals.exceptions import InvalidStateError
 from posthog.approvals.models import ChangeRequest, ChangeRequestState
 from posthog.approvals.services import ChangeRequestService
 
 
 class TestApproveRejectRaceCondition(BaseTest):
-    """Verify that state is re-checked inside the select_for_update lock."""
-
     def setUp(self):
         super().setUp()
         self.change_request = ChangeRequest.objects.create(
@@ -35,24 +35,19 @@ class TestApproveRejectRaceCondition(BaseTest):
         locked_qs.get.return_value = cr_copy
         return locked_qs
 
-    def test_approve_raises_when_state_changed_under_lock(self):
+    @parameterized.expand(
+        [
+            ("approve", ChangeRequestState.REJECTED, "LGTM"),
+            ("reject", ChangeRequestState.APPLIED, "Not ready"),
+        ]
+    )
+    def test_raises_when_state_changed_under_lock(self, method_name, locked_state, reason):
         service = ChangeRequestService(self.change_request, self.user)
 
         with patch.object(
             ChangeRequest.objects,
             "select_for_update",
-            return_value=self._locked_cr_with_state(ChangeRequestState.REJECTED),
+            return_value=self._locked_cr_with_state(locked_state),
         ):
             with self.assertRaises(InvalidStateError):
-                service.approve(reason="LGTM")
-
-    def test_reject_raises_when_state_changed_under_lock(self):
-        service = ChangeRequestService(self.change_request, self.user)
-
-        with patch.object(
-            ChangeRequest.objects,
-            "select_for_update",
-            return_value=self._locked_cr_with_state(ChangeRequestState.APPLIED),
-        ):
-            with self.assertRaises(InvalidStateError):
-                service.reject(reason="Not ready")
+                getattr(service, method_name)(reason=reason)
