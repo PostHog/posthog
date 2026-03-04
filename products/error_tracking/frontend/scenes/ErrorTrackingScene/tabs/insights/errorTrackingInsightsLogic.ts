@@ -99,7 +99,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                         query: `
                             SELECT
                                 countIf(event = '$exception') as total_exceptions,
-                                uniqIf(distinct_id, event = '$exception') as affected_users,
+                                uniqIf(person_id, event = '$exception') as affected_users,
                                 uniqIf($session_id, notEmpty($session_id)) as total_sessions,
                                 uniqIf($session_id, event = '$exception' AND notEmpty($session_id)) as crash_sessions
                             FROM events
