@@ -38,6 +38,14 @@ FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM = 10
 logger = structlog.get_logger(__name__)
 
 
+def _extract_max_height_pixels(instance: ExportedAsset) -> int | None:
+    if instance.export_context and isinstance(instance.export_context, dict):
+        raw = instance.export_context.get("max_height_pixels")
+        if isinstance(raw, int) and 400 <= raw <= 5000:
+            return raw
+    return None
+
+
 class ExportedAssetSerializer(serializers.ModelSerializer):
     """Standard ExportedAsset serializer that doesn't return content."""
 
@@ -227,9 +235,11 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         logger.exception("video_export_workflow_dispatch_failed", asset_id=instance.id, error=str(e))
                         raise
             else:
-                exporter.export_asset(instance.id)
+                max_height_pixels = _extract_max_height_pixels(instance)
+                exporter.export_asset(instance.id, max_height_pixels=max_height_pixels)
         else:
-            task = exporter.export_asset.delay(instance.id)
+            max_height_pixels = _extract_max_height_pixels(instance)
+            task = exporter.export_asset.delay(instance.id, max_height_pixels=max_height_pixels)
             posthoganalytics.capture(
                 distinct_id=user.distinct_id if user else str(team.uuid),
                 event="export queued",
