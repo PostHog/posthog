@@ -390,6 +390,9 @@ jobs:
                   interval: 2000
                   verbose: true
 
+            - name: Run Prism contract test (product analytics)
+              run: pnpm --filter=@posthog/playwright run test:contract:product-analytics
+
             - name: Run Playwright tests
               id: playwright-tests
               shell: bash
