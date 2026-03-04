@@ -73,6 +73,8 @@ fn record_metrics(
 
     let library = data.library.to_string();
 
+    // "none" (not "not_available") because it means evaluation was intentionally skipped
+    // (flags disabled, quota limited, empty set), not that the value is unknown.
     let evaluation_type = data
         .evaluation_type
         .map_or("none", EvaluationType::as_str)
@@ -227,7 +229,10 @@ async fn process_request_inner(
             config_response_builder::build_response_from_cache(flags_response, &context, &team)
                 .await?;
 
-        // Populate canonical log with flag evaluation results and read back evaluation_type
+        // Populate canonical log with flag evaluation results and read back evaluation_type.
+        // If an earlier step errored (? above), we skip this and evaluation_type stays
+        // None → "none" in metrics. That's intentional: we don't need sequential/parallel
+        // breakdown for failed requests.
         with_canonical_log(|log| {
             log.flags_evaluated = response.flags.len();
             if response.quota_limited.is_some() {
@@ -437,6 +442,23 @@ mod metrics_tests {
         assert!(fault_counter
             .labels
             .contains(&("team_id".to_string(), "456".to_string())));
+
+        // Verify counter and histogram carry the correct evaluation_type label
+        let counter = metrics
+            .iter()
+            .find(|m| m.name == FLAG_REQUESTS_COUNTER)
+            .expect("Should have counter");
+        assert!(counter
+            .labels
+            .contains(&("evaluation_type".to_string(), "parallel".to_string())));
+
+        let histogram = metrics
+            .iter()
+            .find(|m| m.name == FLAG_REQUESTS_LATENCY)
+            .expect("Should have histogram");
+        assert!(histogram
+            .labels
+            .contains(&("evaluation_type".to_string(), "parallel".to_string())));
     }
 
     #[test]
