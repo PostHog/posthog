@@ -87,7 +87,7 @@ jobs:
                   python-version: '3.12'
 
             - name: Install codegen tools
-              run: pip install grpcio-tools protoletariat
+              run: pip install grpcio-tools protoletariat ruff
 
             - name: Regenerate Python proto stubs
               run: bash bin/generate_personhog_proto.sh
