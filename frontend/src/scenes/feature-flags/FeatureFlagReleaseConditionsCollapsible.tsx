@@ -541,6 +541,17 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                 </>
                                                             )
                                                         })()}
+                                                        {releaseFilters.aggregation_group_type_index == null && (
+                                                            <div>
+                                                                A user may have multiple{' '}
+                                                                <Link
+                                                                    to="https://posthog.com/docs/data/persons"
+                                                                    target="_blank"
+                                                                >
+                                                                    profiles
+                                                                </Link>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 ) : (
                                                     <div className="text-xs text-muted mt-2 flex items-center gap-1">

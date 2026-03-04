@@ -242,12 +242,8 @@ def test_table_from_py_list_with_schema_and_too_small_decimal_type():
     schema = pa.schema({"column": pa.decimal128(3, 3)})
     table = table_from_py_list([{"column": decimal.Decimal("1.001")}], schema)
 
-    expected_schema = pa.schema([pa.field("column", pa.decimal128(38, 32))])
-    assert table.equals(
-        pa.table(
-            {"column": pa.array([decimal.Decimal("1.00100000000000000000000000000000")], type=pa.decimal128(38, 32))}
-        )
-    )
+    expected_schema = pa.schema([pa.field("column", pa.decimal128(4, 3))])
+    assert table.equals(pa.table({"column": pa.array([decimal.Decimal("1.001")], type=pa.decimal128(4, 3))}))
     assert table.schema.equals(expected_schema)
 
 
@@ -323,17 +319,126 @@ def test_table_from_py_list_with_rescaling_decimal_data_loss_error():
 
     table = table_from_py_list([{"column": large_decimal}], schema)
 
-    expected_schema = pa.schema([pa.field("column", pa.decimal128(38, 32))])
-    assert table.equals(
-        pa.table(
-            {
-                "column": pa.array(
-                    [decimal.Decimal("12345.67890000000000000000000000000000")], type=pa.decimal128(38, 32)
-                )
-            }
-        )
-    )
+    expected_schema = pa.schema([pa.field("column", pa.decimal128(9, 4))])
+    assert table.equals(pa.table({"column": pa.array([decimal.Decimal("12345.6789")], type=pa.decimal128(9, 4))}))
     assert table.schema.equals(expected_schema)
+
+
+@pytest.mark.parametrize(
+    "data, schema, expected_type",
+    [
+        ([{"column": decimal.Decimal("1234567.5")}], pa.schema({"column": pa.decimal128(38, 32)}), pa.decimal128(8, 1)),
+        (
+            [{"column": decimal.Decimal("999999.99")}],
+            pa.schema({"column": pa.decimal128(38, 32)}),
+            pa.decimal128(38, 32),
+        ),
+        ([{"column": decimal.Decimal("1" * 39 + ".1")}], pa.schema({"column": pa.decimal128(5, 1)}), None),
+        (
+            [{"column": decimal.Decimal("1234567.5")}, {"column": None}],
+            pa.schema({"column": pa.decimal128(38, 32)}),
+            pa.decimal128(8, 1),
+        ),
+    ],
+)
+def test_table_from_py_list_decimal_fallback_optimal_type(data, schema, expected_type):
+    """table_from_py_list picks minimal decimal type from values; decimal256 only when precision > 38."""
+    table = table_from_py_list(data, schema)
+    col_type = table.schema.field("column").type
+    if expected_type is not None:
+        assert col_type == expected_type
+    else:
+        assert pa.types.is_decimal256(col_type)
+
+
+@pytest.mark.parametrize(
+    "batch_type, batch_values, delta_type, expected_type, expect_string",
+    [
+        (
+            pa.decimal256(76, 32),
+            [decimal.Decimal("1234567.5"), decimal.Decimal("89.0")],
+            pa.decimal128(38, 32),
+            None,
+            True,
+        ),
+        (
+            pa.decimal128(10, 2),
+            [decimal.Decimal("12345678.01"), decimal.Decimal("1.00")],
+            pa.decimal128(38, 32),
+            pa.decimal128(38, 30),
+            False,
+        ),
+        (pa.decimal128(5, 2), [decimal.Decimal("123.45")], pa.decimal128(38, 32), pa.decimal128(38, 32), False),
+        (pa.decimal128(7, 1), [decimal.Decimal("123456.1")], pa.decimal128(38, 32), pa.decimal128(38, 32), False),
+        (pa.decimal128(10, 2), [decimal.Decimal("99999999.99")], pa.decimal128(38, 32), pa.decimal128(38, 30), False),
+        (pa.decimal256(76, 0), [decimal.Decimal("1" * 39)], pa.decimal128(38, 32), None, True),
+        (pa.decimal128(5, 2), [decimal.Decimal("123.45"), None], pa.decimal128(38, 32), pa.decimal128(38, 32), False),
+        (
+            pa.decimal128(38, 5),
+            [decimal.Decimal("123456789012345678901234567890123")],
+            pa.decimal128(38, 10),
+            pa.decimal128(38, 5),
+            False,
+        ),
+    ],
+)
+def test_evolve_pyarrow_schema_decimal_reconciliation(
+    batch_type, batch_values, delta_type, expected_type, expect_string
+):
+    """Decimal reconciliation: merge to decimal128(38, scale) when fits, else decimal256→string."""
+    arrow_table = pa.table(
+        {"id": pa.array([1] * len(batch_values), type=pa.int64()), "amount": pa.array(batch_values, type=batch_type)}
+    )
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("amount", delta_type, nullable=True)])
+    )
+    evolved = _evolve_pyarrow_schema(arrow_table, delta_schema)
+    result_type = evolved.schema.field("amount").type
+    result_vals = evolved.column("amount").to_pylist()
+    if expect_string:
+        assert pa.types.is_string(result_type)
+        for orig, got in zip(batch_values, result_vals):
+            if orig is not None:
+                assert got is not None and decimal.Decimal(str(got)) == orig
+    else:
+        assert result_type == expected_type
+        for orig, got in zip(batch_values, result_vals):
+            if orig is not None and got is not None:
+                assert abs(got - orig) < decimal.Decimal("0.001")
+
+
+def test_evolve_pyarrow_schema_arrow_invalid_fallback_to_decimal256_then_string():
+    """ArrowInvalid on decimal128 cast (e.g. rescale data loss) → column becomes decimal256 then string."""
+    value = decimal.Decimal("0.12345678901234567890123456789012")
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1], type=pa.int64()),
+            "amount": pa.array([value], type=pa.decimal128(38, 32)),
+        }
+    )
+    delta_fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("amount", pa.decimal128(38, 18), nullable=True),
+    ]
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
+    evolved_table = _evolve_pyarrow_schema(arrow_table, delta_schema)
+    result_type = evolved_table.schema.field("amount").type
+    assert pa.types.is_string(result_type)
+    result_val = evolved_table.column("amount").to_pylist()[0]
+    assert result_val is not None
+    assert decimal.Decimal(result_val) == value
+
+
+def test_evolve_pyarrow_schema_decimal_integration_table_from_py_list():
+    """table_from_py_list + _evolve_pyarrow_schema: 7 int digits → decimal128(38, 31)."""
+    schema = pa.schema({"amount": pa.decimal128(38, 32)})
+    table = table_from_py_list([{"amount": decimal.Decimal("1234567.5")}], schema)
+    delta_fields: list[pa.Field] = [
+        pa.field("amount", pa.decimal128(38, 32), nullable=True),
+    ]
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
+    evolved_table = _evolve_pyarrow_schema(table, delta_schema)
+    assert evolved_table.schema.field("amount").type == pa.decimal128(38, 31)
 
 
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():

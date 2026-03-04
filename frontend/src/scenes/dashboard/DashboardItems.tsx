@@ -12,6 +12,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
@@ -56,6 +57,7 @@ export function DashboardItems(): JSX.Element {
         setTileOverride,
     } = useActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
+    const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
@@ -127,6 +129,9 @@ export function DashboardItems(): JSX.Element {
                     }}
                     onResizeStop={() => {
                         setResizingItem(null)
+                        if (dashboard?.id) {
+                            reportDashboardTileRepositioned(dashboard.id, 'resized')
+                        }
                     }}
                     onDragStart={() => {
                         scrollContainerRef.current = document.getElementById('main-content')
@@ -186,6 +191,9 @@ export function DashboardItems(): JSX.Element {
                         dragEndTimeout.current = window.setTimeout(() => {
                             isDragging.current = false
                         }, 250)
+                        if (dashboard?.id) {
+                            reportDashboardTileRepositioned(dashboard.id, 'moved')
+                        }
                     }}
                     draggableCancel="a,table,button,input,.Popover"
                 >
