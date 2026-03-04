@@ -5,6 +5,8 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
         ("event_definitions", "0002_schemapropertygroupproperty_is_optional_in_types"),
         ("conversations", "0023_ticket_sla_due_at_index"),
@@ -12,136 +14,250 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveConstraint(
-            model_name="taggeditem",
-            name="exactly_one_related_object",
-        ),
-        migrations.AlterUniqueTogether(
-            name="taggeditem",
-            unique_together=set(),
-        ),
-        migrations.AddField(
-            model_name="taggeditem",
-            name="ticket",
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="tagged_items",
-                to="conversations.ticket",
-            ),
-        ),
-        migrations.AlterUniqueTogether(
-            name="taggeditem",
-            unique_together={
-                (
-                    "tag",
-                    "dashboard",
-                    "insight",
-                    "event_definition",
-                    "property_definition",
-                    "action",
-                    "feature_flag",
-                    "experiment_saved_metric",
-                    "ticket",
-                )
-            },
-        ),
-        migrations.AddConstraint(
-            model_name="taggeditem",
-            constraint=models.UniqueConstraint(
-                condition=models.Q(("ticket__isnull", False)),
-                fields=("tag", "ticket"),
-                name="unique_ticket_tagged_item",
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="taggeditem",
-            constraint=models.CheckConstraint(
-                check=models.Q(
-                    models.Q(
-                        ("dashboard__isnull", False),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                        ("ticket__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", False),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                        ("ticket__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", False),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                        ("ticket__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", False),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                        ("ticket__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", False),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                        ("ticket__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", False),
-                        ("experiment_saved_metric__isnull", True),
-                        ("ticket__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", False),
-                        ("ticket__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                        ("ticket__isnull", False),
-                    ),
-                    _connector="OR",
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveConstraint(
+                    model_name="taggeditem",
+                    name="exactly_one_related_object",
                 ),
-                name="exactly_one_related_object",
-            ),
-        ),
+                migrations.AlterUniqueTogether(
+                    name="taggeditem",
+                    unique_together=set(),
+                ),
+                migrations.AddField(
+                    model_name="taggeditem",
+                    name="ticket",
+                    field=models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="tagged_items",
+                        to="conversations.ticket",
+                    ),
+                ),
+                migrations.AlterUniqueTogether(
+                    name="taggeditem",
+                    unique_together={
+                        (
+                            "tag",
+                            "dashboard",
+                            "insight",
+                            "event_definition",
+                            "property_definition",
+                            "action",
+                            "feature_flag",
+                            "experiment_saved_metric",
+                            "ticket",
+                        )
+                    },
+                ),
+                migrations.AddConstraint(
+                    model_name="taggeditem",
+                    constraint=models.UniqueConstraint(
+                        condition=models.Q(("ticket__isnull", False)),
+                        fields=("tag", "ticket"),
+                        name="unique_ticket_tagged_item",
+                    ),
+                ),
+                migrations.AddConstraint(
+                    model_name="taggeditem",
+                    constraint=models.CheckConstraint(
+                        check=models.Q(
+                            models.Q(
+                                ("dashboard__isnull", False),
+                                ("insight__isnull", True),
+                                ("event_definition__isnull", True),
+                                ("property_definition__isnull", True),
+                                ("action__isnull", True),
+                                ("feature_flag__isnull", True),
+                                ("experiment_saved_metric__isnull", True),
+                                ("ticket__isnull", True),
+                            ),
+                            models.Q(
+                                ("dashboard__isnull", True),
+                                ("insight__isnull", False),
+                                ("event_definition__isnull", True),
+                                ("property_definition__isnull", True),
+                                ("action__isnull", True),
+                                ("feature_flag__isnull", True),
+                                ("experiment_saved_metric__isnull", True),
+                                ("ticket__isnull", True),
+                            ),
+                            models.Q(
+                                ("dashboard__isnull", True),
+                                ("insight__isnull", True),
+                                ("event_definition__isnull", False),
+                                ("property_definition__isnull", True),
+                                ("action__isnull", True),
+                                ("feature_flag__isnull", True),
+                                ("experiment_saved_metric__isnull", True),
+                                ("ticket__isnull", True),
+                            ),
+                            models.Q(
+                                ("dashboard__isnull", True),
+                                ("insight__isnull", True),
+                                ("event_definition__isnull", True),
+                                ("property_definition__isnull", False),
+                                ("action__isnull", True),
+                                ("feature_flag__isnull", True),
+                                ("experiment_saved_metric__isnull", True),
+                                ("ticket__isnull", True),
+                            ),
+                            models.Q(
+                                ("dashboard__isnull", True),
+                                ("insight__isnull", True),
+                                ("event_definition__isnull", True),
+                                ("property_definition__isnull", True),
+                                ("action__isnull", False),
+                                ("feature_flag__isnull", True),
+                                ("experiment_saved_metric__isnull", True),
+                                ("ticket__isnull", True),
+                            ),
+                            models.Q(
+                                ("dashboard__isnull", True),
+                                ("insight__isnull", True),
+                                ("event_definition__isnull", True),
+                                ("property_definition__isnull", True),
+                                ("action__isnull", True),
+                                ("feature_flag__isnull", False),
+                                ("experiment_saved_metric__isnull", True),
+                                ("ticket__isnull", True),
+                            ),
+                            models.Q(
+                                ("dashboard__isnull", True),
+                                ("insight__isnull", True),
+                                ("event_definition__isnull", True),
+                                ("property_definition__isnull", True),
+                                ("action__isnull", True),
+                                ("feature_flag__isnull", True),
+                                ("experiment_saved_metric__isnull", False),
+                                ("ticket__isnull", True),
+                            ),
+                            models.Q(
+                                ("dashboard__isnull", True),
+                                ("insight__isnull", True),
+                                ("event_definition__isnull", True),
+                                ("property_definition__isnull", True),
+                                ("action__isnull", True),
+                                ("feature_flag__isnull", True),
+                                ("experiment_saved_metric__isnull", True),
+                                ("ticket__isnull", False),
+                            ),
+                            _connector="OR",
+                        ),
+                        name="exactly_one_related_object",
+                    ),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="""
+                        ALTER TABLE "posthog_taggeditem"
+                        ADD COLUMN "ticket_id" uuid NULL
+                        CONSTRAINT "posthog_taggeditem_ticket_id_fk"
+                        REFERENCES "posthog_conversations_ticket"("id")
+                        DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                        SET CONSTRAINTS "posthog_taggeditem_ticket_id_fk" IMMEDIATE; -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE "posthog_taggeditem" DROP COLUMN IF EXISTS "ticket_id";
+                    """,
+                ),
+                migrations.RunSQL(
+                    sql="""
+                        CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_ticket_id_idx"
+                        ON "posthog_taggeditem" ("ticket_id");
+                    """,
+                    reverse_sql="""
+                        DROP INDEX IF EXISTS "posthog_taggeditem_ticket_id_idx";
+                    """,
+                ),
+                migrations.RunSQL(
+                    sql="""
+                        CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "unique_ticket_tagged_item"
+                        ON "posthog_taggeditem" ("tag_id", "ticket_id")
+                        WHERE "ticket_id" IS NOT NULL; -- not-null-ignore
+                    """,
+                    reverse_sql="""
+                        DROP INDEX IF EXISTS "unique_ticket_tagged_item";
+                    """,
+                ),
+                migrations.RunSQL(
+                    sql="""
+                        ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "exactly_one_related_object";
+                        ALTER TABLE "posthog_taggeditem" ADD CONSTRAINT "exactly_one_related_object" CHECK ( /* -- existing-table-constraint-ignore */
+                            (
+                                (dashboard_id IS NOT NULL AND insight_id IS NULL AND event_definition_id IS NULL AND property_definition_id IS NULL AND action_id IS NULL AND feature_flag_id IS NULL AND experiment_saved_metric_id IS NULL AND ticket_id IS NULL) OR /* -- not-null-ignore */
+                                (dashboard_id IS NULL AND insight_id IS NOT NULL AND event_definition_id IS NULL AND property_definition_id IS NULL AND action_id IS NULL AND feature_flag_id IS NULL AND experiment_saved_metric_id IS NULL AND ticket_id IS NULL) OR /* -- not-null-ignore */
+                                (dashboard_id IS NULL AND insight_id IS NULL AND event_definition_id IS NOT NULL AND property_definition_id IS NULL AND action_id IS NULL AND feature_flag_id IS NULL AND experiment_saved_metric_id IS NULL AND ticket_id IS NULL) OR /* -- not-null-ignore */
+                                (dashboard_id IS NULL AND insight_id IS NULL AND event_definition_id IS NULL AND property_definition_id IS NOT NULL AND action_id IS NULL AND feature_flag_id IS NULL AND experiment_saved_metric_id IS NULL AND ticket_id IS NULL) OR /* -- not-null-ignore */
+                                (dashboard_id IS NULL AND insight_id IS NULL AND event_definition_id IS NULL AND property_definition_id IS NULL AND action_id IS NOT NULL AND feature_flag_id IS NULL AND experiment_saved_metric_id IS NULL AND ticket_id IS NULL) OR /* -- not-null-ignore */
+                                (dashboard_id IS NULL AND insight_id IS NULL AND event_definition_id IS NULL AND property_definition_id IS NULL AND action_id IS NULL AND feature_flag_id IS NOT NULL AND experiment_saved_metric_id IS NULL AND ticket_id IS NULL) OR /* -- not-null-ignore */
+                                (dashboard_id IS NULL AND insight_id IS NULL AND event_definition_id IS NULL AND property_definition_id IS NULL AND action_id IS NULL AND feature_flag_id IS NULL AND experiment_saved_metric_id IS NOT NULL AND ticket_id IS NULL) OR /* -- not-null-ignore */
+                                (dashboard_id IS NULL AND insight_id IS NULL AND event_definition_id IS NULL AND property_definition_id IS NULL AND action_id IS NULL AND feature_flag_id IS NULL AND experiment_saved_metric_id IS NULL AND ticket_id IS NOT NULL) /* -- not-null-ignore */
+                            )
+                        ) NOT VALID;
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "exactly_one_related_object";
+                        ALTER TABLE "posthog_taggeditem" ADD CONSTRAINT "exactly_one_related_object" CHECK ( /* -- existing-table-constraint-ignore */
+                            (
+                                (dashboard_id IS NOT NULL AND insight_id IS NULL AND event_definition_id IS NULL AND property_definition_id IS NULL AND action_id IS NULL AND feature_flag_id IS NULL AND experiment_saved_metric_id IS NULL) OR /* -- not-null-ignore */
+                                (dashboard_id IS NULL AND insight_id IS NOT NULL AND event_definition_id IS NULL AND property_definition_id IS NULL AND action_id IS NULL AND feature_flag_id IS NULL AND experiment_saved_metric_id IS NULL) OR /* -- not-null-ignore */
+                                (dashboard_id IS NULL AND insight_id IS NULL AND event_definition_id IS NOT NULL AND property_definition_id IS NULL AND action_id IS NULL AND feature_flag_id IS NULL AND experiment_saved_metric_id IS NULL) OR /* -- not-null-ignore */
+                                (dashboard_id IS NULL AND insight_id IS NULL AND event_definition_id IS NULL AND property_definition_id IS NOT NULL AND action_id IS NULL AND feature_flag_id IS NULL AND experiment_saved_metric_id IS NULL) OR /* -- not-null-ignore */
+                                (dashboard_id IS NULL AND insight_id IS NULL AND event_definition_id IS NULL AND property_definition_id IS NULL AND action_id IS NOT NULL AND feature_flag_id IS NULL AND experiment_saved_metric_id IS NULL) OR /* -- not-null-ignore */
+                                (dashboard_id IS NULL AND insight_id IS NULL AND event_definition_id IS NULL AND property_definition_id IS NULL AND action_id IS NULL AND feature_flag_id IS NOT NULL AND experiment_saved_metric_id IS NULL) OR /* -- not-null-ignore */
+                                (dashboard_id IS NULL AND insight_id IS NULL AND event_definition_id IS NULL AND property_definition_id IS NULL AND action_id IS NULL AND feature_flag_id IS NULL AND experiment_saved_metric_id IS NOT NULL) /* -- not-null-ignore */
+                            )
+                        ) NOT VALID;
+                    """,
+                ),
+                migrations.RunSQL(
+                    sql="""
+                        ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq";
+                        ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_a13e3a20_uniq";
+                    """,
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
+                migrations.RunSQL(
+                    sql="""
+                        CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_d90686d0_uniq"
+                        ON "posthog_taggeditem" (
+                            "tag_id",
+                            "dashboard_id",
+                            "insight_id",
+                            "event_definition_id",
+                            "property_definition_id",
+                            "action_id",
+                            "feature_flag_id",
+                            "experiment_saved_metric_id",
+                            "ticket_id"
+                        );
+                    """,
+                    reverse_sql="""
+                        CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq"
+                        ON "posthog_taggeditem" (
+                            "tag_id",
+                            "dashboard_id",
+                            "insight_id",
+                            "event_definition_id",
+                            "property_definition_id",
+                            "action_id",
+                            "feature_flag_id",
+                            "experiment_saved_metric_id"
+                        );
+                    """,
+                ),
+                migrations.RunSQL(
+                    sql="""
+                        ALTER TABLE "posthog_taggeditem" ADD CONSTRAINT "posthog_taggeditem_tag_id_dashboard_id_insi_d90686d0_uniq"
+                        UNIQUE USING INDEX "posthog_taggeditem_tag_id_dashboard_id_insi_d90686d0_uniq"; -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_d90686d0_uniq";
+                    """,
+                ),
+            ],
+        )
     ]
