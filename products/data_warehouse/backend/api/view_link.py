@@ -7,7 +7,6 @@ from posthog.hogql import ast
 from posthog.hogql.ast import Call, Field
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import LazyJoin
 from posthog.hogql.database.utils import get_join_field_chain
 from posthog.hogql.errors import QueryError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -203,25 +202,22 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        join = DataWarehouseJoin(**request.data)
-        database = serializer.context["database"]
-
         source_table_name = serializer.validated_data["source_table_name"]
-        source_table = database.get_table(source_table_name)
-        source_table_key = serializer.validated_data["source_table_key"]
-        from_field = get_join_field_chain(source_table_key)
-
-        joining_table = database.get_table(serializer.validated_data.get("joining_table_name"))
         joining_table_key = serializer.validated_data.get("joining_table_key")
         to_field = get_join_field_chain(joining_table_key)
         assert to_field is not None
 
-        source_table.fields["validation"] = LazyJoin(
-            from_field=from_field,
-            to_field=to_field,
-            join_table=joining_table,
-            join_function=join.join_function(override_join_type="INNER JOIN"),
+        user = cast(User, self.request.user)
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=source_table_name,
+            source_table_key=serializer.validated_data["source_table_key"],
+            joining_table_name=serializer.validated_data["joining_table_name"],
+            joining_table_key=joining_table_key,
+            field_name="validation",
+            configuration={},
         )
+        database = Database.create_for(team_id=self.team_id, user=user)
         validation_query = parse_select(
             "SELECT {to_field} FROM {source_table_name} LIMIT 10",
             placeholders={
@@ -231,7 +227,6 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         try:
-            user = cast(User, self.request.user)
             query_response = execute_hogql_query(
                 query=validation_query,
                 team=self.team,
