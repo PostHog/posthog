@@ -380,7 +380,7 @@
     (SELECT dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))) AS duration,
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
-     WHERE and(equals(raw_sessions_v3.team_id, 99999), greaterOrEquals(raw_sessions_v3.session_timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))))
+     WHERE equals(raw_sessions_v3.team_id, 99999)
      GROUP BY raw_sessions_v3.session_id_v7) AS raw_session_replay_events__session ON equals(toUInt128(accurateCastOrNull(session_replay_events.session_id, 'UUID')), raw_session_replay_events__session.session_id_v7)
   WHERE equals(session_replay_events.team_id, 99999)
   LIMIT 100 SETTINGS readonly=2,
