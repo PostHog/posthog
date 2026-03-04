@@ -158,12 +158,8 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             }),
         ],
         breadcrumbs: [
-            (s) => [s.sharedMetric, s.sharedMetricId, s.sharedMetricLoading],
-            (
-                sharedMetric: Partial<SharedMetric>,
-                sharedMetricId: string | number,
-                sharedMetricLoading: boolean
-            ): Breadcrumb[] => {
+            (s) => [s.sharedMetric, s.sharedMetricId],
+            (sharedMetric: Partial<SharedMetric>, sharedMetricId: string | number): Breadcrumb[] => {
                 const isNew = sharedMetricId === 'new'
                 return [
                     {
@@ -173,11 +169,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                     },
                     {
                         key: [Scene.ExperimentsSharedMetric, sharedMetricId],
-                        name: isNew
-                            ? 'New shared metric'
-                            : sharedMetricLoading
-                              ? ''
-                              : sharedMetric?.name || 'Shared metric',
+                        name: isNew ? 'New shared metric' : sharedMetric?.name || '',
                     },
                 ]
             },
