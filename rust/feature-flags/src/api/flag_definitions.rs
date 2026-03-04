@@ -395,4 +395,34 @@ mod tests {
             Some("a1b2c3d4e5f6g7h8".to_string())
         );
     }
+
+    #[test]
+    fn test_extract_etag_from_header_empty_weak() {
+        let val = axum::http::HeaderValue::from_static("W/\"\"");
+        assert_eq!(extract_etag_from_header(Some(&val)), None);
+    }
+
+    #[test]
+    fn test_extract_etag_from_header_wildcard_treated_as_literal() {
+        // RFC 7232 allows `*` to match any ETag, but we treat it as a literal
+        // value. This means it will never match a stored ETag, which is safe —
+        // the client just gets a 200 with full data instead of a 304.
+        let val = axum::http::HeaderValue::from_static("*");
+        assert_eq!(
+            extract_etag_from_header(Some(&val)),
+            Some("*".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_etag_from_header_multiple_etags_no_special_handling() {
+        // RFC 7232 allows comma-separated ETags, but we don't parse them
+        // individually. The whole value is treated as a single string, so it
+        // won't match any stored ETag — the client gets a 200 with full data.
+        let val = axum::http::HeaderValue::from_static("\"etag1\", \"etag2\"");
+        assert_eq!(
+            extract_etag_from_header(Some(&val)),
+            Some("etag1\", \"etag2".to_string())
+        );
+    }
 }
