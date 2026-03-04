@@ -1536,13 +1536,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     def _should_use_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
         if version is None:
+            logger.info("Ducklake skip: no version", endpoint_name=endpoint.name)
             return False
         if version.query.get("kind") != "HogQLQuery":
+            logger.info("Ducklake skip: not HogQL", endpoint_name=endpoint.name, kind=version.query.get("kind"))
             return False
 
         import posthoganalytics
 
-        if not posthoganalytics.feature_enabled(
+        ff_result = posthoganalytics.feature_enabled(
             "endpoints-ducklake-execution",
             str(self.team.uuid),
             groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
@@ -1552,12 +1554,24 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             },
             only_evaluate_locally=True,
             send_feature_flag_events=False,
-        ):
+        )
+        logger.info(
+            "Ducklake FF evaluation",
+            endpoint_name=endpoint.name,
+            ff_result=ff_result,
+            team_uuid=str(self.team.uuid),
+        )
+        if not ff_result:
             return False
 
         from posthog.ducklake.common import get_duckgres_server_for_team
 
-        return get_duckgres_server_for_team(self.team_id) is not None
+        server = get_duckgres_server_for_team(self.team_id)
+        if server is None:
+            logger.info("Ducklake skip: no duckgres server", endpoint_name=endpoint.name, team_id=self.team_id)
+        else:
+            logger.info("Ducklake enabled", endpoint_name=endpoint.name, team_id=self.team_id)
+        return server is not None
 
     def _execute_ducklake_endpoint(
         self,
@@ -1743,6 +1757,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         # Check if we should use materialization for this version
         use_materialized = self._should_use_materialized_table(endpoint, data, version_obj)
+
+        logger.info(
+            "Endpoint run decision",
+            endpoint_name=endpoint.name,
+            use_materialized=use_materialized,
+            version=version_obj.version if version_obj else None,
+        )
 
         debug = data.debug or False
 
