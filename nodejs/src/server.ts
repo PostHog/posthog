@@ -455,29 +455,29 @@ export class PluginServer {
             if (capabilities.errorTrackingIngestion) {
                 serviceLoaders.push(async () => {
                     const config = {
-                        groupId: hub.ERROR_TRACKING_CONSUMER_GROUP_ID,
-                        topic: hub.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
-                        dlqTopic: hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC,
-                        overflowTopic: hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC,
-                        outputTopic: hub.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
-                        cymbalBaseUrl: hub.ERROR_TRACKING_CYMBAL_BASE_URL,
-                        cymbalTimeoutMs: hub.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
-                        lane: hub.INGESTION_LANE ?? 'main',
-                        overflowBucketCapacity: hub.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
-                        overflowBucketReplenishRate: hub.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
-                        statefulOverflowEnabled: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
-                        statefulOverflowRedisTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
+                        groupId: this.config.ERROR_TRACKING_CONSUMER_GROUP_ID,
+                        topic: this.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
+                        dlqTopic: this.config.ERROR_TRACKING_CONSUMER_DLQ_TOPIC,
+                        overflowTopic: this.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC,
+                        outputTopic: this.config.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
+                        cymbalBaseUrl: this.config.ERROR_TRACKING_CYMBAL_BASE_URL,
+                        cymbalTimeoutMs: this.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
+                        lane: this.config.INGESTION_LANE ?? 'main',
+                        overflowBucketCapacity: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
+                        overflowBucketReplenishRate: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
+                        statefulOverflowEnabled: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
+                        statefulOverflowRedisTTLSeconds: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
                         statefulOverflowLocalCacheTTLSeconds:
-                            hub.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                        pipeline: hub.INGESTION_PIPELINE ?? 'error_tracking',
+                            this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                        pipeline: this.config.INGESTION_PIPELINE ?? 'error_tracking',
                     }
                     const deps = {
-                        kafkaProducer: hub.kafkaProducer,
-                        teamManager: hub.teamManager,
-                        hogTransformer: createHogTransformerService(hub, hub),
-                        groupTypeManager: hub.groupTypeManager,
-                        redisPool: hub.redisPool,
-                        personRepository: hub.personRepository,
+                        kafkaProducer: this.kafkaProducer!,
+                        teamManager,
+                        hogTransformer: createHogTransformerService(this.config, hogTransformerDeps!),
+                        groupTypeManager: ingestionServices!.groupTypeManager,
+                        redisPool: this.redisPool!,
+                        personRepository: ingestionCdpServices!.personRepository,
                     }
                     const consumer = new ErrorTrackingConsumer(config, deps)
                     await consumer.start()
