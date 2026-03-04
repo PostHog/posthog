@@ -209,7 +209,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.ExperimentsSharedMetric]: {
         projectBased: true,
-        name: 'Shared metric',
+        name: '',
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },

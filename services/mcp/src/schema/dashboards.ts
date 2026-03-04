@@ -21,7 +21,7 @@ export const DashboardTileSchema = z.object({
     }),
     order: z.number(),
     color: z.string().nullish(),
-    layouts: z.record(z.any()).nullish(),
+    layouts: z.record(z.string(), z.any()).nullish(),
     last_refresh: z.string().nullish(),
     is_cached: z.boolean().nullish(),
 })
@@ -41,8 +41,8 @@ export const DashboardSchema = z.object({
         .nullable(),
     is_shared: z.boolean().nullish(),
     deleted: z.boolean().nullish(),
-    filters: z.record(z.any()).nullish(),
-    variables: z.record(z.any()).nullish(),
+    filters: z.record(z.string(), z.any()).nullish(),
+    variables: z.record(z.string(), z.any()).nullish(),
     tags: z.array(z.string()).nullish(),
     tiles: z.array(DashboardTileSchema.nullish()).nullish(),
 })
