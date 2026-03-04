@@ -14,7 +14,7 @@ JUDGE_MODEL = "gpt-5.2-2025-12-11"
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
-NOT_ACTIONABLE_TICKETS = {"00005", "00006"}
+NOT_ACTIONABLE_TICKETS = {"00005", "00006", "00009", "00010"}
 
 
 def load_zendesk_cases() -> list[EvalCase]:

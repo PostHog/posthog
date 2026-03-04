@@ -64,5 +64,49 @@
     "created_at": "2026-02-03T14:45:09+00:00",
     "priority": "low",
     "status": "solved"
+  },
+  {
+    "id": "00007",
+    "subject": "Support Ticket: Session replay not loading for some users (00000000-0000-0000-0000-000000000070)",
+    "description": "We've noticed that session replays are failing to load for about 20% of our users. The replay page shows a spinner indefinitely and eventually displays \"Recording not found\". This started happening after we upgraded posthog-js from 1.290.0 to 1.310.2 last Thursday.\n\nWe've confirmed the sessions exist in the events table (we can see $snapshot events), but the replay viewer can't find them. Rolling back to 1.290.0 fixes the issue. Our setup uses a reverse proxy through Cloudflare with a custom /ingest path.\n\nHappy to provide HAR files or network traces if that helps.\n\n-----\nKind: bug\nTarget area: session-replay\nReport event: http://go/ticketByUUID/00000000-0000-0000-0000-000000000070\nSession: https://us.posthog.com/project/sTMFPsFhdP1Ssg/replay/00000000-0000-0000-0000-000000000071?t=1200\nAdmin: https://us.posthog.com/admin/posthog/user/000070/change/ (organization ID 00000000-0000-0000-0000-000000000007: Cyberdyne Systems, project ID 00070: Production)\nPersons-on-events mode for project: person_id_override_properties_on_events",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00007.json",
+    "type": null,
+    "tags": "[\"ack_email_sent\",\"escalated\",\"high\",\"org-checked\",\"plan_pay-as-you-go_paying\",\"priority_f_paying\",\"session_replay\"]",
+    "created_at": "2026-02-10T08:22:17+00:00",
+    "priority": "high",
+    "status": "open"
+  },
+  {
+    "id": "00008",
+    "subject": "How do I set up a webhook destination for workflow notifications?",
+    "description": "Hi PostHog team,\n\nWe're trying to set up a workflow that sends a webhook to our internal Slack bot whenever a user completes onboarding. I've created the workflow trigger and the filter step, but I'm stuck on configuring the webhook destination.\n\nSpecifically:\n1. What format does the webhook payload use? Is it customizable?\n2. Can I include event properties in the payload body?\n3. Is there a way to add custom headers for authentication?\n\nI checked the docs but couldn't find detailed examples for webhook destinations in workflows. Any pointers would be appreciated.\n\n-----\nKind: support\nTarget area: workflows\nAdmin: https://us.posthog.com/admin/posthog/user/000080/change/ (organization ID 00000000-0000-0000-0000-000000000008: Tyrell Corp, project ID 00080: Production)",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00008.json",
+    "type": null,
+    "tags": "[\"ack_email_sent\",\"low\",\"org-checked\",\"plan_teams\",\"priority_e_scale\",\"workflows\"]",
+    "created_at": "2026-02-11T14:05:33+00:00",
+    "priority": "normal",
+    "status": "open"
+  },
+  {
+    "id": "00009",
+    "subject": "Can you update the billing email address on our account?",
+    "description": "Hi,\n\nOur finance department has restructured and we need to update the billing email on our PostHog account from accounting@example.com to finance-ops@example.com. All invoices and payment receipts should go to the new address going forward.\n\nOur organization ID is 00000000-0000-0000-0000-000000000009.\n\nPlease confirm once this has been updated.\n\nThanks,\nSarah\nOperations, Umbrella Corp\n\n-----\nKind: billing\nAdmin: https://us.posthog.com/admin/posthog/user/000090/change/ (organization ID 00000000-0000-0000-0000-000000000009: Umbrella Corp, project ID 00090: Production)",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00009.json",
+    "type": null,
+    "tags": "[\"billing\",\"low\",\"org-checked\",\"plan_enterprise\",\"priority_c_enterprise\"]",
+    "created_at": "2026-02-12T09:30:45+00:00",
+    "priority": "low",
+    "status": "open"
+  },
+  {
+    "id": "00010",
+    "subject": "Auto-reply: Out of office until February 20th",
+    "description": "Thank you for your email. I am currently out of the office with limited access to email and will return on February 20th, 2026.\n\nFor urgent matters, please contact the team at support-backup@example.com.\n\nBest regards,\nAlex\n\n---\nThis is an automatic reply.",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00010.json",
+    "type": null,
+    "tags": "[\"auto_reply\",\"low\",\"priority_i_community\"]",
+    "created_at": "2026-02-14T11:00:02+00:00",
+    "priority": "low",
+    "status": "new"
   }
 ]
