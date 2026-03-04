@@ -6,9 +6,12 @@ import packageJson from '../../package.json'
 
 export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
 
-export function getUserAgent(clientIdentifier?: string): string {
-    if (clientIdentifier) {
-        return `${USER_AGENT}; for ${clientIdentifier}`
+export function getUserAgent(clientUserAgent?: string): string {
+    if (clientUserAgent) {
+        const match = clientUserAgent.match(/posthog\/([\w.-]+)/)
+        if (match) {
+            return `${USER_AGENT}; for ${match[0]}`
+        }
     }
     return USER_AGENT
 }

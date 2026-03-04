@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -341,6 +342,127 @@ class TestTable(BaseTest):
             "`boolean_nullable` Nullable(Bool), `array_nullable` Nullable(Array(String)), "
             "`map_nullable` Nullable(Map(String, String))"
         )
+
+    def test_csv_allow_double_quotes_persisted_via_options(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            options={"csv_allow_double_quotes": False},
+            team=self.team,
+        )
+
+        assert table.csv_allow_double_quotes is False
+        table.refresh_from_db()
+        assert table.csv_allow_double_quotes is False
+
+    def test_csv_allow_double_quotes_defaults_to_none(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+        )
+        assert table.csv_allow_double_quotes is None
+
+    def test_validate_csv_double_quotes_raises_on_parse_failure(self):
+        from clickhouse_driver.errors import ServerException
+
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            options={"csv_allow_double_quotes": True},
+            team=self.team,
+        )
+
+        with patch(
+            "products.data_warehouse.backend.models.table.sync_execute",
+            side_effect=ServerException("Expected end of line", code=117),
+        ):
+            with pytest.raises(Exception, match="CSV parsing failed"):
+                table._validate_csv_double_quotes_setting()
+
+    def test_is_csv_format_for_non_csv(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_parquet",
+            url_pattern="https://example.com/test.parquet",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+        )
+        assert table._is_csv_format() is False
+
+    def test_is_csv_format_for_csv(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        with patch("products.data_warehouse.backend.models.table.sync_execute", return_value=[]):
+            table = DataWarehouseTable.objects.create(
+                name="test_csv",
+                url_pattern="https://example.com/test.csv",
+                credential=credential,
+                format=DataWarehouseTable.TableFormat.CSV,
+                team=self.team,
+            )
+        assert table._is_csv_format() is True
+
+    def test_hogql_definition_sets_raw_settings_for_csv_with_double_quotes(self):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        with patch("products.data_warehouse.backend.models.table.sync_execute", return_value=[]):
+            table = DataWarehouseTable.objects.create(
+                name="rfc_csv",
+                url_pattern="https://example.com/test.csv",
+                format=DataWarehouseTable.TableFormat.CSVWithNames,
+                team=self.team,
+                columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+                credential=credential,
+            )
+        # Simulate detection having found RFC 4180 quoting
+        table.options["csv_allow_double_quotes"] = True
+        table.save_base(raw=True)
+
+        definition = table.hogql_definition()
+        assert definition.top_level_settings is not None
+        assert definition.top_level_settings.format_csv_allow_double_quotes is True
+
+    def test_hogql_definition_sets_false_for_csv_with_none(self):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        with patch("products.data_warehouse.backend.models.table.sync_execute", return_value=[]):
+            table = DataWarehouseTable.objects.create(
+                name="legacy_csv",
+                url_pattern="https://example.com/test.csv",
+                format=DataWarehouseTable.TableFormat.CSVWithNames,
+                team=self.team,
+                columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+                credential=credential,
+            )
+        # Simulate detection having returned None (both failed)
+        table.options.pop("csv_allow_double_quotes", None)
+        table.save_base(raw=True)
+
+        definition = table.hogql_definition()
+        assert definition.top_level_settings is not None
+        assert definition.top_level_settings.format_csv_allow_double_quotes is False
+
+    def test_hogql_definition_no_raw_settings_for_parquet(self):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="parquet_table",
+            url_pattern="https://example.com/test.parquet",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+            credential=credential,
+        )
+
+        definition = table.hogql_definition()
+        assert definition.top_level_settings is None
 
     def assert_raises_with_invalid_hog_column_type(self, column_type):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)

@@ -626,7 +626,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert {} in payloads
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_creation_context_is_set_to_early_access_features(self, mock_capture):
+    def test_creation_context_is_set_to_early_access_features(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={
@@ -638,7 +638,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         )
         response_data = response.json()
         ff_instance = FeatureFlag.objects.get(id=response_data["feature_flag"]["id"])
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             ANY,
             "feature flag created",
             {

@@ -2,6 +2,7 @@
 Module to centralize event reporting on the server-side.
 """
 
+import re
 from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
 
@@ -266,9 +267,13 @@ class EventSource(StrEnum):
     WEB = "web"
     API = "api"
     POSTHOG_AI = "posthog_ai"
+    POSTHOG_CODE = "posthog_code"
     TERRAFORM = "terraform"
     MCP = "mcp"
     WIZARD = "wizard"
+
+
+_POSTHOG_CODE_UA_RE = re.compile(r"posthog/(code|[\w.-]+\.hog\.dev)")
 
 
 def get_event_source(request) -> EventSource:
@@ -278,11 +283,22 @@ def get_event_source(request) -> EventSource:
         return EventSource.TERRAFORM
     if "posthog/wizard" in user_agent:
         return EventSource.WIZARD
+    if _POSTHOG_CODE_UA_RE.search(user_agent):
+        return EventSource.POSTHOG_CODE
     if "posthog/mcp-server" in user_agent:
         return EventSource.MCP
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
         return EventSource.WEB
     return EventSource.API
+
+
+MAX_USER_AGENT_LENGTH = 1000
+
+
+def _sanitize_user_agent(value: str | None) -> str | None:
+    if not value:
+        return None
+    return re.sub(r"[\x00-\x1f\x7f]", "", value).strip()[:MAX_USER_AGENT_LENGTH] or None
 
 
 def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
@@ -292,6 +308,7 @@ def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
         "$current_url": request.headers.get("Referer"),
         "$session_id": request.headers.get("X-Posthog-Session-Id"),
         "was_impersonated": is_impersonated_session(request),
+        "mcp_user_agent": _sanitize_user_agent(request.headers.get("X-Posthog-Mcp-User-Agent")),
     }
 
 
