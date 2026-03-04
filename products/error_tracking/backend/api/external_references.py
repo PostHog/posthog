@@ -7,6 +7,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
 from posthog.models.integration import (
     GitHubIntegration,
@@ -30,9 +31,9 @@ class ErrorTrackingExternalReferenceIntegrationSerializer(serializers.ModelSeria
 
 class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
     config = serializers.JSONField(write_only=True)
-    issue = serializers.PrimaryKeyRelatedField(write_only=True, queryset=ErrorTrackingIssue.objects.all())
+    issue = TeamScopedPrimaryKeyRelatedField(write_only=True, queryset=ErrorTrackingIssue.objects.all())
     integration = ErrorTrackingExternalReferenceIntegrationSerializer(read_only=True)
-    integration_id = serializers.PrimaryKeyRelatedField(
+    integration_id = TeamScopedPrimaryKeyRelatedField(
         write_only=True, queryset=Integration.objects.all(), source="integration"
     )
     external_url = serializers.SerializerMethodField()
