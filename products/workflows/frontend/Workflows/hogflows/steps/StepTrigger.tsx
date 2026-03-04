@@ -721,11 +721,12 @@ function ConversionGoalSection(): JSX.Element {
                 considered converted.
             </p>
 
-            <div className="flex flex-col gap-4 max-w-240">
+            <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-1 items-start">
                     <LemonLabel>Detect conversion from property changes</LemonLabel>
                     <PropertyFilters
                         buttonText="Add property conversion"
+                        buttonClassName="grow-0"
                         propertyFilters={workflow.conversion?.filters ?? []}
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.PersonProperties,
