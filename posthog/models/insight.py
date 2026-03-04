@@ -346,6 +346,19 @@ class InsightViewed(models.Model):
         indexes = [models.Index(fields=["team_id", "user_id", "-last_viewed_at"])]
 
 
+class InsightFavorite(models.Model):
+    """Per-user insight favorites. Replaces the team-wide Insight.favorited boolean field."""
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    user = models.ForeignKey("User", on_delete=models.CASCADE)
+    insight = models.ForeignKey(Insight, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "insight"], name="posthog_unique_insightfavorited")]
+        indexes = [models.Index(fields=["user_id", "insight_id"])]
+
+
 @timed("generate_insight_cache_key")
 def generate_insight_filters_hash(insight: Insight, dashboard: Optional[Dashboard]) -> str:
     try:

@@ -614,6 +614,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."favorites_migrated_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -1464,6 +1465,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."favorites_migrated_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -1787,13 +1789,18 @@
   '''
   SELECT COUNT(*)
   FROM
-    (SELECT "posthog_dashboarditem"."id" AS "col1"
+    (SELECT EXISTS
+       (SELECT 1 AS "a"
+        FROM "posthog_insightfavorite" U0
+        WHERE (U0."insight_id" = ("posthog_dashboarditem"."id")
+               AND U0."user_id" = 99999)
+        LIMIT 1) AS "is_favorited"
      FROM "posthog_dashboarditem"
      INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
      LEFT OUTER JOIN "posthog_insightviewed" ON ("posthog_dashboarditem"."id" = "posthog_insightviewed"."insight_id")
      WHERE ("posthog_team"."project_id" = 99999
             AND NOT ("posthog_dashboarditem"."deleted"))
-     GROUP BY 1) subquery
+     GROUP BY "posthog_dashboarditem"."id") subquery
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.33
@@ -1827,6 +1834,12 @@
          "posthog_dashboarditem"."updated_at",
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags",
+         EXISTS
+    (SELECT 1 AS "a"
+     FROM "posthog_insightfavorite" U0
+     WHERE (U0."insight_id" = ("posthog_dashboarditem"."id")
+            AND U0."user_id" = 99999)
+     LIMIT 1) AS "is_favorited",
          MAX("posthog_insightviewed"."last_viewed_at") AS "last_viewed_at",
          "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1953,6 +1966,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."favorites_migrated_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T6."id",
@@ -1984,6 +1998,7 @@
          T6."allow_sidebar_suggestions",
          T6."shortcut_position",
          T6."passkeys_enabled_for_2fa",
+         T6."favorites_migrated_at",
          T6."events_column_config",
          T6."email_opt_in"
   FROM "posthog_dashboarditem"
@@ -2386,6 +2401,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."favorites_migrated_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_alertconfiguration"

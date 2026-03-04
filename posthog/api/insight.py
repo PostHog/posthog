@@ -85,7 +85,7 @@ from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
-from posthog.models.insight import InsightViewed
+from posthog.models.insight import InsightFavorite, InsightViewed
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -122,6 +122,36 @@ from common.hogvm.python.utils import HogVMException
 logger = structlog.get_logger(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
+
+
+def migrate_user_favorites(user: User) -> None:
+    """
+    Lazily migrates org-level favorited insights (Insight.favorited=True) to per-user
+    InsightFavorite records. Called once per user on their first insight API request after
+    the migration is deployed. This avoids a bulk data migration that would be too expensive
+    to run on prod at deploy time.
+    """
+    from django.utils import timezone
+
+    from posthog.models.organization import OrganizationMembership
+    from posthog.models.team.team import Team
+
+    org_ids = OrganizationMembership.objects.filter(user=user).values_list("organization_id", flat=True)
+    team_ids = Team.objects.filter(organization_id__in=org_ids).values_list("id", flat=True)
+
+    global_favorites = Insight.objects_including_soft_deleted.filter(
+        team_id__in=team_ids,
+        favorited=True,
+        deleted=False,
+    ).values_list("id", "team_id")
+
+    new_favorites = [
+        InsightFavorite(user=user, insight_id=insight_id, team_id=team_id) for insight_id, team_id in global_favorites
+    ]
+    InsightFavorite.objects.bulk_create(new_favorites, ignore_conflicts=True)
+
+    user.favorites_migrated_at = timezone.now()
+    user.save(update_fields=["favorites_migrated_at"])
 
 
 EXPORT_QUERY_CACHE_MISS = Counter(
@@ -294,6 +324,11 @@ class InsightBasicSerializer(
         representation = super().to_representation(instance)
 
         representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
+
+        # Use per-user favorite status when the queryset has been annotated (list endpoint),
+        # otherwise fall back to the legacy model field.
+        if hasattr(instance, "is_favorited"):
+            representation["favorited"] = instance.is_favorited
 
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
@@ -514,6 +549,27 @@ class InsightSerializer(InsightBasicSerializer):
         except Insight.DoesNotExist:
             before_update = None
 
+        # Handle favorited separately — it is now stored in InsightFavorite (per-user),
+        # not on the Insight model. We pop it here so it doesn't get written to the model.
+        favorited_value = validated_data.pop("favorited", None)
+        favorited_change: tuple[bool, bool] | None = None
+        request_user = self.context["request"].user
+        if favorited_value is not None and not request_user.is_anonymous:
+            was_favorited = InsightFavorite.objects.filter(user=request_user, insight=instance).exists()
+            is_favorited = bool(favorited_value)
+            if is_favorited != was_favorited:
+                if is_favorited:
+                    InsightFavorite.objects.get_or_create(
+                        user=request_user,
+                        insight=instance,
+                        defaults={"team": instance.team},
+                    )
+                else:
+                    InsightFavorite.objects.filter(user=request_user, insight=instance).delete()
+                favorited_change = (was_favorited, is_favorited)
+
+        self.context["favorited_change"] = favorited_change
+
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
@@ -551,10 +607,12 @@ class InsightSerializer(InsightBasicSerializer):
         detected_changes = [
             c
             for c in changes_between("Insight", previous=before_update, current=updated_insight)
-            if c.field != "dashboards"
+            # favorited is no longer a field on Insight — skip any stale detection
+            if c.field not in ("dashboards", "favorited")
         ]
         synthetic_dashboard_changes = self._synthetic_dashboard_changes(dashboards_before_change)
-        changes = detected_changes + synthetic_dashboard_changes
+        synthetic_favorited_change = self._synthetic_favorited_change()
+        changes = detected_changes + synthetic_dashboard_changes + synthetic_favorited_change
 
         activity = "updated"
         deleted_change = next((change for change in changes if change.field == "deleted"), None)
@@ -590,6 +648,21 @@ class InsightSerializer(InsightBasicSerializer):
                 )
             ]
 
+        return []
+
+    def _synthetic_favorited_change(self) -> list[Change]:
+        favorited_change: tuple[bool, bool] | None = self.context.get("favorited_change")
+        if favorited_change:
+            before, after = favorited_change
+            return [
+                Change(
+                    type="Insight",
+                    action="changed",
+                    field="favorited",
+                    before=before,
+                    after=after,
+                )
+            ]
         return []
 
     def _update_insight_dashboards(self, dashboards: list[Dashboard], instance: Insight) -> None:
@@ -1015,6 +1088,23 @@ class InsightViewSet(
         assert self.team.project_id is not None
         queryset = self.queryset.filter(team__project_id=self.team.project_id)
 
+        if not self.request.user.is_anonymous:
+            # One-time lazy migration: copy org-level Insight.favorited=True into per-user InsightFavorite rows
+            if not self.request.user.favorites_migrated_at:
+                migrate_user_favorites(self.request.user)
+
+            # Annotate each insight with whether the current user has favorited it
+            from django.db.models import Exists, OuterRef
+
+            queryset = queryset.annotate(
+                is_favorited=Exists(
+                    InsightFavorite.objects.filter(
+                        insight=OuterRef("pk"),
+                        user=self.request.user,
+                    )
+                )
+            )
+
         include_deleted = False
 
         if isinstance(
@@ -1180,7 +1270,13 @@ class InsightViewSet(
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
-                queryset = queryset.filter(Q(favorited=True))
+                if not request.user.is_anonymous:
+                    queryset = queryset.filter(
+                        id__in=InsightFavorite.objects.filter(user=request.user).values_list("insight_id", flat=True)
+                    )
+                else:
+                    # Anonymous users (e.g. shared access tokens) fall back to the legacy field
+                    queryset = queryset.filter(Q(favorited=True))
             elif key == "hide_feature_flag_insights":
                 if str_to_bool(request.GET["hide_feature_flag_insights"]):
                     # Exclude insights with the specific feature flag names

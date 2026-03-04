@@ -583,9 +583,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             queries.append(capture_query_context.captured_queries)
             query_counts.append(query_count_for_create_and_read)
 
-        # adding more insights doesn't change the query count
+        # The first request for a user runs the one-time lazy migration of org-level favorites
+        # to per-user InsightFavorite rows (+2 queries: 1 nested insight select, 1 user save).
+        # All subsequent requests are constant at 15 — adding more insights doesn't change the count.
         self.assertEqual(
-            [15, 15, 15, 15, 15],
+            [17, 15, 15, 15, 15],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
