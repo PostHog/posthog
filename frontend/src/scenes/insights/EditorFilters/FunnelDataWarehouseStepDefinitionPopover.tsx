@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
@@ -9,7 +9,10 @@ import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTableP
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DefinitionPopoverRendererProps, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { urls } from 'scenes/urls'
 
+import { insightLogic } from '../insightLogic'
 import {
     FunnelFieldKey,
     funnelDataWarehouseStepDefinitionPopoverLogic,
@@ -65,6 +68,9 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
     const { localDefinition } = useValues(definitionPopoverLogic)
     const { setLocalDefinition } = useActions(definitionPopoverLogic)
 
+    const { insightProps } = useValues(insightLogic)
+    const { querySource } = useValues(funnelDataLogic(insightProps))
+
     const dataWarehouseLocalDefinition = localDefinition as Partial<DataWarehouseTableForInsight>
 
     const activeField = dataWarehousePopoverFields.find((f) => f.key === activeFieldKey)
@@ -88,10 +94,17 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
 
     const activeFieldIsHogQL = isUsingHogQLExpression(activeFieldValue, table)
 
+    const isGroupAggregationTarget =
+        querySource?.aggregation_group_type_index !== undefined && querySource?.aggregation_group_type_index !== null
+    const isCustomAggregationTarget =
+        Boolean(querySource?.funnelsFilter?.funnelAggregateByHogQL) && !isGroupAggregationTarget
+    const aggregationTargetIdLabel = isGroupAggregationTarget ? 'group ID' : 'person ID'
+
     return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col">
             <DatabaseTablePreview table={table} emptyMessage="No table selected" limit={5} />
             <LemonSegmentedButton
+                className="mt-4"
                 fullWidth
                 value={activeFieldKey}
                 onChange={(value) => setActiveFieldKey(value as FunnelFieldKey)}
@@ -101,7 +114,9 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                 }))}
             />
 
-            <div className="text-secondary text-xs">{EDITABLE_FIELD_MAP[activeFieldKey].shortExplanation}</div>
+            <span className="label-text font-semibold mt-3 mb-1">{activeField.label}</span>
+            <div className="text-secondary text-xs mb-3">{EDITABLE_FIELD_MAP[activeFieldKey].shortExplanation}</div>
+
             <LemonSelect
                 fullWidth
                 value={activeFieldValue}
@@ -115,6 +130,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
 
             {activeField.allowHogQL && activeFieldIsHogQL && (
                 <HogQLDropdown
+                    className="mt-2"
                     hogQLValue={activeFieldValue || ''}
                     tableName={activeField.tableName || table.name}
                     onHogQLValueChange={(value) =>
@@ -125,14 +141,46 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                 />
             )}
 
-            <LemonButton
-                onClick={() => {
-                    selectItem(group, table.name, dataWarehouseLocalDefinition)
-                }}
-                type="primary"
-            >
-                Select
-            </LemonButton>
+            {activeFieldKey === 'distinct_id_field' && (
+                <div className="text-secondary text-xs mt-2">
+                    {isCustomAggregationTarget ? (
+                        <span>
+                            Current aggregation target is custom. The selected field needs to match the custom
+                            aggregation value.
+                        </span>
+                    ) : (
+                        <>
+                            <div>
+                                Current aggregation target is set to{' '}
+                                <b>{isGroupAggregationTarget ? 'group' : 'person'}</b>, so the selected field needs to
+                                match the <b>{aggregationTargetIdLabel}</b>.
+                            </div>
+                            <div className="mt-1">
+                                If this field is not directly available on the table, add it by joining in{' '}
+                                <Link to={urls.sqlEditor()} target="_blank">
+                                    SQL editor
+                                </Link>{' '}
+                                using fields like <code>distinct_id</code> or <code>email</code>.{' '}
+                                <Link to="https://posthog.com/docs/data-warehouse/views#joining-tables" target="_blank">
+                                    For more help
+                                </Link>
+                                .
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
+
+            <div className="flex justify-end mt-4">
+                <LemonButton
+                    onClick={() => {
+                        selectItem(group, table.name, dataWarehouseLocalDefinition)
+                    }}
+                    type="primary"
+                >
+                    Select
+                </LemonButton>
+            </div>
         </div>
     )
 }
