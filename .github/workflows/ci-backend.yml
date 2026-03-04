@@ -1368,10 +1368,10 @@ jobs:
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             # Oldest supported version as plain string (for comparisons)
             oldest_supported_image: ${{ steps.read-versions.outputs.oldest_supported_image }}
-            # All unique versions for compat tests
-            all: ${{ steps.read-versions.outputs.all }}
-            # Whether to skip compat tests (all versions identical = no extra coverage)
-            skip_compat: ${{ steps.check-compat.outputs.skip }}
+            # Compat versions (all unique versions except oldest_supported, already tested by Django)
+            compat_versions: ${{ steps.read-versions.outputs.compat_versions }}
+            # Whether to skip compat tests (no additional versions to test)
+            skip_compat: ${{ steps.read-versions.outputs.skip_compat }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -1390,25 +1390,16 @@ jobs:
                   echo "oldest_supported_image=$oldest_supported" >> $GITHUB_OUTPUT
                   echo "Oldest supported version for Django tests: $oldest_supported"
 
-                  # All unique versions for compat tests
-                  all=$(jq -c '[.[]] | unique' .github/clickhouse-versions.json)
-                  if [ "$all" = "[]" ] || [ -z "$all" ]; then
-                    echo "::error::No versions found in .github/clickhouse-versions.json"
-                    exit 1
-                  fi
-                  echo "all=$all" >> $GITHUB_OUTPUT
-                  echo "All versions for compat tests: $all"
-
-            - name: Check if compat tests are needed
-              id: check-compat
-              run: |
-                  UNIQUE=$(jq -r '[.[]] | unique | length' .github/clickhouse-versions.json)
-                  if [ "$UNIQUE" -eq 1 ]; then
-                    echo "skip=true" >> $GITHUB_OUTPUT
-                    echo "All CH versions identical — compat tests provide no additional coverage, skipping"
+                  # Compat versions: all unique versions except oldest_supported (already tested by Django shards)
+                  compat_versions=$(jq -c --arg oldest "$oldest_supported" '[.[]] | unique | map(select(. != $oldest))' .github/clickhouse-versions.json)
+                  if [ "$compat_versions" = "[]" ] || [ -z "$compat_versions" ]; then
+                    echo "skip_compat=true" >> $GITHUB_OUTPUT
+                    echo "compat_versions=[]" >> $GITHUB_OUTPUT
+                    echo "No additional CH versions to test — oldest_supported already covered by Django tests"
                   else
-                    echo "skip=false" >> $GITHUB_OUTPUT
-                    echo "Multiple CH versions found — compat tests needed"
+                    echo "skip_compat=false" >> $GITHUB_OUTPUT
+                    echo "compat_versions=$compat_versions" >> $GITHUB_OUTPUT
+                    echo "Compat versions (excluding oldest_supported $oldest_supported): $compat_versions"
                   fi
 
     clickhouse-compat:
@@ -1426,7 +1417,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.all) }}
+                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.compat_versions) }}
         steps:
             - uses: actions/checkout@v6
               with:
