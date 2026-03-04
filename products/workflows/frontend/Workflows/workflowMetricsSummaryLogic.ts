@@ -15,8 +15,8 @@ import { isOptOutEligibleAction } from './hogflows/steps/types'
 import { EXIT_NODE_ID, workflowLogic } from './workflowLogic'
 import type { workflowMetricsSummaryLogicType } from './workflowMetricsSummaryLogicType'
 
-type WorkflowSummaryMetric = 'started' | 'in_progress' | 'persons_messaged' | 'completed'
-type EmailMetric =
+export type WorkflowSummaryMetric = 'started' | 'in_progress' | 'persons_messaged' | 'completed'
+export type EmailMetric =
     | 'email_sent'
     | 'email_failed'
     | 'email_opened'
@@ -32,7 +32,6 @@ export type EmailMetricRow = {
     sent: number
     opened: number
     linkClicked: number
-    unsubscribed: number
 }
 
 export const WORKFLOW_SUMMARY_METRICS: Record<
@@ -59,7 +58,7 @@ export const WORKFLOW_SUMMARY_METRICS: Record<
     persons_messaged: {
         name: 'Emails sent',
         description: 'Total number of emails attempted to be sent by this workflow',
-        color: getColorVar('primary'),
+        color: '#00F',
         metricNames: ['email_sent'],
     },
     completed: {
@@ -231,7 +230,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
             },
         ],
     })),
-    selectors(() => ({
+    selectors({
         loading: [
             (s) => [s.appMetricsTrendsLoading, s.exitNodeCompletedLoading],
             (appMetricsTrendsLoading: boolean, exitNodeCompletedLoading: boolean) =>
@@ -256,6 +255,11 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 ),
         ],
 
+        summaryMetricKeys: [() => [], (): WorkflowSummaryMetric[] => SUMMARY_METRIC_KEYS],
+    }),
+
+    // Separate block so these selectors can reference emailActions and metricNameBySummaryMetric via `s`
+    selectors({
         workflowSummaryTrends: [
             (s) => [
                 s.appMetricsTrends,
@@ -319,9 +323,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                     }
                 }),
         ],
-
-        summaryMetricKeys: [() => [], (): WorkflowSummaryMetric[] => SUMMARY_METRIC_KEYS],
-    })),
+    }),
 
     afterMount(({ actions }) => {
         actions.loadEmailTotals({})
