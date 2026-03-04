@@ -1817,11 +1817,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         setDashboardMode: async ({ mode, source }) => {
-            if (
-                mode === DashboardMode.Edit &&
-                source !== DashboardEventSource.DashboardHeaderDiscardChanges &&
-                values.dashboardMode !== DashboardMode.Edit
-            ) {
+            if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                 clearDOMTextSelection()
                 lemonToast.info('Now editing the dashboard – save to persist changes')
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
