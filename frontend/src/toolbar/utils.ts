@@ -19,15 +19,6 @@ export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
 export const OAUTH_LOCALSTORAGE_KEY = '_postHogToolbarOAuth'
 export const PKCE_STORAGE_KEY = '_postHogToolbarPKCE'
 
-/**
- * Cloud ingestion hosts (e.g. eu.i.posthog.com) don't serve the UI or OAuth
- * endpoints. Map them to the corresponding UI host (eu.posthog.com).
- * Non-cloud hosts pass through unchanged.
- */
-export function normalizeCloudHost(host: string): string {
-    return host.replace(/^(https?:\/\/\w+)\.i\.posthog\.com/, '$1.posthog.com')
-}
-
 export interface ToolbarAuthParams {
     code: string
     clientId: string

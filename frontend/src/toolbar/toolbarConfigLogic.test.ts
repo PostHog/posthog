@@ -106,17 +106,66 @@ describe('toolbar toolbarConfigLogic', () => {
         })
     })
 
-    it.each([
-        ['strips trailing slash', 'https://us.posthog.com/', 'https://us.posthog.com'],
-        ['maps EU ingestion host to UI host', 'https://eu.i.posthog.com', 'https://eu.posthog.com'],
-        ['maps US ingestion host to UI host', 'https://us.i.posthog.com', 'https://us.posthog.com'],
-        ['leaves non-cloud host unchanged', 'https://posthog.mycompany.com', 'https://posthog.mycompany.com'],
-    ])('uiHost %s', (_label, uiHostInput, expected) => {
+    it('normalizes uiHost to not end with a slash', () => {
         const logic = toolbarConfigLogic.build({
-            posthog: { config: { ui_host: uiHostInput } } as any,
+            posthog: { config: { ui_host: 'https://selfhosted.example.com/' } } as any,
         } as any)
         logic.mount()
-        expect(logic.values.uiHost).toBe(expected)
+        expect(logic.values.uiHost).toBe('https://selfhosted.example.com')
+    })
+
+    describe('uiHost cloud region detection', () => {
+        it.each([
+            ['us', 'https://us.posthog.com'],
+            ['eu', 'https://eu.posthog.com'],
+        ])('uses canonical %s cloud URL from requestRouter.region', (region, expected) => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://should-not-be-used',
+                posthog: { requestRouter: { region }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe(expected)
+        })
+
+        it('uses cloud URL even when ui_host is misconfigured to ingestion domain', () => {
+            const logic = toolbarConfigLogic.build({
+                posthog: {
+                    requestRouter: { region: 'eu' },
+                    config: { ui_host: 'https://eu.i.posthog.com' },
+                } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://eu.posthog.com')
+        })
+
+        it('uses cloud URL even when apiURL is a reverse proxy', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://myproxy.example.com/ingest',
+                posthog: { requestRouter: { region: 'us' }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://us.posthog.com')
+        })
+
+        it('falls back to ui_host for custom region (self-hosted)', () => {
+            const logic = toolbarConfigLogic.build({
+                posthog: {
+                    requestRouter: { region: 'custom' },
+                    config: { ui_host: 'https://my-posthog.example.com' },
+                } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://my-posthog.example.com')
+        })
+
+        it('falls back to apiURL when region is custom and no ui_host', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://selfhosted.example.com',
+                posthog: { requestRouter: { region: 'custom' }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://selfhosted.example.com')
+        })
     })
 
     describe('OAuth localStorage restoration', () => {

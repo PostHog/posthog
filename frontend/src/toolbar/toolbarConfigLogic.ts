@@ -8,14 +8,7 @@ import { ToolbarProps } from '~/types'
 
 import { withTokenRefresh } from './toolbarAuth'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
-import {
-    cleanToolbarAuthHash,
-    generatePKCE,
-    LOCALSTORAGE_KEY,
-    normalizeCloudHost,
-    OAUTH_LOCALSTORAGE_KEY,
-    PKCE_STORAGE_KEY,
-} from './utils'
+import { cleanToolbarAuthHash, generatePKCE, LOCALSTORAGE_KEY, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY } from './utils'
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
@@ -72,20 +65,28 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     selectors({
         posthog: [(s) => [s.props], (props) => props.posthog ?? null],
-        // UI host for navigation links (actions, feature flags, experiments, etc.) and API requests
-        // Uses posthog.config.ui_host if available, otherwise falls back to props.apiURL for backwards compatibility
+        // PostHog server URL for API requests, OAuth, and navigation links.
+        // For PostHog Cloud, always use the canonical cloud URL directly —
+        // this bypasses any reverse proxy or misconfigured ui_host.
         uiHost: [
             (s) => [s.props],
             (props: ToolbarProps): string => {
-                let host: string
-                if (props.posthog?.config?.ui_host) {
-                    host = props.posthog.config.ui_host
-                } else if (props.apiURL) {
-                    host = props.apiURL
-                } else {
-                    return window.location.origin
+                const region = (props.posthog as any)?.requestRouter?.region
+                if (region === 'us') {
+                    return 'https://us.posthog.com'
                 }
-                return normalizeCloudHost(host.replace(/\/+$/, ''))
+                if (region === 'eu') {
+                    return 'https://eu.posthog.com'
+                }
+
+                // Self-hosted: prefer explicit ui_host, then apiURL
+                if (props.posthog?.config?.ui_host) {
+                    return props.posthog.config.ui_host.replace(/\/+$/, '')
+                }
+                if (props.apiURL) {
+                    return props.apiURL.replace(/\/+$/, '')
+                }
+                return window.location.origin
             },
         ],
         // API host for JS and static assets (CSS)
@@ -142,6 +143,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
             localStorage.removeItem(PKCE_STORAGE_KEY)
             sessionStorage.removeItem(PKCE_STORAGE_KEY)
+            cleanToolbarAuthHash()
         },
         tokenExpired: () => {
             toolbarPosthogJS.capture('toolbar token expired')
@@ -247,6 +249,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         if (cache.hashRetryTimeout !== undefined) {
             clearTimeout(cache.hashRetryTimeout)
         }
+        cleanToolbarAuthHash()
     }),
 ])
 
