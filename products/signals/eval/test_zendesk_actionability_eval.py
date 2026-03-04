@@ -1,12 +1,18 @@
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from google.genai import types
 from posthoganalytics.ai.openai import OpenAI
 
 from posthog.temporal.data_imports.signals.zendesk_tickets import ZENDESK_ACTIONABILITY_PROMPT, zendesk_ticket_emitter
-from posthog.temporal.data_imports.workflow_activities.emit_signals import GEMINI_MODEL
+from posthog.temporal.data_imports.workflow_activities.emit_signals import (
+    GEMINI_MODEL,
+    LLM_THINKING_BUDGET_TOKENS,
+    _extract_thoughts,
+)
 
 from products.signals.eval.framework import EvalCase, EvalMetric, run_eval
 
@@ -40,23 +46,32 @@ def load_zendesk_cases() -> list[EvalCase]:
     return cases
 
 
-def check_actionability(client: OpenAI, case: EvalCase) -> str:
-    """Mirrors production: call Gemini with the actionability prompt."""
+def check_actionability(client: OpenAI, case: EvalCase) -> dict[str, Any]:
+    """Mirrors production: call Gemini with thinking enabled."""
     from posthoganalytics.ai.gemini import Client as GeminiClient
 
     gemini = GeminiClient(posthog_client=client._ph_client)
     response = gemini.models.generate_content(
         model=GEMINI_MODEL,
         contents=[case.input["prompt"]],
+        config=types.GenerateContentConfig(
+            max_output_tokens=LLM_THINKING_BUDGET_TOKENS + 128,
+            thinking_config=types.ThinkingConfig(
+                thinking_budget=LLM_THINKING_BUDGET_TOKENS,
+                include_thoughts=True,
+            ),
+        ),
         posthog_distinct_id="llma_eval",
     )
-    return (response.text or "").strip().upper()
+    return {
+        "answer": (response.text or "").strip().upper(),
+        "thoughts": _extract_thoughts(response),
+    }
 
 
 JUDGE_PROMPT = """You are an eval judge for a support ticket actionability classifier.
 
-## Rubric
-
+<rubric>
 ACTIONABLE (classifier should output ACTIONABLE):
 - A bug report: user describes something broken, an error, or unexpected behavior in the product
 - A feature request: user asks for new functionality or an improvement
@@ -64,7 +79,7 @@ ACTIONABLE (classifier should output ACTIONABLE):
 - A performance problem: user reports slowness, timeouts, or high resource usage
 - A product question: user asks how to accomplish something with the product or its integrations
 
-Example ACTIONABLE ticket: "I'm getting a 500 error when I try to export my dashboard as PDF. It worked last week."
+Example: "I'm getting a 500 error when I try to export my dashboard as PDF. It worked last week."
 
 NOT_ACTIONABLE (classifier should output NOT_ACTIONABLE):
 - Spam, abuse, or profanity with no real feedback
@@ -73,32 +88,44 @@ NOT_ACTIONABLE (classifier should output NOT_ACTIONABLE):
 - Auto-generated or bot messages with no user content
 - Internal test messages
 
-Example NOT_ACTIONABLE ticket: "Hi, can you process a refund for our last invoice? We downgraded last month. Thanks!"
+Example: "Hi, can you process a refund for our last invoice? We downgraded last month. Thanks!"
+</rubric>
 
-## Task
+<classifier_output>
+{output}
+</classifier_output>
 
-The classifier responded with: {output}
-The expected classification is: {expected}
+<expected>
+{expected}
+</expected>
+
+{thoughts_section}
 
 <ticket>
 {description}
 </ticket>
 
-First analyze the ticket content against the rubric above, then determine whether the classifier's output matches the expected classification.
+<instructions>
+First analyze the ticket content against the rubric. If the classifier's reasoning is provided, consider whether its logic is sound. Then determine whether the classifier's output matches the expected classification.
 
-Respond with JSON: {{"reasoning": "...", "correct": true/false}}"""
+Respond with JSON: {{"reasoning": "...", "correct": true/false}}
+</instructions>"""
 
 
-def judge_actionability(client: OpenAI, case: EvalCase, output: str) -> EvalMetric:
+def judge_actionability(client: OpenAI, case: EvalCase, output: dict[str, Any]) -> EvalMetric:
+    thoughts = output.get("thoughts")
+    thoughts_section = f"\n<classifier_thoughts>\n{thoughts}\n</classifier_thoughts>\n" if thoughts else ""
+
     response = client.chat.completions.create(
         model=JUDGE_MODEL,
         messages=[
             {
                 "role": "system",
                 "content": JUDGE_PROMPT.format(
-                    output=output,
+                    output=output["answer"],
                     expected=case.expected,
                     description=case.input["description"],
+                    thoughts_section=thoughts_section,
                 ),
             },
         ],
