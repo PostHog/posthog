@@ -102,7 +102,7 @@ from posthog.clickhouse.client.limit import (
     get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
-from posthog.event_usage import groups, report_user_action
+from posthog.event_usage import groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache import count_query_cache_hit
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
@@ -1289,22 +1289,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
                         **cache_tracking_props,
                     }
-                    if user:
-                        report_user_action(
-                            user,
-                            "query executed",
-                            query_executed_props,
-                            team=self.team,
-                            organization=self.team.organization,
-                            request=request,
-                        )
-                    else:
-                        posthoganalytics.capture(
-                            distinct_id=str(self.team.uuid),
-                            event="query executed",
-                            properties=query_executed_props,
-                            groups=(groups(self.team.organization, self.team)),
-                        )
+                    report_user_or_team_action(
+                        "query executed",
+                        query_executed_props,
+                        user=user,
+                        team=self.team,
+                        organization=self.team.organization,
+                        request=request,
+                    )
 
                     return results
 
@@ -1373,22 +1365,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "query_duration_ms": query_duration_ms,
                 "has_error": has_error,
             }
-            if user:
-                report_user_action(
-                    user,
-                    "query executed",
-                    query_executed_props,
-                    team=self.team,
-                    organization=self.team.organization,
-                    request=request,
-                )
-            else:
-                posthoganalytics.capture(
-                    distinct_id=str(self.team.uuid),
-                    event="query executed",
-                    properties=query_executed_props,
-                    groups=(groups(self.team.organization, self.team)),
-                )
+            report_user_or_team_action(
+                "query executed",
+                query_executed_props,
+                user=user,
+                team=self.team,
+                organization=self.team.organization,
+                request=request,
+            )
 
             return CachedResponse(**fresh_response_dict)
 
