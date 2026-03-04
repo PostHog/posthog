@@ -542,15 +542,21 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                             )
                                                         })()}
                                                         {releaseFilters.aggregation_group_type_index == null && (
-                                                            <div>
-                                                                A user may have multiple{' '}
-                                                                <Link
-                                                                    to="https://posthog.com/docs/data/persons"
-                                                                    target="_blank"
-                                                                >
-                                                                    profiles
-                                                                </Link>
-                                                            </div>
+                                                            <Tooltip
+                                                                title={
+                                                                    <>
+                                                                        A user may have multiple{' '}
+                                                                        <Link
+                                                                            to="https://posthog.com/docs/data/persons"
+                                                                            target="_blank"
+                                                                        >
+                                                                            profiles
+                                                                        </Link>
+                                                                    </>
+                                                                }
+                                                            >
+                                                                <IconInfo className="text-muted text-base" />
+                                                            </Tooltip>
                                                         )}
                                                     </div>
                                                 ) : (
