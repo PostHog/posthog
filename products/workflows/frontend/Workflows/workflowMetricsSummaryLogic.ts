@@ -126,7 +126,6 @@ const SUMMARY_METRIC_KEYS = (Object.keys(WORKFLOW_SUMMARY_METRICS) as WorkflowSu
 const EMAIL_METRICS: EmailMetric[] = [
     'email_sent',
     'email_opened',
-    'email_unsubscribed',
     'email_failed',
     'email_link_clicked',
     'email_bounced',
@@ -317,7 +316,6 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                         sent,
                         opened: totals.email_opened ?? 0,
                         linkClicked: totals.email_link_clicked ?? 0,
-                        unsubscribed: totals.email_unsubscribed ?? 0,
                     }
                 }),
         ],
