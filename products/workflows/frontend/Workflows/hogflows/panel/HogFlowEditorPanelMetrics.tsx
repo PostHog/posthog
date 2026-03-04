@@ -31,7 +31,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
 
     const metricName = useMemo(() => {
         return actionId === TRIGGER_NODE_ID
-            ? ['triggered', 'rate_limited', 'disabled_permanently', 'filtered']
+            ? ['triggered', 'rate_limited', 'disabled_permanently']
             : actionId === EXIT_NODE_ID
               ? ['succeeded', 'failed']
               : isEmailAction
