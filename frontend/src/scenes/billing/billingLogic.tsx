@@ -609,9 +609,9 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         showCreditCTAHero: [
-            (s) => [s.creditOverview, s.featureFlags],
-            (creditOverview, featureFlags): boolean => {
-                const isEligible = creditOverview.eligible || !!featureFlags[FEATURE_FLAGS.SELF_SERVE_CREDIT_OVERRIDE]
+            (s) => [s.creditOverview],
+            (creditOverview): boolean => {
+                const isEligible = creditOverview.eligible
                 return isEligible && creditOverview.status !== 'paid'
             },
         ],

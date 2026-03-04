@@ -106,7 +106,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         batch_run_id: str,
         model: str | None,
         max_length: int,
-        job_id: int,
+        job_id: str,
         job_name: str,
     ) -> SummarizationActivityResult:
         """Process a single trace or generation with semaphore-controlled concurrency."""
