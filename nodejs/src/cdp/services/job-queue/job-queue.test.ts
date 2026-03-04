@@ -348,11 +348,17 @@ describe('getProducerMapping', () => {
     })
 
     it.each([
-        ['*:kafkatypo', 'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, kafka, shadow'],
-        ['hog:kafkatypo', 'Invalid mapping: hog:kafkatypo - target kafkatypo must be one of postgres, kafka, shadow'],
+        [
+            '*:kafkatypo',
+            'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, postgres-v2, kafka, shadow',
+        ],
+        [
+            'hog:kafkatypo',
+            'Invalid mapping: hog:kafkatypo - target kafkatypo must be one of postgres, postgres-v2, kafka, shadow',
+        ],
         [
             'hog:kafka,hogflow:postgres,*:kafkatypo',
-            'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, kafka, shadow',
+            'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, postgres-v2, kafka, shadow',
         ],
         [
             'wrong_queue:kafka',

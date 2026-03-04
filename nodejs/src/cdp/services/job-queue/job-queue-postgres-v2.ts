@@ -21,7 +21,6 @@ type SerializedJobState = {
 export class CyclotronJobQueuePostgresV2 {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
-    private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
 
     constructor(private config: PluginsServerConfig) {}
@@ -42,8 +41,6 @@ export class CyclotronJobQueuePostgresV2 {
         queue: CyclotronJobQueueKind,
         consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ): Promise<void> {
-        this.consumeBatch = consumeBatch
-
         if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
             throw new Error('Cyclotron V2 database URL not set')
         }
@@ -58,7 +55,18 @@ export class CyclotronJobQueuePostgresV2 {
             includeEmptyBatches: true,
         })
 
-        await this.worker.connect((jobs) => this.consumeV2Jobs(jobs))
+        await this.worker.connect(async (jobs) => {
+            const invocations: CyclotronJobInvocation[] = []
+
+            for (const job of jobs) {
+                this.pendingJobs.set(job.id, job)
+                invocations.push(v2JobToInvocation(job))
+            }
+
+            await consumeBatch(invocations)
+
+            // TODO: Some sanity check that all pending jobs are acked or failed
+        })
     }
 
     public async stopConsumer(): Promise<void> {
@@ -167,17 +175,6 @@ export class CyclotronJobQueuePostgresV2 {
                 }
             })
         )
-    }
-
-    private async consumeV2Jobs(jobs: CyclotronV2DequeuedJob[]): Promise<void> {
-        const invocations: CyclotronJobInvocation[] = []
-
-        for (const job of jobs) {
-            this.pendingJobs.set(job.id, job)
-            invocations.push(v2JobToInvocation(job))
-        }
-
-        await this.consumeBatch!(invocations)
     }
 }
 
