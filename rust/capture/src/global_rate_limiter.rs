@@ -45,17 +45,21 @@ pub struct GlobalRateLimiter {
 }
 
 impl GlobalRateLimiter {
-    /// Build a GlobalRateLimiter from the capture config. If a dedicated Redis URL is
-    /// configured, creates a separate client (optionally with read/write split). Falls
-    /// back to `shared_redis` when no dedicated URL is set.
+    /// Build both rate limiter instances from the capture config, sharing a single
+    /// Redis client. If a dedicated Redis URL is configured, creates a separate client
+    /// (optionally with read/write split). Falls back to `shared_redis` when no
+    /// dedicated URL is set.
     ///
-    /// Convenience method that builds a TokenDistinctId limiter with its own Redis client.
+    /// Returns `(token_distinct_id_limiter, token_limiter)`.
     pub async fn try_from_config(
         config: &Config,
         shared_redis: Arc<dyn Client + Send + Sync>,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<(Self, Self)> {
         let redis_client = Self::build_redis_client(config, shared_redis).await?;
-        Self::new_token_distinct_id(config, vec![redis_client])
+        let redis_instances = vec![redis_client];
+        let td_limiter = Self::new_token_distinct_id(config, redis_instances.clone())?;
+        let token_limiter = Self::new_token(config, redis_instances)?;
+        Ok((td_limiter, token_limiter))
     }
 
     /// Create a per-(token, distinct_id) rate limiter sharing the given Redis instances.
