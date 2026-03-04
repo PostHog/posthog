@@ -134,7 +134,6 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         if record.status not in (
             ProxyRecord.Status.ERRORING,
             ProxyRecord.Status.TIMED_OUT,
-            ProxyRecord.Status.ISSUING,
         ):
             return Response(
                 {"detail": f"Cannot retry proxy in {record.status} state."},
