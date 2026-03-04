@@ -329,7 +329,7 @@ async def _get_backfill_info_for_persons(
     batch_export: BatchExport,
     start_at: dt.datetime | None,
     end_at: dt.datetime | None,
-) -> tuple[dt.datetime | None, int]:
+) -> tuple[dt.datetime | None, int | None]:
     """Get adjusted start time and estimated record count for persons model.
 
     Queries both `person` and `person_distinct_id2` tables. Uses the same
@@ -338,8 +338,11 @@ async def _get_backfill_info_for_persons(
     Returns:
         A tuple of (adjusted_start_at, estimated_records_count).
         If no data exists, returns (None, 0).
+        For limited export teams, returns (adjusted_start_at, None) since
+        the count would not reflect the actual export behavior.
     """
     team_id = batch_export.team_id
+    is_limited_export = str(team_id) in settings.BATCH_EXPORTS_PERSONS_LIMITED_EXPORT_TEAM_IDS
 
     date_conditions = ""
     having_date_conditions = ""
@@ -370,6 +373,33 @@ async def _get_backfill_info_for_persons(
         {date_conditions}
         FORMAT JSONEachRow
     """
+
+    async with get_client(team_id=team_id) as client:
+        min_timestamp_results = await client.read_query_as_jsonl(min_timestamp_query, query_parameters=query_parameters)
+
+    # Find the earliest valid timestamp across both tables
+    earliest_timestamp: dt.datetime | None = None
+    for row in min_timestamp_results:
+        ts_str = row["min_timestamp"]
+        ts = dt.datetime.fromisoformat(ts_str)
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=dt.UTC)
+        else:
+            ts = ts.astimezone(dt.UTC)
+
+        if ts.year == 1970:
+            continue
+
+        if earliest_timestamp is None or ts < earliest_timestamp:
+            earliest_timestamp = ts
+
+    if earliest_timestamp is None:
+        return None, 0
+
+    earliest_start = _align_timestamp_to_interval(earliest_timestamp, batch_export)
+
+    if is_limited_export:
+        return earliest_start, None
 
     count_query = f"""
         WITH new_persons AS (
@@ -415,30 +445,9 @@ async def _get_backfill_info_for_persons(
     """
 
     async with get_client(team_id=team_id) as client:
-        min_timestamp_results = await client.read_query_as_jsonl(min_timestamp_query, query_parameters=query_parameters)
         count_results = await client.read_query_as_jsonl(count_query, query_parameters=query_parameters)
 
-    # Find the earliest valid timestamp across both tables
-    earliest_timestamp: dt.datetime | None = None
-    for row in min_timestamp_results:
-        ts_str = row["min_timestamp"]
-        ts = dt.datetime.fromisoformat(ts_str)
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=dt.UTC)
-        else:
-            ts = ts.astimezone(dt.UTC)
-
-        if ts.year == 1970:
-            continue
-
-        if earliest_timestamp is None or ts < earliest_timestamp:
-            earliest_timestamp = ts
-
-    if earliest_timestamp is None:
-        return None, 0
-
     record_count = int(count_results[0]["record_count"])
-    earliest_start = _align_timestamp_to_interval(earliest_timestamp, batch_export)
 
     return earliest_start, record_count
 
@@ -839,8 +848,8 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             )
 
             # Step 3: Update backfill with adjusted start and estimated count
-            # If estimated count is 0, complete early; if None (sessions/other models), proceed normally
             update_inputs.estimated_records_count = backfill_info.total_records_count
+            # If estimated count is 0, complete early; if None (sessions/other models), proceed normally
             should_complete_early = backfill_info.total_records_count == 0
 
             await temporalio.workflow.execute_activity(
