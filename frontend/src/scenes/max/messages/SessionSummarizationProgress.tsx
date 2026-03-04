@@ -7,7 +7,7 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress/LemonProgress'
 
 interface SessionInfo {
     first_url: string
-    duration_s: number
+    active_duration_s: number
     status: string
 }
 
@@ -65,9 +65,9 @@ function deriveState(updates: object[]): DerivedState {
     for (const update of updates) {
         const u = update as Record<string, unknown>
         if (u.type === 'sessions_discovered') {
-            const sessionsList = u.sessions as Array<{ id: string; first_url: string; duration_s: number }>
+            const sessionsList = u.sessions as Array<{ id: string; first_url: string; active_duration_s: number }>
             for (const s of sessionsList) {
-                sessions.set(s.id, { first_url: s.first_url, duration_s: s.duration_s, status: 'queued' })
+                sessions.set(s.id, { first_url: s.first_url, active_duration_s: s.active_duration_s, status: 'queued' })
             }
             totalCount = sessionsList.length
         } else if (u.type === 'progress') {
@@ -78,7 +78,7 @@ function deriveState(updates: object[]): DerivedState {
                     if (existing) {
                         existing.status = change.status
                     } else {
-                        sessions.set(change.id, { first_url: '', duration_s: 0, status: change.status })
+                        sessions.set(change.id, { first_url: '', active_duration_s: 0, status: change.status })
                     }
                 }
             }
@@ -130,15 +130,15 @@ export function SessionSummarizationProgress({ updates }: { updates: object[] })
     const { sessions, phase, completedCount, totalCount, patternsFound } = state
     const [isExpanded, setIsExpanded] = useState(false)
 
-    // ETA computation
-    const firstCompletionTimestamp = useRef<number | null>(null)
+    // ETA: max active duration among remaining sessions (concurrent processing, so longest one determines wait)
+    const summarizingStartedAt = useRef<number | null>(null)
     const [, setTick] = useState(0)
 
     useEffect(() => {
-        if (completedCount > 0 && firstCompletionTimestamp.current === null) {
-            firstCompletionTimestamp.current = Date.now()
+        if (phase === 'watching_sessions' && summarizingStartedAt.current === null) {
+            summarizingStartedAt.current = Date.now()
         }
-    }, [completedCount])
+    }, [phase])
 
     // Tick every second during watching_sessions phase for ETA countdown
     useEffect(() => {
@@ -152,13 +152,19 @@ export function SessionSummarizationProgress({ updates }: { updates: object[] })
     const progressPercent = totalCount > 0 ? (completedCount / totalCount) * 100 : 0
     const isComplete = completedCount >= totalCount && totalCount > 0
 
-    // ETA
+    // ETA based on remaining sessions' active durations
     let etaText: string | null = null
-    if (phase === 'watching_sessions' && firstCompletionTimestamp.current && completedCount > 0 && !isComplete) {
-        const elapsed = (Date.now() - firstCompletionTimestamp.current) / 1000
-        const rate = completedCount / elapsed
-        if (rate > 0) {
-            const remaining = (totalCount - completedCount) / rate
+    if (phase === 'watching_sessions' && !isComplete && summarizingStartedAt.current) {
+        let maxRemainingDuration = 0
+        for (const [, session] of sessions) {
+            if (session.status === 'queued' || session.status === 'summarizing') {
+                maxRemainingDuration = Math.max(maxRemainingDuration, session.active_duration_s)
+            }
+        }
+        // Subtract elapsed time since we started (sessions run concurrently)
+        const elapsed = (Date.now() - summarizingStartedAt.current) / 1000
+        const remaining = maxRemainingDuration - elapsed
+        if (remaining > 0) {
             etaText = formatEta(remaining)
         }
     }
@@ -167,7 +173,7 @@ export function SessionSummarizationProgress({ updates }: { updates: object[] })
     const showCollapse = sessionEntries.length > 20
 
     return (
-        <div className="flex flex-col gap-2 py-2 w-full">
+        <div className="flex flex-col gap-2 py-2 px-1 w-full">
             {totalCount > 0 && <LemonProgress percent={progressPercent} />}
             <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-medium text-secondary">
@@ -217,9 +223,9 @@ export function SessionSummarizationProgress({ updates }: { updates: object[] })
                                             {session.first_url ? truncateUrl(session.first_url) : id.slice(0, 8)}
                                         </Link>
                                     </Tooltip>
-                                    {session.duration_s > 0 && (
+                                    {session.active_duration_s > 0 && (
                                         <span className="text-muted ml-auto shrink-0">
-                                            {formatDuration(session.duration_s)}
+                                            {formatDuration(session.active_duration_s)}
                                         </span>
                                     )}
                                 </div>

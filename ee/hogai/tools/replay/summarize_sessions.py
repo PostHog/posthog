@@ -235,7 +235,7 @@ class SummarizeSessionsTool(MaxTool):
         self.dispatcher.update(json.dumps(data))
 
     def _get_session_metadata(self, session_ids: list[str]) -> dict[str, dict]:
-        """Fetch first_url and duration per session from ClickHouse."""
+        """Fetch first_url and active duration per session from ClickHouse."""
         from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
         replay_events = SessionReplayEvents()
@@ -247,13 +247,13 @@ class SummarizeSessionsTool(MaxTool):
         for sid in session_ids:
             meta = metadata_dict.get(sid)
             if meta:
-                duration_s = int((meta["end_time"] - meta["start_time"]).total_seconds())
+                active_duration_s = int(meta.get("active_seconds") or 0)
                 result[sid] = {
                     "first_url": meta.get("first_url") or "",
-                    "duration_s": duration_s,
+                    "active_duration_s": active_duration_s,
                 }
             else:
-                result[sid] = {"first_url": "", "duration_s": 0}
+                result[sid] = {"first_url": "", "active_duration_s": 0}
         return result
 
     def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
@@ -433,7 +433,11 @@ class SummarizeSessionsTool(MaxTool):
             {
                 "type": "sessions_discovered",
                 "sessions": [
-                    {"id": sid, "first_url": metadata[sid]["first_url"], "duration_s": metadata[sid]["duration_s"]}
+                    {
+                        "id": sid,
+                        "first_url": metadata[sid]["first_url"],
+                        "active_duration_s": metadata[sid]["active_duration_s"],
+                    }
                     for sid in session_ids
                 ],
             }
