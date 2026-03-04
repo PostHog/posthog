@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -15,11 +15,13 @@ export function InsightMoveToDashboardMenu({
     otherDashboards,
     onMoveToDashboard,
 }: InsightMoveToDashboardMenuProps): JSX.Element | null {
-    const [searchTerm, setSearchTerm] = useState('')
+    const [searchTerm, setSearchTermState] = useState('')
+    const searchTermRef = useRef(searchTerm)
 
-    if (!otherDashboards.length) {
-        return null
-    }
+    const handleSearchChange = useCallback((value: string) => {
+        searchTermRef.current = value
+        setSearchTermState(value)
+    }, [])
 
     const filteredDashboards =
         searchTerm.trim() === ''
@@ -28,15 +30,14 @@ export function InsightMoveToDashboardMenu({
                   (dashboard.name || 'Untitled').toLowerCase().includes(searchTerm.toLowerCase())
               )
 
-    const searchItem: LemonMenuItem = {
-        custom: true,
-        label: () => (
+    const SearchInputLabel = useCallback(() => {
+        return (
             <div className="px-2 pt-2 pb-1">
                 <LemonInput
                     type="search"
                     placeholder="Search dashboards"
-                    value={searchTerm}
-                    onChange={setSearchTerm}
+                    value={searchTermRef.current}
+                    onChange={handleSearchChange}
                     size="small"
                     fullWidth
                     allowClear
@@ -44,7 +45,12 @@ export function InsightMoveToDashboardMenu({
                     autoFocus
                 />
             </div>
-        ),
+        )
+    }, [handleSearchChange])
+
+    const searchItem: LemonMenuItem = {
+        custom: true,
+        label: SearchInputLabel,
     }
 
     const items: LemonMenuItems =
@@ -57,7 +63,7 @@ export function InsightMoveToDashboardMenu({
                           key: dashboard.id,
                           onClick: () => {
                               onMoveToDashboard(dashboard)
-                              setSearchTerm('')
+                              setSearchTermState('')
                           },
                       })),
                   },
@@ -68,13 +74,15 @@ export function InsightMoveToDashboardMenu({
                           searchItem,
                           {
                               label: 'No dashboards match this search',
-                              disabledReason: 'No dashboards match this search',
-                              onClick: () => {},
                               key: 'no-results',
                           },
                       ],
                   },
               ]
+
+    if (!otherDashboards.length) {
+        return null
+    }
 
     return (
         <LemonMenu
