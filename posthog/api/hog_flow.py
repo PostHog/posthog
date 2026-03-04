@@ -1,4 +1,5 @@
 import json
+import uuid as uuid_mod
 from typing import Optional, cast
 
 from django.db.models import QuerySet
@@ -470,6 +471,22 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                 "total_users": total_users,
             }
         )
+
+    @action(methods=["POST"], detail=False)
+    def bulk_delete(self, request: Request, **kwargs):
+        ids = request.data.get("ids", [])
+        if not ids or not isinstance(ids, list):
+            return Response({"error": "A non-empty list of 'ids' is required"}, status=400)
+
+        try:
+            validated_ids = [uuid_mod.UUID(str(id)) for id in ids]
+        except ValueError:
+            return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
+
+        queryset = self.get_queryset().filter(id__in=validated_ids, status="archived")
+        deleted_count, _ = queryset.delete()
+
+        return Response({"deleted": deleted_count})
 
     @action(detail=True, methods=["GET", "POST"])
     def batch_jobs(self, request: Request, *args, **kwargs):
