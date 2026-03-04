@@ -76,24 +76,7 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
         actual = self.inliner.get_inner_where(parse("SELECT * FROM sessions ORDER BY $channel_type LIMIT 10"))
         assert actual is None
 
-    @pytest.mark.parametrize(
-        "query, expected",
-        [
-            (
-                "SELECT * FROM sessions WHERE $start_timestamp > '2021-01-01' LIMIT 10",
-                "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-01' - toIntervalDay(3))",
-            ),
-            (
-                "SELECT * FROM sessions LIMIT 10 OFFSET 5",
-                "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= (toDateTime('2099-01-15 00:00:00') - toIntervalDay(30))",
-            ),
-            (
-                "SELECT event, count() FROM sessions GROUP BY event LIMIT 10",
-                "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= (toDateTime('2099-01-15 00:00:00') - toIntervalDay(30))",
-            ),
-        ],
-    )
-    def test_limit_bound_edge_cases(self, query: str, expected: str):
+    def assert_limit_bound_edge_case(self, query: str, expected: str):
         EventDefinition.objects.create(
             team=self.team,
             name="$pageview",
@@ -101,6 +84,24 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
         )
         actual = f(self.inliner.get_inner_where(parse(query)))
         assert actual == f(expected)
+
+    def test_limit_bound_where_wins(self):
+        self.assert_limit_bound_edge_case(
+            "SELECT * FROM sessions WHERE $start_timestamp > '2021-01-01' LIMIT 10",
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-01' - toIntervalDay(3))",
+        )
+
+    def test_limit_bound_with_offset(self):
+        self.assert_limit_bound_edge_case(
+            "SELECT * FROM sessions LIMIT 10 OFFSET 5",
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= (toDateTime('2099-01-15 00:00:00') - toIntervalDay(30))",
+        )
+
+    def test_limit_bound_with_group_by(self):
+        self.assert_limit_bound_edge_case(
+            "SELECT event, count() FROM sessions GROUP BY event LIMIT 10",
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= (toDateTime('2099-01-15 00:00:00') - toIntervalDay(30))",
+        )
 
     def test_handles_select_with_eq(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp = '2021-01-01'")))

@@ -295,7 +295,7 @@ class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
         result = super().get_inner_where(select_query)
         if result is not None:
             return result
-        if select_query.limit is not None and not select_query.order_by:
+        if select_query.limit is not None and not select_query.order_by and select_query.where is None:
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=clone_expr(self.timestamp_field),
