@@ -49,7 +49,7 @@ export function StepWaitUntilConditionConfiguration({
             </div>
 
             <div className="flex flex-col gap-1">
-                <LemonLabel>Condition check frequency</LemonLabel>
+                <LemonLabel>Max time to wait for condition</LemonLabel>
                 <HogFlowDuration
                     value={max_wait_duration}
                     onChange={(value) => {
