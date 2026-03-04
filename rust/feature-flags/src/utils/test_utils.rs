@@ -1391,8 +1391,10 @@ impl TestContext {
 
         let etag_key =
             format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag");
+        let pickled_etag =
+            serde_pickle::to_vec(&etag, Default::default()).expect("Failed to pickle ETag");
         redis_client
-            .set(etag_key, etag.to_string())
+            .set_bytes(etag_key, pickled_etag, None)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to set ETag: {e}"))?;
         Ok(())
