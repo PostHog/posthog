@@ -215,7 +215,7 @@ function TraceSceneWrapper(): JSX.Element {
                 <NotFound object="trace" />
             ) : (
                 <div className="relative flex flex-col gap-3">
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-4">
                         <SceneTitleSection
                             name={trace.id}
                             resourceType={{ type: 'llm_analytics' }}

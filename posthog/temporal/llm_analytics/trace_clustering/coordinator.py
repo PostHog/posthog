@@ -41,7 +41,11 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
     from posthog.temporal.llm_analytics.shared_activities import (
         FetchAllClusteringFiltersInput,
+        FetchAllClusteringJobsInput,
+        JobConfig,
         fetch_all_clustering_filters_activity,
+        fetch_all_clustering_jobs_activity,
+        resolve_level_jobs_for_team,
     )
     from posthog.temporal.llm_analytics.team_discovery import (
         DISCOVERY_ACTIVITY_RETRY_POLICY,
@@ -79,6 +83,7 @@ class TraceClusteringCoordinatorInputs:
     # When remaining_team_ids is set, team discovery is skipped.
     remaining_team_ids: list[int] | None = None
     per_team_filters: dict[str, list[dict[str, Any]]] | None = None
+    per_team_jobs: dict[str, list[dict[str, Any]]] | None = None
     results_so_far: dict[str, Any] | None = None
 
 
@@ -117,6 +122,10 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             per_team_filters: dict[int, list[dict[str, Any]]] = (
                 {int(k): v for k, v in inputs.per_team_filters.items()} if inputs.per_team_filters else {}
             )
+            per_team_jobs: dict[int, list[JobConfig]] = {}
+            if inputs.per_team_jobs:
+                for k, job_dicts in inputs.per_team_jobs.items():
+                    per_team_jobs[int(k)] = [JobConfig(**jd) for jd in job_dicts]
             results_so_far = inputs.results_so_far or _empty_clustering_results()
             logger.info(
                 "Resuming clustering coordinator after continue_as_new",
@@ -147,7 +156,20 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             logger.info("Processing discovered teams", team_count=len(team_ids), team_ids=team_ids)
             record_teams_discovered(len(team_ids), "clustering", inputs.analysis_level)
 
-            # Fetch user-configured event filters for all teams
+            # Fetch clustering jobs for all teams
+            per_team_jobs = {}
+            try:
+                per_team_jobs = await temporalio.workflow.execute_activity(
+                    fetch_all_clustering_jobs_activity,
+                    FetchAllClusteringJobsInput(team_ids=team_ids),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
+                )
+            except Exception:
+                logger.warning("Failed to fetch clustering jobs, falling back to filters", exc_info=True)
+
+            # Always fetch legacy filters — used for teams without jobs
+            per_team_filters = {}
             try:
                 per_team_filters = await temporalio.workflow.execute_activity(
                     fetch_all_clustering_filters_activity,
@@ -157,7 +179,6 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                 )
             except Exception:
                 logger.warning("Failed to fetch clustering filters, proceeding without filters", exc_info=True)
-                per_team_filters = {}
 
             results_so_far = _empty_clustering_results()
 
@@ -174,24 +195,41 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             # Start all workflows in batch concurrently
             workflow_handles: list[tuple[int, ChildWorkflowHandle[DailyTraceClusteringWorkflow, ClusteringResult]]] = []
             for team_id in batch:
-                event_filters = per_team_filters.get(team_id, [])
-                handle = await temporalio.workflow.start_child_workflow(
-                    DailyTraceClusteringWorkflow.run,
-                    ClusteringWorkflowInputs(
+                team_jobs = per_team_jobs.get(team_id, [])
+                level_jobs = resolve_level_jobs_for_team(
+                    team_jobs=team_jobs,
+                    analysis_level=inputs.analysis_level,
+                    legacy_event_filters=per_team_filters.get(team_id, []),
+                )
+                if not level_jobs:
+                    logger.info(
+                        "Skipping team for analysis level with no matching clustering jobs",
                         team_id=team_id,
                         analysis_level=inputs.analysis_level,
-                        lookback_days=inputs.lookback_days,
-                        max_samples=inputs.max_samples,
-                        min_k=inputs.min_k,
-                        max_k=inputs.max_k,
-                        event_filters=event_filters,
-                    ),
-                    id=f"{child_id_prefix}-{team_id}-{temporalio.workflow.now().isoformat()}",
-                    execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,
-                    retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
-                    parent_close_policy=temporalio.workflow.ParentClosePolicy.TERMINATE,
-                )
-                workflow_handles.append((team_id, handle))
+                    )
+                    continue
+
+                for job in level_jobs:
+                    child_suffix = f"-{team_id}-{job.job_id}" if job.job_id else f"-{team_id}"
+                    handle = await temporalio.workflow.start_child_workflow(
+                        DailyTraceClusteringWorkflow.run,
+                        ClusteringWorkflowInputs(
+                            team_id=team_id,
+                            analysis_level=inputs.analysis_level,
+                            lookback_days=inputs.lookback_days,
+                            max_samples=inputs.max_samples,
+                            min_k=inputs.min_k,
+                            max_k=inputs.max_k,
+                            event_filters=job.event_filters,
+                            job_id=job.job_id,
+                            job_name=job.name,
+                        ),
+                        id=f"{child_id_prefix}{child_suffix}-{temporalio.workflow.now().isoformat()}",
+                        execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,
+                        retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
+                        parent_close_policy=temporalio.workflow.ParentClosePolicy.TERMINATE,
+                    )
+                    workflow_handles.append((team_id, handle))
 
             # Wait for all workflows in batch to complete
             for team_id, handle in workflow_handles:
@@ -224,8 +262,9 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                     teams_remaining=len(remaining),
                     teams_processed_this_leg=batch_start + len(batch),
                 )
-                # Serialize per_team_filters with string keys for Temporal JSON
+                # Serialize for Temporal JSON (string keys)
                 serializable_filters = {str(k): v for k, v in per_team_filters.items()}
+                serializable_jobs = {str(k): [dataclasses.asdict(j) for j in v] for k, v in per_team_jobs.items()}
                 temporalio.workflow.continue_as_new(
                     TraceClusteringCoordinatorInputs(
                         analysis_level=inputs.analysis_level,
@@ -236,6 +275,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                         max_concurrent_teams=inputs.max_concurrent_teams,
                         remaining_team_ids=remaining,
                         per_team_filters=serializable_filters,
+                        per_team_jobs=serializable_jobs,
                         results_so_far=results_so_far,
                     )
                 )

@@ -67,6 +67,9 @@ pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total"
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
 
+// Request-level timeout (tower TimeoutLayer killed the request before completion)
+pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";
+
 // Timeout tracking and classification
 pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
 

@@ -4,22 +4,14 @@ MaxTool for AI-powered survey creation and analysis.
 
 from datetime import timedelta
 from textwrap import dedent
-from typing import Any
+from typing import Any, Literal
 
 import django.utils.timezone
 
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, ConfigDict, Field
 
-from posthog.schema import (
-    SurveyAnalysisQuestionGroup,
-    SurveyAnalysisResponseItem,
-    SurveyAppearanceSchema,
-    SurveyCreationSchema,
-    SurveyDisplayConditionsSchema,
-    SurveyQuestionSchema,
-    SurveyType,
-)
+from posthog.schema import SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem
 
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
@@ -28,6 +20,42 @@ from posthog.models import Survey, Team
 from products.surveys.backend.summarization.fetch import fetch_responses
 
 from ee.hogai.tool import MaxTool
+
+SEMANTIC_QUESTION_TYPE = Literal[
+    "open",
+    "single_choice",
+    "multiple_choice",
+    "nps",
+    "csat",
+    "emoji_scale",
+    "thumbs",
+    "link",
+]
+
+QUESTION_TYPE_MAP: dict[str, dict[str, Any]] = {
+    "open": {"type": "open"},
+    "single_choice": {"type": "single_choice"},
+    "multiple_choice": {"type": "multiple_choice"},
+    "nps": {"type": "rating", "scale": 10, "display": "number"},
+    "csat": {"type": "rating", "scale": 5, "display": "number"},
+    "emoji_scale": {"type": "rating", "scale": 5, "display": "emoji"},
+    "thumbs": {"type": "rating", "scale": 2, "display": "emoji"},
+    "link": {"type": "link"},
+}
+
+
+class SimpleSurveyQuestion(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    type: SEMANTIC_QUESTION_TYPE
+    question: str
+    description: str | None = None
+    optional: bool | None = None
+    choices: list[str] | None = None
+    lower_bound_label: str | None = None
+    upper_bound_label: str | None = None
+    link: str | None = None
+    button_text: str | None = None
 
 
 def get_team_survey_config(team: Team) -> dict[str, Any]:
@@ -39,171 +67,110 @@ def get_team_survey_config(team: Team) -> dict[str, Any]:
     }
 
 
+def _build_question(q: SimpleSurveyQuestion) -> dict[str, Any]:
+    """Convert a SimpleSurveyQuestion to the internal question dict."""
+    result = dict(QUESTION_TYPE_MAP[q.type])
+    result["question"] = q.question
+    if q.description is not None:
+        result["description"] = q.description
+    if q.optional is not None:
+        result["optional"] = q.optional
+    if q.choices is not None:
+        result["choices"] = q.choices
+    if q.lower_bound_label is not None:
+        result["lowerBoundLabel"] = q.lower_bound_label
+    if q.upper_bound_label is not None:
+        result["upperBoundLabel"] = q.upper_bound_label
+    if q.link is not None:
+        result["link"] = q.link
+    if q.button_text is not None:
+        result["buttonText"] = q.button_text
+    return result
+
+
+def _build_appearance(team: Team) -> dict[str, Any]:
+    """Build appearance dict with global + team defaults."""
+    appearance = DEFAULT_SURVEY_APPEARANCE.copy()
+    team_appearance = get_team_survey_config(team).get("appearance", {})
+    if team_appearance:
+        appearance.update(team_appearance)
+    return appearance
+
+
+URL_MATCH_ALIASES: dict[str, str] = {
+    "exact": "exact",
+    "contains": "icontains",
+    "icontains": "icontains",
+    "regex": "regex",
+}
+
+TOOL_MANAGED_CONDITION_KEYS = {"url", "urlMatchType", "linkedFlagVariant", "seenSurveyWaitPeriodInDays"}
+
+
+def _build_targeting_conditions(
+    target_url: str | None,
+    target_url_match: str | None,
+    linked_flag_variant: str | None,
+    wait_period_days: int | None = None,
+) -> dict[str, Any]:
+    conditions: dict[str, Any] = {}
+    if target_url is not None:
+        conditions["url"] = target_url
+        conditions["urlMatchType"] = URL_MATCH_ALIASES[target_url_match or "contains"]
+    if linked_flag_variant is not None:
+        conditions["linkedFlagVariant"] = linked_flag_variant
+    if wait_period_days is not None:
+        conditions["seenSurveyWaitPeriodInDays"] = wait_period_days
+    return conditions
+
+
 SURVEY_CREATION_TOOL_DESCRIPTION = dedent("""
-    Use this tool to create and optionally launch in-app surveys based on structured survey configurations.
+    Create and optionally launch an in-app survey.
 
     # When to use
     - The user wants to create a new survey
-    - The user wants to launch a survey for collecting feedback
     - The user mentions NPS, CSAT, PMF, or feedback surveys
 
-    # Critical Survey Design Principles
-    **These are in-app surveys that appear as overlays while users are actively using the product.**
-    - **Keep surveys SHORT**: 1-3 questions maximum - users are trying to accomplish tasks
-    - **Focus on ONE key insight**: Don't try to gather everything at once
-    - **Prioritize user experience**: A short survey with high completion is better than a long abandoned one
+    # Design principles
+    These are in-app surveys shown as overlays. Keep to 1-3 questions.
+    DO NOT set should_launch=true unless the user explicitly asks to launch.
 
-    # Survey Types
-    - **popover** (default): Small overlay that appears on the page - most common for in-app surveys
-    - **widget**: Widget that appears via CSS selector or embedded button
-    - **api**: Headless survey for custom implementations
+    # Survey types
+    - "popover" (default): small overlay that appears on the page — use this for most surveys
+    - "widget": persistent tab/button on the page edge, good for always-available feedback
+    - "api": headless, no UI — for custom implementations only
+    Note: hosted surveys (standalone pages with a shareable link) are not yet supported by this tool. If a user asks, let them know it's coming soon.
 
-    # Question Types
-    1. **open**: Free-form text input (feedback, suggestions)
-    2. **single_choice**: Select one option (Yes/No, satisfaction levels)
-    3. **multiple_choice**: Select multiple options (feature preferences)
-    4. **rating**: Numeric (1-10 for NPS, 1-5 for CSAT) or emoji scale
-    5. **link**: Display a link with call-to-action
-
-    # Common Survey Patterns
-    - **NPS**: "How likely are you to recommend us?" (rating scale 10, number display)
-    - **CSAT**: "How satisfied are you with X?" (rating scale 5)
-    - **PMF**: "How would you feel if you could no longer use X?" (single_choice with specific options)
-    - **Feedback**: Open-ended questions about experience
-
-    # Feature Flag Targeting
-    When targeting by feature flag:
-    - User must provide the flag ID (integer) from a prior search
-    - Set `linked_flag_id` to the integer flag ID
-    - For variant targeting, add `linkedFlagVariant` in conditions
+    # Semantic question types
+    - "nps": 0-10 numeric rating (Net Promoter Score)
+    - "csat": 1-5 numeric rating (Customer Satisfaction)
+    - "emoji_scale": 1-5 emoji rating
+    - "thumbs": thumbs up/down (2-point emoji)
+    - "open": free-form text
+    - "single_choice": pick one from choices
+    - "multiple_choice": pick many from choices
+    - "link": call-to-action link
     """).strip()
 
 
 class CreateSurveyToolArgs(BaseModel):
-    survey: SurveyCreationSchema = Field(
-        description=dedent("""
-        The complete survey configuration to create.
+    model_config = ConfigDict(extra="ignore")
 
-        # Required Fields
-        - **name**: Survey name (e.g., "NPS Survey", "Onboarding Feedback")
-        - **description**: Brief survey description
-        - **type**: "popover" (default), "widget", or "api"
-        - **questions**: Array of question objects (see Question Structure below)
-
-        # Optional Fields
-        - **should_launch**: Set to true to launch immediately, false for draft (default: false)
-        - **linked_flag_id**: Integer feature flag ID for targeting users with a specific flag
-        - **conditions**: Display conditions object (URL targeting, wait period, etc.)
-        - **appearance**: Custom appearance settings (colors, positioning)
-        - **start_date**: ISO date string to schedule launch
-        - **end_date**: ISO date string to end survey
-        - **responses_limit**: Maximum number of responses to collect
-
-        # Question Structure
-        Each question requires:
-        - **type**: "open", "rating", "single_choice", "multiple_choice", or "link"
-        - **question**: The question text to display
-
-        Optional per question:
-        - **id**: Unique identifier (auto-generated if not provided)
-        - **description**: Additional context below the question
-        - **optional**: Whether the question can be skipped (default: false)
-        - **buttonText**: Text for the continue button
-
-        For **rating** questions:
-        - **scale**: Number of points (5, 7, or 10). Use 10 for NPS, 5 for CSAT
-        - **display**: "number" or "emoji"
-        - **lowerBoundLabel**: Label for low end (e.g., "Not likely")
-        - **upperBoundLabel**: Label for high end (e.g., "Very likely")
-
-        For **single_choice**/**multiple_choice** questions:
-        - **choices**: Array of option strings
-
-        For **link** questions:
-        - **link**: URL to link to
-        - **buttonText**: Link button text
-
-        # Conditions Structure
-        - **url**: URL path string to match (e.g., "/pricing", "/dashboard")
-        - **urlMatchType**: How to match URL - "exact", "icontains" (contains, case-insensitive), "not_icontains", "regex", "not_regex", "is_not"
-        - **seenSurveyWaitPeriodInDays**: Number of days to wait after user has seen any survey before showing this one
-        - **deviceTypes**: Array of device types to target, e.g., ["Mobile"], ["Desktop", "Tablet"]
-        - **deviceTypesMatchType**: Match type for devices - same options as urlMatchType
-        - **linkedFlagVariant**: Feature flag variant to target (requires linked_flag_id)
-        - **selector**: CSS selector for element-based targeting (e.g., "#signup-button")
-
-        # Examples
-
-        ## NPS Survey
-        ```json
-        {
-            "name": "NPS Survey",
-            "description": "Net Promoter Score survey",
-            "type": "popover",
-            "questions": [{
-                "type": "rating",
-                "question": "How likely are you to recommend us to a friend or colleague?",
-                "scale": 10,
-                "display": "number",
-                "lowerBoundLabel": "Not likely at all",
-                "upperBoundLabel": "Extremely likely"
-            }],
-            "should_launch": false
-        }
-        ```
-
-        ## NPS with Follow-up
-        ```json
-        {
-            "name": "NPS with Feedback",
-            "description": "NPS with optional follow-up question",
-            "type": "popover",
-            "questions": [
-                {
-                    "type": "rating",
-                    "question": "How likely are you to recommend us?",
-                    "scale": 10,
-                    "display": "number",
-                    "lowerBoundLabel": "Not likely",
-                    "upperBoundLabel": "Very likely"
-                },
-                {
-                    "type": "open",
-                    "question": "What could we improve?",
-                    "optional": true
-                }
-            ],
-            "should_launch": false
-        }
-        ```
-
-        ## Targeted Survey (URL + Feature Flag)
-        ```json
-        {
-            "name": "Pricing Page Feedback",
-            "description": "Feedback from pricing page visitors",
-            "type": "popover",
-            "linked_flag_id": 123,
-            "conditions": {
-                "url": "/pricing",
-                "urlMatchType": "icontains"
-            },
-            "questions": [{
-                "type": "single_choice",
-                "question": "Is our pricing clear?",
-                "choices": ["Yes, very clear", "Somewhat clear", "Not clear at all"]
-            }],
-            "should_launch": true
-        }
-        ```
-
-        # Critical Rules
-        - Keep to 1-3 questions maximum
-        - DO NOT set should_launch=true unless the user explicitly requests to launch
-        - NPS uses scale=10, CSAT uses scale=5
-        - First question should typically be required (optional: false), follow-ups can be optional
-        """).strip()
+    name: str = Field(description="Survey name")
+    description: str = Field(default="", description="Brief survey description")
+    questions: list[SimpleSurveyQuestion] = Field(description="List of questions")
+    survey_type: Literal["popover", "widget", "api"] = Field(default="popover", description="Survey display type")
+    should_launch: bool = Field(default=False, description="Launch immediately after creation")
+    target_url: str | None = Field(default=None, description="URL path to target (e.g. '/pricing')")
+    target_url_match: Literal["exact", "contains", "regex"] | None = Field(
+        default=None, description="How to match the target URL"
     )
+    linked_flag_id: int | None = Field(default=None, description="Feature flag ID for targeting")
+    linked_flag_variant: str | None = Field(default=None, description="Feature flag variant to target")
+    wait_period_days: int | None = Field(
+        default=None, description="Days to wait after user has seen any survey before showing this one"
+    )
+    responses_limit: int | None = Field(default=None, description="Maximum number of responses to collect")
 
 
 class CreateSurveyTool(MaxTool):
@@ -214,141 +181,147 @@ class CreateSurveyTool(MaxTool):
     def get_required_resource_access(self):
         return [("survey", "editor")]
 
-    async def is_dangerous_operation(self, survey: SurveyCreationSchema, **kwargs) -> bool:
-        """Launching a survey immediately is a dangerous operation."""
-        return survey.should_launch is True
+    async def is_dangerous_operation(self, should_launch: bool = False, **kwargs) -> bool:
+        return should_launch is True
 
-    async def format_dangerous_operation_preview(self, survey: SurveyCreationSchema, **kwargs) -> str:
-        """Format a human-readable preview of the dangerous operation."""
-        survey_name = survey.name or "Untitled Survey"
-        question_count = len(survey.questions) if survey.questions else 0
-        return f"**Create and launch** survey '{survey_name}' with {question_count} question(s). It will immediately start collecting responses."
+    async def format_dangerous_operation_preview(
+        self, name: str = "Untitled Survey", questions: list[SimpleSurveyQuestion] | None = None, **kwargs
+    ) -> str:
+        question_count = len(questions) if questions else 0
+        return f"**Create and launch** survey '{name}' with {question_count} question(s). It will immediately start collecting responses."
 
-    async def _arun_impl(self, survey: SurveyCreationSchema) -> tuple[str, dict[str, Any]]:
-        """
-        Create a survey from the structured configuration.
-        """
+    def _build_survey_data(
+        self,
+        *,
+        name: str,
+        description: str,
+        questions: list[SimpleSurveyQuestion],
+        survey_type: str,
+        target_url: str | None,
+        target_url_match: str | None,
+        linked_flag_id: int | None,
+        linked_flag_variant: str | None,
+        wait_period_days: int | None,
+        responses_limit: int | None,
+    ) -> dict[str, Any]:
+        survey_data: dict[str, Any] = {
+            "name": name,
+            "description": description,
+            "type": survey_type,
+            "questions": [_build_question(q) for q in questions],
+            "appearance": _build_appearance(self._team),
+            "archived": False,
+            "enable_partial_responses": True,
+        }
+
+        if linked_flag_id is not None:
+            survey_data["linked_flag_id"] = linked_flag_id
+
+        if responses_limit is not None:
+            survey_data["responses_limit"] = responses_limit
+
+        conditions = _build_targeting_conditions(target_url, target_url_match, linked_flag_variant, wait_period_days)
+        if conditions:
+            survey_data["conditions"] = conditions
+
+        if self.context.get("insight_id"):
+            survey_data["linked_insight_id"] = self.context["insight_id"]
+
+        return survey_data
+
+    async def _arun_impl(
+        self,
+        name: str = "Untitled Survey",
+        description: str = "",
+        questions: list[SimpleSurveyQuestion] | None = None,
+        survey_type: str = "popover",
+        should_launch: bool = False,
+        target_url: str | None = None,
+        target_url_match: str | None = None,
+        linked_flag_id: int | None = None,
+        linked_flag_variant: str | None = None,
+        wait_period_days: int | None = None,
+        responses_limit: int | None = None,
+    ) -> tuple[str, dict[str, Any]]:
         try:
-            user = self._user
-            team = self._team
-
-            if not survey.questions:
+            if not questions:
                 return "Survey must have at least one question", {
                     "error": "validation_failed",
                     "error_message": "No questions provided in the survey configuration.",
                 }
 
-            # Apply appearance defaults and prepare survey data
-            survey_data = self._prepare_survey_data(survey, team)
+            survey_data = self._build_survey_data(
+                name=name,
+                description=description,
+                questions=questions,
+                survey_type=survey_type,
+                target_url=target_url,
+                target_url_match=target_url_match,
+                linked_flag_id=linked_flag_id,
+                linked_flag_variant=linked_flag_variant,
+                wait_period_days=wait_period_days,
+                responses_limit=responses_limit,
+            )
 
-            # Set launch date if requested
-            if survey.should_launch:
+            if should_launch:
                 survey_data["start_date"] = django.utils.timezone.now()
 
-            # Link to insight if provided in context (e.g., from funnel cross-sell)
-            if self.context.get("insight_id"):
-                survey_data["linked_insight_id"] = self.context["insight_id"]
+            created_survey = await Survey.objects.acreate(team=self._team, created_by=self._user, **survey_data)
 
-            # Create the survey directly using Django ORM
-            created_survey = await Survey.objects.acreate(team=team, created_by=user, **survey_data)
-
-            launch_msg = " and launched" if survey.should_launch else ""
+            launch_msg = " and launched" if should_launch else ""
             return f"Survey '{created_survey.name}' created{launch_msg} successfully!", {
                 "survey_id": created_survey.id,
                 "survey_name": created_survey.name,
+                "survey_type": survey_type,
             }
 
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to create survey: {str(e)}", {"error": "creation_failed", "details": str(e)}
 
-    def _prepare_survey_data(self, survey_schema: SurveyCreationSchema, team: Team) -> dict[str, Any]:
-        """Prepare survey data with appearance defaults applied."""
-        # Convert schema to dict, removing should_launch field
-        if hasattr(survey_schema, "model_dump"):
-            survey_data = survey_schema.model_dump(exclude_unset=True, exclude={"should_launch"})
-        else:
-            survey_data = survey_schema.__dict__.copy()
-            survey_data.pop("should_launch", None)
-
-        # Ensure required fields have defaults
-        survey_data.setdefault("archived", False)
-        survey_data.setdefault("description", "")
-        survey_data.setdefault("enable_partial_responses", True)
-
-        # Apply appearance defaults
-        appearance = DEFAULT_SURVEY_APPEARANCE.copy()
-
-        # Override with team-specific defaults if they exist
-        team_appearance = get_team_survey_config(team).get("appearance", {})
-        if team_appearance:
-            appearance.update(team_appearance)
-
-        # Finally, override with survey-specified appearance settings
-        if survey_data.get("appearance"):
-            survey_appearance = survey_data["appearance"]
-            # Convert to dict if needed
-            if hasattr(survey_appearance, "model_dump"):
-                survey_appearance = survey_appearance.model_dump(exclude_unset=True)
-            elif hasattr(survey_appearance, "__dict__"):
-                survey_appearance = survey_appearance.__dict__
-            # Only update fields that are actually set (not None)
-            appearance.update({k: v for k, v in survey_appearance.items() if v is not None})
-
-        # Always set appearance to ensure surveys have consistent defaults
-        survey_data["appearance"] = appearance
-
-        return survey_data
-
 
 SURVEY_EDIT_TOOL_DESCRIPTION = dedent("""
-    Use this tool to edit an existing survey.
+    Edit an existing survey.
 
     # When to use
     - User wants to modify a survey's name, description, or questions
-    - User wants to launch or stop a survey
-    - User wants to archive a survey
+    - User wants to launch, stop, or archive a survey
     - User wants to change survey targeting conditions
 
-    # Finding the Survey
-    First use the search tool with kind="surveys" to find the survey ID, then use this tool.
+    # Finding the survey
+    First use the search tool with kind="surveys" to find the survey ID.
 
-    # Common Operations
-    - **Launch**: Set start_date to "now"
-    - **Stop**: Set end_date to "now"
-    - **Archive**: Set archived to true
-    - **Update questions**: Provide full questions array (replaces existing)
-    - **Update conditions**: Provide conditions object (replaces existing)
+    # Lifecycle
+    - Set launch=true to start collecting responses
+    - Set stop=true to stop collecting responses
+    - Set archive=true to archive the survey
 
-    # Important Notes
-    - Only include fields you want to change in the updates
-    - When updating questions, you must provide the complete list (it replaces existing)
-    - You cannot edit a survey that doesn't belong to your team
+    # Important
+    - Only include fields you want to change
+    - When updating questions, provide the complete list (it replaces existing)
     """).strip()
 
 
-class SurveyUpdateSchema(BaseModel):
-    """Partial schema for survey updates - only include fields to change."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str | None = None
-    description: str | None = None
-    type: SurveyType | None = None
-    questions: list[SurveyQuestionSchema] | None = None
-    conditions: SurveyDisplayConditionsSchema | None = None
-    appearance: SurveyAppearanceSchema | None = None
-    linked_flag_id: int | None = None
-    start_date: str | None = Field(default=None, description='ISO date string or "now" to launch immediately')
-    end_date: str | None = Field(default=None, description='ISO date string or "now" to stop immediately')
-    archived: bool | None = None
-    responses_limit: int | None = None
-    enable_partial_responses: bool | None = None
-
-
 class EditSurveyToolArgs(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     survey_id: str = Field(description="UUID of the survey to edit")
-    updates: SurveyUpdateSchema = Field(description="Fields to update on the survey")
+    name: str | None = Field(default=None, description="New survey name")
+    description: str | None = Field(default=None, description="New survey description")
+    questions: list[SimpleSurveyQuestion] | None = Field(default=None, description="Replacement questions list")
+    target_url: str | None = Field(default=None, description="URL path to target")
+    target_url_match: Literal["exact", "contains", "regex"] | None = Field(
+        default=None, description="How to match the target URL"
+    )
+    linked_flag_id: int | None = Field(default=None, description="Feature flag ID for targeting")
+    linked_flag_variant: str | None = Field(default=None, description="Feature flag variant to target")
+    wait_period_days: int | None = Field(
+        default=None, description="Minimum days before showing this survey again to a user who has seen any survey"
+    )
+    responses_limit: int | None = Field(default=None, description="Maximum number of responses")
+    launch: bool | None = Field(default=None, description="Set to true to launch the survey")
+    stop: bool | None = Field(default=None, description="Set to true to stop the survey")
+    archive: bool | None = Field(default=None, description="Set to true to archive the survey")
 
 
 class EditSurveyTool(MaxTool):
@@ -359,13 +332,24 @@ class EditSurveyTool(MaxTool):
     def get_required_resource_access(self):
         return [("survey", "editor")]
 
-    async def is_dangerous_operation(self, survey_id: str, updates: SurveyUpdateSchema, **kwargs) -> bool:
-        """Launching, stopping, or archiving a survey are dangerous operations."""
-        return updates.start_date == "now" or updates.end_date == "now" or updates.archived is True
+    async def is_dangerous_operation(
+        self,
+        survey_id: str,
+        launch: bool | None = None,
+        stop: bool | None = None,
+        archive: bool | None = None,
+        **kwargs,
+    ) -> bool:
+        return launch is True or stop is True or archive is True
 
-    async def format_dangerous_operation_preview(self, survey_id: str, updates: SurveyUpdateSchema, **kwargs) -> str:
-        """Format a human-readable preview of the dangerous operation."""
-        # Try to get survey name for a better preview
+    async def format_dangerous_operation_preview(
+        self,
+        survey_id: str,
+        launch: bool | None = None,
+        stop: bool | None = None,
+        archive: bool | None = None,
+        **kwargs,
+    ) -> str:
         survey_name = survey_id
         try:
             survey = await sync_to_async(Survey.objects.get)(id=survey_id, team=self._team)
@@ -374,11 +358,11 @@ class EditSurveyTool(MaxTool):
             survey_name = f"(ID: {survey_id})"
 
         actions = []
-        if updates.start_date == "now":
+        if launch is True:
             actions.append("**Launch** the survey (it will start collecting responses)")
-        if updates.end_date == "now":
+        if stop is True:
             actions.append("**Stop** the survey (it will stop collecting responses)")
-        if updates.archived is True:
+        if archive is True:
             actions.append("**Archive** the survey")
 
         if len(actions) == 1:
@@ -387,14 +371,25 @@ class EditSurveyTool(MaxTool):
             action_list = "\n".join(f"- {action}" for action in actions)
             return f"Perform the following actions on survey {survey_name}:\n{action_list}"
 
-    async def _arun_impl(self, survey_id: str, updates: SurveyUpdateSchema) -> tuple[str, dict[str, Any]]:
-        """
-        Edit an existing survey with the provided updates.
-        """
+    async def _arun_impl(
+        self,
+        survey_id: str,
+        name: str | None = None,
+        description: str | None = None,
+        questions: list[SimpleSurveyQuestion] | None = None,
+        target_url: str | None = None,
+        target_url_match: str | None = None,
+        linked_flag_id: int | None = None,
+        linked_flag_variant: str | None = None,
+        wait_period_days: int | None = None,
+        responses_limit: int | None = None,
+        launch: bool | None = None,
+        stop: bool | None = None,
+        archive: bool | None = None,
+    ) -> tuple[str, dict[str, Any]]:
         try:
             team = self._team
 
-            # Fetch the existing survey
             try:
                 survey = await sync_to_async(Survey.objects.get)(id=survey_id, team=team)
             except Survey.DoesNotExist:
@@ -403,8 +398,42 @@ class EditSurveyTool(MaxTool):
                     "error_message": f"No survey found with ID '{survey_id}' in your team.",
                 }
 
-            # Get the updates as a dict, excluding None values
-            update_data = updates.model_dump(exclude_unset=True)
+            update_data: dict[str, Any] = {}
+
+            if name is not None:
+                update_data["name"] = name
+            if description is not None:
+                update_data["description"] = description
+            if questions is not None:
+                update_data["questions"] = [_build_question(q) for q in questions]
+            if linked_flag_id is not None:
+                update_data["linked_flag_id"] = linked_flag_id
+            if responses_limit is not None:
+                update_data["responses_limit"] = responses_limit
+
+            # When any targeting field is provided, strip all tool-managed keys
+            # from existing conditions first, then apply new values. This prevents
+            # stale targeting from accumulating across edits.
+            conditions = _build_targeting_conditions(
+                target_url, target_url_match, linked_flag_variant, wait_period_days
+            )
+            if conditions:
+                existing_conditions = {
+                    k: v for k, v in (survey.conditions or {}).items() if k not in TOOL_MANAGED_CONDITION_KEYS
+                }
+                update_data["conditions"] = {**existing_conditions, **conditions}
+
+            # Lifecycle bools
+            lifecycle_actions = []
+            if launch is True:
+                update_data["start_date"] = django.utils.timezone.now()
+                lifecycle_actions.append("launched")
+            if stop is True:
+                update_data["end_date"] = django.utils.timezone.now()
+                lifecycle_actions.append("stopped")
+            if archive is True:
+                update_data["archived"] = True
+                lifecycle_actions.append("archived")
 
             if not update_data:
                 return "No updates provided", {
@@ -412,61 +441,22 @@ class EditSurveyTool(MaxTool):
                     "error_message": "No fields were provided to update.",
                 }
 
-            # Handle special date values
-            if update_data.get("start_date") == "now":
-                update_data["start_date"] = django.utils.timezone.now()
-            if update_data.get("end_date") == "now":
-                update_data["end_date"] = django.utils.timezone.now()
-
-            # Handle nested objects that need conversion
-            if "questions" in update_data and update_data["questions"] is not None:
-                update_data["questions"] = [
-                    q.model_dump(exclude_unset=True) if hasattr(q, "model_dump") else q
-                    for q in update_data["questions"]
-                ]
-
-            if "conditions" in update_data and update_data["conditions"] is not None:
-                conditions = update_data["conditions"]
-                update_data["conditions"] = (
-                    conditions.model_dump(exclude_unset=True) if hasattr(conditions, "model_dump") else conditions
-                )
-
-            if "appearance" in update_data and update_data["appearance"] is not None:
-                appearance = update_data["appearance"]
-                # Merge with existing appearance
-                existing_appearance = survey.appearance or {}
-                new_appearance = (
-                    appearance.model_dump(exclude_unset=True) if hasattr(appearance, "model_dump") else appearance
-                )
-                update_data["appearance"] = {**existing_appearance, **new_appearance}
-
-            # Apply updates to survey
             for field, value in update_data.items():
                 setattr(survey, field, value)
 
             await sync_to_async(survey.save)()
 
-            # Build response message
-            updated_fields = list(update_data.keys())
-            actions = []
-            if "start_date" in updated_fields and updates.start_date == "now":
-                actions.append("launched")
-            if "end_date" in updated_fields and updates.end_date == "now":
-                actions.append("stopped")
-            if "archived" in updated_fields and updates.archived:
-                actions.append("archived")
-
-            if actions:
-                action_str = " and ".join(actions)
+            if lifecycle_actions:
+                action_str = " and ".join(lifecycle_actions)
                 message = f"Survey '{survey.name}' has been {action_str} successfully!"
             else:
-                fields_str = ", ".join(updated_fields)
+                fields_str = ", ".join(update_data.keys())
                 message = f"Survey '{survey.name}' updated successfully! Modified fields: {fields_str}"
 
             return message, {
                 "survey_id": str(survey.id),
                 "survey_name": survey.name,
-                "updated_fields": updated_fields,
+                "updated_fields": list(update_data.keys()),
             }
 
         except Exception as e:

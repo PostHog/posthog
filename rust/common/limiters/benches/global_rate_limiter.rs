@@ -23,14 +23,14 @@
 //! | Benchmark | Description |
 //! |-----------|-------------|
 //! | `local_cache_hit` | Hot path latency when data is in local moka cache |
-//! | `redis_cache_miss` | MGET latency for 6 bucket keys on cache miss |
+//! | `redis_cache_miss` | Hot path latency on cache miss (no inline Redis I/O) |
 //! | `batch_write_throughput/{10,100,1000}` | Redis pipeline write performance |
 //! | `high_cardinality/{1000,10000}` | Performance under cache pressure |
 //! | `e2e_throughput/cache_hot` | Full eval loop with warm cache |
-//! | `e2e_throughput/cache_cold` | Full eval loop with cold cache |
+//! | `e2e_throughput/cache_cold` | Full eval loop with cold cache (short TTL eviction) |
 //! | `custom_key/unregistered` | Fast path for unregistered custom keys |
 //! | `custom_key/registered` | Full eval for registered custom keys |
-//! | `redis_mget_direct/{6,12,24}` | Raw Redis MGET baseline |
+//! | `redis_mget_direct/{6,12,24}` | Raw Redis MGET baseline for comparison |
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -72,14 +72,13 @@ fn bench_config() -> GlobalRateLimiterConfig {
     GlobalRateLimiterConfig {
         global_threshold: 100_000,
         window_interval: Duration::from_secs(60),
-        bucket_interval: Duration::from_secs(10),
+        sync_interval: Duration::from_secs(15),
+        tick_interval: Duration::from_secs(1),
         redis_key_prefix: "bench:grl".to_string(),
         global_cache_ttl: Duration::from_secs(300),
-        local_cache_ttl: Duration::from_secs(1200), // 20 minutes for hot cache simulation
+        local_cache_ttl: Duration::from_secs(1200),
+        local_cache_idle_timeout: Duration::from_secs(600),
         local_cache_max_entries: 100_000,
-        batch_interval: Duration::from_millis(100),
-        batch_max_update_count: 10000,
-        batch_max_key_cardinality: 1000,
         channel_capacity: 100_000,
         custom_keys: HashMap::new(),
         global_read_timeout: Duration::from_millis(50),
@@ -114,51 +113,30 @@ fn create_limiter(
     })
 }
 
-/// Prime Redis with bucket data for a key so MGET returns real values.
-/// This simulates a key that has been actively receiving traffic.
-///
-/// Primes buckets covering several minutes into the future to handle timing drift
-/// during benchmark execution. The limiter uses Utc::now() at eval time and reads
-/// buckets from (current_bucket - bucket_interval) going back for window_interval.
-/// As time advances during benchmarks, we need buckets primed ahead of time.
-async fn prime_redis_buckets(
+/// Prime two epoch keys (current + previous) in Redis for a given entity key.
+/// This gives the background sync task real data to read when it processes pending syncs.
+async fn prime_redis_epochs(
     redis: &common_redis::RedisClient,
     config: &GlobalRateLimiterConfig,
     key: &str,
-    count_per_bucket: i64,
+    count_per_epoch: i64,
 ) {
-    let bucket_secs = config.bucket_interval.as_secs() as i64;
     let window_secs = config.window_interval.as_secs() as i64;
-    let num_buckets = (window_secs / bucket_secs) as usize;
-
-    // Use a long TTL so primed data survives the entire benchmark suite
-    let ttl_secs = 1800; // 30 minutes
-
-    // Current bucket boundary
     let now_ts = Utc::now().timestamp();
-    let current_bucket = now_ts - (now_ts % bucket_secs);
+    let current_epoch = now_ts - (now_ts % window_secs);
+    let previous_epoch = current_epoch - window_secs;
+    let ttl_secs = (window_secs * 2) as usize;
 
-    // Prime buckets covering:
-    // - Past: num_buckets back (the window the limiter reads)
-    // - Future: 20 minutes ahead to handle benchmark timing drift
-    // The MGET reads buckets (current - 1*bucket) to (current - num_buckets*bucket),
-    // so as time advances we need those future buckets ready.
-    let extra_future_buckets = 120; // 1200s = 20 minutes with 10s buckets
-    let bucket_ids: Vec<i64> = (-(extra_future_buckets as i64)..=(num_buckets as i64))
-        .map(|i| current_bucket - (i * bucket_secs))
-        .collect();
-
-    // Batch the priming for efficiency
-    let items: Vec<(String, i64)> = bucket_ids
-        .iter()
-        .map(|bucket_id| {
-            let bucket_key = format!("{}:{}:{}", config.redis_key_prefix, key, bucket_id);
-            (bucket_key, count_per_bucket)
+    let items: Vec<(String, i64)> = vec![current_epoch, previous_epoch]
+        .into_iter()
+        .map(|epoch| {
+            let epoch_key = format!("{}:{}:{}", config.redis_key_prefix, key, epoch);
+            (epoch_key, count_per_epoch)
         })
         .collect();
 
     if let Err(e) = redis.batch_incr_by_expire(items, ttl_secs).await {
-        eprintln!("Failed to prime Redis buckets for key {key}: {e}");
+        eprintln!("Failed to prime Redis epochs for key {key}: {e}");
     }
 }
 
@@ -172,14 +150,14 @@ fn bench_local_cache_hit(c: &mut Criterion) {
 
     let config = bench_config();
 
-    // Pre-prime Redis so the cache warmup reads real data
+    // Pre-prime Redis so background sync populates real data
     rt.block_on(async {
-        prime_redis_buckets(&redis, &config, "cache_hit_key", 100).await;
+        prime_redis_epochs(&redis, &config, "cache_hit_key", 100).await;
     });
 
     let limiter = create_limiter(&rt, config, redis);
 
-    // Pre-populate the local cache by doing an initial evaluation (reads from Redis)
+    // Pre-populate the local cache by triggering a sync via initial evaluation
     rt.block_on(async {
         let _ = limiter.check_limit("cache_hit_key", 1, None).await;
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -196,10 +174,11 @@ fn bench_local_cache_hit(c: &mut Criterion) {
     report_fail_opens("local_cache_hit");
 }
 
-/// Benchmark 2: Redis cache miss - measures MGET latency for sliding window reads
-/// Each evaluation fetches 6 bucket keys from Redis (60s window / 10s bucket)
+/// Benchmark 2: Cache miss hot path (no inline Redis I/O)
+/// Uses a very short local cache TTL to force moka evictions, so each check_limit
+/// sees a miss and creates a fresh entry. Background sync handles Redis reads.
 ///
-/// Keys are pre-primed in Redis so MGET returns actual data (not empty).
+/// Keys are pre-primed in Redis so background sync returns real data.
 fn bench_redis_cache_miss(c: &mut Criterion) {
     let Some((rt, redis)) = setup_redis() else {
         eprintln!("Skipping bench_redis_cache_miss: Redis unavailable");
@@ -208,17 +187,17 @@ fn bench_redis_cache_miss(c: &mut Criterion) {
 
     let config = bench_config();
 
-    // Pre-prime Redis with bucket data for a pool of keys
-    // Using a pool so we can cycle through and avoid local cache hits
+    // Pre-prime Redis epoch keys for a pool of keys
+    // Using a pool so we can cycle through and trigger distinct cache misses
     const PRIMED_KEY_COUNT: u64 = 1000;
     rt.block_on(async {
         for i in 0..PRIMED_KEY_COUNT {
             let key = format!("primed_miss_key_{i}");
-            prime_redis_buckets(&redis, &config, &key, 100).await;
+            prime_redis_epochs(&redis, &config, &key, 100).await;
         }
     });
 
-    // Create limiter with very short local cache TTL to force Redis reads
+    // Create limiter with very short local cache TTL to force cache misses
     let mut short_cache_config = config.clone();
     short_cache_config.local_cache_ttl = Duration::from_millis(1);
     let limiter = create_limiter(&rt, short_cache_config, redis);
@@ -270,9 +249,9 @@ fn bench_batch_write_throughput(c: &mut Criterion) {
 }
 
 /// Benchmark 4: High-cardinality key scenario
-/// Simulates real traffic patterns with many distinct keys causing cache pressure
+/// Simulates real traffic patterns with many distinct keys causing cache pressure.
 ///
-/// Keys are pre-primed in Redis so MGET returns actual data.
+/// Keys are pre-primed in Redis so background sync returns real data.
 fn bench_high_cardinality(c: &mut Criterion) {
     let Some((rt, redis)) = setup_redis() else {
         eprintln!("Skipping bench_high_cardinality: Redis unavailable");
@@ -281,12 +260,12 @@ fn bench_high_cardinality(c: &mut Criterion) {
 
     let config = bench_config();
 
-    // Pre-prime Redis with bucket data for the largest key count we'll test
+    // Pre-prime Redis epoch keys for the largest key count we'll test
     const MAX_KEYS: usize = 10000;
     rt.block_on(async {
         for i in 0..MAX_KEYS {
             let key = format!("hc_key_{i}");
-            prime_redis_buckets(&redis, &config, &key, 100).await;
+            prime_redis_epochs(&redis, &config, &key, 100).await;
         }
     });
 
@@ -313,8 +292,8 @@ fn bench_high_cardinality(c: &mut Criterion) {
     report_fail_opens("high_cardinality");
 }
 
-/// Benchmark 5: End-to-end update_eval_key throughput
-/// Full evaluation loop with mixed cache behavior
+/// Benchmark 5: End-to-end check_limit throughput
+/// Full evaluation loop with warm vs cold cache
 fn bench_update_eval_key_e2e(c: &mut Criterion) {
     let Some((rt, redis)) = setup_redis() else {
         eprintln!("Skipping bench_update_eval_key_e2e: Redis unavailable");
@@ -323,11 +302,11 @@ fn bench_update_eval_key_e2e(c: &mut Criterion) {
 
     let config = bench_config();
 
-    // Pre-prime Redis with bucket data for cache_hot keys
+    // Pre-prime Redis epoch keys for cache_hot keys
     rt.block_on(async {
         for i in 0..100 {
             let key = format!("e2e_key_{i}");
-            prime_redis_buckets(&redis, &config, &key, 100).await;
+            prime_redis_epochs(&redis, &config, &key, 100).await;
         }
     });
 
@@ -355,16 +334,16 @@ fn bench_update_eval_key_e2e(c: &mut Criterion) {
         });
     });
 
-    // Pre-prime Redis with bucket data for cache_cold keys
+    // Pre-prime Redis epoch keys for cache_cold keys
     const COLD_KEY_COUNT: u64 = 1000;
     rt.block_on(async {
         for i in 0..COLD_KEY_COUNT {
             let key = format!("e2e_cold_key_{i}");
-            prime_redis_buckets(&redis, &config, &key, 100).await;
+            prime_redis_epochs(&redis, &config, &key, 100).await;
         }
     });
 
-    // Create new limiter with short cache TTL to force Redis reads
+    // Create new limiter with short cache TTL to force cache misses
     let mut short_cache_config = config;
     short_cache_config.local_cache_ttl = Duration::from_millis(1);
     let cold_limiter = create_limiter(&rt, short_cache_config, redis);
@@ -401,11 +380,11 @@ fn bench_custom_key_evaluation(c: &mut Criterion) {
             .insert(format!("registered_key_{i}"), 50_000);
     }
 
-    // Pre-prime Redis with bucket data for registered keys
+    // Pre-prime Redis epoch keys for registered keys
     rt.block_on(async {
         for i in 0..100 {
             let key = format!("registered_key_{i}");
-            prime_redis_buckets(&redis, &config, &key, 100).await;
+            prime_redis_epochs(&redis, &config, &key, 100).await;
         }
     });
 
@@ -494,12 +473,12 @@ fn bench_redis_mget_direct(c: &mut Criterion) {
 /// Simulation: 20 processes × 1000 req/sec, 100k key cardinality, random distribution
 ///
 /// Tests three cache warmth scenarios:
-/// - Cold (0%): All caches empty, every request hits Redis
-/// - Warm (50%): Half of keys pre-cached, mixed Redis/cache hits
-/// - Hot (100%): All keys pre-cached, minimal Redis reads
+/// - Cold (0%): All caches empty, every request is a miss (entry created + sync queued)
+/// - Warm (50%): Half of keys pre-cached, mostly cache hits
+/// - Hot (100%): All keys pre-cached, near-100% cache hit rate
 ///
-/// Uses metrics-util's DebuggingRecorder to capture accurate cache and eval metrics
-/// from the limiter implementation.
+/// No request directly hits Redis — all decisions are local. Background sync handles
+/// Redis I/O. Uses metrics-util's DebuggingRecorder to capture cache and eval metrics.
 fn bench_high_cardinality_simulation(c: &mut Criterion) {
     use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
     use rand::rngs::StdRng;
@@ -548,14 +527,14 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
 
     let config = bench_config();
 
-    // Prime Redis with bucket data for all keys once at the start
+    // Prime Redis epoch keys for all keys once at the start
     eprintln!("Priming {KEYS_CARDINALITY} keys in Redis...");
     rt.block_on(async {
         for batch_start in (0..KEYS_CARDINALITY).step_by(1000) {
             let batch_end = (batch_start + 1000).min(KEYS_CARDINALITY);
             for i in batch_start..batch_end {
                 let key = format!("sim_key_{i}");
-                prime_redis_buckets(&redis, &config, &key, 100).await;
+                prime_redis_epochs(&redis, &config, &key, 100).await;
             }
             if batch_start % 10000 == 0 {
                 eprintln!("  Primed {batch_start}/{KEYS_CARDINALITY} keys...");
@@ -585,8 +564,11 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                 get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit");
             let baseline_cache_miss =
                 get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss");
-            let baseline_cache_stale =
-                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale");
+            let baseline_cache_sync_queued = get_counter_value(
+                "global_rate_limiter_cache_counts_total",
+                "result",
+                "sync_queued",
+            );
             let baseline_eval_allowed =
                 get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed");
             let baseline_eval_limited =
@@ -644,9 +626,11 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
             let cache_miss =
                 get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss")
                     - baseline_cache_miss;
-            let cache_stale =
-                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale")
-                    - baseline_cache_stale;
+            let cache_sync_queued = get_counter_value(
+                "global_rate_limiter_cache_counts_total",
+                "result",
+                "sync_queued",
+            ) - baseline_cache_sync_queued;
             let eval_allowed =
                 get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed")
                     - baseline_eval_allowed;
@@ -659,20 +643,20 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                 "fail_open",
             ) - baseline_eval_fail_open;
 
-            let total_cache = cache_hit + cache_miss + cache_stale;
+            let total_cache = cache_hit + cache_miss + cache_sync_queued;
             let total_eval = eval_allowed + eval_limited + eval_fail_open;
 
             if total_cache > 0 || total_eval > 0 {
                 eprintln!("\n=== {scenario_name} Results ===");
                 if total_cache > 0 {
                     eprintln!(
-                        "Cache: hit={} ({:.1}%) miss={} ({:.1}%) stale={} ({:.1}%)",
+                        "Cache: hit={} ({:.1}%) miss={} ({:.1}%) sync_queued={} ({:.1}%)",
                         cache_hit,
                         cache_hit as f64 / total_cache as f64 * 100.0,
                         cache_miss,
                         cache_miss as f64 / total_cache as f64 * 100.0,
-                        cache_stale,
-                        cache_stale as f64 / total_cache as f64 * 100.0
+                        cache_sync_queued,
+                        cache_sync_queued as f64 / total_cache as f64 * 100.0
                     );
                 }
                 if total_eval > 0 {
@@ -721,8 +705,11 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                 get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit");
             let baseline_cache_miss =
                 get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss");
-            let baseline_cache_stale =
-                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale");
+            let baseline_cache_sync_queued = get_counter_value(
+                "global_rate_limiter_cache_counts_total",
+                "result",
+                "sync_queued",
+            );
             let baseline_eval_allowed =
                 get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed");
             let baseline_eval_limited =
@@ -769,9 +756,11 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
             let cache_miss =
                 get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss")
                     - baseline_cache_miss;
-            let cache_stale =
-                get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale")
-                    - baseline_cache_stale;
+            let cache_sync_queued = get_counter_value(
+                "global_rate_limiter_cache_counts_total",
+                "result",
+                "sync_queued",
+            ) - baseline_cache_sync_queued;
             let eval_allowed =
                 get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed")
                     - baseline_eval_allowed;
@@ -784,20 +773,20 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                 "fail_open",
             ) - baseline_eval_fail_open;
 
-            let total_cache = cache_hit + cache_miss + cache_stale;
+            let total_cache = cache_hit + cache_miss + cache_sync_queued;
             let total_eval = eval_allowed + eval_limited + eval_fail_open;
 
             if total_cache > 0 || total_eval > 0 {
                 eprintln!("\n=== {scenario_name} Results ===");
                 if total_cache > 0 {
                     eprintln!(
-                        "Cache: hit={} ({:.1}%) miss={} ({:.1}%) stale={} ({:.1}%)",
+                        "Cache: hit={} ({:.1}%) miss={} ({:.1}%) sync_queued={} ({:.1}%)",
                         cache_hit,
                         cache_hit as f64 / total_cache as f64 * 100.0,
                         cache_miss,
                         cache_miss as f64 / total_cache as f64 * 100.0,
-                        cache_stale,
-                        cache_stale as f64 / total_cache as f64 * 100.0
+                        cache_sync_queued,
+                        cache_sync_queued as f64 / total_cache as f64 * 100.0
                     );
                 }
                 if total_eval > 0 {

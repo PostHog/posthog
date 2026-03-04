@@ -67,7 +67,7 @@ Assistant: I'll first search for the NPS survey, then stop and archive it.
 1. Search for the NPS survey to get its ID
 2. Stop and archive the survey
 *Uses search with kind: "surveys" and query: "NPS"*
-After getting the survey ID, the assistant uses edit_survey with survey_id and updates: {end_date: "now", archived: true}
+After getting the survey ID, the assistant uses edit_survey with survey_id, stop=true, and archive=true.
 """.strip()
 
 POSITIVE_EXAMPLE_EDIT_SURVEY_REASONING = """
@@ -75,7 +75,7 @@ The assistant used the todo list because:
 1. The user wants to modify an existing survey (stop and archive)
 2. This requires multiple steps: first find the survey ID, then apply the updates
 3. The search tool with surveys kind retrieves the survey information
-4. The edit_survey tool is used with end_date="now" to stop and archived=true to archive
+4. The edit_survey tool is used with stop=true and archive=true to stop and archive the survey
 """.strip()
 
 
