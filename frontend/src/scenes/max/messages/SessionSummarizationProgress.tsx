@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
-import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress/LemonProgress'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 const VIDEO_ANALYSIS_PLAYBACK_SPEED = 8
 
 interface SessionInfo {
     first_url: string
     active_duration_s: number
+    distinct_id: string
+    start_time: string | null
+    snapshot_source: 'web' | 'mobile'
     status: string
 }
 
@@ -23,7 +29,7 @@ interface DerivedState {
 
 const PHASE_LABELS: Record<string, string> = {
     fetching_data: 'Fetching session data',
-    watching_sessions: 'Analyzing sessions',
+    watching_sessions: 'Watching sessions',
     extracting_patterns: 'Searching for patterns',
     assigning_patterns: 'Building report',
 }
@@ -50,13 +56,6 @@ function formatEta(seconds: number): string {
     return `~${mins} ${mins === 1 ? 'minute' : 'minutes'} remaining`
 }
 
-function truncateUrl(url: string, maxLen = 40): string {
-    if (url.length <= maxLen) {
-        return url
-    }
-    return url.slice(0, maxLen - 1) + '…'
-}
-
 function deriveState(updates: object[]): DerivedState {
     const sessions = new Map<string, SessionInfo>()
     let phase = 'fetching_data'
@@ -67,9 +66,23 @@ function deriveState(updates: object[]): DerivedState {
     for (const update of updates) {
         const u = update as Record<string, unknown>
         if (u.type === 'sessions_discovered') {
-            const sessionsList = u.sessions as Array<{ id: string; first_url: string; active_duration_s: number }>
+            const sessionsList = u.sessions as Array<{
+                id: string
+                first_url: string
+                active_duration_s: number
+                distinct_id: string
+                start_time: string | null
+                snapshot_source: 'web' | 'mobile'
+            }>
             for (const s of sessionsList) {
-                sessions.set(s.id, { first_url: s.first_url, active_duration_s: s.active_duration_s, status: 'queued' })
+                sessions.set(s.id, {
+                    first_url: s.first_url,
+                    active_duration_s: s.active_duration_s,
+                    distinct_id: s.distinct_id,
+                    start_time: s.start_time,
+                    snapshot_source: s.snapshot_source,
+                    status: 'queued',
+                })
             }
             totalCount = sessionsList.length
         } else if (u.type === 'progress') {
@@ -80,7 +93,14 @@ function deriveState(updates: object[]): DerivedState {
                     if (existing) {
                         existing.status = change.status
                     } else {
-                        sessions.set(change.id, { first_url: '', active_duration_s: 0, status: change.status })
+                        sessions.set(change.id, {
+                            first_url: '',
+                            active_duration_s: 0,
+                            distinct_id: '',
+                            start_time: null,
+                            snapshot_source: 'web',
+                            status: change.status,
+                        })
                     }
                 }
             }
@@ -174,7 +194,7 @@ export function SessionSummarizationProgress({ updates }: { updates: object[] })
             {totalCount > 0 && <LemonProgress percent={progressPercent} />}
             <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-medium text-secondary">
-                    {PHASE_LABELS[phase] || phase}
+                    {PHASE_LABELS[phase] || phase}…
                     {phase === 'watching_sessions' && totalCount > 0 && (
                         <span className="text-muted ml-1">
                             ({completedCount}/{totalCount})
@@ -215,11 +235,25 @@ export function SessionSummarizationProgress({ updates }: { updates: object[] })
                                     className="flex items-center gap-1.5 text-xs py-0.5 px-1 rounded hover:bg-fill-button-tertiary-hover"
                                 >
                                     <StatusIcon status={session.status} />
-                                    <Tooltip title={session.first_url || id}>
-                                        <Link to={`/replay/${id}`} target="_blank" className="truncate max-w-60">
-                                            {session.first_url ? truncateUrl(session.first_url) : id.slice(0, 8)}
-                                        </Link>
-                                    </Tooltip>
+                                    <PropertyIcon
+                                        property="$device_type"
+                                        value={session.snapshot_source === 'mobile' ? 'Mobile' : 'Desktop'}
+                                        className="text-muted shrink-0"
+                                    />
+                                    <PersonDisplay
+                                        person={session.distinct_id ? { distinct_id: session.distinct_id } : undefined}
+                                        href={`/replay/${id}`}
+                                        withIcon="xs"
+                                        noPopover
+                                        noEllipsis
+                                    />
+                                    {session.start_time && (
+                                        <TZLabel
+                                            className="text-muted shrink-0"
+                                            time={session.start_time}
+                                            placement="right"
+                                        />
+                                    )}
                                     {session.active_duration_s > 0 && (
                                         <Tooltip title="Duration of active interaction in this session">
                                             <span className="text-muted ml-auto shrink-0 select-none">

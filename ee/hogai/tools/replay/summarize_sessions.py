@@ -235,7 +235,7 @@ class SummarizeSessionsTool(MaxTool):
         self.dispatcher.update(json.dumps(data))
 
     def _get_session_metadata(self, session_ids: list[str]) -> dict[str, dict]:
-        """Fetch first_url and active duration per session from ClickHouse."""
+        """Fetch per-session metadata from ClickHouse for the progress widget."""
         from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
         replay_events = SessionReplayEvents()
@@ -247,13 +247,22 @@ class SummarizeSessionsTool(MaxTool):
         for sid in session_ids:
             meta = metadata_dict.get(sid)
             if meta:
-                active_duration_s = int(meta.get("active_seconds") or 0)
+                start_time = meta.get("start_time")
                 result[sid] = {
                     "first_url": meta.get("first_url") or "",
-                    "active_duration_s": active_duration_s,
+                    "active_duration_s": int(meta.get("active_seconds") or 0),
+                    "distinct_id": meta.get("distinct_id") or "",
+                    "start_time": start_time.isoformat() if start_time else None,
+                    "snapshot_source": meta.get("snapshot_source") or "web",
                 }
             else:
-                result[sid] = {"first_url": "", "active_duration_s": 0}
+                result[sid] = {
+                    "first_url": "",
+                    "active_duration_s": 0,
+                    "distinct_id": "",
+                    "start_time": None,
+                    "snapshot_source": "web",
+                }
         return result
 
     def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
@@ -437,6 +446,9 @@ class SummarizeSessionsTool(MaxTool):
                         "id": sid,
                         "first_url": metadata[sid]["first_url"],
                         "active_duration_s": metadata[sid]["active_duration_s"],
+                        "distinct_id": metadata[sid]["distinct_id"],
+                        "start_time": metadata[sid]["start_time"],
+                        "snapshot_source": metadata[sid]["snapshot_source"],
                     }
                     for sid in session_ids
                 ],
