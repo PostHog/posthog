@@ -335,10 +335,10 @@ export function SummarizeSessionsWidget({
             icon={<IconNotebook />}
             size="small"
             targetBlank
-            type="secondary"
-            className="bg-surface-primary w-fit mx-"
+            type="primary"
+            className="bg-surface-primary w-fit mx-1"
         >
-            Open analysis: {title || 'Sessions summary'}
+            Open analysis of sessions{title && `: ${title}`}
         </LemonButton>
     )
 }
