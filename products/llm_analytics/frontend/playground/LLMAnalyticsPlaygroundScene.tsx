@@ -270,15 +270,25 @@ function SubscriptionRequiredBanner(): JSX.Element | null {
 }
 
 function PlaygroundLayout(): JSX.Element {
+    const { sourceSetupLoading } = useValues(llmPlaygroundPromptsLogic)
+
     return (
         <div className="flex flex-1 min-h-0 flex-col gap-4">
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
 
             <section className="rounded overflow-hidden min-h-0 flex flex-1 flex-col bg-transparent">
-                <div className="h-full min-h-0 overflow-y-auto">
-                    <PromptConfigsSection />
-                </div>
+                {sourceSetupLoading ? (
+                    <div className="h-full min-h-0 p-4 space-y-3">
+                        <LemonSkeleton className="h-8 w-56" />
+                        <LemonSkeleton className="h-28 w-full" />
+                        <LemonSkeleton className="h-28 w-full" />
+                    </div>
+                ) : (
+                    <div className="h-full min-h-0 overflow-y-auto">
+                        <PromptConfigsSection />
+                    </div>
+                )}
             </section>
         </div>
     )
