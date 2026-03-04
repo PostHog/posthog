@@ -16,7 +16,6 @@ import {
     CyclotronJobQueueKind,
     CyclotronJobQueueSource,
 } from '../../types'
-import { CyclotronJobQueueDelay } from './job-queue-delay'
 import { CyclotronJobQueueKafka } from './job-queue-kafka'
 import { CyclotronJobQueuePostgres, CyclotronJobQueuePostgresShadow } from './job-queue-postgres'
 import { sanitizeInvocationForPersistence } from './shared'
@@ -55,7 +54,6 @@ export class CyclotronJobQueue {
     private producerForceScheduledToPostgres: boolean
     private jobQueuePostgres: CyclotronJobQueuePostgres
     private jobQueueKafka: CyclotronJobQueueKafka
-    private jobQueueDelay: CyclotronJobQueueDelay
     private shadowPostgres: CyclotronJobQueuePostgresShadow | null = null
     private shadowFailures = 0
     private shadowCircuitOpenUntil = 0
@@ -65,7 +63,6 @@ export class CyclotronJobQueue {
         this.producerTeamMapping = getProducerTeamMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING)
         this.producerForceScheduledToPostgres = this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES
         this.jobQueueKafka = new CyclotronJobQueueKafka(this.config)
-        this.jobQueueDelay = new CyclotronJobQueueDelay(this.config)
         this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.config)
 
         if (this.config.CDP_CYCLOTRON_SHADOW_WRITE_ENABLED && this.config.CYCLOTRON_SHADOW_DATABASE_URL) {
@@ -131,10 +128,6 @@ export class CyclotronJobQueue {
             await this.jobQueueKafka.startAsProducer()
         }
 
-        // if (this.consumerMode === 'delay') {
-        //     await this.jobQueueDelay.startAsProducer()
-        // }
-
         if (this.shadowPostgres) {
             await this.shadowPostgres.startAsProducer().catch((err) => {
                 logger.warn('Shadow cyclotron producer failed to start, disabling shadow writes', {
@@ -163,24 +156,17 @@ export class CyclotronJobQueue {
             )
         } else if (this.consumerMode === 'kafka') {
             await this.jobQueueKafka.startAsConsumer(queue, (invocations) => this.consumeBatch(invocations, 'kafka'))
-        } else if (this.consumerMode === 'delay') {
-            await this.jobQueueDelay.startAsConsumer(queue, (invocations) => this.consumeBatch(invocations, 'delay'))
         }
     }
 
     public async stop() {
         // Important - first shut down the consumers so we aren't processing anything
-        await Promise.all([
-            this.jobQueuePostgres.stopConsumer(),
-            this.jobQueueKafka.stopConsumer(),
-            this.jobQueueDelay.stopConsumer(),
-        ])
+        await Promise.all([this.jobQueuePostgres.stopConsumer(), this.jobQueueKafka.stopConsumer()])
 
         // Only then do we shut down the producers
         await Promise.all([
             this.jobQueuePostgres.stopProducer(),
             this.jobQueueKafka.stopProducer(),
-            this.jobQueueDelay.stopProducer(),
             this.shadowPostgres?.stopProducer(),
         ])
     }
@@ -192,8 +178,6 @@ export class CyclotronJobQueue {
             return this.jobQueuePostgres.isHealthy()
         } else if (this.consumerMode === 'kafka') {
             return this.jobQueueKafka.isHealthy()
-        } else if (this.consumerMode === 'delay') {
-            return this.jobQueueDelay.isHealthy()
         }
 
         return new HealthCheckResultError('Invalid consumer mode', {})
