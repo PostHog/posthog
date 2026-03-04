@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DefinitionPopoverRendererProps, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -14,21 +15,25 @@ import {
     funnelDataWarehouseStepDefinitionPopoverLogic,
 } from './funnelDataWarehouseStepDefinitionPopoverLogic'
 
-type EditableFieldProps = { label: string; shortExplanation: string }
+function isUsingHogQLExpression(fieldValue: string | undefined, table: DataWarehouseTableForInsight): boolean {
+    if (fieldValue === undefined) {
+        return false
+    }
+    return !Object.values(table.fields).some((field) => field.name === fieldValue)
+}
+
+type EditableFieldProps = { shortExplanation: string }
 
 const EDITABLE_FIELD_ORDER: FunnelFieldKey[] = ['distinct_id_field', 'timestamp_field', 'id_field']
 
 const EDITABLE_FIELD_MAP: Record<FunnelFieldKey, EditableFieldProps> = {
     distinct_id_field: {
-        label: 'Aggregation target',
         shortExplanation: 'Used to match people or groups across funnel steps.',
     },
     timestamp_field: {
-        label: 'Timestamp',
         shortExplanation: 'Used to order step timing and apply the funnel date range.',
     },
     id_field: {
-        label: 'Unique ID',
         shortExplanation: 'Used as the unique row ID to detect missing or duplicate records.',
     },
 }
@@ -54,14 +59,16 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
     const { activeFieldKey } = useValues(funnelDataWarehouseStepDefinitionPopoverLogic({ tableName: table.name }))
     const { setActiveFieldKey } = useActions(funnelDataWarehouseStepDefinitionPopoverLogic({ tableName: table.name }))
 
+    const { dataWarehousePopoverFields } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
 
     const { localDefinition } = useValues(definitionPopoverLogic)
     const { setLocalDefinition } = useActions(definitionPopoverLogic)
 
     const dataWarehouseLocalDefinition = localDefinition as Partial<DataWarehouseTableForInsight>
+
+    const activeField = dataWarehousePopoverFields.find((f) => f.key === activeFieldKey)
     const activeFieldValue = dataWarehouseLocalDefinition[activeFieldKey]
-    const selectedItemValue = group.getValue?.(dataWarehouseLocalDefinition) ?? null
 
     const columnOptions = useMemo(
         () =>
@@ -72,6 +79,14 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
             })),
         [table.fields]
     )
+    const activeFieldOptions = useMemo(() => {
+        return [
+            ...columnOptions.filter((column) => !activeField.type || column.type === activeField.type),
+            ...(activeField.allowHogQL ? [{ label: 'SQL Expression', value: '' }] : []),
+        ]
+    }, [activeField, columnOptions])
+
+    const activeFieldIsHogQL = isUsingHogQLExpression(activeFieldValue, table)
 
     return (
         <div className="flex flex-col gap-3">
@@ -82,7 +97,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                 onChange={(value) => setActiveFieldKey(value as FunnelFieldKey)}
                 options={EDITABLE_FIELD_ORDER.map((key) => ({
                     value: key,
-                    label: EDITABLE_FIELD_MAP[key].label,
+                    label: dataWarehousePopoverFields.find((f) => f.key === key).label,
                 }))}
             />
 
@@ -90,7 +105,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
             <LemonSelect
                 fullWidth
                 value={activeFieldValue}
-                options={columnOptions}
+                options={activeFieldOptions}
                 onChange={(value: string | null) =>
                     setLocalDefinition({
                         [activeFieldKey]: value ?? undefined,
@@ -98,9 +113,21 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                 }
             />
 
+            {activeField.allowHogQL && activeFieldIsHogQL && (
+                <HogQLDropdown
+                    hogQLValue={activeFieldValue || ''}
+                    tableName={activeField.tableName || table.name}
+                    onHogQLValueChange={(value) =>
+                        setLocalDefinition({
+                            [activeFieldKey]: value,
+                        } as Partial<DataWarehouseTableForInsight>)
+                    }
+                />
+            )}
+
             <LemonButton
                 onClick={() => {
-                    selectItem(group, selectedItemValue, dataWarehouseLocalDefinition)
+                    selectItem(group, table.name, dataWarehouseLocalDefinition)
                 }}
                 type="primary"
             >
