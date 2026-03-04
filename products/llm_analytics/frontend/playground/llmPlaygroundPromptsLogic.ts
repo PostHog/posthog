@@ -1,7 +1,9 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
+import api from 'lib/api'
 import { isObject, uuid } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
@@ -28,12 +30,23 @@ export interface PromptConfig {
     thinking: boolean
     reasoningLevel: ReasoningLevel
     tools: Record<string, unknown>[] | null
+    sourceType: 'prompt' | 'evaluation' | null;
+    sourcePromptId: string | null;
+    sourcePromptName: string | null;
+    sourceEvaluationId: string | null
     messages: Message[]
 }
 
 export interface PlaygroundSetupPayload {
     model?: string
     provider?: string
+    providerKeyId?: string
+    systemPrompt?: string
+    sourceType?: 'prompt' | 'evaluation'
+    sourcePromptId?: string
+    sourcePromptName?: string
+    sourceEvaluationId?: string
+    sourceEvaluationName?: string
     input?: unknown
     tools?: Record<string, unknown>[]
 }
@@ -52,6 +65,10 @@ export function createPromptConfig(partial: Partial<PromptConfig> = {}): PromptC
         thinking: partial.thinking ?? false,
         reasoningLevel: partial.reasoningLevel ?? 'medium',
         tools: partial.tools ?? null,
+        sourceType: partial.sourceType ?? null,
+        sourcePromptId: partial.sourcePromptId ?? null,
+        sourcePromptName: partial.sourcePromptName ?? null,
+        sourceEvaluationId: partial.sourceEvaluationId ?? null,
         messages: partial.messages ?? [],
     }
 }
@@ -170,6 +187,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         deleteMessage: (index: number, promptId?: string) => ({ index, promptId }),
         addMessage: (message?: Partial<Message>, promptId?: string) => ({ message, promptId }),
         updateMessage: (index: number, payload: Partial<Message>, promptId?: string) => ({ index, payload, promptId }),
+        clearLinkedSource: (promptId?: string) => ({ promptId }),
         setupPlaygroundFromEvent: (payload: PlaygroundSetupPayload) => ({ payload }),
         setLocalToolsJson: (json: string | null, promptId?: string) => ({ json, promptId }),
         clearPendingTargetModel: true,
@@ -178,6 +196,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         ) => ({ target }),
         toggleCollapsed: (key: string) => ({ key }),
         setToolsJsonError: (promptId: string, error: string | null) => ({ promptId, error }),
+        setSourceSetupLoading: (isLoading: boolean) => ({ isLoading }),
     }),
 
     reducers({
@@ -268,6 +287,14 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         newMessages[index] = { ...newMessages[index], ...payload }
                         return { ...prompt, messages: newMessages }
                     }),
+                clearLinkedSource: (state: PromptConfig[], { promptId }: { promptId?: string }) =>
+                    updatePromptConfigs(state, promptId, (prompt) => ({
+                        ...prompt,
+                        sourceType: null,
+                        sourcePromptId: null,
+                        sourcePromptName: null,
+                        sourceEvaluationId: null,
+                    })),
                 setupPlaygroundFromEvent: (state: PromptConfig[], { payload }: { payload: PlaygroundSetupPayload }) => {
                     const targetPrompt = state[0] ?? createPromptConfig({ id: INITIAL_PROMPT.id })
                     const normalizedModel = payload.model ?? targetPrompt.model
@@ -275,6 +302,11 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         {
                             ...targetPrompt,
                             model: normalizedModel,
+                            selectedProviderKeyId: payload.providerKeyId ?? null,
+                            sourceType: payload.sourceType ?? null,
+                            sourcePromptId: payload.sourcePromptId ?? null,
+                            sourcePromptName: payload.sourcePromptName ?? null,
+                            sourceEvaluationId: payload.sourceEvaluationId ?? null,
                         },
                     ]
                 },
@@ -375,6 +407,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 },
             },
         ],
+        sourceSetupLoading: [
+            false as boolean,
+            {
+                setSourceSetupLoading: (_: boolean, { isLoading }: { isLoading: boolean }) => isLoading,
+            },
+        ],
     }),
 
     selectors({
@@ -445,63 +483,132 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
 
-        setupPlaygroundFromEvent: ({ payload }) => {
-            const { input, tools } = payload
+        setupPlaygroundFromEvent: async ({ payload }) => {
+            actions.setSourceSetupLoading(true)
+            const { input, tools, systemPrompt } = payload
             const currentPrompt = values.promptConfigs[0] ?? createPromptConfig({ id: INITIAL_PROMPT.id })
             const promptId = currentPrompt.id
-
-            if (tools) {
-                actions.setTools(tools, promptId)
-            }
-
-            let systemPromptContent: string | undefined = undefined
-            let conversationMessages: Message[] = []
-            let initialUserPrompt: string | undefined = undefined
-
-            if (input) {
-                try {
-                    if (Array.isArray(input) && input.every((msg) => msg.role && msg.content)) {
-                        const systemContents = input
-                            .filter((msg) => msg.role === 'system')
-                            .map((msg) => msg.content)
-                            .filter(
-                                (content): content is string => typeof content === 'string' && content.trim().length > 0
-                            )
-
-                        if (systemContents.length > 0) {
-                            systemPromptContent = systemContents.join('\n\n')
-                        }
-
-                        conversationMessages = input
-                            .filter((msg: RawMessage) => msg.role !== 'system')
-                            .map((msg: RawMessage) => extractConversationMessage(msg))
-                    } else if (typeof input === 'string') {
-                        initialUserPrompt = input
-                    } else if (isObject(input)) {
-                        if (typeof input.content === 'string') {
-                            initialUserPrompt = input.content
-                        } else if (input.content && typeof input.content !== 'string') {
-                            initialUserPrompt = JSON.stringify(input.content, null, 2)
-                        } else {
-                            initialUserPrompt = JSON.stringify(input, null, 2)
-                        }
+            try {
+                if (payload.sourcePromptId) {
+                    try {
+                        const fetchedPrompt = await api.llmPrompts.get(payload.sourcePromptId)
+                        actions.setSystemPrompt(fetchedPrompt.prompt || DEFAULT_SYSTEM_PROMPT, promptId)
+                        actions.setMessages([], promptId)
+                        actions.setActivePromptId(promptId)
+                    } catch (error) {
+                        console.error('Error loading prompt for playground:', error)
                     }
-                } catch (e) {
-                    console.error('Error processing input for playground:', e)
-                    initialUserPrompt = String(input)
-                    conversationMessages = []
+                    const url = combineUrl(urls.llmAnalyticsPlayground(), {
+                        ...router.values.searchParams,
+                        source_prompt_id: payload.sourcePromptId,
+                        source_prompt_name: payload.sourcePromptName,
+                        source_evaluation_id: payload.sourceEvaluationId,
+                        source_evaluation_name: payload.sourceEvaluationName,
+                    }).url
+                    router.actions.push(url)
+                    return
                 }
+
+                if (payload.sourceEvaluationId) {
+                    let resolvedSourceEvaluationName = payload.sourceEvaluationName
+                    try {
+                        const teamId = teamLogic.values.currentTeamId
+                        if (teamId) {
+                            const fetchedEvaluation = await api.get(
+                                `/api/environments/${teamId}/evaluations/${payload.sourceEvaluationId}/`
+                            )
+                            resolvedSourceEvaluationName = resolvedSourceEvaluationName ?? fetchedEvaluation?.name
+                            if (fetchedEvaluation?.evaluation_type === 'llm_judge') {
+                                actions.setSystemPrompt(
+                                    fetchedEvaluation.evaluation_config?.prompt || DEFAULT_SYSTEM_PROMPT,
+                                    promptId
+                                )
+                                const model = fetchedEvaluation.model_configuration?.model
+                                const providerKeyId = fetchedEvaluation.model_configuration?.provider_key_id
+                                if (typeof model === 'string' && model.length > 0) {
+                                    actions.setModel(model, providerKeyId ?? undefined, promptId)
+                                }
+                            }
+                        }
+                        actions.setMessages([], promptId)
+                        actions.setActivePromptId(promptId)
+                    } catch (error) {
+                        console.error('Error loading evaluation for playground:', error)
+                    }
+                    const url = combineUrl(urls.llmAnalyticsPlayground(), {
+                        ...router.values.searchParams,
+                        source_prompt_id: payload.sourcePromptId,
+                        source_prompt_name: payload.sourcePromptName,
+                        source_evaluation_id: payload.sourceEvaluationId,
+                        source_evaluation_name: resolvedSourceEvaluationName,
+                    }).url
+                    router.actions.push(url)
+                    return
+                }
+
+                if (tools) {
+                    actions.setTools(tools, promptId)
+                }
+
+                let systemPromptContent: string | undefined = undefined
+                let conversationMessages: Message[] = []
+                let initialUserPrompt: string | undefined = undefined
+
+                if (input) {
+                    try {
+                        if (Array.isArray(input) && input.every((msg) => msg.role && msg.content)) {
+                            const systemContents = input
+                                .filter((msg) => msg.role === 'system')
+                                .map((msg) => msg.content)
+                                .filter(
+                                    (content): content is string =>
+                                        typeof content === 'string' && content.trim().length > 0
+                                )
+
+                            if (systemContents.length > 0) {
+                                systemPromptContent = systemContents.join('\n\n')
+                            }
+
+                            conversationMessages = input
+                                .filter((msg: RawMessage) => msg.role !== 'system')
+                                .map((msg: RawMessage) => extractConversationMessage(msg))
+                        } else if (typeof input === 'string') {
+                            initialUserPrompt = input
+                        } else if (isObject(input)) {
+                            if (typeof input.content === 'string') {
+                                initialUserPrompt = input.content
+                            } else if (input.content && typeof input.content !== 'string') {
+                                initialUserPrompt = JSON.stringify(input.content, null, 2)
+                            } else {
+                                initialUserPrompt = JSON.stringify(input, null, 2)
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error processing input for playground:', e)
+                        initialUserPrompt = String(input)
+                        conversationMessages = []
+                    }
+                }
+
+                actions.setSystemPrompt(systemPrompt ?? systemPromptContent ?? DEFAULT_SYSTEM_PROMPT, promptId)
+
+                if (initialUserPrompt) {
+                    conversationMessages.unshift({ role: 'user', content: initialUserPrompt })
+                }
+
+                actions.setMessages(conversationMessages, promptId)
+                actions.setActivePromptId(promptId)
+                const url = combineUrl(urls.llmAnalyticsPlayground(), {
+                    ...router.values.searchParams,
+                    source_prompt_id: payload.sourcePromptId,
+                    source_prompt_name: payload.sourcePromptName,
+                    source_evaluation_id: payload.sourceEvaluationId,
+                    source_evaluation_name: payload.sourceEvaluationName,
+                }).url
+                router.actions.push(url)
+            } finally {
+                actions.setSourceSetupLoading(false)
             }
-
-            actions.setSystemPrompt(systemPromptContent ?? DEFAULT_SYSTEM_PROMPT, promptId)
-
-            if (initialUserPrompt) {
-                conversationMessages.unshift({ role: 'user', content: initialUserPrompt })
-            }
-
-            actions.setMessages(conversationMessages, promptId)
-            actions.setActivePromptId(promptId)
-            router.actions.push(urls.llmAnalyticsPlayground())
         },
     })),
 ])
