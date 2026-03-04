@@ -596,61 +596,34 @@ describe('the activity log logic', () => {
             expect(text).not.toContain('control: 50%')
         })
 
-        it('does not mention payload change on multivariate flag when payload is unchanged', async () => {
+        it.each([
+            {
+                name: 'multivariate flag',
+                payloads: { control: 'old-payload' },
+                multivariate: {
+                    variants: [
+                        { key: 'control', rollout_percentage: 50 },
+                        { key: 'test', rollout_percentage: 50 },
+                    ],
+                },
+            },
+            {
+                name: 'boolean flag',
+                payloads: { true: 'my-payload' },
+                multivariate: null,
+            },
+        ])('does not mention payload change when payload is unchanged on $name', async ({ payloads, multivariate }) => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
                     type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'filters',
-                    before: {
-                        groups: [{ properties: [], rollout_percentage: 50 }],
-                        payloads: { control: 'old-payload' },
-                        multivariate: {
-                            variants: [
-                                { key: 'control', rollout_percentage: 50 },
-                                { key: 'test', rollout_percentage: 50 },
-                            ],
-                        },
-                    },
-                    after: {
-                        groups: [{ properties: [], rollout_percentage: 80 }],
-                        payloads: { control: 'old-payload' },
-                        multivariate: {
-                            variants: [
-                                { key: 'control', rollout_percentage: 50 },
-                                { key: 'test', rollout_percentage: 50 },
-                            ],
-                        },
-                    },
+                    before: { groups: [{ properties: [], rollout_percentage: 50 }], payloads, multivariate },
+                    after: { groups: [{ properties: [], rollout_percentage: 80 }], payloads, multivariate },
                 },
             ])
 
-            const actual = logic.values.humanizedActivity
-            const text = render(<>{actual[0].description}</>).container.textContent
-            expect(text).not.toContain('changed payload')
-        })
-
-        it('does not mention payload change on boolean flag when payload is unchanged', async () => {
-            const logic = await featureFlagsTestSetup('test flag', 'updated', [
-                {
-                    type: ActivityScope.FEATURE_FLAG,
-                    action: 'changed',
-                    field: 'filters',
-                    before: {
-                        groups: [{ properties: [], rollout_percentage: 50 }],
-                        payloads: { true: 'my-payload' },
-                        multivariate: null,
-                    },
-                    after: {
-                        groups: [{ properties: [], rollout_percentage: 80 }],
-                        payloads: { true: 'my-payload' },
-                        multivariate: null,
-                    },
-                },
-            ])
-
-            const actual = logic.values.humanizedActivity
-            const text = render(<>{actual[0].description}</>).container.textContent
+            const text = render(<>{logic.values.humanizedActivity[0].description}</>).container.textContent
             expect(text).not.toContain('changed payload')
         })
 
