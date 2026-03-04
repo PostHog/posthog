@@ -262,8 +262,16 @@ class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
         super().__init__(context)
 
     def get_default_limit_bound(self) -> ast.Expr:
+        team_id = self.context.team_id
+        if team_id is None:
+            return ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Sub,
+                left=ast.Call(name="now", args=[]),
+                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=DEFAULT_SESSION_LOOKBACK_DAYS)]),
+            )
+
         latest_event_last_seen_at = (
-            EventDefinition.objects.filter(team_id=self.context.team_id, last_seen_at__isnull=False)
+            EventDefinition.objects.filter(team_id=team_id, last_seen_at__isnull=False)
             .values_list("last_seen_at", flat=True)
             .order_by("-last_seen_at")
             .first()
