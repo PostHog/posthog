@@ -486,18 +486,28 @@ export const PromptListSchema = z.object({
     search: z.string().optional().describe('Filter prompts by name'),
 })
 
+const PromptNameSchema = z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]+$/, 'Name must only contain letters, numbers, hyphens, or underscores')
+
 export const PromptGetSchema = z.object({
-    name: z.string().describe('The name of the prompt to retrieve'),
+    name: PromptNameSchema.describe('The name of the prompt to retrieve'),
+    version: z.number().int().positive().optional().describe('Specific version number to retrieve. Omit for latest'),
 })
 
 export const PromptCreateSchema = z.object({
-    name: z.string().describe('Unique name (letters, numbers, hyphens, underscores only)'),
+    name: PromptNameSchema.describe('Unique name (letters, numbers, hyphens, underscores only)'),
     prompt: z.any().describe('The prompt content (string or JSON object)'),
 })
 
 export const PromptUpdateSchema = z.object({
-    name: z.string().describe('The name of the prompt to update'),
+    name: PromptNameSchema.describe('The name of the prompt to update'),
     prompt: z.any().describe('The updated prompt content'),
+    base_version: z
+        .number()
+        .int()
+        .positive()
+        .describe('The version number you are basing this update on (for conflict detection)'),
 })
 
 // PostHog AI tools

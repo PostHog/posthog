@@ -17,10 +17,12 @@ export const listHandler: ToolBase<typeof schema>['handler'] = async (context: C
 
     const result = await promptFetch<{ results: any[] }>(context, '/', { query })
 
-    return (result.results ?? result).map((p: any) => ({
+    return (result.results ?? []).map((p: any) => ({
         id: p.id,
         name: p.name,
         version: p.version,
+        latest_version: p.latest_version,
+        version_count: p.version_count,
         created_at: p.created_at,
         updated_at: p.updated_at,
     }))
