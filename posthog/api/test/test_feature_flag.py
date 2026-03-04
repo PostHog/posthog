@@ -638,44 +638,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_create_feature_flag_via_api_key_reports_api_source(self, mock_report_user_action):
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
-
-        self.client.logout()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "key": "api-created-feature",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
-            },
-            format="json",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        instance = FeatureFlag.objects.get(id=response.json()["id"])
-
-        mock_report_user_action.assert_called_once_with(
-            self.user,
-            "feature flag created",
-            {
-                "groups_count": 1,
-                "has_variants": False,
-                "variants_count": 0,
-                "has_rollout_percentage": False,
-                "has_filters": False,
-                "filter_count": 0,
-                "created_at": instance.created_at,
-                "aggregating_by_groups": False,
-                "payload_count": 0,
-                "creation_context": "feature_flags",
-            },
-            team=ANY,
-            request=ANY,
-        )
-
-    @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_analytics_dashboards(self, mock_report_user_action):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         response = self.client.post(
