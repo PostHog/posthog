@@ -163,8 +163,8 @@ export function SessionSummarizationProgress({ updates }: { updates: object[] })
                 maxRemainingDuration = Math.max(maxRemainingDuration, session.active_duration_s)
             }
         }
-        // Analysis watches at VIDEO_ANALYSIS_PLAYBACK_SPEED, so actual wait = active_duration / speed
-        const analysisTime = maxRemainingDuration / VIDEO_ANALYSIS_PLAYBACK_SPEED
+        // Analysis watches at VIDEO_ANALYSIS_PLAYBACK_SPEED, plus ~90s overhead for video export/processing
+        const analysisTime = maxRemainingDuration / VIDEO_ANALYSIS_PLAYBACK_SPEED + 90
         // Subtract elapsed time since we started (sessions run concurrently)
         const elapsed = (Date.now() - summarizingStartedAt.current) / 1000
         const remaining = analysisTime - elapsed
