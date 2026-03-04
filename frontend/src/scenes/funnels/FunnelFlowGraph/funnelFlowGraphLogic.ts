@@ -191,11 +191,14 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                         type: nodeType,
                         sourceHandle: `${node.id}-source`,
                         targetHandle: `${targetNode.id}-target`,
-                        markerEnd: { type: MarkerType.ArrowClosed },
+                        markerEnd: {
+                            type: MarkerType.ArrowClosed,
+                            ...(isProfileMode && { color: 'var(--color-border-secondary)' }),
+                        },
                         deletable: false,
                         style: {
                             ...(isProfileMode && {
-                                stroke: 'var(--border)',
+                                stroke: 'var(--color-border-secondary)',
                                 strokeWidth: 2,
                             }),
                             ...(touchesOptionalStep && { strokeDasharray: '5 5' }),

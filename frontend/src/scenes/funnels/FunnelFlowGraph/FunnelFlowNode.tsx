@@ -46,13 +46,13 @@ export const ProfileFlowNode = React.memo(function ProfileFlowNode({
             <div
                 className={clsx(
                     'relative flex rounded-full border-2 p-1 items-center justify-center w-10 h-10',
-                    isCompleted ? 'border-success bg-success/5' : 'border-border bg-bg-light opacity-60',
-                    isOptional ? 'border-success-highlight border-dashed' : ''
+                    isCompleted ? 'border-success bg-success/5' : 'border-secondary bg-fill-tertiary',
+                    isOptional && 'border-dashed'
                 )}
             >
                 <Handle type="target" position={Position.Left} id={`step-${stepIndex}-target`} className="opacity-0" />
                 <Handle type="source" position={Position.Right} id={`step-${stepIndex}-source`} className="opacity-0" />
-                <span className={clsx('text-xs font-semibold', isCompleted ? 'text-success' : 'text-muted')}>
+                <span className={clsx('text-xs font-semibold', isCompleted ? 'text-success' : 'text-primary')}>
                     {isCompleted ? <IconCheck /> : <IconX />}
                 </span>
             </div>
