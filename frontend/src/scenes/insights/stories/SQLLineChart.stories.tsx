@@ -50,4 +50,15 @@ SQLLineChart.parameters = {
         waitForSelector: '.DataVisualization canvas',
     },
 }
+
+export const SQLLineChartBreakdown: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/sqlLineChartBreakdown.json')
+)
+SQLLineChartBreakdown.parameters = {
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '.DataVisualization canvas',
+    },
+}
 /* eslint-enable @typescript-eslint/no-var-requires */
