@@ -202,7 +202,36 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             return_value=PropertyValuesQueryResponse(results=[]),
         ) as mock_run:
             self.client.get(url)
-            mock_run.assert_called_once_with(ExecutionMode[expected_mode_name])
+            mock_run.assert_called_once_with(ExecutionMode[expected_mode_name], is_polling=False)
+
+    @parameterized.expand(
+        [
+            ("not_set", "", False),
+            ("false", "is_polling=false", False),
+            ("true", "is_polling=true", True),
+        ]
+    )
+    @freeze_time("2020-01-10")
+    def test_person_property_values_is_polling(self, _name, param, expected_is_polling):
+        from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryResponse
+        from posthog.hogql_queries.query_runner import ExecutionMode
+
+        _create_person(distinct_ids=["u1"], team=self.team, properties={"country": "US"})
+        flush_persons_and_events()
+
+        url = "/api/person/values/?key=country"
+        if param:
+            url += f"&{param}"
+
+        with mock.patch(
+            "posthog.hogql_queries.property_values_query_runner.PropertyValuesQueryRunner.run",
+            return_value=PropertyValuesQueryResponse(results=[]),
+        ) as mock_run:
+            self.client.get(url)
+            mock_run.assert_called_once_with(
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                is_polling=expected_is_polling,
+            )
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
