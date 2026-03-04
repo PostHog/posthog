@@ -1345,15 +1345,8 @@ jobs:
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             # Oldest supported version as plain string (for comparisons)
             oldest_supported_image: ${{ steps.read-versions.outputs.oldest_supported_image }}
-<<<<<<< webjunkie/improve-clickhouse-compat-tests
             # Fully expanded compat matrix (version x shard group)
             compat_matrix: ${{ steps.read-versions.outputs.compat_matrix }}
-=======
-            # Compat versions (all unique versions except oldest_supported, already tested by Django)
-            compat_versions: ${{ steps.read-versions.outputs.compat_versions }}
-            # Whether to skip compat tests (no additional versions to test)
-            skip_compat: ${{ steps.read-versions.outputs.skip_compat }}
->>>>>>> master
         steps:
             - uses: actions/checkout@v6
               with:
@@ -1379,7 +1372,6 @@ jobs:
                   echo "oldest_supported_image=$oldest_supported" >> $GITHUB_OUTPUT
                   echo "Oldest supported version for Django tests: $oldest_supported"
 
-<<<<<<< webjunkie/improve-clickhouse-compat-tests
                   # Read all unique versions so we can derive compat coverage.
                   all=$(jq -c '[.[]] | unique' .github/clickhouse-versions.json)
                   if [ "$all" = "[]" ] || [ -z "$all" ]; then
@@ -1413,65 +1405,6 @@ jobs:
                     echo "compat_matrix=$compat_matrix" >> $GITHUB_OUTPUT
                     echo "Compat matrix: $compat_matrix"
                   fi
-
-=======
-                  # Compat versions: all unique versions except oldest_supported (already tested by Django shards)
-                  compat_versions=$(jq -c --arg oldest "$oldest_supported" '[.[]] | unique | map(select(. != $oldest))' .github/clickhouse-versions.json)
-                  if [ "$compat_versions" = "[]" ] || [ -z "$compat_versions" ]; then
-                    echo "skip_compat=true" >> $GITHUB_OUTPUT
-                    echo "compat_versions=[]" >> $GITHUB_OUTPUT
-                    echo "No additional CH versions to test — oldest_supported already covered by Django tests"
-                  else
-                    echo "skip_compat=false" >> $GITHUB_OUTPUT
-                    echo "compat_versions=$compat_versions" >> $GITHUB_OUTPUT
-                    echo "Compat versions (excluding oldest_supported $oldest_supported): $compat_versions"
-                  fi
-
-    clickhouse-compat:
-        name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
-        needs: [changes, turbo-discover, get_clickhouse_versions]
-        # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
-        if: |
-            always() &&
-            needs.changes.outputs.backend == 'true' &&
-            needs.get_clickhouse_versions.outputs.skip_compat != 'true' &&
-            (needs.changes.outputs.legacy == 'true' ||
-             needs.turbo-discover.outputs.run_legacy == 'true' ||
-             (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
-        runs-on: depot-ubuntu-latest
-        strategy:
-            fail-fast: false
-            matrix:
-                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.compat_versions) }}
-        steps:
-            - uses: actions/checkout@v6
-              with:
-                  fetch-depth: 1
-                  clean: false
-            - name: Clean up data directories with container permissions
-              run: |
-                  # Use docker to clean up files created by containers
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
-              continue-on-error: true
-            - name: Run ClickHouse compat tests
-              uses: ./.github/actions/run-backend-tests
-              with:
-                  python-version: '3.12.12'
-                  clickhouse-server-image: ${{ matrix.clickhouse-server-image }}
-                  segment: 'Core'
-                  concurrency: 1
-                  group: 1
-                  person-on-events: false
-                  pytest-targets: 'posthog/clickhouse ee/clickhouse'
-                  oldest_supported_clickhouse_image: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-                  # Skip plugin transpiler build - these tests don't need it and it causes esbuild deadlocks
-                  skip-plugin-transpiler: 'true'
-                  # Compat tests run a subset and don't own snapshots (main django tests do).
-                  # This flag makes unused snapshots non-fatal and always updates snapshot
-                  # content so compat tests never fail due to CH version query differences.
-                  snapshot-warn-unused: 'true'
-
->>>>>>> master
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:
         name: Commit snapshot changes
