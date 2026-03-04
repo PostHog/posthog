@@ -294,6 +294,7 @@ services:
         build:
             context: https://github.com/PostHog/duckgres.git#main
         restart: on-failure
+        profiles: ['duckgres']
         ports:
             - '15432:15432'
         volumes:
