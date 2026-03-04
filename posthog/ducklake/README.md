@@ -50,15 +50,15 @@ Every copy is written to a deterministic schema inside DuckLake. Each workflow n
 
 ### Data Modeling
 
-- **Schema**: `data_modeling_team_<team_id>`
+- **Schema**: `posthog_data_modeling`
 - **Table**: `<model_label>` (derived from saved query name)
-- **Example**: `ducklake.data_modeling_team_123.my_saved_query`
+- **Example**: `ducklake.posthog_data_modeling.my_saved_query`
 
 ### Data Imports
 
-- **Schema**: `data_imports_team_<team_id>`
-- **Table**: `<source_type>_<normalized_name>_<schema_id_hex[:8]>`
-- **Example**: `ducklake.data_imports_team_123.stripe_invoices_a1b2c3d4`
+- **Schema**: `posthog_data_imports`
+- **Table**: `<source_type>_<prefix>_<normalized_name>` (prefix is user-defined on the external data source)
+- **Example**: `ducklake.posthog_data_imports.stripe_prod_invoices`
 
 Re-running a copy simply overwrites the same table. Choose the bucket so its lifecycle/replication policies fit that structure.
 
@@ -90,7 +90,7 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
    Once the modeling workflow completes it automatically starts `ducklake-copy.data-modeling` as a child run. You should see it listed in the same Temporal UI; wait for the run to complete.
 
 5. **Query the new DuckLake table**
-   The copy activity creates a table at `ducklake.data_modeling_team_<team_id>.<model_label>`. From any DuckDB shell you can inspect it, for example:
+   The copy activity creates a table at `ducklake.posthog_data_modeling.<model_label>`. From any DuckDB shell you can inspect it, for example:
 
    ```sql
    duckdb -c "
@@ -112,7 +112,7 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
      SELECT table_schema, table_name FROM information_schema.tables WHERE table_catalog = 'ducklake';
 
      -- Query a specific table
-     SELECT * FROM ducklake.data_modeling_team_${TEAM_ID}.${MODEL_LABEL} LIMIT 10;
+     SELECT * FROM ducklake.posthog_data_modeling.${MODEL_LABEL} LIMIT 10;
    "
    ```
 
@@ -131,7 +131,7 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
    Once the import workflow completes it automatically starts `ducklake-copy.data-imports` as a child run. You should see it listed in the same Temporal UI; wait for the run to complete.
 
 5. **Query the new DuckLake table**
-   The copy activity creates a table at `ducklake.data_imports_team_<team_id>.<source_type>_<table_name>_<schema_id_hex>`. From any DuckDB shell you can inspect it:
+   The copy activity creates a table at `ducklake.posthog_data_imports.<source_type>_<prefix>_<table_name>`. From any DuckDB shell you can inspect it:
 
    ```sql
    duckdb -c "
@@ -153,6 +153,6 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
      SELECT table_schema, table_name FROM information_schema.tables WHERE table_catalog = 'ducklake';
 
      -- Query a specific table
-     SELECT * FROM ducklake.data_imports_team_${TEAM_ID}.${SOURCE_TYPE}_${TABLE_NAME}_${SCHEMA_ID_HEX} LIMIT 10;
+     SELECT * FROM ducklake.posthog_data_imports.${SOURCE_TYPE}_${PREFIX}_${TABLE_NAME} LIMIT 10;
    "
    ```

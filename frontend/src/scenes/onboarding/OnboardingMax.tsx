@@ -1,26 +1,17 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import {
-    IconArrowRight,
-    IconCheck,
-    IconFlag,
-    IconFlask,
-    IconGraph,
-    IconMessage,
-    IconRewindPlay,
-    IconWarning,
-} from '@posthog/icons'
+import { IconArrowRight, IconCheck } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { Logomark } from 'lib/brand/Logomark'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { ThreadAutoScroller } from 'scenes/max/components/ThreadAutoScroller'
 import { TOOL_DEFINITIONS, ToolRegistration } from 'scenes/max/max-constants'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
-import { MessageTemplate } from 'scenes/max/messages/MessageTemplate'
 import { Thread } from 'scenes/max/Thread'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -28,97 +19,31 @@ import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { onboardingLogic } from './onboardingLogic'
+import { USE_CASE_OPTIONS } from './productRecommendations'
+import { getProductIcon } from './productSelection/ProductSelection'
+import { availableOnboardingProducts } from './utils'
 
 const ONBOARDING_TAB_ID = 'onboarding'
 
-interface QuickOption {
-    label: string
-    description: string
-    icon: JSX.Element
-    prompt: string
+function getProductInfo(
+    productKey: ProductKey
+): { name: string; description: string; iconKey: string; iconColor: string } | undefined {
+    if (!(productKey in availableOnboardingProducts)) {
+        return undefined
+    }
+    const product = availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]
+    return {
+        name: product.name,
+        description: product.description,
+        iconKey: product.icon,
+        iconColor: product.iconColor,
+    }
 }
 
-const QUICK_OPTIONS: QuickOption[] = [
-    {
-        label: 'Understand user behavior',
-        description: 'Track events, analyze funnels, see how users navigate',
-        icon: <IconGraph className="text-warning" />,
-        prompt: 'I want to understand how users behave in my product - track events, build funnels, and see user journeys. What tools should I use?',
-    },
-    {
-        label: 'Find and fix issues',
-        description: 'Watch session recordings, catch errors',
-        icon: <IconRewindPlay className="text-purple" />,
-        prompt: 'I want to find and fix issues in my product - watch what users experience and catch errors. What do you recommend?',
-    },
-    {
-        label: 'Run experiments',
-        description: 'A/B tests, feature flags, gradual rollouts',
-        icon: <IconFlask className="text-danger" />,
-        prompt: 'I want to run A/B tests and experiments, use feature flags for gradual rollouts. What should I set up?',
-    },
-]
-
-const PRODUCT_INFO: Partial<Record<ProductKey, { name: string; description: string; icon: JSX.Element }>> = {
-    [ProductKey.PRODUCT_ANALYTICS]: {
-        name: 'Product analytics',
-        description: 'Track events, build funnels, analyze user journeys',
-        icon: <IconGraph className="text-warning" />,
-    },
-    [ProductKey.SESSION_REPLAY]: {
-        name: 'Session replay',
-        description: 'Watch real user sessions to understand behavior',
-        icon: <IconRewindPlay className="text-purple" />,
-    },
-    [ProductKey.FEATURE_FLAGS]: {
-        name: 'Feature flags',
-        description: 'Control rollouts, target users, kill switches',
-        icon: <IconFlag className="text-success" />,
-    },
-    [ProductKey.EXPERIMENTS]: {
-        name: 'Experiments',
-        description: 'A/B tests with statistical significance',
-        icon: <IconFlask className="text-danger" />,
-    },
-    [ProductKey.SURVEYS]: {
-        name: 'Surveys',
-        description: 'Collect in-app user feedback',
-        icon: <IconMessage className="text-primary" />,
-    },
-    [ProductKey.ERROR_TRACKING]: {
-        name: 'Error tracking',
-        description: 'Catch and debug exceptions automatically',
-        icon: <IconWarning className="text-danger" />,
-    },
-    [ProductKey.WEB_ANALYTICS]: {
-        name: 'Web analytics',
-        description: 'Privacy-friendly website traffic insights',
-        icon: <IconGraph className="text-primary" />,
-    },
-    [ProductKey.LLM_ANALYTICS]: {
-        name: 'LLM observability',
-        description: 'Monitor AI costs, latency, and conversations',
-        icon: <IconGraph className="text-purple" />,
-    },
-    [ProductKey.DATA_WAREHOUSE]: {
-        name: 'Data warehouse',
-        description: 'Query all your data in one place',
-        icon: <IconGraph className="text-muted" />,
-    },
-}
-
-// Map from tool product keys to PostHog ProductKey enum
-const TOOL_PRODUCT_TO_PRODUCT_KEY: Record<string, ProductKey> = {
-    product_analytics: ProductKey.PRODUCT_ANALYTICS,
-    session_replay: ProductKey.SESSION_REPLAY,
-    feature_flags: ProductKey.FEATURE_FLAGS,
-    experiments: ProductKey.EXPERIMENTS,
-    surveys: ProductKey.SURVEYS,
-    web_analytics: ProductKey.WEB_ANALYTICS,
-    error_tracking: ProductKey.ERROR_TRACKING,
-    data_warehouse: ProductKey.DATA_WAREHOUSE,
-    llm_observability: ProductKey.LLM_ANALYTICS,
-}
+// Map from tool product keys (backend PostHogProduct enum) to frontend ProductKey
+const TOOL_PRODUCT_TO_PRODUCT_KEY: Record<string, ProductKey> = Object.fromEntries(
+    Object.keys(availableOnboardingProducts).map((key) => [key, key as ProductKey])
+)
 
 interface ProductRecommendationsProps {
     products: ProductKey[]
@@ -138,7 +63,7 @@ function ProductRecommendations({
             <div className="flex flex-col gap-3 mt-3 w-full">
                 <div className="text-sm font-medium text-muted mb-1">Recommended for you (click to select):</div>
                 {products.map((productKey: ProductKey, index: number) => {
-                    const info = PRODUCT_INFO[productKey]
+                    const info = getProductInfo(productKey)
                     if (!info) {
                         return null
                     }
@@ -148,7 +73,7 @@ function ProductRecommendations({
                             key={productKey}
                             onClick={() => onToggleProduct(productKey)}
                             className={clsx(
-                                'flex items-center gap-3 p-3 border rounded-lg text-left transition-all',
+                                'flex items-center gap-3 p-3 border rounded-lg text-left transition-all cursor-pointer',
                                 isSelected
                                     ? 'bg-primary-highlight border-primary ring-1 ring-primary'
                                     : 'bg-surface-primary hover:bg-fill-highlight-100 hover:border-primary'
@@ -156,7 +81,9 @@ function ProductRecommendations({
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ '--index': index } as React.CSSProperties}
                         >
-                            <div className="text-2xl">{info.icon}</div>
+                            <div className="text-2xl">
+                                {getProductIcon(info.iconKey, { iconColor: info.iconColor })}
+                            </div>
                             <div className="flex-1">
                                 <div className="font-semibold">{info.name}</div>
                                 <div className="text-sm text-muted">{info.description}</div>
@@ -173,9 +100,8 @@ function ProductRecommendations({
 
             {selectedProducts.length > 0 && (
                 <div className="mt-4">
-                    <LemonButton type="primary" size="large" onClick={onContinue}>
+                    <LemonButton type="primary" status="alt" onClick={onContinue} sideIcon={<IconArrowRight />}>
                         Continue to setup ({selectedProducts.length} selected)
-                        <IconArrowRight className="ml-2" />
                     </LemonButton>
                 </div>
             )}
@@ -192,16 +118,12 @@ export function OnboardingMax(): JSX.Element {
 
     const { threadVisible, conversation, threadLogicKey } = useValues(maxLogic({ tabId: ONBOARDING_TAB_ID }))
 
-    const threadProps: MaxThreadLogicProps = useMemo(
-        () => ({
-            tabId: ONBOARDING_TAB_ID,
-            conversationId: threadLogicKey,
-            conversation,
-        }),
-        [threadLogicKey, conversation]
-    )
+    const threadProps: MaxThreadLogicProps = {
+        tabId: ONBOARDING_TAB_ID,
+        conversationId: threadLogicKey,
+        conversation,
+    }
 
-    // Register the recommend_products tool callback
     useEffect(() => {
         const toolRegistration: ToolRegistration = {
             identifier: 'recommend_products',
@@ -215,7 +137,7 @@ export function OnboardingMax(): JSX.Element {
 
                     if (products.length > 0) {
                         setRecommendedProducts(products)
-                        setSelectedProducts(products) // Pre-select all recommended products
+                        setSelectedProducts(products)
                     }
                 }
             },
@@ -227,14 +149,6 @@ export function OnboardingMax(): JSX.Element {
         }
     }, [registerTool, deregisterTool])
 
-    // Set agent mode to Onboarding when the thread logic mounts
-    useEffect(() => {
-        const logic = maxThreadLogic.findMounted(threadProps)
-        if (logic) {
-            logic.actions.setAgentMode(AgentMode.Onboarding)
-        }
-    }, [threadProps])
-
     const handleToggleProduct = (product: ProductKey): void => {
         setSelectedProducts((prev) => (prev.includes(product) ? prev.filter((p) => p !== product) : [...prev, product]))
     }
@@ -245,7 +159,6 @@ export function OnboardingMax(): JSX.Element {
                 products_selected: selectedProducts,
                 products_recommended: recommendedProducts,
             })
-            // Set the first selected product to trigger onboarding flow
             setProductKey(selectedProducts[0])
         }
     }
@@ -254,11 +167,9 @@ export function OnboardingMax(): JSX.Element {
         <BindLogic logic={maxLogic} props={{ tabId: ONBOARDING_TAB_ID }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 <AIConsentPopoverWrapper>
-                    <div className="flex flex-col h-full min-h-[calc(100vh-var(--scene-layout-header-height))]">
+                    <div className="flex flex-col items-center min-h-[calc(100vh-var(--scene-layout-header-height))]">
                         {!threadVisible ? (
-                            <div className="flex flex-col flex-1 justify-center items-center px-3">
-                                <OnboardingWelcome />
-                            </div>
+                            <OnboardingWelcome />
                         ) : (
                             <ThreadAutoScroller>
                                 <Thread className="p-3" />
@@ -282,44 +193,38 @@ export function OnboardingMax(): JSX.Element {
 
 function OnboardingWelcome(): JSX.Element {
     const { setAgentMode } = useActions(maxThreadLogic)
-    const { askMax } = useActions(maxLogic({ tabId: ONBOARDING_TAB_ID }))
+    const { askMax } = useActions(maxLogic)
 
     useEffect(() => {
         setAgentMode(AgentMode.Onboarding)
     }, [setAgentMode])
 
     return (
-        <div className="flex flex-col items-stretch w-full max-w-180 gap-4">
-            <MessageTemplate type="ai" className="items-stretch" wrapperClassName="w-full">
-                <div className="flex flex-col gap-3">
-                    <div className="text-center">
-                        <div className="font-bold text-base mb-1">
-                            What are you building and what do you need help with?
-                        </div>
-                        <div className="text-sm text-muted">
-                            I'll recommend the best PostHog products for your needs. Pick an option or describe what you
-                            need:
-                        </div>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                        {QUICK_OPTIONS.map((option) => (
-                            <button
-                                key={option.label}
-                                onClick={() => askMax(option.prompt)}
-                                className="flex items-center gap-3 p-3 border rounded-lg text-left transition-all hover:bg-fill-highlight-100 hover:border-primary"
-                            >
-                                <div className="text-2xl">{option.icon}</div>
-                                <div className="flex-1">
-                                    <div className="font-semibold">{option.label}</div>
-                                    <div className="text-sm text-muted">{option.description}</div>
-                                </div>
-                                <IconArrowRight className="text-muted" />
-                            </button>
-                        ))}
-                    </div>
+        <div className="grow flex flex-col items-center justify-center w-full px-4 pb-7 gap-3">
+            <div className="flex *:h-full *:w-12 p-2">
+                <Logomark />
+            </div>
+            <div className="text-center mb-1">
+                <h2 className="text-xl font-bold mb-2 text-balance">What are you building?</h2>
+                <div className="text-sm text-tertiary text-pretty">
+                    Tell me about your project and I'll recommend the right tools.
                 </div>
-            </MessageTemplate>
+            </div>
             <SidebarQuestionInput />
+            <div className="flex flex-wrap items-center justify-center gap-2 max-w-180">
+                {USE_CASE_OPTIONS.map((useCase) => (
+                    <LemonButton
+                        key={useCase.key}
+                        type="secondary"
+                        size="small"
+                        icon={getProductIcon(useCase.iconKey, { iconColor: useCase.iconColor, className: 'text-base' })}
+                        onClick={() => askMax(`I want to ${useCase.title.toLowerCase()}`)}
+                        data-attr={`onboarding-chat-${useCase.key}`}
+                    >
+                        {useCase.title}
+                    </LemonButton>
+                ))}
+            </div>
         </div>
     )
 }

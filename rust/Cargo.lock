@@ -2094,6 +2094,7 @@ name = "common-kafka"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "common-liveness",
  "envconfig",
  "health",
  "rdkafka",
@@ -2105,6 +2106,10 @@ dependencies = [
  "tracing",
  "uuid",
 ]
+
+[[package]]
+name = "common-liveness"
+version = "0.1.0"
 
 [[package]]
 name = "common-metrics"
@@ -3188,6 +3193,7 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-cache",
  "common-compression",
  "common-continuous-profiling",
  "common-cookieless",
@@ -3741,6 +3747,7 @@ name = "health"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
+ "common-liveness",
  "time",
  "tokio",
  "tracing",
@@ -4936,6 +4943,7 @@ name = "lifecycle"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
+ "common-liveness",
  "metrics",
  "thiserror 2.0.18",
  "tokio",
@@ -6085,8 +6093,8 @@ dependencies = [
  "common-alloc",
  "common-metrics",
  "envconfig",
- "health",
  "http 1.4.0",
+ "lifecycle",
  "metrics",
  "personhog-proto",
  "pin-project",

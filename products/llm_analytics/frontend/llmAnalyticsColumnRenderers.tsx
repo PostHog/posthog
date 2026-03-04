@@ -346,6 +346,30 @@ const getEventData = (record: unknown, query?: DataTableNode | DataVisualization
     return undefined
 }
 
+const MAX_VISIBLE_TOOLS = 5
+
+function ToolsDisplay({ tools }: { tools: string[] | undefined | null }): JSX.Element {
+    if (!tools || tools.length === 0) {
+        return <>–</>
+    }
+    const visible = tools.slice(0, MAX_VISIBLE_TOOLS)
+    const remaining = tools.length - MAX_VISIBLE_TOOLS
+    return (
+        <div className="flex flex-wrap gap-1">
+            {visible.map((tool) => (
+                <LemonTag key={tool} type="muted">
+                    {tool}
+                </LemonTag>
+            ))}
+            {remaining > 0 && (
+                <Tooltip title={tools.slice(MAX_VISIBLE_TOOLS).join(', ')}>
+                    <LemonTag type="muted">+{remaining} more</LemonTag>
+                </Tooltip>
+            )}
+        </div>
+    )
+}
+
 export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
     'properties.$ai_input[-1]': {
         title: 'Input',
@@ -490,18 +514,14 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
                         .filter(Boolean)
                 ),
             ]
-            if (tools.length === 0) {
-                return <>–</>
-            }
-            return (
-                <div className="flex flex-wrap gap-1">
-                    {tools.map((tool) => (
-                        <LemonTag key={tool} type="muted">
-                            {tool}
-                        </LemonTag>
-                    ))}
-                </div>
-            )
+            return <ToolsDisplay tools={tools} />
+        },
+    },
+    tools: {
+        title: 'Tools',
+        render: ({ record }) => {
+            const row = record as LLMTrace
+            return <ToolsDisplay tools={row.tools} />
         },
     },
     // LLM person column for Users tab - clicking filter redirects to traces page

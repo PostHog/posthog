@@ -9,6 +9,7 @@ import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -59,7 +60,18 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const { nextStep, setStep, launchSurvey, saveDraft, updateSurvey } = useActions(surveyWizardLogic)
 
     const { survey } = useValues(surveyLogic)
-    const { setSurveyValue } = useActions(surveyLogic)
+    const { setSurveyValue, loadSurvey } = useActions(surveyLogic)
+
+    // register tool so edits from AI will always reload the survey data on-page
+    useMaxTool({
+        identifier: 'edit_survey',
+        active: isEditing,
+        callback: (toolOutput: { survey_id?: string; error?: string }) => {
+            if (!toolOutput?.error && toolOutput?.survey_id === id) {
+                loadSurvey()
+            }
+        },
+    })
 
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)

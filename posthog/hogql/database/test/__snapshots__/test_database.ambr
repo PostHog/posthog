@@ -3474,6 +3474,124 @@
           "row_count": null,
           "type": "system"
       },
+      "system.hog_flows": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "version",
+                  "id": null,
+                  "name": "version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "exit_condition": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "exit_condition",
+                  "id": null,
+                  "name": "exit_condition",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "trigger": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "trigger",
+                  "id": null,
+                  "name": "trigger",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "edges": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "edges",
+                  "id": null,
+                  "name": "edges",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "actions": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "actions",
+                  "id": null,
+                  "name": "actions",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.hog_flows",
+          "name": "system.hog_flows",
+          "row_count": null,
+          "type": "system"
+      },
       "system.ingestion_warnings": {
           "fields": {
               "source": {
@@ -6585,6 +6703,124 @@
           },
           "id": "system.group_type_mappings",
           "name": "system.group_type_mappings",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.hog_flows": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "version",
+                  "id": null,
+                  "name": "version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "exit_condition": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "exit_condition",
+                  "id": null,
+                  "name": "exit_condition",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "trigger": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "trigger",
+                  "id": null,
+                  "name": "trigger",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "edges": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "edges",
+                  "id": null,
+                  "name": "edges",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "actions": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "actions",
+                  "id": null,
+                  "name": "actions",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.hog_flows",
+          "name": "system.hog_flows",
           "row_count": null,
           "type": "system"
       },

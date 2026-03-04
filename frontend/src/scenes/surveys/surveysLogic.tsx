@@ -12,7 +12,7 @@ import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic
 import { pluralize } from 'lib/utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
-import { SURVEY_CREATED_SOURCE, SURVEY_PAGE_SIZE, SurveyTemplate } from 'scenes/surveys/constants'
+import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 import { duplicateExistingSurvey, sanitizeSurvey } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -35,8 +35,12 @@ export enum SurveysTabs {
     Settings = 'settings',
 }
 
+export function isSurveyDraft(survey: Pick<Survey, 'start_date'>): boolean {
+    return !survey.start_date
+}
+
 export function getSurveyStatus(survey: Pick<Survey, 'start_date' | 'end_date'>): ProgressStatus {
-    if (!survey.start_date) {
+    if (isSurveyDraft(survey)) {
         return ProgressStatus.Draft
     } else if (!survey.end_date) {
         return ProgressStatus.Running
@@ -211,34 +215,6 @@ export const surveysLogic = kea<surveysLogicType>([
                     ...values.data,
                     surveys: updateSurvey(values.data.surveys, id, updatedSurvey),
                     searchSurveys: updateSurvey(values.data.searchSurveys, id, updatedSurvey),
-                }
-            },
-            createSurveyFromTemplate: async (surveyTemplate: SurveyTemplate) => {
-                const response = await api.surveys.create(
-                    sanitizeSurvey({
-                        ...surveyTemplate,
-                        name: surveyTemplate.templateType,
-                    })
-                )
-
-                actions.addProductIntent({
-                    product_type: ProductKey.SURVEYS,
-                    intent_context: ProductIntentContext.SURVEY_CREATED,
-                    metadata: {
-                        survey_id: response.id,
-                        source: SURVEY_CREATED_SOURCE.SURVEY_EMPTY_STATE,
-                        template_type: surveyTemplate.templateType,
-                    },
-                })
-
-                // Navigate to the created survey
-                router.actions.push(urls.survey(response.id))
-
-                // Return updated data with the new survey
-                return {
-                    ...values.data,
-                    surveys: [response, ...values.data.surveys],
-                    surveysCount: values.data.surveysCount + 1,
                 }
             },
         },
@@ -457,10 +433,6 @@ export const surveysLogic = kea<surveysLogicType>([
         surveysStylingAvailable: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_STYLING),
-        ],
-        guidedEditorEnabled: [
-            (s) => [s.enabledFlags],
-            (enabledFlags) => !!(enabledFlags[FEATURE_FLAGS.SURVEYS_GUIDED_EDITOR] === 'test'),
         ],
         formBuilderEnabled: [
             (s) => [s.enabledFlags],

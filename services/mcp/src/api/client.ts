@@ -1564,7 +1564,14 @@ export class ApiClient {
 
                 const url = `${this.baseUrl}/api/projects/${projectId}/logs/values/?${searchParams}`
 
-                return this.fetchWithSchema(url, z.array(LogAttributeValueSchema))
+                const result = await this.fetchWithSchema(
+                    url,
+                    z.object({ results: z.array(LogAttributeValueSchema), refreshing: z.boolean() })
+                )
+                if (!result.success) {
+                    return result
+                }
+                return { success: true, data: result.data.results }
             },
         }
     }

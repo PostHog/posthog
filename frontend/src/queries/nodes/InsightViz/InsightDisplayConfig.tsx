@@ -12,11 +12,13 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
-import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
@@ -76,6 +78,8 @@ export function InsightDisplayConfig(): JSX.Element {
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
+    const { featureFlags } = useValues(featureFlagLogic)
+    const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
 
     const showCompare =
         (isTrends && display !== ChartDisplayType.ActionsAreaGraph && display !== ChartDisplayType.CalendarHeatmap) ||
@@ -122,6 +126,9 @@ export function InsightDisplayConfig(): JSX.Element {
                           ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
                           ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
                               ? [{ label: () => <ShowTrendLinesFilter /> }]
+                              : []),
+                          ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
+                              ? [{ label: () => <HideWeekendsFilter /> }]
                               : []),
                       ],
                   },
@@ -261,7 +268,8 @@ export function InsightDisplayConfig(): JSX.Element {
             : 0) +
         (hasLegend && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
-        (showMultipleYAxes ? 1 : 0)
+        (showMultipleYAxes ? 1 : 0) +
+        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
 
     return (
         <div

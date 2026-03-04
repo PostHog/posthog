@@ -7,9 +7,6 @@ import { extractToolCallNames } from './extract-tool-calls'
 const TOOL_CALL_INDICATORS = ['tool_call', 'tool_use', 'function_call', '"function"', 'tool-call']
 export const MAX_OUTPUT_CHOICES_LENGTH = 500_000
 
-// Dogfood allowlist — remove once rolled out to all teams
-export const TOOL_EXTRACTION_ALLOWED_TEAM_IDS = new Set([2, 148051, 112495, 294356])
-
 function stringMayContainToolCalls(s: string): boolean {
     for (const indicator of TOOL_CALL_INDICATORS) {
         if (s.includes(indicator)) {
@@ -36,11 +33,6 @@ export function processAiToolCallExtraction<T extends PluginEvent>(event: T): T 
 
     // Only process $ai_generation events
     if (event.event !== '$ai_generation') {
-        return event
-    }
-
-    // Dogfood allowlist — remove once rolled out to all teams
-    if (!TOOL_EXTRACTION_ALLOWED_TEAM_IDS.has(event.team_id)) {
         return event
     }
 

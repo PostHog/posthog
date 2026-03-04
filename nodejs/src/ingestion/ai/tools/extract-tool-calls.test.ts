@@ -1,7 +1,7 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { MAX_TOOLS_PER_EVENT, extractToolCallNames, sanitizeToolName } from './extract-tool-calls'
-import { MAX_OUTPUT_CHOICES_LENGTH, TOOL_EXTRACTION_ALLOWED_TEAM_IDS, processAiToolCallExtraction } from './index'
+import { MAX_OUTPUT_CHOICES_LENGTH, processAiToolCallExtraction } from './index'
 
 describe('extractToolCallNames', () => {
     describe('OpenAI format (message.tool_calls)', () => {
@@ -452,13 +452,11 @@ describe('sanitizeToolName', () => {
 })
 
 describe('processAiToolCallExtraction', () => {
-    const ALLOWED_TEAM_ID = [...TOOL_EXTRACTION_ALLOWED_TEAM_IDS][0]
-
-    const createEvent = (event: string, properties: Record<string, unknown>, teamId?: number): PluginEvent => ({
+    const createEvent = (event: string, properties: Record<string, unknown>, teamId = 1): PluginEvent => ({
         distinct_id: 'user_123',
         ip: null,
         site_url: '',
-        team_id: teamId ?? ALLOWED_TEAM_ID,
+        team_id: teamId,
         now: new Date().toISOString(),
         event,
         uuid: '123e4567-e89b-12d3-a456-426614174000',
@@ -772,7 +770,7 @@ describe('processAiToolCallExtraction', () => {
             distinct_id: 'user_123',
             ip: null,
             site_url: '',
-            team_id: ALLOWED_TEAM_ID,
+            team_id: 1,
             now: new Date().toISOString(),
             event: '$ai_generation',
             uuid: '123e4567-e89b-12d3-a456-426614174000',
@@ -781,27 +779,6 @@ describe('processAiToolCallExtraction', () => {
         const result = processAiToolCallExtraction(event)
 
         expect(result).toBe(event)
-    })
-
-    it('skips extraction for teams not in the allowlist', () => {
-        const event = createEvent(
-            '$ai_generation',
-            {
-                $ai_output_choices: [
-                    {
-                        message: {
-                            tool_calls: [{ type: 'function', function: { name: 'get_weather' } }],
-                        },
-                    },
-                ],
-            },
-            99999
-        )
-
-        const result = processAiToolCallExtraction(event)
-
-        expect(result.properties!['$ai_tools_called']).toBeUndefined()
-        expect(result.properties!['$ai_tool_call_count']).toBeUndefined()
     })
 
     it('does not set properties for non-tool Python repr strings', () => {
