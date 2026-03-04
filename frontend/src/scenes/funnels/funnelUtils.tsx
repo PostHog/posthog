@@ -213,8 +213,8 @@ export const getBreakdownStepValues = (
     }
     if (
         isBaseline ||
-        breakdownStep?.breakdown_value === 'Baseline' ||
-        breakdownStep?.breakdown_value?.[0] === 'Baseline'
+        breakdownStep.breakdown_value === 'Baseline' ||
+        (Array.isArray(breakdownStep.breakdown_value) && breakdownStep.breakdown_value[0] === 'Baseline')
     ) {
         return {
             rowKey: 'baseline_0',

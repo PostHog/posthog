@@ -5400,7 +5400,7 @@ export interface ExternalDataSource {
     id: string
     source_id: string
     connection_id: string
-    status: string
+    status: ExternalDataJobStatus
     source_type: ExternalDataSourceType
     prefix: string | null
     description: string | null

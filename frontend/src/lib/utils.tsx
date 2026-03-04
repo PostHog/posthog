@@ -489,7 +489,7 @@ export function isNumber(candidate: unknown): candidate is number {
 }
 
 export function isObject(candidate: unknown): candidate is Record<string, unknown> {
-    return typeof candidate === 'object' && candidate !== null
+    return typeof candidate === 'object' && candidate !== null && !Array.isArray(candidate)
 }
 
 export function isEmptyObject(candidate: unknown): boolean {

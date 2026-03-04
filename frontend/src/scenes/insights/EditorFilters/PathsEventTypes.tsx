@@ -73,7 +73,6 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
                                 : undefined
                         }
                         fullWidth
-                        data-attr={option['data-attr']}
                     >
                         <span className="pointer-events-none mr-2">
                             <LemonCheckbox checked={option.selected} />

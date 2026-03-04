@@ -32,7 +32,8 @@ const nonEditableSchemaTypes = [
     'materialized_view',
 ] as const
 type NonEditableSchemaTypes = Extract<DatabaseSerializedFieldType, (typeof nonEditableSchemaTypes)[number]>
-const editSchemaOptions: Record<Exclude<DatabaseSerializedFieldType, NonEditableSchemaTypes>, string> = {
+type EditableSerializedFieldTypes = Exclude<DatabaseSerializedFieldType, NonEditableSchemaTypes>
+const editSchemaOptions: Record<EditableSerializedFieldTypes, string> = {
     integer: 'Integer',
     float: 'Float',
     decimal: 'Decimal',
@@ -44,7 +45,8 @@ const editSchemaOptions: Record<Exclude<DatabaseSerializedFieldType, NonEditable
     json: 'JSON',
     unknown: 'Unknown',
 }
-const editSchemaOptionsAsArray = Object.keys(editSchemaOptions).map((n) => ({ value: n, label: editSchemaOptions[n] }))
+const editSchemaOptionsKeys = Object.keys(editSchemaOptions) as Array<EditableSerializedFieldTypes>
+const editSchemaOptionsAsArray = editSchemaOptionsKeys.map((n) => ({ value: n, label: editSchemaOptions[n] }))
 
 const isNonEditableSchemaType = (schemaType: unknown): schemaType is NonEditableSchemaTypes => {
     return typeof schemaType === 'string' && nonEditableSchemaTypes.includes(schemaType as NonEditableSchemaTypes)

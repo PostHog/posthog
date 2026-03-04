@@ -9,6 +9,7 @@ import {
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { initHogLanguage } from 'lib/monaco/languages/hog'
+import { isObject } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionTypeType } from '~/types'
@@ -132,18 +133,29 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
                     break
                 }
                 case 'inputs': {
-                    const changedFields: JSX.Element[] = []
-                    Object.entries(change.after ?? {}).forEach(([key, value]) => {
-                        const before = JSON.stringify(change.before?.[key]?.value)
-                        const after = JSON.stringify(value?.value)
-                        if (before !== after) {
-                            changedFields.push(
-                                <DiffLink before={before} after={after}>
-                                    {key}
-                                </DiffLink>
-                            )
-                        }
-                    })
+                    const beforeValues = isObject(change.before)
+                        ? (change.before as Record<string, { value?: unknown }>)
+                        : {}
+                    const afterValues = isObject(change.after)
+                        ? (change.after as Record<string, { value?: unknown }>)
+                        : {}
+
+                    const changedFields = Object.entries(afterValues)
+                        .map(([key, value]) => {
+                            const before = JSON.stringify(beforeValues[key]?.value)
+                            const after = JSON.stringify(value?.value)
+
+                            if (before !== after) {
+                                return (
+                                    <DiffLink key={key} before={before} after={after}>
+                                        {key}
+                                    </DiffLink>
+                                )
+                            }
+                            return null
+                        })
+                        .filter((x): x is JSX.Element => !!x)
+
                     const changedSpans: JSX.Element[] = []
                     for (let index = 0; index < changedFields.length; index++) {
                         if (index !== 0 && index === changedFields.length - 1) {
@@ -153,6 +165,7 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
                         }
                         changedSpans.push(changedFields[index])
                     }
+
                     const inputOrInputs = changedFields.length === 1 ? 'input' : 'inputs'
                     changes.push({
                         inline: (

@@ -201,9 +201,8 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             selectedInterval: undefined,
             funnelStepReference: undefined,
             breakdownSorting: undefined,
+            dataColorTheme: undefined,
         }
-
-        cleanedQuery.dataColorTheme = undefined
 
         if (isInsightQueryWithDisplay(cleanedQuery)) {
             cleanedQuery[insightFilterKey].display =
