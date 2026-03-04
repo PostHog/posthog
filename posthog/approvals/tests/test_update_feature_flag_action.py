@@ -218,6 +218,29 @@ class TestCheckStaleness(APIBaseTest):
 
         assert result is False
 
+    @parameterized.expand(
+        [
+            ("matching_version", 1, 1, False),
+            ("mismatched_version", 1, 2, True),
+        ]
+    )
+    def test_update_action_staleness_by_version(self, _name, stored_version, current_version, expected_stale):
+        flag = self._create_flag()
+        flag.version = current_version
+
+        intent = {"preconditions": {"version": stored_version}}
+        context = {"instance": flag}
+
+        result = UpdateFeatureFlagAction.check_staleness(intent, context)
+
+        assert result is expected_stale
+
+    def test_update_action_stale_when_no_instance(self):
+        intent = {"preconditions": {"version": 1}}
+        result = UpdateFeatureFlagAction.check_staleness(intent, {})
+
+        assert result is True
+
     def test_base_action_check_staleness_always_returns_false(self):
         from posthog.approvals.actions.base import BaseAction
 
