@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest import mock
@@ -415,18 +416,19 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         before_success = QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get()
-        before_duration_count = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
+        before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
         runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-        after_success = QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get()
-        after_duration_count = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
-
-        self.assertEqual(after_success - before_success, 1)
-        self.assertGreater(after_duration_count, before_duration_count)
+        assert QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get() - before_success == 1
+        assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
 
     def test_query_execution_metrics_on_error_result(self):
-        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_FAILURE, QUERY_EXECUTION_SUCCESS
+        from posthog.hogql_queries.query_runner import (
+            QUERY_EXECUTION_DURATION,
+            QUERY_EXECUTION_FAILURE,
+            QUERY_EXECUTION_SUCCESS,
+        )
 
         TestQueryRunner = self.setup_test_query_runner_class()
 
@@ -438,17 +440,24 @@ class TestQueryRunner(BaseTest):
 
         before_success = QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get()
         before_failure = QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery", error_type="soft_error")._value.get()
+        before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
         runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-        after_success = QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get()
-        after_failure = QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery", error_type="soft_error")._value.get()
-
-        self.assertEqual(after_success - before_success, 0)
-        self.assertEqual(after_failure - before_failure, 1)
+        assert QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get() - before_success == 0
+        assert (
+            QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery", error_type="soft_error")._value.get()
+            - before_failure
+            == 1
+        )
+        assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
 
     def test_query_execution_metrics_on_exception(self):
-        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_FAILURE, QUERY_EXECUTION_SUCCESS
+        from posthog.hogql_queries.query_runner import (
+            QUERY_EXECUTION_DURATION,
+            QUERY_EXECUTION_FAILURE,
+            QUERY_EXECUTION_SUCCESS,
+        )
 
         TestQueryRunner = self.setup_test_query_runner_class()
 
@@ -460,15 +469,48 @@ class TestQueryRunner(BaseTest):
 
         before_success = QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get()
         before_failure = QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery", error_type="ValueError")._value.get()
+        before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-        after_success = QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get()
-        after_failure = QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery", error_type="ValueError")._value.get()
+        assert QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get() - before_success == 0
+        assert (
+            QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery", error_type="ValueError")._value.get()
+            - before_failure
+            == 1
+        )
+        assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
 
-        self.assertEqual(after_success - before_success, 0)
-        self.assertEqual(after_failure - before_failure, 1)
+    def test_query_execution_metrics_not_recorded_on_cache_hit(self):
+        from posthog.hogql_queries.query_runner import (
+            QUERY_EXECUTION_DURATION,
+            QUERY_EXECUTION_FAILURE,
+            QUERY_EXECUTION_SUCCESS,
+        )
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        before_success = QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get()
+        before_failure_soft = QUERY_EXECUTION_FAILURE.labels(
+            query_type="TestQuery", error_type="soft_error"
+        )._value.get()
+        before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
+
+        # Cache is fresh (< 10 min old), so this hits the cache without recalculating
+        with freeze_time(datetime(2023, 2, 4, 13, 38, 0)):
+            runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        assert QUERY_EXECUTION_SUCCESS.labels(query_type="TestQuery")._value.get() == before_success
+        assert (
+            QUERY_EXECUTION_FAILURE.labels(query_type="TestQuery", error_type="soft_error")._value.get()
+            == before_failure_soft
+        )
+        assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() == before_duration_sum
 
 
 class TestSeriesCustomNameCaching(BaseTest):

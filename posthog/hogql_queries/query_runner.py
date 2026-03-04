@@ -1310,10 +1310,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.modifiers.useMaterializedViews = True
 
             query_type = getattr(self.query, "kind", "Other")
+            query_start = perf_counter()
             try:
                 query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
+                query_duration_s = perf_counter() - query_start
             except Exception as e:
                 QUERY_EXECUTION_FAILURE.labels(query_type=query_type, error_type=type(e).__name__).inc()
+                QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(perf_counter() - query_start)
                 raise
 
             fresh_response_dict = {
@@ -1354,7 +1357,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 QUERY_EXECUTION_FAILURE.labels(query_type=query_type, error_type="soft_error").inc()
             else:
                 QUERY_EXECUTION_SUCCESS.labels(query_type=query_type).inc()
-                QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(query_duration_ms / 1000)
+            QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(query_duration_s)
 
             if not has_error and self.limit_context != LimitContext.EXPORT:
                 cache_manager.set_cache_data(
