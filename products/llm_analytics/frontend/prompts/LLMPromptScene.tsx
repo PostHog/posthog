@@ -31,8 +31,6 @@ export const scene: SceneExport<PromptLogicProps> = {
     paramsToProps: ({ params: { name }, searchParams }) => ({
         promptName: name && name !== 'new' ? name : 'new',
         mode: searchParams?.edit === 'true' ? PromptMode.Edit : PromptMode.View,
-        prefillName: typeof searchParams?.prefill_name === 'string' ? searchParams.prefill_name : undefined,
-        prefillPrompt: typeof searchParams?.prefill_prompt === 'string' ? searchParams.prefill_prompt : undefined,
     }),
 }
 

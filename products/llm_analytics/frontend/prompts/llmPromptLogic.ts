@@ -49,8 +49,6 @@ export enum PromptMode {
 export interface PromptLogicProps {
     promptName: string | 'new'
     mode?: PromptMode
-    prefillName?: string
-    prefillPrompt?: string
     tabId?: string
 }
 
@@ -73,10 +71,7 @@ const PROMPT_FETCHED_EVENT = '$llm_prompt_fetched'
 export const llmPromptLogic = kea<llmPromptLogicType>([
     path(['scenes', 'llm-analytics', 'llmPromptLogic']),
     props({ promptName: 'new' } as PromptLogicProps),
-    key(
-        ({ promptName, prefillName, prefillPrompt, mode, tabId }) =>
-            `prompt-${promptName}::${prefillName ?? ''}::${prefillPrompt ?? ''}::${mode ?? PromptMode.View}::${tabId ?? 'default'}`
-    ),
+    key(({ promptName, tabId }) => `prompt-${promptName}::${tabId ?? 'default'}`),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
     })),
@@ -155,14 +150,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             prompt: formValues.prompt,
                         })
                         lemonToast.success('Prompt updated successfully')
-                        router.actions.replace(
-                            combineUrl(urls.llmAnalyticsPrompt(props.promptName), {
-                                ...router.values.searchParams,
-                                edit: 'true',
-                                prefill_prompt: undefined,
-                                prefill_name: undefined,
-                            }).url
-                        )
+                        router.actions.replace(urls.llmAnalyticsPrompt(props.promptName))
                     }
 
                     llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
@@ -378,14 +366,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
         loadPromptSuccess: ({ prompt }) => {
             if (prompt) {
-                const resolvedPrompt = prompt as LLMPrompt
-                const nextValues = getPromptFormDefaults(resolvedPrompt)
-                if (props.prefillPrompt) {
-                    nextValues.prompt = props.prefillPrompt
-                    actions.setMode(PromptMode.Edit)
-                }
                 actions.resetPromptForm()
-                actions.setPromptFormValues(nextValues)
+                actions.setPromptFormValues(getPromptFormDefaults(prompt as LLMPrompt))
             }
         },
     })),
@@ -398,13 +380,9 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             promptForm: PromptFormValues
         } => {
             if (props.promptName === 'new') {
-                const prefillValues: PromptFormValues = {
-                    name: props.prefillName ?? DEFAULT_PROMPT_FORM_VALUES.name,
-                    prompt: props.prefillPrompt ?? DEFAULT_PROMPT_FORM_VALUES.prompt,
-                }
                 return {
-                    prompt: prefillValues,
-                    promptForm: prefillValues,
+                    prompt: DEFAULT_PROMPT_FORM_VALUES,
+                    promptForm: DEFAULT_PROMPT_FORM_VALUES,
                 }
             }
 
@@ -424,19 +402,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         }
     ),
 
-    afterMount(({ actions, props, values }) => {
+    afterMount(({ actions, values }) => {
         if (values.isNewPrompt) {
-            const prefillValues: PromptFormValues = {
-                name: props.prefillName ?? DEFAULT_PROMPT_FORM_VALUES.name,
-                prompt: props.prefillPrompt ?? DEFAULT_PROMPT_FORM_VALUES.prompt,
-            }
+            // Reset form when mounting the "new" prompt scene to clear any stale values
             actions.resetPromptForm()
-            actions.setPrompt(prefillValues)
-            actions.setPromptFormValues(prefillValues)
         } else {
-            if (props.prefillPrompt) {
-                actions.setMode(PromptMode.Edit)
-            }
             actions.loadPrompt()
         }
     }),
