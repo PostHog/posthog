@@ -200,7 +200,7 @@ export function McpStoreSettings(): JSX.Element {
                             {
                                 width: 0,
                                 render: (_: any, server: RecommendedServerApi) => {
-                                    const iconSrc = SERVER_ICONS[server.name] || server.icon_url
+                                    const iconSrc = SERVER_ICONS[server.name]
                                     return iconSrc ? (
                                         <div className="w-6 h-6 flex items-center justify-center">
                                             <img src={iconSrc} alt="" className="w-6 h-6" />

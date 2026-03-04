@@ -61,7 +61,6 @@ class RecommendedServerSerializer(serializers.Serializer):
     name = serializers.CharField()
     url = serializers.URLField()
     description = serializers.CharField()
-    icon_url = serializers.CharField()
     auth_type = serializers.ChoiceField(choices=["none", "api_key", "oauth"])
     oauth_provider_kind = serializers.CharField(required=False, default="")
 

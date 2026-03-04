@@ -105,7 +105,6 @@ export interface RecommendedServerApi {
     name: string
     url: string
     description: string
-    icon_url: string
     auth_type: RecommendedServerAuthTypeEnumApi
     oauth_provider_kind?: string
 }
