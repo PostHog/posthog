@@ -7,12 +7,12 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import {
     IconAIText,
-    IconChat,
     IconChevronLeft,
     IconChevronRight,
     IconComment,
     IconCopy,
     IconMessage,
+    IconPlay,
     IconReceipt,
     IconSearch,
 } from '@posthog/icons'
@@ -1002,12 +1002,12 @@ const EventContent = React.memo(
                                         <LemonButton
                                             type="secondary"
                                             size="xsmall"
-                                            icon={<IconChat />}
+                                            icon={<IconPlay />}
                                             onClick={handleTryInPlayground}
                                             tooltip="Try this prompt in the playground"
                                             data-attr="try-in-playground-trace"
                                         >
-                                            Try in Playground
+                                            Open in Playground
                                         </LemonButton>
                                     )}
                                     {showSaveToDatasetButton && (
