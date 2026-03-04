@@ -530,7 +530,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 await temporalio.workflow.execute_activity(
                     wait_for_cloudflare_certificate,
                     cloudflare_inputs,
-                    schedule_to_close_timeout=dt.timedelta(minutes=15),
+                    schedule_to_close_timeout=dt.timedelta(minutes=60),
                     start_to_close_timeout=dt.timedelta(seconds=10),
                     retry_policy=temporalio.common.RetryPolicy(
                         backoff_coefficient=1.1,

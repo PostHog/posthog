@@ -72,15 +72,13 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
         return False
 
 
-def _hogql_to_postgres_sql(hogql_query: str, team_id: int) -> str:
-    from posthog.hogql.context import HogQLContext
-    from posthog.hogql.parser import parse_select
-    from posthog.hogql.printer.utils import prepare_and_print_ast
+def _compile_hogql_to_postgres_sql(hogql_query: str, team_id: int) -> str:
+    from posthog.schema import HogQLQuery
 
-    parsed = parse_select(hogql_query)
-    context = HogQLContext(team_id=team_id, enable_select_queries=True)
-    sql, _ = prepare_and_print_ast(parsed, context, dialect="postgres")
-    return sql
+    from posthog.ducklake.client import compile_hogql_to_ducklake_sql
+
+    postgres_sql, _ = compile_hogql_to_ducklake_sql(team_id, HogQLQuery(query=hogql_query))
+    return postgres_sql
 
 
 @database_sync_to_async
@@ -127,7 +125,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
 
     start_time = time.monotonic()
     try:
-        sql = await database_sync_to_async(_hogql_to_postgres_sql)(hogql_query, team.pk)
+        sql = await database_sync_to_async(_compile_hogql_to_postgres_sql)(hogql_query, team.pk)
         await logger.adebug("Duckgres shadow SQL generated", sql=sql)
 
         from posthog.ducklake.client import execute_ducklake_create_table

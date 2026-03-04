@@ -1539,44 +1539,49 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             return False
         if version.query.get("kind") != "HogQLQuery":
             return False
-        from posthog.ducklake.common import get_duckgres_server_for_team, is_dev_mode
 
-        if is_dev_mode():
-            import os
+        import posthoganalytics
 
-            return os.environ.get("DUCKLAKE_ENDPOINTS_ENABLED", "").lower() in ("1", "true")
+        if not posthoganalytics.feature_enabled(
+            "endpoints-ducklake-execution",
+            str(self.team.uuid),
+            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": str(self.team.id)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        ):
+            return False
+
+        from posthog.ducklake.common import get_duckgres_server_for_team
+
         return get_duckgres_server_for_team(self.team_id) is not None
-
-    def _hogql_to_ducklake_sql(self, query: dict) -> str:
-        from posthog.hogql.printer.utils import prepare_and_print_ast
-
-        hogql_str = query["query"]
-        parsed = parse_select(hogql_str)
-        context = HogQLContext(team_id=self.team_id, enable_select_queries=True)
-        sql, _ = prepare_and_print_ast(parsed, context, dialect="postgres")
-        return sql
 
     def _execute_ducklake_endpoint(
         self,
         endpoint: Endpoint,
-        data: EndpointRunRequest,
-        request: Request,
         query: dict,
-        version: EndpointVersion | None = None,
-        limit: int | None = None,
-        offset: int | None = None,
+        debug: bool = False,
     ) -> Response:
+        from posthog.schema import HogQLQuery
+
         from posthog.ducklake.client import execute_ducklake_query
 
         try:
-            sql = self._hogql_to_ducklake_sql(query)
-            result = execute_ducklake_query(self.team_id, sql)
-            response_data = {
-                "columns": result.columns,
+            result = execute_ducklake_query(self.team_id, query=HogQLQuery(query=query["query"]))
+            response_data: dict = {
                 "results": result.results,
+                "columns": result.columns,
                 "types": result.types,
                 "hasMore": False,
+                "backend": "ducklake",
             }
+            if debug:
+                response_data["query"] = query.get("query")
+                response_data["hogql"] = result.hogql
+                response_data["ducklake_sql"] = result.sql
             return Response(response_data, status=status.HTTP_200_OK)
         except Exception as e:
             logger.exception(
@@ -1755,10 +1760,25 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     )
                 query_to_use = version_obj.query.copy()
 
-                if self._should_use_ducklake(endpoint, version_obj):
-                    result = self._execute_ducklake_endpoint(
-                        endpoint, data, request, query_to_use, version=version_obj, limit=limit, offset=offset
-                    )
+                use_ducklake = self._should_use_ducklake(endpoint, version_obj)
+                if use_ducklake:
+                    try:
+                        result = self._execute_ducklake_endpoint(endpoint, query_to_use, debug=debug)
+                    except Exception:
+                        logger.warning(
+                            "DuckLake execution failed, falling back to inline",
+                            endpoint_name=endpoint.name,
+                        )
+                        result = self._execute_inline_endpoint(
+                            endpoint,
+                            data,
+                            request,
+                            query_to_use,
+                            version=version_obj,
+                            debug=debug,
+                            limit=limit,
+                            offset=offset,
+                        )
                 else:
                     result = self._execute_inline_endpoint(
                         endpoint,
