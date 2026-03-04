@@ -3,7 +3,7 @@ import { Field, Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconArrowLeft, IconInfo } from '@posthog/icons'
+import { IconArrowLeft, IconInfo, IconPlay } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -75,6 +75,14 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
     if (!evaluation) {
         return <NotFound object="evaluation" />
     }
+    const openInPlaygroundUrl =
+        evaluation.evaluation_type === 'llm_judge' && evaluation.id
+            ? combineUrl(urls.llmAnalyticsPlayground(), {
+                  ...searchParams,
+                  source_evaluation_id: evaluation.id,
+                  source_evaluation_name: evaluation.name,
+              }).url
+            : undefined
 
     const isHog = evaluation.evaluation_type === 'hog'
     const configValid = isHog
@@ -125,6 +133,20 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     </div>
                 </div>
                 <div className="flex gap-2">
+                    {evaluation.id ? (
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlay />}
+                            to={openInPlaygroundUrl}
+                            disabledReason={
+                                evaluation.evaluation_type !== 'llm_judge'
+                                    ? 'Only LLM-as-judge evaluations can open in playground'
+                                    : undefined
+                            }
+                        >
+                            Open in Playground
+                        </LemonButton>
+                    ) : null}
                     <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
                         {hasUnsavedChanges ? 'Cancel' : 'Back'}
                     </LemonButton>
@@ -241,7 +263,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                             title={
                                                 isHog
                                                     ? 'When enabled, returning null from your Hog code means "not applicable" instead of being treated as an error.'
-                                                    : 'Sometimes forcing a True or False is not enough and you want the LLM to decide if the eval is applicable or not. Enable this when the evaluation criteria may not apply to all generations.'
+                                                    : 'Sometimes forcing a True or False is not enough and you want the LLM to decide if the evaluation is applicable or not. Enable this when the evaluation criteria may not apply to all generations.'
                                             }
                                         >
                                             <IconInfo className="text-muted text-base" />
@@ -398,5 +420,16 @@ export const scene: SceneExport<LLMEvaluationLogicProps> = {
     paramsToProps: ({ params: { id }, searchParams }) => ({
         evaluationId: id && id !== 'new' ? id : 'new',
         templateKey: typeof searchParams.template === 'string' ? searchParams.template : undefined,
+        prefillName: typeof searchParams.playground_name === 'string' ? searchParams.playground_name : undefined,
+        prefillDescription:
+            typeof searchParams.playground_description === 'string' ? searchParams.playground_description : undefined,
+        prefillPrompt: typeof searchParams.playground_prompt === 'string' ? searchParams.playground_prompt : undefined,
+        prefillModel: typeof searchParams.playground_model === 'string' ? searchParams.playground_model : undefined,
+        prefillProvider:
+            typeof searchParams.playground_provider === 'string' ? searchParams.playground_provider : undefined,
+        prefillProviderKeyId:
+            typeof searchParams.playground_provider_key_id === 'string'
+                ? searchParams.playground_provider_key_id
+                : undefined,
     }),
 }
