@@ -210,15 +210,18 @@ let retry_strategy = ExponentialBackoff::from_millis(100)
 
 ### Prometheus metrics
 
-| Metric                              | Labels                 | Purpose                        |
-| ----------------------------------- | ---------------------- | ------------------------------ |
-| `flags_db_connection_time`          | `pool`, `operation`    | Connection acquisition latency |
-| `flags_person_query_time`           | -                      | Person lookup query duration   |
-| `flags_definition_query_time`       | -                      | Flag definition query duration |
-| `flags_pool_utilization_ratio`      | `pool`                 | Pool utilization (0.0-1.0)     |
-| `flags_connection_hold_time_ms`     | `pool`, `operation`    | How long connections are held  |
-| `flags_hash_key_retries_total`      | `team_id`, `operation` | Retry counter                  |
-| `flags_flag_evaluation_error_total` | `error_type`           | Error counter                  |
+| Metric                                    | Labels                 | Purpose                                                                                                       |
+| ----------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `flags_db_connection_time`                 | `pool`, `operation`    | Connection acquisition latency                                                                                |
+| `flags_person_query_time`                  | -                      | Person lookup query duration                                                                                  |
+| `flags_definition_query_time`              | -                      | Flag definition query duration                                                                                |
+| `flags_pool_utilization_ratio`             | `pool`                 | Pool utilization (0.0-1.0)                                                                                    |
+| `flags_connection_hold_time_ms`            | `pool`, `operation`    | How long connections are held                                                                                 |
+| `flags_hash_key_retries_total`             | `team_id`, `operation` | Retry counter                                                                                                 |
+| `flags_flag_evaluation_error_total`        | `error_type`           | Error counter                                                                                                 |
+| `flags_flag_definitions_cache_hit_total`   | `source`               | `/flags/definitions` cache hit tracking (`redis`, `s3`, `fallback`)                                           |
+| `flags_flag_definitions_cache_miss_total`  | `reason`               | `/flags/definitions` cache miss tracking (`cache_miss`, `s3_error`, `redis_error`, `json_parse_error`, `timeout`) |
+| `flags_flag_definitions_etag_total`        | `result`               | `/flags/definitions` ETag 304 response tracking (`hit`, `miss`, `none`, `redis_error`)                        |
 
 ### Pool stats
 
