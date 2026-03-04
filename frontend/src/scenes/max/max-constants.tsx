@@ -49,7 +49,7 @@ export interface ToolDefinition<N extends string = string> {
     displayFormatter?: (
         toolCall: EnhancedToolCall,
         { registeredToolMap }: DisplayFormatterContext
-    ) => string | [text: string, widgetDef: RecordingsWidgetDef | null]
+    ) => string | [text: string, widgetDef: RecordingsWidgetDef | SessionSummarizationWidgetDef | null]
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -104,6 +104,11 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
 export interface RecordingsWidgetDef {
     widget: 'recordings'
     args: RecordingUniversalFilters
+}
+
+export interface SessionSummarizationWidgetDef {
+    widget: 'session_summarization'
+    args: { updates: object[] }
 }
 
 /** Static mode definition for display purposes. */
@@ -910,10 +915,26 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         beta: true,
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Summarized sessions'
+            const text = toolCall.status === 'completed' ? 'Summarized sessions' : 'Summarizing sessions...'
+            // Parse structured updates from the tool call updates
+            const updates = toolCall.updates
+            if (updates && updates.length > 0) {
+                const parsedUpdates: object[] = []
+                for (const update of updates) {
+                    try {
+                        const parsed = JSON.parse(update)
+                        if (isObject(parsed) && typeof parsed.type === 'string') {
+                            parsedUpdates.push(parsed)
+                        }
+                    } catch {
+                        // Not a structured update, skip
+                    }
+                }
+                if (parsedUpdates.length > 0) {
+                    return [text, { widget: 'session_summarization', args: { updates: parsedUpdates } }]
+                }
             }
-            return 'Summarizing sessions...'
+            return text
         },
     },
     web_search: {

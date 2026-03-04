@@ -12,6 +12,7 @@ class SessionSummaryStreamUpdate(Enum):
 
     UI_STATUS = "ui_status"  # Status messages for UI progress display
     FINAL_RESULT = "final_result"  # Final summarization result
+    SESSION_PROGRESS = "session_progress"  # Structured per-session progress data
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -54,6 +55,16 @@ class SessionGroupSummaryOfSummariesInputs:
     redis_key_base: str
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class WorkflowProgress:
+    """Structured progress data from the session group summarization workflow."""
+
+    session_statuses: dict[str, str]  # session_id → status
+    phase: str
+    total_sessions: int
+    patterns_found: list[str]  # pattern names discovered so far
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
