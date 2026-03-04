@@ -827,6 +827,7 @@ export interface SearchFooterProps {
 
 function SearchFooter({ children }: SearchFooterProps): JSX.Element {
     const { filteredItems } = useSearchContext()
+    const { searchValue } = useSearchContext()
 
     return (
         <div className="border-t px-2 py-1 text-xxs text-tertiary font-medium select-none flex items-center gap-1">
@@ -846,6 +847,11 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     <span>
                         <KeyboardShortcut escape /> to close
                     </span>
+                    {searchValue.trim() && (
+                        <span>
+                            <KeyboardShortcut tab /> to ask AI
+                        </span>
+                    )}
                 </>
             )}
         </div>
