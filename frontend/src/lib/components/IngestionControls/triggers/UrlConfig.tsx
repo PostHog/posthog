@@ -52,12 +52,10 @@ export function UrlConfig({
 
     return (
         <div className="flex flex-col deprecated-space-y-2 mt-4">
-            <div className="flex items-center gap-2 justify-between">
-                <div className="flex gap-2 items-center">
-                    <LemonLabel className="text-base">{title}</LemonLabel>
-                    <div className="hidden lg:block">
-                        <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayUrlTrigger} />
-                    </div>
+            <div className="flex flex-wrap items-center gap-2 justify-between">
+                <div className="flex flex-wrap gap-2 items-center min-w-0">
+                    <LemonLabel className="text-base shrink-0">{title}</LemonLabel>
+                    <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayUrlTrigger} />
                 </div>
                 <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
                     <LemonButton

@@ -28,15 +28,13 @@ function LinkedFlagSelector(): JSX.Element | null {
                 onChange={(v) => updateCurrentTeam({ session_recording_linked_flag: v })}
             >
                 <div className="flex flex-col deprecated-space-y-2 mt-2">
-                    <div className="flex justify-between">
-                        <div className="flex gap-2 items-center">
-                            <LemonLabel className="text-base">
+                    <div className="flex flex-wrap gap-2 justify-between">
+                        <div className="flex flex-wrap gap-2 items-center min-w-0">
+                            <LemonLabel className="text-base shrink-0">
                                 {selectedPlatform === 'mobile' ? null : <IngestionControls.MatchTypeTag />} Enable
                                 recordings using feature flag
                             </LemonLabel>
-                            <div className="hidden lg:block">
-                                <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayFeatureFlag} />
-                            </div>
+                            <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayFeatureFlag} />
                         </div>
                         <IngestionControls.FlagSelector />
                     </div>
@@ -150,14 +148,12 @@ function EventTriggerOptions(): JSX.Element | null {
 
     return (
         <div className="flex flex-col deprecated-space-y-2 mt-2">
-            <div className="flex items-center gap-2 justify-between">
-                <div className="flex gap-2 items-center">
-                    <LemonLabel className="text-base">
+            <div className="flex flex-wrap items-center gap-2 justify-between">
+                <div className="flex flex-wrap gap-2 items-center min-w-0">
+                    <LemonLabel className="text-base shrink-0">
                         <IngestionControls.MatchTypeTag /> Event emitted
                     </LemonLabel>
-                    <div className="hidden lg:block">
-                        <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayEventTrigger} />
-                    </div>
+                    <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayEventTrigger} />
                 </div>
                 <IngestionControls.EventTriggerSelect events={eventTriggerConfig} onChange={updateEventTriggerConfig} />
             </div>
@@ -182,14 +178,12 @@ function Sampling(): JSX.Element {
 
     return (
         <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
-            <div className="flex flex-row justify-between mt-2">
-                <div className="flex gap-2 items-center">
-                    <LemonLabel className="text-base">
+            <div className="flex flex-row flex-wrap gap-2 justify-between mt-2">
+                <div className="flex flex-wrap gap-2 items-center min-w-0">
+                    <LemonLabel className="text-base shrink-0">
                         <IngestionControls.MatchTypeTag /> Sampling
                     </LemonLabel>
-                    <div className="hidden lg:block">
-                        <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplaySampling} />
-                    </div>
+                    <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplaySampling} />
                 </div>
                 <IngestionControls.SamplingTrigger
                     initialSampleRate={
@@ -211,12 +205,10 @@ function MinimumDurationSetting(): JSX.Element | null {
 
     return (
         <PayGateMini feature={AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM}>
-            <div className="flex flex-row justify-between">
-                <div className="flex gap-2 items-center">
-                    <LemonLabel className="text-base">Minimum session duration (seconds)</LemonLabel>
-                    <div className="hidden lg:block">
-                        <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayMinDuration} />
-                    </div>
+            <div className="flex flex-row flex-wrap gap-2 justify-between">
+                <div className="flex flex-wrap gap-2 items-center min-w-0">
+                    <LemonLabel className="text-base shrink-0">Minimum session duration (seconds)</LemonLabel>
+                    <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayMinDuration} />
                 </div>
                 <IngestionControls.MinDuration
                     value={currentTeam?.session_recording_minimum_duration_milliseconds}
