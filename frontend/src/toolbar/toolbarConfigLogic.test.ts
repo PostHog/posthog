@@ -304,7 +304,6 @@ describe('toolbar toolbarConfigLogic', () => {
         beforeEach(() => {
             replaceStateSpy = jest.spyOn(window.history, 'replaceState').mockImplementation(() => {})
             const pkcePayload = JSON.stringify({ verifier: 'test-verifier', ts: Date.now() })
-            sessionStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
             localStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
         })
 
@@ -387,22 +386,6 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(body.get('redirect_uri')).toBe('https://us.posthog.com/toolbar_oauth/callback')
         })
 
-        it('uses localStorage PKCE fallback when sessionStorage is empty', async () => {
-            sessionStorage.removeItem(PKCE_STORAGE_KEY)
-
-            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
-            mockTokenExchangeSuccess()
-
-            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
-            logic.mount()
-
-            await expectLogic(logic).delay(0).toMatchValues({
-                accessToken: 'new-access',
-                refreshToken: 'new-refresh',
-                isAuthenticated: true,
-            })
-        })
-
         it('does not trigger temporaryToken migration during code exchange', async () => {
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
             mockTokenExchangeSuccess()
@@ -416,7 +399,7 @@ describe('toolbar toolbarConfigLogic', () => {
             await expectLogic(logic).delay(0).toNotHaveDispatchedActions(['tokenExpired'])
         })
 
-        it('cleans up both sessionStorage and localStorage PKCE keys after exchange', async () => {
+        it('cleans up localStorage PKCE key after exchange', async () => {
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
             mockTokenExchangeSuccess()
 
@@ -425,14 +408,12 @@ describe('toolbar toolbarConfigLogic', () => {
 
             await expectLogic(logic).delay(0)
 
-            expect(sessionStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
             expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
         })
 
         it('aborts token exchange when PKCE verifier has expired', async () => {
             const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
             const expiredPayload = JSON.stringify({ verifier: 'test-verifier', ts: Date.now() - 11 * 60 * 1000 })
-            sessionStorage.setItem(PKCE_STORAGE_KEY, expiredPayload)
             localStorage.setItem(PKCE_STORAGE_KEY, expiredPayload)
 
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
@@ -449,8 +430,7 @@ describe('toolbar toolbarConfigLogic', () => {
 
         it('aborts token exchange when PKCE data is corrupted', async () => {
             const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
-            sessionStorage.setItem(PKCE_STORAGE_KEY, 'not-valid-json{{{')
-            localStorage.setItem(PKCE_STORAGE_KEY, 'also-corrupt')
+            localStorage.setItem(PKCE_STORAGE_KEY, 'not-valid-json{{{')
 
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
 
@@ -466,7 +446,6 @@ describe('toolbar toolbarConfigLogic', () => {
 
         it('aborts token exchange when no PKCE data exists', async () => {
             const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
-            sessionStorage.removeItem(PKCE_STORAGE_KEY)
             localStorage.removeItem(PKCE_STORAGE_KEY)
 
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')

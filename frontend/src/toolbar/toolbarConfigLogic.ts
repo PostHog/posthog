@@ -128,9 +128,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 return
             }
             const pkcePayload = JSON.stringify({ verifier, ts: Date.now() })
-            sessionStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
-            // Also store in localStorage as a fallback: some browsers (Safari ITP,
-            // mobile) may discard sessionStorage during cross-origin redirects.
             localStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
 
             const redirect = encodeURIComponent(window.location.href)
@@ -142,7 +139,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             localStorage.removeItem(LOCALSTORAGE_KEY)
             localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
             localStorage.removeItem(PKCE_STORAGE_KEY)
-            sessionStorage.removeItem(PKCE_STORAGE_KEY)
             cleanToolbarAuthHash()
         },
         tokenExpired: () => {
@@ -263,15 +259,12 @@ async function exchangeCodeForTokens(
     actions: { setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => void }
 ): Promise<void> {
     let pkceData: { verifier?: string; ts?: number } = {}
-    // Try sessionStorage first (primary), then localStorage (fallback for browsers
-    // that discard sessionStorage during cross-origin redirects like Safari ITP).
     try {
-        const raw = sessionStorage.getItem(PKCE_STORAGE_KEY) || localStorage.getItem(PKCE_STORAGE_KEY)
+        const raw = localStorage.getItem(PKCE_STORAGE_KEY)
         pkceData = JSON.parse(raw || '{}')
     } catch {
         // corrupted data
     }
-    sessionStorage.removeItem(PKCE_STORAGE_KEY)
     localStorage.removeItem(PKCE_STORAGE_KEY)
 
     if (!pkceData.verifier) {
