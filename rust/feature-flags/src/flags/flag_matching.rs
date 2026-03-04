@@ -16,6 +16,7 @@ use crate::flags::flag_models::{
     FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters, FlagPropertyGroup,
 };
 use crate::flags::flag_operations::flags_require_db_preparation;
+use crate::flags::person_cache::PersonCache;
 use crate::handler::canonical_log::{install_rayon_canonical_log, take_rayon_canonical_log};
 use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
@@ -245,6 +246,8 @@ pub struct FeatureFlagMatcher {
     rayon_dispatcher: Option<RayonDispatcher>,
     /// When true, skip all writes to PostgreSQL and Redis.
     skip_writes: bool,
+    /// Cross-request person cache for deduplicating person DB queries
+    person_cache: Option<PersonCache>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -292,6 +295,7 @@ impl FeatureFlagMatcher {
             parallel_eval_threshold: DEFAULT_PARALLEL_EVAL_THRESHOLD,
             rayon_dispatcher: None,
             skip_writes: false,
+            person_cache: None,
         }
     }
 
@@ -307,6 +311,11 @@ impl FeatureFlagMatcher {
 
     pub fn with_skip_writes(mut self, skip_writes: bool) -> Self {
         self.skip_writes = skip_writes;
+        self
+    }
+
+    pub fn with_person_cache(mut self, person_cache: PersonCache) -> Self {
+        self.person_cache = Some(person_cache);
         self
     }
 
@@ -1850,6 +1859,7 @@ impl FeatureFlagMatcher {
             &group_data.type_indexes,
             &group_data.keys,
             static_cohort_ids,
+            self.person_cache.as_ref(),
         )
         .await
         {

@@ -330,6 +330,7 @@ impl ServerHandle {
                 config_hypercache_reader,
                 RayonDispatcher::new(2),
                 NegativeCache::new(10_000, 300),
+                feature_flags::flags::person_cache::PersonCache::new(100_000, 5, false),
                 config,
             );
 

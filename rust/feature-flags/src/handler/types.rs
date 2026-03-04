@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use crate::{
     api::types::FlagsQueryParams, cohorts::cohort_cache_manager::CohortCacheManager,
-    flags::flag_models::FeatureFlagList, rayon_dispatcher::RayonDispatcher, router,
-    utils::user_agent::UserAgentInfo,
+    flags::flag_models::FeatureFlagList, flags::person_cache::PersonCache,
+    rayon_dispatcher::RayonDispatcher, router, utils::user_agent::UserAgentInfo,
 };
 
 pub struct RequestContext {
@@ -67,6 +67,8 @@ pub struct FeatureFlagEvaluationContext {
     pub rayon_dispatcher: RayonDispatcher,
     /// When true, skip all writes to PostgreSQL and Redis.
     pub skip_writes: bool,
+    /// Cross-request person cache for deduplicating person DB queries
+    pub person_cache: PersonCache,
 }
 
 /// SDK type classification based on user-agent parsing.

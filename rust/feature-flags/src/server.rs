@@ -8,6 +8,7 @@ use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
 use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
+use crate::flags::person_cache::PersonCache;
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
 use crate::tokio_monitor::TokioRuntimeMonitor;
@@ -324,6 +325,18 @@ pub async fn serve<F>(
         "Created team negative cache for invalid API tokens"
     );
 
+    let person_cache = PersonCache::new(
+        config.person_cache_max_capacity,
+        config.person_cache_ttl_seconds,
+        *config.person_cache_enabled,
+    );
+    tracing::info!(
+        enabled = *config.person_cache_enabled,
+        capacity = config.person_cache_max_capacity,
+        ttl_seconds = config.person_cache_ttl_seconds,
+        "Created person cache"
+    );
+
     if *config.skip_writes {
         tracing::warn!(
             "SKIP_WRITES is enabled: all writes to PostgreSQL and Redis are disabled. \
@@ -361,6 +374,7 @@ pub async fn serve<F>(
         config_hypercache_reader,
         rayon_dispatcher,
         team_negative_cache,
+        person_cache,
         config,
     );
 

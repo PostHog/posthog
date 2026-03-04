@@ -26,12 +26,13 @@ use crate::{
     api::{errors::FlagError, types::FlagValue},
     cohorts::cohort_models::CohortId,
     flags::flag_models::FeatureFlagId,
+    flags::person_cache::PersonCache,
     handler::with_canonical_log,
     metrics::consts::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DATABASE_ERROR_COUNTER,
         FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
-        FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME,
-        FLAG_PERSON_QUERY_TIME,
+        FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_CACHE_HIT_COUNTER,
+        FLAG_PERSON_CACHE_MISS_COUNTER, FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
     },
     properties::{
         property_matching::match_property,
@@ -155,6 +156,7 @@ pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Valu
 ///
 /// This function fetches both person and group properties for a specified distinct ID and team ID.
 /// It updates the properties cache with the fetched properties and returns void if it succeeds.
+#[allow(clippy::too_many_arguments)]
 #[instrument(skip_all, fields(
     team_id = %team_id,
     distinct_id = %distinct_id,
@@ -170,6 +172,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     group_type_indexes: &HashSet<GroupTypeIndex>,
     group_keys: &HashSet<String>,
     static_cohort_ids: Vec<CohortId>,
+    person_cache: Option<&PersonCache>,
 ) -> Result<(), FlagError> {
     // Add the test-specific counter increment
     #[cfg(test)]
@@ -231,44 +234,67 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         ("team_id".to_string(), team_id.to_string()),
     ];
 
-    // First query: Get person data from the distinct_id (person_id and person_properties)
+    // First query: Get person data from the distinct_id (person_id and person_properties).
+    // The person cache sits in front of this query to avoid repeated DB lookups for the
+    // same (team_id, distinct_id) pair across concurrent requests.
+    //
     // TRICKY: sometimes we don't have a person_id ingested by the time we get a `/flags` request for a given
     // distinct_id. There's two cases for that:
     // 1. there's a race condition between person ingestion and flag evaluation.  In that case, only the first flag request
-    // be missing a person id, and all subsequent requests will have a person id.  That means the first flag evaluation could be wrong, but all subsequent ones will be correct.  Not a huge problem.
+    // will be missing a person id, and all subsequent requests will have a person id.  That means the first flag evaluation could be wrong, but all subsequent ones will be correct.  Not a huge problem.
     // 2. the distinct_id is associated with an anonymous or cookieless user.  In that case, it's fine to not return a person ID and to never return person properties.  This is handled by just
     // returning an empty HashMap for person properties whenever I actually need them, and then obviously any condition that depends on person properties will return false.
     // That's fine though, we shouldn't error out just because we can't find a person ID.
-    let person_query_start = Instant::now();
-    let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &query_labels);
-    let person = Person::from_distinct_id(&mut conn, team_id, &distinct_id).await?;
-    let (person_id, person_props) = person
-        .map(|p| (Some(p.id), Some(p.properties)))
-        .unwrap_or((None, None));
-    person_query_timer.fin();
-    let person_query_duration = person_query_start.elapsed();
-    with_canonical_log(|log| {
-        log.person_queries += 1;
-        log.person_query_time_ms += person_query_duration.as_millis() as u64;
-    });
-
-    if person_query_duration.as_millis() > 500 {
-        warn!(
-            duration_ms = person_query_duration.as_millis(),
-            distinct_id = distinct_id,
-            team_id = team_id,
-            sql_summary =
-                "SELECT person_id, properties with INNER JOIN from persondistinctid to person",
-            "Slow person query detected"
-        );
+    let (person_id, person_props) = if let Some(cached) = match person_cache {
+        Some(cache) => cache.get(team_id, &distinct_id).await,
+        None => None,
+    } {
+        common_metrics::inc(FLAG_PERSON_CACHE_HIT_COUNTER, &query_labels, 1);
+        cached
+            .map(|p| (Some(p.id), Some(p.properties)))
+            .unwrap_or((None, None))
     } else {
-        info!(
-            duration_ms = person_query_duration.as_millis(),
-            distinct_id = distinct_id,
-            team_id = team_id,
-            "Person query completed"
-        );
-    }
+        common_metrics::inc(FLAG_PERSON_CACHE_MISS_COUNTER, &query_labels, 1);
+        let person_query_start = Instant::now();
+        let person_query_timer =
+            common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &query_labels);
+        let person = Person::from_distinct_id(&mut conn, team_id, &distinct_id).await?;
+
+        if let Some(cache) = person_cache {
+            cache
+                .insert(team_id, distinct_id.clone(), person.clone())
+                .await;
+        }
+
+        let (person_id, person_props) = person
+            .map(|p| (Some(p.id), Some(p.properties)))
+            .unwrap_or((None, None));
+        person_query_timer.fin();
+        let person_query_duration = person_query_start.elapsed();
+        with_canonical_log(|log| {
+            log.person_queries += 1;
+            log.person_query_time_ms += person_query_duration.as_millis() as u64;
+        });
+
+        if person_query_duration.as_millis() > 500 {
+            warn!(
+                duration_ms = person_query_duration.as_millis(),
+                distinct_id = distinct_id,
+                team_id = team_id,
+                sql_summary =
+                    "SELECT person_id, properties with INNER JOIN from persondistinctid to person",
+                "Slow person query detected"
+            );
+        } else {
+            info!(
+                duration_ms = person_query_duration.as_millis(),
+                distinct_id = distinct_id,
+                team_id = team_id,
+                "Person query completed"
+            );
+        }
+        (person_id, person_props)
+    };
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
     if let Some(person_id) = person_id {
         // NB: this is where we actually set our person ID in the flag evaluation state.

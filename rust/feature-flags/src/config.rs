@@ -505,6 +505,18 @@ pub struct Config {
 
     #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "300")]
     pub team_negative_cache_ttl_seconds: u64,
+
+    // Cross-request person cache to reduce PostgreSQL load.
+    // When enabled, caches (team_id, distinct_id) → Person results in-memory
+    // so repeated lookups within the TTL window skip the DB query.
+    #[envconfig(from = "PERSON_CACHE_ENABLED", default = "false")]
+    pub person_cache_enabled: FlexBool,
+
+    #[envconfig(from = "PERSON_CACHE_TTL_SECONDS", default = "5")]
+    pub person_cache_ttl_seconds: u64,
+
+    #[envconfig(from = "PERSON_CACHE_MAX_CAPACITY", default = "100000")]
+    pub person_cache_max_capacity: u64,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -699,6 +711,9 @@ impl Config {
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
             team_negative_cache_ttl_seconds: 300,
+            person_cache_enabled: FlexBool(false),
+            person_cache_ttl_seconds: 5,
+            person_cache_max_capacity: 100_000,
         }
     }
 

@@ -26,6 +26,10 @@ pub const DB_CONNECTION_POOL_IDLE_COUNTER: &str = "flags_db_connection_pool_idle
 pub const DB_CONNECTION_POOL_MAX_COUNTER: &str = "flags_db_connection_pool_max_total";
 pub const DB_CONNECTION_POOL_SIZE_GAUGE: &str = "flags_db_connection_pool_size";
 
+// Person cache (cross-request dedup)
+pub const FLAG_PERSON_CACHE_HIT_COUNTER: &str = "flags_person_cache_hit_total";
+pub const FLAG_PERSON_CACHE_MISS_COUNTER: &str = "flags_person_cache_miss_total";
+
 // Flag evaluation timing
 pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
 pub const FLAG_HASH_KEY_PROCESSING_TIME: &str = "flags_hash_key_processing_time";

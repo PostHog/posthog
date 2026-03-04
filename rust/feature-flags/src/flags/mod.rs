@@ -10,6 +10,7 @@ pub mod flag_operations;
 pub mod flag_property_group;
 pub mod flag_request;
 pub mod flag_service;
+pub mod person_cache;
 pub mod property_filter;
 
 #[cfg(test)]

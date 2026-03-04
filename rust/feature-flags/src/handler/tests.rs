@@ -195,6 +195,7 @@ async fn test_evaluate_feature_flags() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
         skip_writes: false,
+        person_cache: crate::flags::person_cache::PersonCache::new(100, 5, false),
     };
 
     let request_id = Uuid::new_v4();
@@ -289,6 +290,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
         skip_writes: false,
+        person_cache: crate::flags::person_cache::PersonCache::new(100, 5, false),
     };
 
     let request_id = Uuid::new_v4();
@@ -697,6 +699,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
         skip_writes: false,
+        person_cache: crate::flags::person_cache::PersonCache::new(100, 5, false),
     };
 
     let request_id = Uuid::new_v4();
@@ -804,6 +807,7 @@ async fn test_evaluate_feature_flags_details() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
         skip_writes: false,
+        person_cache: crate::flags::person_cache::PersonCache::new(100, 5, false),
     };
 
     let request_id = Uuid::new_v4();
@@ -963,6 +967,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
         skip_writes: false,
+        person_cache: crate::flags::person_cache::PersonCache::new(100, 5, false),
     };
 
     let request_id = Uuid::new_v4();
@@ -1057,6 +1062,7 @@ async fn test_long_distinct_id() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
         skip_writes: false,
+        person_cache: crate::flags::person_cache::PersonCache::new(100, 5, false),
     };
 
     let request_id = Uuid::new_v4();
@@ -1577,6 +1583,7 @@ async fn test_parallel_path_matches_sequential_results() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
         skip_writes: false,
+        person_cache: crate::flags::person_cache::PersonCache::new(100, 5, false),
     };
     let sequential_result = evaluate_feature_flags(sequential_context, Uuid::new_v4()).await;
 
@@ -1600,6 +1607,7 @@ async fn test_parallel_path_matches_sequential_results() {
         parallel_eval_threshold: 1,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
         skip_writes: false,
+        person_cache: crate::flags::person_cache::PersonCache::new(100, 5, false),
     };
     let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4()).await;
 

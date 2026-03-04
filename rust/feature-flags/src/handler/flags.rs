@@ -264,6 +264,7 @@ pub async fn evaluate_for_request(
         parallel_eval_threshold: state.config.parallel_eval_threshold,
         rayon_dispatcher: state.rayon_dispatcher.clone(),
         skip_writes: *state.config.skip_writes,
+        person_cache: state.person_cache.clone(),
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await
