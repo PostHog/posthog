@@ -326,6 +326,18 @@ class HogFlowInvocationSerializer(serializers.Serializer):
     current_action_id = serializers.CharField(write_only=True, required=False)
 
 
+class HogFlowBulkDeleteRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text="List of workflow IDs to delete.",
+    )
+
+
+class HogFlowBulkDeleteResponseSerializer(serializers.Serializer):
+    deleted = serializers.IntegerField(help_text="Number of workflows deleted.")
+
+
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
     pass
 
@@ -472,18 +484,18 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             }
         )
 
-    @action(methods=["POST"], detail=False)
+    @extend_schema(
+        summary="Bulk delete workflows",
+        description="Permanently delete multiple archived workflows by their IDs. Only archived workflows can be deleted.",
+        request=HogFlowBulkDeleteRequestSerializer,
+        responses={200: HogFlowBulkDeleteResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["hog_flow:write"])
     def bulk_delete(self, request: Request, **kwargs):
-        ids = request.data.get("ids", [])
-        if not ids or not isinstance(ids, list):
-            return Response({"error": "A non-empty list of 'ids' is required"}, status=400)
+        serializer = HogFlowBulkDeleteRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        try:
-            validated_ids = [uuid_mod.UUID(str(id)) for id in ids]
-        except ValueError:
-            return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
-
-        queryset = self.get_queryset().filter(id__in=validated_ids, status="archived")
+        queryset = self.get_queryset().filter(id__in=serializer.validated_data["ids"], status="archived")
         deleted_count, _ = queryset.delete()
 
         return Response({"deleted": deleted_count})
