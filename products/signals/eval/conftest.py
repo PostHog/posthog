@@ -9,6 +9,10 @@ from posthoganalytics.ai.openai import OpenAI
 
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
+# Gemini client expects GOOGLE_API_KEY; alias from GEMINI_API_KEY if needed
+if not os.environ.get("GOOGLE_API_KEY") and os.environ.get("GEMINI_API_KEY"):
+    os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
+
 
 @pytest.fixture
 def posthog_client():
