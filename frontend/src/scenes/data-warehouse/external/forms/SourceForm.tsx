@@ -275,23 +275,6 @@ export function SourceFormComponent({
 
     return (
         <div className="deprecated-space-y-4">
-            {shouldShowDescription && (
-                <LemonField
-                    name="description"
-                    label="Description (optional)"
-                    help="A description to help you identify this source, e.g. 'Production EU database' or 'Billing Stripe account'."
-                >
-                    {({ value, onChange }) => (
-                        <LemonInput
-                            className="ph-ignore-input"
-                            data-attr="description"
-                            placeholder="e.g. Production database"
-                            value={value || ''}
-                            onChange={onChange}
-                        />
-                    )}
-                </LemonField>
-            )}
             {sourceConfig.name === 'Postgres' && featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && (
                 <LemonField name="access_method" label="How should PostHog query this source?">
                     {({ value, onChange }) => (
@@ -324,6 +307,23 @@ export function SourceFormComponent({
                                     ),
                                 },
                             ]}
+                        />
+                    )}
+                </LemonField>
+            )}
+            {shouldShowDescription && (
+                <LemonField
+                    name="description"
+                    label="Description (optional)"
+                    help="A description to help you identify this source, e.g. 'Production EU database' or 'Billing Stripe account'."
+                >
+                    {({ value, onChange }) => (
+                        <LemonInput
+                            className="ph-ignore-input"
+                            data-attr="description"
+                            placeholder="e.g. Production database"
+                            value={value || ''}
+                            onChange={onChange}
                         />
                     )}
                 </LemonField>

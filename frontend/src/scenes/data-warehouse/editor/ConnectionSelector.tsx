@@ -12,6 +12,7 @@ import { sqlEditorLogic } from './sqlEditorLogic'
 export const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
 export const LOADING_CONNECTIONS = '__loading_connections__'
 export const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
+export const CONFIGURE_SOURCES = '__configure_sources__'
 
 export function ConnectionSelector(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(externalDataSourcesLogic)
@@ -43,9 +44,15 @@ export function ConnectionSelector(): JSX.Element {
               }))
 
         return [
-            { value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' },
-            ...sourceOptions,
-            { value: ADD_POSTGRES_DIRECT_CONNECTION, label: '+ Add postgres direct connection' },
+            {
+                options: [{ value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' }, ...sourceOptions],
+            },
+            {
+                options: [
+                    { value: CONFIGURE_SOURCES, label: 'Configure sources' },
+                    { value: ADD_POSTGRES_DIRECT_CONNECTION, label: '+ Add postgres direct connection' },
+                ],
+            },
         ]
     }, [dataWarehouseSourcesLoading, directPostgresSources])
 
@@ -53,7 +60,7 @@ export function ConnectionSelector(): JSX.Element {
     const selectedConnectionId = sourceQuery.source.connectionId ?? sourceQueryWithConnection.connectionId
     const selectedValue = dataWarehouseSourcesLoading
         ? LOADING_CONNECTIONS
-        : selectedConnectionId && options.some((option) => option.value === selectedConnectionId)
+        : selectedConnectionId && directPostgresSources.some((source) => source.id === selectedConnectionId)
           ? selectedConnectionId
           : POSTHOG_WAREHOUSE
 
@@ -81,6 +88,11 @@ export function ConnectionSelector(): JSX.Element {
 
                 if (nextValue === ADD_POSTGRES_DIRECT_CONNECTION) {
                     router.actions.push(urls.dataWarehouseSourceNew('Postgres'))
+                    return
+                }
+
+                if (nextValue === CONFIGURE_SOURCES) {
+                    router.actions.push(urls.sources())
                     return
                 }
 
