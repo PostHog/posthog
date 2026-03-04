@@ -214,7 +214,6 @@ export const FEATURE_FLAGS = {
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
-    SURVEYS_GUIDED_EDITOR: 'surveys-guided-editor', // owner: #team-surveys, enables the new simplified survey guided editor
     SURVEYS_REDESIGNED_VIEW: 'surveys-redesigned-view', // owner: #team-surveys, enables the redesigned survey view with sidebar
     TRACK_MEMORY_USAGE: 'track-memory-usage', // owner: @pauldambra #team-replay
     TRACK_REACT_FRAMERATE: 'track-react-framerate', // owner: @pauldambra #team-replay
@@ -260,6 +259,7 @@ export const FEATURE_FLAGS = {
     DWH_JOIN_TABLE_PREVIEW: 'dwh-join-table-preview', // owner: @arthurdedeus #team-customer-analytics
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-stack
     ENDPOINTS: 'embedded-analytics', // owner: @sakce #team-clickhouse
+    ERROR_TRACKING_INSIGHTS: 'error-tracking-insights', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
     ERROR_TRACKING_JIRA_INTEGRATION: 'error-tracking-jira-integration', // owner: #team-error-tracking
@@ -283,6 +283,7 @@ export const FEATURE_FLAGS = {
     FLAG_EVALUATION_RUNTIMES: 'flag-evaluation-runtimes', // owner: @dmarticus #team-feature-flags
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
+    GROUP_PROFILE_EXPERIMENT: 'group-profile-experiment', // owner: @arthurdedeus #team-customer-analytics
     INSIGHT_OPTIONS_PAGE: 'insight-options-page', // owner: @rafaeelaudibert #team-growth multivariate=true
     PRODUCT_ANALYTICS_HOME_TAB: 'product-analytics-home-tab', // owner: @anirudhpillai #team-product-analytics
     INTER_PROJECT_TRANSFERS: 'inter-project-transfers', // owner: @reecejones #team-platform-features
@@ -296,6 +297,7 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_OFFLINE_EVALS: 'llm-analytics-offline-evals', // owner: #team-llm-analytics
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS: 'llm-analytics-evaluations-custom-models', // owner: #team-llm-analytics
+    LLM_ANALYTICS_EVALUATIONS_HOG_CODE: 'llm-analytics-evaluations-hog-code', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS_SUMMARY: 'llm-analytics-evaluations-summary', // owner: #team-llm-analytics
     LLM_ANALYTICS_SESSION_SUMMARIZATION: 'llm-analytics-session-summarization', // owner: #team-llm-analytics
     LLM_ANALYTICS_CLUSTERS_TAB: 'llm-analytics-clusters-tab', // owner: #team-llm-analytics
@@ -342,6 +344,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_EVENTS_COMBINATION_IN_FUNNELS: 'events-combination-in-funnels', // owner: @gesh #team-product-analytics
     PRODUCT_ANALYTICS_FUNNEL_DWH_SUPPORT: 'funnel-dwh-support', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_FUNNEL_DWH_STEP_UI: 'funnel-dwh-step-ui', // owner: @thmsobrmlr #team-product-analytics multivariate=control,popover
+    PRODUCT_ANALYTICS_HIDE_WEEKENDS: 'product-analytics-hide-weekends', // owner: @kliment-slice #team-irl-events
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
@@ -349,6 +352,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_CONVERSATIONS: 'product-conversations', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT: 'product-support-release', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_SIDE_PANEL: 'product-support-side-panel', // owner: @veryayskiy #team-conversations
+    PRODUCT_SUPPORT_AI_SUGGESTION: 'product-support-ai-suggestion', // owner: @veryayskiy #team-conversations
     ONBOARDING_AI_PRODUCT_RECOMMENDATIONS: 'onboarding-ai-product-recommendations', // owner: @rafaeelaudibert #team-growth, AI-powered product recommendations in onboarding multivariate=control,test,chat
     ONBOARDING_PRODUCT_SELECTION_HEADING: 'onboarding-product-selection-heading', // owner: #team-growth, payload overrides the heading copy on the first onboarding page
     ONBOARDING_REVERSE_PROXY: 'onboarding-reverse-proxy', // owner: @rafaeelaudibert #team-growth

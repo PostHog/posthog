@@ -393,6 +393,15 @@ export interface PatchedTicketApi {
     readonly person?: TicketPersonApi | null
 }
 
+export interface SuggestReplyResponseApi {
+    suggestion: string
+}
+
+export interface SuggestReplyErrorApi {
+    detail: string
+    error_type?: string
+}
+
 export type ConversationsListParams = {
     /**
      * Number of results to return per page.

@@ -132,6 +132,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // Draft message state (persists across tab switches)
         setDraftContent: (content: JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
+
+        // AI suggestion
+        suggestReply: true,
+        setSuggesting: (suggesting: boolean) => ({ suggesting }),
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -283,6 +287,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setDraftIsPrivate: (_, { isPrivate }) => isPrivate,
             },
         ],
+        suggesting: [
+            false,
+            {
+                suggestReply: () => true,
+                setSuggesting: (_, { suggesting }) => suggesting,
+            },
+        ],
     }),
     selectors({
         hasUnsavedChanges: [
@@ -321,6 +332,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             [message.created_by.first_name, message.created_by.last_name].filter(Boolean).join(' ') ||
                             message.created_by.email ||
                             'Support'
+                    } else if (authorType === 'AI') {
+                        displayName = 'PostHog Assistant'
                     } else if (authorType === 'customer') {
                         // For Slack messages, use the per-message author info
                         const slackAuthorName = message.item_context?.slack_author_name
@@ -473,6 +486,30 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             } catch {
                 lemonToast.error('Failed to load older messages')
                 actions.setOlderMessagesLoading(false)
+            }
+        },
+        suggestReply: async () => {
+            try {
+                await api.conversationsTickets.suggestReply(props.id.toString())
+                actions.loadMessages()
+            } catch (error: any) {
+                // Parse error response for specific error messages
+                const errorData = error?.data || {}
+                const errorDetail = errorData.detail || 'Failed to generate AI suggestion'
+                const errorType = errorData.error_type
+
+                // Show more specific error messages based on error type
+                if (errorType === 'timeout') {
+                    lemonToast.error('AI service timed out. Please try again.')
+                } else if (errorType === 'rate_limit') {
+                    lemonToast.error('Too many requests. Please wait a moment and try again.')
+                } else if (errorType === 'validation_error') {
+                    lemonToast.error('AI returned an invalid response. Please try again.')
+                } else {
+                    lemonToast.error(errorDetail)
+                }
+            } finally {
+                actions.setSuggesting(false)
             }
         },
         sendMessage: async ({ content, richContent, isPrivate, onSuccess }) => {

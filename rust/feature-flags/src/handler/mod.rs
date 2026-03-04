@@ -16,7 +16,7 @@ pub use types::*;
 
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
-    flags::flag_service::FlagService,
+    flags::{flag_matching::EvaluationType, flag_service::FlagService},
     metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_FAULTS_COUNTER},
 };
 use std::collections::HashMap;
@@ -53,6 +53,7 @@ struct MetricsData {
     team_id: Option<i32>,
     flags_disabled: Option<bool>,
     library: Library,
+    evaluation_type: Option<EvaluationType>,
 }
 
 fn record_metrics(
@@ -72,10 +73,18 @@ fn record_metrics(
 
     let library = data.library.to_string();
 
+    // "none" (not "not_available") because it means evaluation was intentionally skipped
+    // (flags disabled, quota limited, empty set), not that the value is unknown.
+    let evaluation_type = data
+        .evaluation_type
+        .map_or("none", EvaluationType::as_str)
+        .to_string();
+
     let labels = [
         ("flags_disabled".to_string(), flags_disabled),
         ("team_id".to_string(), team_id.clone()),
         ("library".to_string(), library),
+        ("evaluation_type".to_string(), evaluation_type),
     ];
 
     inc(FLAG_REQUESTS_COUNTER, &labels, 1);
@@ -101,6 +110,7 @@ async fn process_request_inner(
         team_id: None,
         flags_disabled: None,
         library,
+        evaluation_type: None,
     };
 
     let result = async {
@@ -219,12 +229,16 @@ async fn process_request_inner(
             config_response_builder::build_response_from_cache(flags_response, &context, &team)
                 .await?;
 
-        // Populate canonical log with flag evaluation results
+        // Populate canonical log with flag evaluation results and read back evaluation_type.
+        // If an earlier step errored (? above), we skip this and evaluation_type stays
+        // None → "none" in metrics. That's intentional: we don't need sequential/parallel
+        // breakdown for failed requests.
         with_canonical_log(|log| {
             log.flags_evaluated = response.flags.len();
             if response.quota_limited.is_some() {
                 log.quota_limited = true;
             }
+            metrics_data.evaluation_type = log.evaluation_type;
         });
 
         Ok(response)
@@ -318,6 +332,7 @@ mod metrics_tests {
             team_id: Some(123),
             flags_disabled: Some(false),
             library: Library::PosthogNode,
+            evaluation_type: Some(EvaluationType::Sequential),
         };
 
         // Call the real record_metrics function - it will use our test metrics functions
@@ -345,12 +360,18 @@ mod metrics_tests {
         assert!(counter
             .labels
             .contains(&("library".to_string(), "posthog-node".to_string())));
+        assert!(counter
+            .labels
+            .contains(&("evaluation_type".to_string(), "sequential".to_string())));
 
         // Check the histogram metric
         let histogram = &metrics[1];
         assert_eq!(histogram.name, FLAG_REQUESTS_LATENCY);
         assert_eq!(histogram.metric_type, MetricType::Histogram);
         assert_eq!(histogram.value, 100.0);
+        assert!(histogram
+            .labels
+            .contains(&("evaluation_type".to_string(), "sequential".to_string())));
     }
 
     #[test]
@@ -367,6 +388,7 @@ mod metrics_tests {
             team_id: None,
             flags_disabled: None,
             library: Library::Other,
+            evaluation_type: None,
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(50));
@@ -374,7 +396,7 @@ mod metrics_tests {
         let metrics = get_recorded_metrics();
         assert_eq!(metrics.len(), 2);
 
-        // Both metrics should use "not_available" for missing values
+        // Both metrics should use "not_available" / "none" for missing values
         for metric in &metrics {
             assert!(metric
                 .labels
@@ -382,6 +404,9 @@ mod metrics_tests {
             assert!(metric
                 .labels
                 .contains(&("flags_disabled".to_string(), "not_available".to_string())));
+            assert!(metric
+                .labels
+                .contains(&("evaluation_type".to_string(), "none".to_string())));
         }
     }
 
@@ -394,6 +419,7 @@ mod metrics_tests {
             team_id: Some(456),
             flags_disabled: Some(true),
             library: Library::PosthogJs,
+            evaluation_type: Some(EvaluationType::Parallel),
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(200));
@@ -416,6 +442,23 @@ mod metrics_tests {
         assert!(fault_counter
             .labels
             .contains(&("team_id".to_string(), "456".to_string())));
+
+        // Verify counter and histogram carry the correct evaluation_type label
+        let counter = metrics
+            .iter()
+            .find(|m| m.name == FLAG_REQUESTS_COUNTER)
+            .expect("Should have counter");
+        assert!(counter
+            .labels
+            .contains(&("evaluation_type".to_string(), "parallel".to_string())));
+
+        let histogram = metrics
+            .iter()
+            .find(|m| m.name == FLAG_REQUESTS_LATENCY)
+            .expect("Should have histogram");
+        assert!(histogram
+            .labels
+            .contains(&("evaluation_type".to_string(), "parallel".to_string())));
     }
 
     #[test]
@@ -427,6 +470,7 @@ mod metrics_tests {
             team_id: None,
             flags_disabled: Some(false),
             library: Library::PosthogPython,
+            evaluation_type: None,
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(150));
@@ -456,6 +500,7 @@ mod metrics_tests {
             team_id: Some(789),
             flags_disabled: Some(false),
             library: Library::PosthogAndroid,
+            evaluation_type: Some(EvaluationType::Sequential),
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(75));

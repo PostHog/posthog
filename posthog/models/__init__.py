@@ -93,6 +93,8 @@ from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
+from .repo_routing_rule import RepoRoutingRule
+from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
 from .web_analytics_filter_preset import WebAnalyticsFilterPreset
@@ -227,6 +229,8 @@ __all__ = [
     "EventIngestionRestrictionConfig",
     "UploadedMedia",
     "User",
+    "RepoRoutingRule",
+    "UserRepoPreference",
     "UserScenePersonalisation",
     "UserHomeSettings",
     "UserManager",
