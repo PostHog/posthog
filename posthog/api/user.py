@@ -975,7 +975,7 @@ def toolbar_oauth_authorize(request):
                     "error_title": "Domain not authorized",
                     "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
                     "error_detail": (
-                        f"The hostname {escape(hostname)} needs to be added to your project's "
+                        f"The hostname {hostname} needs to be added to your project's "
                         "authorized URLs before the toolbar can be used on this site."
                     ),
                     "error_code": "403",
@@ -1238,7 +1238,7 @@ def redirect_to_site(request):
                 "error_title": "Domain not authorized",
                 "error_message": "The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
                 "error_detail": (
-                    f"The hostname {escape(hostname)} needs to be added to your project's "
+                    f"The hostname {hostname} needs to be added to your project's "
                     "authorized URLs before the toolbar can be used on this site."
                 ),
                 "error_code": "403",

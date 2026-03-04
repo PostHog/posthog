@@ -5,7 +5,6 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
 from django.template import loader
 from django.urls import include, path, re_path
-from django.utils.html import escape
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
 
@@ -129,7 +128,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
                 "error_title": "Domain not authorized",
                 "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
                 "error_detail": (
-                    f"The hostname {escape(hostname)} needs to be added to your project's "
+                    f"The hostname {hostname} needs to be added to your project's "
                     "authorized URLs before the toolbar can be used on this site."
                 ),
                 "error_code": "403",
