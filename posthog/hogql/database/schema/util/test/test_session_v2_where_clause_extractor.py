@@ -76,6 +76,12 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
         actual = self.inliner.get_inner_where(parse("SELECT * FROM sessions ORDER BY $channel_type LIMIT 10"))
         assert actual is None
 
+    def test_no_default_bound_with_limit_and_unrelated_where(self):
+        actual = self.inliner.get_inner_where(
+            parse("SELECT * FROM sessions WHERE $initial_utm_campaign = $initial_utm_source LIMIT 10")
+        )
+        assert actual is None
+
     def assert_limit_bound_edge_case(self, query: str, expected: str):
         EventDefinition.objects.create(
             team=self.team,
