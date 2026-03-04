@@ -56,9 +56,17 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 const personIdOrDistinctId = hogFlowInvocationState.event.distinct_id ?? hogFlowInvocationState.personId
                 const kind = hogFlowInvocationState.event.distinct_id ? 'distinct_id' : 'person_id'
-                const person = personIdOrDistinctId
-                    ? await this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind)
-                    : undefined
+
+                const [person, groups] = await Promise.all([
+                    personIdOrDistinctId
+                        ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind)
+                        : undefined,
+                    this.groupsManager.getGroupsForEvent(
+                        hogFlow.team_id,
+                        hogFlowInvocationState.event.properties,
+                        `${this.config.SITE_URL}/project/${hogFlow.team_id}`
+                    ),
+                ])
 
                 if (!person && hogFlow.trigger?.type === 'event') {
                     logger.warn('⚠️', 'Person not found for hog flow invocation', {
@@ -68,15 +76,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     })
                 }
 
-                const groups = await this.groupsManager.getGroupsForEvent(
-                    hogFlow.team_id,
-                    hogFlowInvocationState.event.properties,
-                    `${this.config.SITE_URL}/project/${hogFlow.team_id}`
-                )
-
                 const filterGlobals = convertToHogFunctionFilterGlobal({
                     event: hogFlowInvocationState.event,
-                    person,
+                    person: person ?? undefined,
                     groups,
                     variables: hogFlowInvocationState.variables || {},
                 })
@@ -85,7 +87,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     ...item,
                     state: hogFlowInvocationState,
                     hogFlow,
-                    person,
+                    person: person ?? undefined,
                     filterGlobals,
                 })
             })
