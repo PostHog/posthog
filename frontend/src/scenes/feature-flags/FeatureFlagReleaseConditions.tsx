@@ -475,24 +475,27 @@ export function FeatureFlagReleaseConditions({
                                     }
                                     return ''
                                 })()}{' '}
-                                {filters.aggregation_group_type_index == null ? (
-                                    <Tooltip
-                                        title={
-                                            <>
-                                                A user may have multiple{' '}
+                                <span>of total {aggregationTargetName}.</span>
+                                {filters.aggregation_group_type_index == null && (
+                                    <span>
+                                        {' '}
+                                        A user may have{' '}
+                                        <Tooltip
+                                            title={
                                                 <Link
                                                     to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
                                                     target="_blank"
                                                 >
-                                                    profiles
+                                                    Learn more about profiles
                                                 </Link>
-                                            </>
-                                        }
-                                    >
-                                        <span>of total {aggregationTargetName}.</span>
-                                    </Tooltip>
-                                ) : (
-                                    <span>of total {aggregationTargetName}.</span>
+                                            }
+                                            interactive
+                                        >
+                                            <span className="border-b border-dashed border-current cursor-default">
+                                                multiple profiles
+                                            </span>
+                                        </Tooltip>
+                                    </span>
                                 )}
                             </div>
                         </div>
