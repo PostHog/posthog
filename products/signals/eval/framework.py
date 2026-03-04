@@ -102,6 +102,7 @@ def run_eval(
     experiment_id = deterministic_uuid(experiment_name)
     results: list[EvalResult] = []
 
+    # TODO: Make async?
     for case in cases:
         result = EvalResult(case=case)
 
