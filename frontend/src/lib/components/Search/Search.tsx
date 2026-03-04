@@ -227,6 +227,7 @@ interface SearchContextValue {
     showAskAiLink: boolean
     onAskAiClick?: () => void
     highlightedItemRef: MutableRefObject<SearchItem | null>
+    searchAiTabEnabled: boolean
 }
 
 const SearchContext = createContext<SearchContextValue | null>(null)
@@ -280,6 +281,7 @@ function SearchRoot({
     const { toggleTheme } = useActions(themeLogic)
     const { updateUser } = useActions(userLogic)
     const aiPreviewEnabled = useFeatureFlag('SEARCH_AI_PREVIEW')
+    const searchAiTabEnabled = useFeatureFlag('SEARCH_AI_TAB')
     const { conversationId: aiPreviewConversationId } = useValues(searchAiPreviewLogic({ logicKey }))
 
     const [searchValue, setSearchValue] = useState(defaultSearchValue)
@@ -348,8 +350,8 @@ function SearchRoot({
             }
         }
 
-        // Prepend "Ask PostHog AI" as the first result when there's a search query
-        if (showAskAiLink && searchValue.trim()) {
+        // Prepend "Ask PostHog AI" as the first result when there's a search query (skipped in tab experiment)
+        if (showAskAiLink && !searchAiTabEnabled && searchValue.trim()) {
             const askAiItem: SearchItem = {
                 id: ASK_AI_ITEM_ID,
                 name: `Ask PostHog AI: "${searchValue.trim()}"`,
@@ -365,7 +367,15 @@ function SearchRoot({
         }
 
         return [...normalizedSuggestedItems, ...items]
-    }, [allItems, searchValue, showAskAiLink, suggestedItems, aiPreviewConversationId, isDarkModeOn])
+    }, [
+        allItems,
+        searchValue,
+        showAskAiLink,
+        searchAiTabEnabled,
+        suggestedItems,
+        aiPreviewConversationId,
+        isDarkModeOn,
+    ])
 
     useEffect(() => {
         if (!isActive) {
@@ -392,7 +402,7 @@ function SearchRoot({
     // Auto-highlight first real result when heuristics determine high confidence match
     const lastHighlightedQueryRef = useRef<string>('')
     useEffect(() => {
-        if (!isActive || !showAskAiLink || !searchValue.trim() || filteredItems.length < 2) {
+        if (!isActive || !showAskAiLink || searchAiTabEnabled || !searchValue.trim() || filteredItems.length < 2) {
             return
         }
 
@@ -433,7 +443,7 @@ function SearchRoot({
         }, 150) // 150ms debounce
 
         return () => clearTimeout(timeoutId)
-    }, [isActive, showAskAiLink, searchValue, filteredItems, inputRef])
+    }, [isActive, showAskAiLink, searchAiTabEnabled, searchValue, filteredItems, inputRef])
 
     const handleItemClick = useCallback(
         (item: SearchItem) => {
@@ -529,6 +539,7 @@ function SearchRoot({
             showAskAiLink,
             onAskAiClick,
             highlightedItemRef,
+            searchAiTabEnabled,
         }),
         [
             logicKey,
@@ -540,6 +551,7 @@ function SearchRoot({
             handleItemClick,
             showAskAiLink,
             onAskAiClick,
+            searchAiTabEnabled,
         ]
     )
 
@@ -575,7 +587,8 @@ export interface SearchInputProps {
 }
 
 function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
-    const { searchValue, setSearchValue, isActive, inputRef, highlightedItemRef } = useSearchContext()
+    const { searchValue, setSearchValue, isActive, inputRef, highlightedItemRef, searchAiTabEnabled, onAskAiClick } =
+        useSearchContext()
 
     const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(isActive && !searchValue)
 
@@ -596,8 +609,14 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                     newInternalTab(item.href)
                 }
             }
+            if (e.key === 'Tab' && searchAiTabEnabled && searchValue.trim()) {
+                e.preventDefault()
+                e.stopPropagation()
+                onAskAiClick?.()
+                router.actions.push(urls.ai(undefined, searchValue.trim()))
+            }
         },
-        [highlightedItemRef]
+        [highlightedItemRef, searchAiTabEnabled, searchValue, onAskAiClick]
     )
 
     useEffect(() => {
@@ -637,6 +656,21 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                     id="app-autocomplete-search"
                     className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
                 />
+
+                {searchAiTabEnabled && searchValue.trim() && (
+                    <ButtonPrimitive
+                        size="sm"
+                        className="shrink-0 text-xs text-tertiary hover:text-ai gap-1"
+                        tabIndex={-1}
+                        onClick={() => {
+                            onAskAiClick?.()
+                            router.actions.push(urls.ai(undefined, searchValue.trim()))
+                        }}
+                    >
+                        <IconSparkles className="size-3 text-ai" />
+                        Press tab to ask AI
+                    </ButtonPrimitive>
+                )}
 
                 <Autocomplete.Clear
                     render={
@@ -981,6 +1015,7 @@ export interface SearchFooterProps {
 
 function SearchFooter({ children }: SearchFooterProps): JSX.Element {
     const { filteredItems } = useSearchContext()
+    const searchAiTabEnabled = useFeatureFlag('SEARCH_AI_TAB')
 
     return (
         <div className="border-t px-2 py-1 text-xxs text-tertiary font-medium select-none flex items-center gap-1">
@@ -997,6 +1032,11 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     <span>
                         <KeyboardShortcut shift enter /> to open in new tab
                     </span>
+                    {searchAiTabEnabled && (
+                        <span>
+                            <KeyboardShortcut tab /> to ask AI
+                        </span>
+                    )}
                     <span>
                         <KeyboardShortcut escape /> to close
                     </span>

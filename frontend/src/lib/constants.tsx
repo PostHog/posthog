@@ -170,6 +170,7 @@ export const FEATURE_FLAGS = {
     // UX flags, used to control the UX of the app
     AI_FIRST: 'ai-first', // this a larger change, not released to team yet
     SEARCH_AI_PREVIEW: 'search-ai-preview', // used to show AI preview on search when no results are found
+    SEARCH_AI_TAB: 'search-ai-tab', // used to show AI tab on search
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
