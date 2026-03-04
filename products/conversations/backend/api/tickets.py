@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Prefetch, Q, QuerySet, Sum
 
 import structlog
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from loginas.utils import is_impersonated_session
 from openai import APITimeoutError, RateLimitError
 from rest_framework import (
@@ -48,6 +49,15 @@ from products.conversations.backend.services.ai_suggest import NoMessagesError, 
 from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
+
+
+class SuggestReplyResponseSerializer(serializers.Serializer):
+    suggestion = serializers.CharField()
+
+
+class SuggestReplyErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField()
+    error_type = serializers.CharField(required=False)
 
 
 class TicketPagination(pagination.LimitOffsetPagination):
@@ -364,6 +374,15 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(response=SuggestReplyResponseSerializer),
+            400: OpenApiResponse(response=SuggestReplyErrorSerializer),
+            403: OpenApiResponse(response=SuggestReplyErrorSerializer),
+            500: OpenApiResponse(response=SuggestReplyErrorSerializer),
+        },
+    )
     @action(
         detail=True,
         methods=["POST"],
