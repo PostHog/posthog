@@ -411,7 +411,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 return
             }
 
-            if (localOptions[getPropertyKey(type, propertyKey)]) {
+            if (!forceRefresh && localOptions[getPropertyKey(type, propertyKey)]) {
                 actions.setOptions(propertyKey, localOptions[getPropertyKey(type, propertyKey)], false)
                 return
             }
