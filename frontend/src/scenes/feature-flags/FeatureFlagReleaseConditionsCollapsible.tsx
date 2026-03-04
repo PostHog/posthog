@@ -556,7 +556,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                 }
                                                                 interactive
                                                             >
-                                                                <IconInfo className="text-muted text-base" />
+                                                                <IconInfo className="text-muted text-xs ml-0.5" />
                                                             </Tooltip>
                                                         )}
                                                     </div>
