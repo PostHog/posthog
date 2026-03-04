@@ -4,8 +4,8 @@ use inquire::{
     CustomUserError,
 };
 use posthog_rs::Event;
-use serde_json::json;
 use reqwest::blocking::Client;
+use serde_json::json;
 use std::{
     io::{self, IsTerminal},
     sync::{Mutex, OnceLock},
@@ -111,16 +111,17 @@ impl InvocationContext {
     }
 
     pub fn capture_command_invoked(&self, command: &str) {
-        self.capture_event("posthog cli command run", vec![("command_name", json!(command))]);
+        self.capture_event(
+            "posthog cli command run",
+            vec![("command_name", json!(command))],
+        );
     }
 
     pub fn capture_event(&self, event_name: &str, props: Vec<(&str, serde_json::Value)>) {
         let env_id = self.client.get_env_id().clone();
         let event_name = event_name.to_string();
-        let props: Vec<(String, serde_json::Value)> = props
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect();
+        let props: Vec<(String, serde_json::Value)> =
+            props.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
 
         let handle = std::thread::spawn(move || {
             let mut event = Event::new_anon(event_name);
