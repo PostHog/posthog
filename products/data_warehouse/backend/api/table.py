@@ -157,6 +157,11 @@ class TableSerializer(serializers.ModelSerializer):
 
         return url_pattern
 
+    def validate_options(self, options):
+        if not isinstance(options, dict):
+            raise serializers.ValidationError("Options must be a JSON object.")
+        return options
+
     def validate_name(self, name):
         if not self.instance or self.instance.name != name:
             name_exists_in_hogql_database = self.context["database"].has_table(name)
