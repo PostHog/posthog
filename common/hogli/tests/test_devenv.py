@@ -557,3 +557,55 @@ class TestInfoProcess:
 
         assert "hogli dev:setup" in shell
         assert "hogli dev:explain" in shell
+
+
+class TestPersonhogEnvInjection:
+    """Test that personhog env vars are injected into backend when capability is active."""
+
+    def _make_fixtures(self, *, with_personhog: bool):
+        capabilities = {
+            "core_infra": Capability(name="core_infra", description="Core", requires=[]),
+            "flag_evaluation": Capability(name="flag_evaluation", description="Flags", requires=["core_infra"]),
+        }
+        intents = {
+            "feature_flags": Intent(name="feature_flags", description="Flags", capabilities=["flag_evaluation"]),
+        }
+        capability_units = {
+            "core_infra": ["docker-compose"],
+            "flag_evaluation": ["feature-flags"],
+        }
+
+        if with_personhog:
+            capabilities["personhog"] = Capability(name="personhog", description="PersonHog", requires=["core_infra"])
+            intents["personhog"] = Intent(name="personhog", description="PersonHog", capabilities=["personhog"])
+            capability_units["personhog"] = ["personhog-replica", "personhog-router"]
+
+        intent_map = IntentMap(
+            version="1.0",
+            capabilities=capabilities,
+            intents=intents,
+            always_required=["backend"],
+        )
+        registry = MockRegistry(capability_units)
+        registry._processes["backend"] = {"shell": "./bin/start-backend", "capability": ""}
+        return intent_map, registry
+
+    def test_personhog_env_injected_when_capability_active(self) -> None:
+        intent_map, registry = self._make_fixtures(with_personhog=True)
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["personhog"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        shell = config.procs["backend"]["shell"]
+        assert "PERSONHOG_ADDR" in shell
+        assert "PERSONHOG_ENABLED" in shell
+        assert "PERSONHOG_ROLLOUT_PERCENTAGE" in shell
+
+    def test_personhog_env_not_injected_without_capability(self) -> None:
+        intent_map, registry = self._make_fixtures(with_personhog=False)
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["feature_flags"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        shell = config.procs["backend"]["shell"]
+        assert "PERSONHOG_ADDR" not in shell

@@ -152,6 +152,24 @@ case "$RS_SVC" in
     export DEBUG=1
     ;;
 
+  personhog-replica)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
+    export RUST_BACKTRACE=1
+    export GRPC_ADDRESS=127.0.0.1:50051
+    export PRIMARY_DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export METRICS_PORT=9100
+    ;;
+
+  personhog-router)
+    export RUST_LOG=debug
+    export RUST_BACKTRACE=1
+    export GRPC_ADDRESS=127.0.0.1:50052
+    export REPLICA_URL=http://127.0.0.1:50051
+    export BACKEND_TIMEOUT_MS=5000
+    export METRICS_PORT=9101
+    ;;
+
   *)
     echo "ERROR unknown posthog/rust service '$RS_SVC' please register in: $0" >&2
     exit 1
