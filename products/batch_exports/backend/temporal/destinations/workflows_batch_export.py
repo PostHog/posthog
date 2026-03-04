@@ -117,8 +117,6 @@ class WorkflowsConsumer(Consumer):
                 response.raise_for_status()
             except aiohttp.ClientResponseError as err:
                 self.logger.exception("Request failed", status=err.status)
-
-                args = (err.request_info, err.history)
                 kwargs = {
                     "status": err.status,
                     "message": err.message,
@@ -127,13 +125,13 @@ class WorkflowsConsumer(Consumer):
 
                 match err.status:
                     case 404:
-                        raise NotFound(*args, **kwargs)
+                        raise NotFound(err.request_info, err.history, **kwargs)
                     case 429:
-                        raise TooManyRequests(*args, **kwargs)
+                        raise TooManyRequests(err.request_info, err.history, **kwargs)
                     case n if n >= 400 and n < 500:
-                        raise BadRequest(*args, **kwargs)
+                        raise BadRequest(err.request_info, err.history, **kwargs)
                     case n if n >= 500:
-                        raise InternalServerError(*args, **kwargs)
+                        raise InternalServerError(err.request_info, err.history, **kwargs)
 
     async def finalize_file(self):
         """Required by consumer interface."""
