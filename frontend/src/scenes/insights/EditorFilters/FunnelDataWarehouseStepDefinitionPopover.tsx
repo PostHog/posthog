@@ -11,9 +11,11 @@ import {
     funnelDataWarehouseStepDefinitionPopoverLogic,
 } from './funnelDataWarehouseStepDefinitionPopoverLogic'
 
+type EditableFieldProps = { label: string; shortExplanation: string }
+
 const EDITABLE_FIELD_ORDER: FunnelFieldKey[] = ['distinct_id_field', 'timestamp_field', 'id_field']
 
-const EDITABLE_FIELD_MAP: Record<FunnelFieldKey, { label: string; shortExplanation: string }> = {
+const EDITABLE_FIELD_MAP: Record<FunnelFieldKey, EditableFieldProps> = {
     distinct_id_field: {
         label: 'Aggregation target',
         shortExplanation: 'Used to match people or groups across funnel steps.',
@@ -63,14 +65,14 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                     label: EDITABLE_FIELD_MAP[key].label,
                 }))}
             />
-            <EditableField shortExplanation={EDITABLE_FIELD_MAP[activeFieldKey].shortExplanation} />
+            <ActiveField {...EDITABLE_FIELD_MAP[activeFieldKey]} />
         </div>
     )
 }
 
-type EditableFieldProps = { shortExplanation: string }
+type ActiveFieldProps = EditableFieldProps & {}
 
-function EditableField({ shortExplanation }: EditableFieldProps): JSX.Element {
+function ActiveField({ shortExplanation }: ActiveFieldProps): JSX.Element {
     return (
         <div>
             <div className="text-secondary text-xs">{shortExplanation}</div>
