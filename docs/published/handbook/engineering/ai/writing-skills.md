@@ -4,8 +4,6 @@ sidebar: Docs
 showTitle: true
 ---
 
-# Writing skills
-
 Skills are job-to-be-done templates that teach agents _how_ to use capabilities to achieve a goal.
 They should read like how an experienced person would approach a job,
 not like a rigid script of commands to run.
