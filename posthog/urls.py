@@ -5,6 +5,7 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
 from django.template import loader
 from django.urls import include, path, re_path
+from django.utils.html import escape
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
 
@@ -120,7 +121,22 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
         or (redirect_url.hostname not in PERMITTED_FORUM_DOMAINS and is_forum_login)
         or (not is_forum_login and not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname))
     ):
-        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
+        hostname = redirect_url.hostname or request.GET["redirect"]
+        return render_template(
+            "toolbar_oauth_error.html",
+            request,
+            context={
+                "error_title": "Domain not authorized",
+                "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                "error_detail": (
+                    f"The hostname {escape(hostname)} needs to be added to your project's "
+                    "authorized URLs before the toolbar can be used on this site."
+                ),
+                "error_code": "403",
+                "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
+            },
+            status_code=403,
+        )
 
     if referer_url.hostname != redirect_url.hostname:
         return HttpResponse(
