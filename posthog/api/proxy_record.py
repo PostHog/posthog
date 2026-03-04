@@ -161,12 +161,11 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                     task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
                 )
             )
-        except Exception as e:
+        except Exception:
             record.status = ProxyRecord.Status.ERRORING
-            record.message = str(e)
             record.save()
             return Response(
-                {"detail": f"Failed to start retry workflow: {e}"},
+                {"detail": "Failed to start retry workflow."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
