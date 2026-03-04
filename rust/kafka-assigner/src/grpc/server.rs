@@ -124,9 +124,7 @@ impl KafkaAssignerService {
                 })
                 .await
                 .map_err(|e| Status::internal(format!("metadata fetch task panicked: {e}")))?
-                .map_err(|e| {
-                    Status::internal(format!("failed to fetch partition count: {e}"))
-                })?;
+                .map_err(|e| Status::internal(format!("failed to fetch partition count: {e}")))?;
 
                 let config = TopicConfig {
                     topic: topic.to_string(),
@@ -136,9 +134,7 @@ impl KafkaAssignerService {
                 store
                     .set_topic_config(&config)
                     .await
-                    .map_err(|e| {
-                        Status::internal(format!("failed to store topic config: {e}"))
-                    })?;
+                    .map_err(|e| Status::internal(format!("failed to store topic config: {e}")))?;
 
                 tracing::info!(topic, partition_count, "stored topic config in etcd");
                 Ok(())
