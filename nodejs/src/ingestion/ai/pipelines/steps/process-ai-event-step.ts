@@ -11,7 +11,7 @@ type ProcessAiEventInput = {
 }
 
 export function createProcessAiEventStep<TInput extends ProcessAiEventInput>(): ProcessingStep<TInput, TInput> {
-    return function processAiEventStep(input: TInput) {
+    return function processAiEventStep(input) {
         if (!AI_EVENT_TYPES.has(input.normalizedEvent.event)) {
             return Promise.resolve(
                 dlq(
@@ -27,8 +27,11 @@ export function createProcessAiEventStep<TInput extends ProcessAiEventInput>(): 
             const enrichedEvent = processAiEvent(input.normalizedEvent)
             return Promise.resolve(ok({ ...input, normalizedEvent: enrichedEvent }))
         } catch (error) {
+            // NOTE: processAiEvent mutates the event in place, so on error the
+            // event may be partially enriched. This is acceptable — downstream
+            // consumers should not rely on AI fields being complete.
             captureException(error)
-            logger.error('Failed to process AI event, passing through unchanged', {
+            logger.error('Failed to process AI event, passing through with partial enrichment', {
                 event: input.normalizedEvent.event,
                 error,
             })

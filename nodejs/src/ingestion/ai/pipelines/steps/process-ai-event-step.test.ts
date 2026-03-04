@@ -97,14 +97,14 @@ describe('processAiEventStep', () => {
 
     it('preserves additional input fields', async () => {
         const event = createTestEvent({ event: '$ai_generation' })
-        const step = createProcessAiEventStep()
+        const step = createProcessAiEventStep<{ normalizedEvent: PluginEvent; extraField: string }>()
         const input = { normalizedEvent: event, extraField: 'preserved' }
 
         const result = await step(input)
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
-            expect((result.value as any).extraField).toBe('preserved')
+            expect(result.value.extraField).toBe('preserved')
         }
     })
 })
