@@ -53,25 +53,53 @@ def check_actionability(client: OpenAI, case: EvalCase) -> str:
     return (response.text or "").strip().upper()
 
 
+JUDGE_PROMPT = """You are an eval judge for a support ticket actionability classifier.
+
+## Rubric
+
+ACTIONABLE (classifier should output ACTIONABLE):
+- A bug report: user describes something broken, an error, or unexpected behavior in the product
+- A feature request: user asks for new functionality or an improvement
+- A usability issue: user is confused by the product or finds something hard to use
+- A performance problem: user reports slowness, timeouts, or high resource usage
+- A product question: user asks how to accomplish something with the product or its integrations
+
+Example ACTIONABLE ticket: "I'm getting a 500 error when I try to export my dashboard as PDF. It worked last week."
+
+NOT_ACTIONABLE (classifier should output NOT_ACTIONABLE):
+- Spam, abuse, or profanity with no real feedback
+- Routine billing/account admin: refund requests, payment method updates, invoice questions, plan changes (unless they indicate a product bug)
+- A generic thank-you or confirmation that an issue was resolved
+- Auto-generated or bot messages with no user content
+- Internal test messages
+
+Example NOT_ACTIONABLE ticket: "Hi, can you process a refund for our last invoice? We downgraded last month. Thanks!"
+
+## Task
+
+The classifier responded with: {output}
+The expected classification is: {expected}
+
+<ticket>
+{description}
+</ticket>
+
+First analyze the ticket content against the rubric above, then determine whether the classifier's output matches the expected classification.
+
+Respond with JSON: {{"reasoning": "...", "correct": true/false}}"""
+
+
 def judge_actionability(client: OpenAI, case: EvalCase, output: str) -> EvalMetric:
     response = client.chat.completions.create(
         model=JUDGE_MODEL,
         messages=[
             {
                 "role": "system",
-                "content": (
-                    "You are an eval judge for a support ticket actionability classifier. "
-                    "The classifier was given a Zendesk support ticket and asked to determine "
-                    "if it contains actionable product feedback.\n\n"
-                    "The classifier responded with: {output}\n"
-                    "The expected classification is: {expected}\n\n"
-                    "The ticket description is:\n<ticket>\n{description}\n</ticket>\n\n"
-                    "Evaluate whether the classifier's response matches the expected classification. "
-                    "A ticket is ACTIONABLE if it describes a bug, feature request, usability issue, "
-                    "performance problem, or product question. "
-                    "It is NOT_ACTIONABLE if it is spam, routine billing, a thank-you, or auto-generated.\n\n"
-                    'Respond with JSON: {{"correct": true/false, "reasoning": "..."}}'
-                ).format(output=output, expected=case.expected, description=case.input["description"]),
+                "content": JUDGE_PROMPT.format(
+                    output=output,
+                    expected=case.expected,
+                    description=case.input["description"],
+                ),
             },
         ],
         posthog_distinct_id="llma_eval",
@@ -81,7 +109,7 @@ def judge_actionability(client: OpenAI, case: EvalCase, output: str) -> EvalMetr
 
     return EvalMetric(
         name="actionability_correctness",
-        version="1",
+        version="2",
         result_type="binary",
         score=1.0 if parsed.get("correct") else 0.0,
         score_min=0,
