@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
+import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
 import { DefinitionPopoverRendererProps, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
@@ -65,17 +67,43 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                     label: EDITABLE_FIELD_MAP[key].label,
                 }))}
             />
-            <ActiveField {...EDITABLE_FIELD_MAP[activeFieldKey]} />
+            <ActiveField table={table} activeFieldKey={activeFieldKey} {...EDITABLE_FIELD_MAP[activeFieldKey]} />
         </div>
     )
 }
 
-type ActiveFieldProps = EditableFieldProps & {}
+type ActiveFieldProps = { table: DataWarehouseTableForInsight; activeFieldKey: FunnelFieldKey } & EditableFieldProps
 
-function ActiveField({ shortExplanation }: ActiveFieldProps): JSX.Element {
+function ActiveField({ table, activeFieldKey, shortExplanation }: ActiveFieldProps): JSX.Element {
+    const { localDefinition } = useValues(definitionPopoverLogic)
+    const { setLocalDefinition } = useActions(definitionPopoverLogic)
+
+    const dataWarehouseLocalDefinition = localDefinition as Partial<DataWarehouseTableForInsight>
+    const activeFieldValue = dataWarehouseLocalDefinition[activeFieldKey]
+
+    const columnOptions = useMemo(
+        () =>
+            Object.values(table.fields).map((column) => ({
+                label: `${column.name} (${column.type})`,
+                value: column.name,
+                type: column.type,
+            })),
+        [table.fields]
+    )
+
     return (
         <div>
-            <div className="text-secondary text-xs">{shortExplanation}</div>
+            <div className="text-secondary text-xs mb-4">{shortExplanation}</div>
+            <LemonSelect
+                fullWidth
+                value={activeFieldValue}
+                options={columnOptions}
+                onChange={(value: string | null) =>
+                    setLocalDefinition({
+                        [activeFieldKey]: value ?? undefined,
+                    } as Partial<DataWarehouseTableForInsight>)
+                }
+            />
         </div>
     )
 }
