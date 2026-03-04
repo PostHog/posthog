@@ -425,11 +425,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
 
                                 <LemonField name="name" label="Description">
-                                    <LemonTextArea
-                                        className="ph-ignore-input"
-                                        data-attr="feature-flag-description"
-                                        defaultValue={featureFlag.name || ''}
-                                    />
+                                    {({ value, onChange }) => (
+                                        <LemonTextArea
+                                            className="ph-ignore-input"
+                                            data-attr="feature-flag-description"
+                                            value={value || ''}
+                                            onChange={onChange}
+                                        />
+                                    )}
                                 </LemonField>
                             </div>
                             <SceneDivider />
@@ -865,6 +868,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             <SceneTitleSection
                                 name={featureFlag.key}
                                 description={featureFlag.name}
+                                noSticky
+                                descriptionClassName="max-w-prose"
                                 resourceType={{
                                     type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                                 }}

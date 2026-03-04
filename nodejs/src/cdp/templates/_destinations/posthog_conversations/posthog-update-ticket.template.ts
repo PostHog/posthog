@@ -6,7 +6,7 @@ export const template: HogFunctionTemplate = {
     type: 'destination',
     id: 'template-posthog-update-ticket',
     name: 'Update conversation ticket',
-    description: 'Update the status, priority, or assignee of a conversation ticket',
+    description: 'Update the status, priority, SLA, or assignee of a conversation ticket',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     code_language: 'hog',
@@ -23,6 +23,19 @@ if (not empty(inputs.status) and inputs.status != '') {
 
 if (not empty(inputs.priority) and inputs.priority != '') {
   updates.priority := inputs.priority
+}
+
+if (inputs.sla_amount == 'clear') {
+  updates.sla_due_at := null
+} else if (not empty(inputs.sla_amount)) {
+  let amount := toFloat(inputs.sla_amount)
+  let unit := inputs.sla_unit ?? 'hour'
+
+  if (amount == null or amount <= 0) {
+    throw Error(f'Invalid SLA amount: {inputs.sla_amount}. Must be a positive number or "clear".')
+  }
+  let deadline := dateAdd(unit, amount, now())
+  updates.sla_due_at := formatDateTime(deadline, '%Y-%m-%dT%H:%i:%SZ')
 }
 
 let response := postHogUpdateTicket({
@@ -73,6 +86,28 @@ return response.body
                 { label: 'High', value: 'high' },
             ],
             description: 'New priority for the ticket. Leave empty to keep current.',
+        },
+        {
+            key: 'sla_amount',
+            type: 'string',
+            label: 'SLA deadline',
+            secret: false,
+            required: false,
+            description: 'Duration from now until SLA expires. Set to "clear" to remove the SLA.',
+        },
+        {
+            key: 'sla_unit',
+            type: 'choice',
+            label: 'SLA unit',
+            secret: false,
+            required: false,
+            default: 'hour',
+            choices: [
+                { label: 'Minute(s)', value: 'minute' },
+                { label: 'Hour(s)', value: 'hour' },
+                { label: 'Day(s)', value: 'day' },
+            ],
+            description: 'Time unit for the SLA deadline.',
         },
     ],
 }

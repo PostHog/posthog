@@ -1410,11 +1410,13 @@ class ExperimentQueryBuilder:
 
             start_events AS (
                 SELECT
-                    {entity_key} AS entity_id,
+                    exposures.entity_id AS entity_id,
                     {start_timestamp_expr} AS start_timestamp
                 FROM events
+                INNER JOIN exposures ON {entity_key} = exposures.entity_id
                 WHERE {start_event_predicate}
-                GROUP BY entity_id
+                    AND {start_after_exposure_predicate}
+                GROUP BY exposures.entity_id
             ),
 
             completion_events AS (
@@ -1439,7 +1441,6 @@ class ExperimentQueryBuilder:
                 FROM exposures
                 INNER JOIN start_events
                     ON exposures.entity_id = start_events.entity_id
-                    AND {start_conversion_window_predicate}
                 LEFT JOIN completion_events
                     ON exposures.entity_id = completion_events.entity_id
                     AND {completion_retention_window_predicate}
@@ -1457,7 +1458,7 @@ class ExperimentQueryBuilder:
                 self.metric.retention_window_start
             ),
             "retention_window_end_interval": self._build_retention_window_interval(self.metric.retention_window_end),
-            "start_conversion_window_predicate": self._build_start_conversion_window_predicate(),
+            "start_after_exposure_predicate": self._build_start_after_exposure_predicate(),
             "completion_retention_window_predicate": self._build_completion_retention_window_predicate(),
             "truncated_start_timestamp": self._get_retention_window_truncation_expr(
                 parse_expr("start_events.start_timestamp")
@@ -1611,23 +1612,25 @@ class ExperimentQueryBuilder:
             },
         )
 
-    def _build_start_conversion_window_predicate(self) -> ast.Expr:
+    def _build_start_after_exposure_predicate(self) -> ast.Expr:
         """
-        Builds the predicate for the join condition limiting start events to the conversion window.
+        Builds the predicate for filtering start events to only those after exposure.
+        Applied inside the start_events CTE (pre-aggregation) so that min/max only
+        considers events after the user's first exposure.
         """
         conversion_window_seconds = self._get_conversion_window_seconds()
         if conversion_window_seconds > 0:
             return parse_expr(
                 """
-                start_events.start_timestamp >= exposures.first_exposure_time
-                AND start_events.start_timestamp <= exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})
+                timestamp >= exposures.first_exposure_time
+                AND timestamp <= exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})
                 """,
                 placeholders={
                     "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
                 },
             )
         else:
-            return parse_expr("start_events.start_timestamp >= exposures.first_exposure_time")
+            return parse_expr("timestamp >= exposures.first_exposure_time")
 
     def _build_completion_retention_window_predicate(self) -> ast.Expr:
         """

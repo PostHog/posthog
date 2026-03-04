@@ -8,7 +8,6 @@ import {
     IconChevronRight,
     IconClock,
     IconDatabase,
-    IconDownload,
     IconFolderOpen,
     IconGear,
     IconHome,
@@ -24,11 +23,6 @@ import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
-import { DebugNotice } from 'lib/components/DebugNotice'
-import { HealthMenu } from 'lib/components/HealthMenu/HealthMenu'
-import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
-import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
-import { PosthogStatusShownOnlyIfNotOperational } from 'lib/components/PosthogStatus/PosthogStatusShownOnlyIfNotOperational'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -54,6 +48,7 @@ import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/Br
 import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
+import { NavBarFooter } from './NavBarFooter'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
@@ -463,47 +458,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="border-b border-primary h-px " />
 
-                        <div className="p-1 flex flex-col gap-px items-start pb-2">
-                            <div
-                                className={cn('flex flex-col gap-px w-full', {
-                                    'items-center': isLayoutNavCollapsed,
-                                })}
-                            >
-                                <DebugNotice isCollapsed={isLayoutNavCollapsed} />
-                            </div>
-
-                            <NavPanelAdvertisement />
-
-                            <div
-                                className={cn('flex flex-col gap-px w-full', {
-                                    'items-center': isLayoutNavCollapsed,
-                                })}
-                            >
-                                <Link
-                                    to={urls.settings('project')}
-                                    buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
-                                    tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
-                                    tooltipPlacement="right"
-                                    data-attr="navbar-settings"
-                                >
-                                    <IconGear />
-                                    {!isLayoutNavCollapsed && 'Settings'}
-                                </Link>
-                                <Link
-                                    to={urls.exports()}
-                                    buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
-                                    tooltip={isLayoutNavCollapsed ? 'Exports' : undefined}
-                                    tooltipPlacement="right"
-                                    data-attr="navbar-exports-button"
-                                >
-                                    <IconDownload />
-                                    {!isLayoutNavCollapsed && 'Exports'}
-                                </Link>
-                                <HealthMenu iconOnly={isLayoutNavCollapsed} />
-                                <HelpMenu iconOnly={isLayoutNavCollapsed} />
-                                <PosthogStatusShownOnlyIfNotOperational iconOnly={isLayoutNavCollapsed} />
-                            </div>
-                        </div>
+                        <NavBarFooter isLayoutNavCollapsed={isLayoutNavCollapsed} />
                     </div>
                     {!isMobileLayout && (
                         <Resizer

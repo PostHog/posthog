@@ -126,28 +126,29 @@ class PersonStrategy(ActorStrategy):
         if self.query.fixedProperties:
             where_exprs.append(property_to_expr(self.query.fixedProperties, self.team, scope="person"))
 
-        if self.query.search is not None and self.query.search != "":
+        search = self.query.search.strip() if self.query.search else None
+        if search:
             where_exprs.append(
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "email"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         parse_expr(
                             "id in (select person_id from person_distinct_ids where ilike(distinct_id, {search}))",
-                            {"search": ast.Constant(value=f"%{self.query.search}%")},
+                            {"search": ast.Constant(value=f"%{search}%")},
                         ),
                     ]
                 )
@@ -202,19 +203,20 @@ class GroupStrategy(ActorStrategy):
     def filter_conditions(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []
 
-        if self.query.search is not None and self.query.search != "":
+        search = self.query.search.strip() if self.query.search else None
+        if search:
             where_exprs.append(
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Field(chain=["properties", "name"]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["key"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                     ]
                 )

@@ -21,7 +21,7 @@ import type {
     ExportsListParams,
     FileSystemApi,
     FileSystemListParams,
-    FlagValueValuesRetrieve200Item,
+    FlagValueResponseApi,
     FlagValueValuesRetrieveParams,
     GitHubReposResponseApi,
     IntegrationApi,
@@ -1557,8 +1557,8 @@ export const flagValueValuesRetrieve = async (
     projectId: string,
     params?: FlagValueValuesRetrieveParams,
     options?: RequestInit
-): Promise<FlagValueValuesRetrieve200Item[]> => {
-    return apiMutator<FlagValueValuesRetrieve200Item[]>(getFlagValueValuesRetrieveUrl(projectId, params), {
+): Promise<FlagValueResponseApi> => {
+    return apiMutator<FlagValueResponseApi>(getFlagValueValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

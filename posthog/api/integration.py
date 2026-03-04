@@ -209,6 +209,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 )
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
+
             return instance
 
         raise ValidationError("Kind not supported")

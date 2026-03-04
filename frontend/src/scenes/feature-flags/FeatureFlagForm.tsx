@@ -46,7 +46,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
-import { FeatureFlagEvaluationRuntime } from '~/types'
+import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
@@ -66,6 +66,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         showImplementation,
         openVariants,
         payloadExpanded,
+        expandAdvancedOnEdit,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
@@ -79,11 +80,13 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setShowImplementation,
         setOpenVariants,
         setPayloadExpanded,
+        setBucketingIdentifier,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const hasEvaluationTags = useFeatureFlag('FLAG_EVALUATION_TAGS')
     const featureFlagsV2Enabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
+    const showBucketingIdentifierUI = !!featureFlags[FEATURE_FLAGS.FLAG_BUCKETING_IDENTIFIER]
 
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
@@ -277,9 +280,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
                             </div>
 
-                            {/* Advanced options - collapsed by default */}
+                            {/* Advanced options - collapsed by default unless opened via overview pencil */}
                             <LemonCollapse
                                 className="bg-bg-light"
+                                defaultActiveKey={expandAdvancedOnEdit ? 'advanced' : undefined}
                                 panels={[
                                     {
                                         key: 'advanced',
@@ -778,6 +782,15 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
+                                        bucketingIdentifier={
+                                            showBucketingIdentifierUI ? featureFlag.bucketing_identifier : undefined
+                                        }
+                                        onBucketingIdentifierChange={
+                                            showBucketingIdentifierUI
+                                                ? (value: FeatureFlagBucketingIdentifier | null) =>
+                                                      setBucketingIdentifier(value)
+                                                : undefined
+                                        }
                                     />
                                 </div>
                             )}

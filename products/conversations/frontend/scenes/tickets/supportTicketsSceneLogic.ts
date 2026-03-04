@@ -122,6 +122,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.channelFilter !== 'all') {
                 params.channel_source = values.channelFilter
             }
+            if (values.slaFilter !== 'all') {
+                params.sla = values.slaFilter
+            }
             if (values.assigneeFilter !== 'all') {
                 if (values.assigneeFilter === 'unassigned') {
                     params.assignee = 'unassigned'
@@ -157,6 +160,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.setCurrentPage(1)
         },
         setChannelFilter: () => {
+            actions.setCurrentPage(1)
+        },
+        setSlaFilter: () => {
             actions.setCurrentPage(1)
         },
         setAssigneeFilter: () => {
