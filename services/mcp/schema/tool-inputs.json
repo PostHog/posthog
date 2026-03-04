@@ -5,16 +5,15 @@
             "type": "object",
             "properties": {
                 "name": {
-                    "description": "Name of the action (must be unique within the project)",
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "description": "Name of the action (must be unique within the project)"
                 },
                 "description": {
                     "description": "Description of what this action represents",
                     "type": "string"
                 },
                 "steps": {
-                    "description": "Action steps - each step defines a trigger condition. Multiple steps are OR-ed together.",
                     "minItems": 1,
                     "type": "array",
                     "items": {
@@ -31,11 +30,10 @@
                                     "type": "object",
                                     "properties": {
                                         "key": {
-                                            "description": "Property key",
-                                            "type": "string"
+                                            "type": "string",
+                                            "description": "Property key"
                                         },
                                         "value": {
-                                            "description": "Property value to match",
                                             "anyOf": [
                                                 {
                                                     "type": "string"
@@ -58,7 +56,8 @@
                                                         "type": "number"
                                                     }
                                                 }
-                                            ]
+                                            ],
+                                            "description": "Property value to match"
                                         },
                                         "operator": {
                                             "description": "Comparison operator (default: exact)",
@@ -123,7 +122,8 @@
                                 "enum": ["contains", "regex", "exact"]
                             }
                         }
-                    }
+                    },
+                    "description": "Action steps - each step defines a trigger condition. Multiple steps are OR-ed together."
                 },
                 "tags": {
                     "description": "Tags for organizing actions",
@@ -148,10 +148,10 @@
             "type": "object",
             "properties": {
                 "actionId": {
-                    "description": "The ID of the action to delete",
                     "type": "integer",
                     "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 9007199254740991,
+                    "description": "The ID of the action to delete"
                 }
             },
             "required": ["actionId"]
@@ -182,10 +182,10 @@
             "type": "object",
             "properties": {
                 "actionId": {
-                    "description": "The ID of the action to retrieve",
                     "type": "integer",
                     "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 9007199254740991,
+                    "description": "The ID of the action to retrieve"
                 }
             },
             "required": ["actionId"]
@@ -194,10 +194,10 @@
             "type": "object",
             "properties": {
                 "actionId": {
-                    "description": "The ID of the action to update",
                     "type": "integer",
                     "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 9007199254740991,
+                    "description": "The ID of the action to update"
                 },
                 "data": {
                     "type": "object",
@@ -208,7 +208,6 @@
                             "minLength": 1
                         },
                         "description": {
-                            "description": "Updated description",
                             "anyOf": [
                                 {
                                     "type": "string"
@@ -216,7 +215,8 @@
                                 {
                                     "type": "null"
                                 }
-                            ]
+                            ],
+                            "description": "Updated description"
                         },
                         "steps": {
                             "description": "Updated action steps",
@@ -235,11 +235,10 @@
                                             "type": "object",
                                             "properties": {
                                                 "key": {
-                                                    "description": "Property key",
-                                                    "type": "string"
+                                                    "type": "string",
+                                                    "description": "Property key"
                                                 },
                                                 "value": {
-                                                    "description": "Property value to match",
                                                     "anyOf": [
                                                         {
                                                             "type": "string"
@@ -262,7 +261,8 @@
                                                                 "type": "number"
                                                             }
                                                         }
-                                                    ]
+                                                    ],
+                                                    "description": "Property value to match"
                                                 },
                                                 "operator": {
                                                     "description": "Comparison operator (default: exact)",
@@ -456,20 +456,20 @@
             "type": "object",
             "properties": {
                 "dashboardId": {
-                    "description": "The ID of the dashboard to reorder tiles on",
                     "type": "integer",
                     "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 9007199254740991,
+                    "description": "The ID of the dashboard to reorder tiles on"
                 },
                 "tileOrder": {
-                    "description": "Array of tile IDs in the desired order from top to bottom",
                     "minItems": 1,
                     "type": "array",
                     "items": {
                         "type": "integer",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991
-                    }
+                    },
+                    "description": "Array of tile IDs in the desired order from top to bottom"
                 }
             },
             "required": ["dashboardId", "tileOrder"]
@@ -525,9 +525,9 @@
             "type": "object",
             "properties": {
                 "query": {
-                    "description": "Search query to find entities by name or description",
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "description": "Search query to find entities by name or description"
                 },
                 "entities": {
                     "description": "Entity types to search. If not specified, searches all types. Available: insight, dashboard, experiment, feature_flag, notebook, action, cohort, event_definition, survey",
@@ -603,15 +603,15 @@
             "type": "object",
             "properties": {
                 "issueId": {
-                    "description": "The ID of the error tracking issue to update",
                     "type": "string",
                     "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "description": "The ID of the error tracking issue to update"
                 },
                 "status": {
-                    "description": "The new status for the issue: active, resolved, archived, suppressed, or pending_release",
                     "type": "string",
-                    "enum": ["active", "resolved", "archived", "suppressed", "pending_release"]
+                    "enum": ["active", "resolved", "archived", "suppressed", "pending_release"],
+                    "description": "The new status for the issue: active, resolved, archived, suppressed, or pending_release"
                 }
             },
             "required": ["issueId", "status"]
@@ -644,11 +644,10 @@
             "type": "object",
             "properties": {
                 "eventName": {
-                    "description": "The name of the event to update (e.g. \"$pageview\", \"user_signed_up\")",
-                    "type": "string"
+                    "type": "string",
+                    "description": "The name of the event to update (e.g. \"$pageview\", \"user_signed_up\")"
                 },
                 "data": {
-                    "description": "The event definition data to update",
                     "type": "object",
                     "properties": {
                         "description": {
@@ -670,7 +669,8 @@
                             "description": "Mark event as no longer used/captured. Hides it from UI while preserving historical data",
                             "type": "boolean"
                         }
-                    }
+                    },
+                    "description": "The event definition data to update"
                 }
             },
             "required": ["eventName", "data"]
@@ -679,13 +679,13 @@
             "type": "object",
             "properties": {
                 "query": {
-                    "description": "The final SQL query to be executed.",
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "description": "The final SQL query to be executed."
                 },
                 "truncate": {
-                    "description": "Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).",
                     "default": true,
+                    "description": "Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).",
                     "type": "boolean"
                 }
             },
@@ -695,17 +695,17 @@
             "type": "object",
             "properties": {
                 "name": {
-                    "description": "Experiment name - should clearly describe what is being tested",
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "description": "Experiment name - should clearly describe what is being tested"
                 },
                 "description": {
                     "description": "Detailed description of the experiment hypothesis, what changes are being tested, and expected outcomes",
                     "type": "string"
                 },
                 "feature_flag_key": {
-                    "description": "Feature flag key (letters, numbers, hyphens, underscores only). IMPORTANT: First search for existing feature flags that might be suitable using the feature-flags-get-all tool, then suggest reusing existing ones or creating a new key based on the experiment name",
-                    "type": "string"
+                    "type": "string",
+                    "description": "Feature flag key (letters, numbers, hyphens, underscores only). IMPORTANT: First search for existing feature flags that might be suitable using the feature-flags-get-all tool, then suggest reusing existing ones or creating a new key based on the experiment name"
                 },
                 "primary_metrics": {
                     "description": "Primary metrics to measure experiment success. IMPORTANT: Each metric needs event_name to track data. For funnels, provide funnel_steps array with event names for each step. Ask user what events they track, or use project-property-definitions to find available events.",
@@ -718,13 +718,13 @@
                                 "type": "string"
                             },
                             "metric_type": {
-                                "description": "Metric type: 'mean' for average values (revenue, time spent), 'funnel' for conversion flows, 'ratio' for comparing two metrics",
                                 "type": "string",
-                                "enum": ["mean", "funnel", "ratio"]
+                                "enum": ["mean", "funnel", "ratio"],
+                                "description": "Metric type: 'mean' for average values (revenue, time spent), 'funnel' for conversion flows, 'ratio' for comparing two metrics"
                             },
                             "event_name": {
-                                "description": "REQUIRED for metrics to work: PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase'). For funnels, this is the first step. Use '$pageview' if unsure. Search project-property-definitions tool for available events.",
-                                "type": "string"
+                                "type": "string",
+                                "description": "REQUIRED for metrics to work: PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase'). For funnels, this is the first step. Use '$pageview' if unsure. Search project-property-definitions tool for available events."
                             },
                             "funnel_steps": {
                                 "description": "For funnel metrics only: Array of event names for each funnel step (e.g., ['product_view', 'add_to_cart', 'checkout', 'purchase'])",
@@ -800,13 +800,13 @@
                                 "type": "string"
                             },
                             "metric_type": {
-                                "description": "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics",
                                 "type": "string",
-                                "enum": ["mean", "funnel", "ratio"]
+                                "enum": ["mean", "funnel", "ratio"],
+                                "description": "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
                             },
                             "event_name": {
-                                "description": "REQUIRED: PostHog event name. Use '$pageview' if unsure.",
-                                "type": "string"
+                                "type": "string",
+                                "description": "REQUIRED: PostHog event name. Use '$pageview' if unsure."
                             },
                             "funnel_steps": {
                                 "description": "For funnel metrics only: Array of event names for each funnel step",
@@ -878,31 +878,31 @@
                         "type": "object",
                         "properties": {
                             "key": {
-                                "description": "Variant key (e.g., 'control', 'variant_a', 'new_design')",
-                                "type": "string"
+                                "type": "string",
+                                "description": "Variant key (e.g., 'control', 'variant_a', 'new_design')"
                             },
                             "name": {
                                 "description": "Human-readable variant name",
                                 "type": "string"
                             },
                             "rollout_percentage": {
-                                "description": "Percentage of users to show this variant",
                                 "type": "number",
                                 "minimum": 0,
-                                "maximum": 100
+                                "maximum": 100,
+                                "description": "Percentage of users to show this variant"
                             }
                         },
                         "required": ["key", "rollout_percentage"]
                     }
                 },
                 "minimum_detectable_effect": {
-                    "description": "Minimum detectable effect in percentage. Lower values require more users but detect smaller changes. Suggest 20-30% for most experiments",
                     "default": 30,
+                    "description": "Minimum detectable effect in percentage. Lower values require more users but detect smaller changes. Suggest 20-30% for most experiments",
                     "type": "number"
                 },
                 "filter_test_accounts": {
-                    "description": "Whether to filter out internal test accounts",
                     "default": true,
+                    "description": "Whether to filter out internal test accounts",
                     "type": "boolean"
                 },
                 "target_properties": {
@@ -914,8 +914,8 @@
                     "additionalProperties": {}
                 },
                 "draft": {
-                    "description": "Create as draft (true) or launch immediately (false). Recommend draft for review first",
                     "default": true,
+                    "description": "Create as draft (true) or launch immediately (false). Recommend draft for review first",
                     "type": "boolean"
                 },
                 "holdout_id": {
@@ -929,8 +929,8 @@
             "type": "object",
             "properties": {
                 "experimentId": {
-                    "description": "The ID of the experiment to delete",
-                    "type": "number"
+                    "type": "number",
+                    "description": "The ID of the experiment to delete"
                 }
             },
             "required": ["experimentId"]
@@ -959,8 +959,8 @@
             "type": "object",
             "properties": {
                 "experimentId": {
-                    "description": "The ID of the experiment to retrieve",
-                    "type": "number"
+                    "type": "number",
+                    "description": "The ID of the experiment to retrieve"
                 }
             },
             "required": ["experimentId"]
@@ -969,12 +969,12 @@
             "type": "object",
             "properties": {
                 "experimentId": {
-                    "description": "The ID of the experiment to get comprehensive results for",
-                    "type": "number"
+                    "type": "number",
+                    "description": "The ID of the experiment to get comprehensive results for"
                 },
                 "refresh": {
-                    "description": "Force refresh of results instead of using cached values",
-                    "type": "boolean"
+                    "type": "boolean",
+                    "description": "Force refresh of results instead of using cached values"
                 }
             },
             "required": ["experimentId", "refresh"]
@@ -1001,13 +1001,13 @@
                                 "type": "string"
                             },
                             "metric_type": {
-                                "description": "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics",
                                 "type": "string",
-                                "enum": ["mean", "funnel", "ratio"]
+                                "enum": ["mean", "funnel", "ratio"],
+                                "description": "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
                             },
                             "event_name": {
-                                "description": "PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase')",
-                                "type": "string"
+                                "type": "string",
+                                "description": "PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase')"
                             },
                             "funnel_steps": {
                                 "description": "For funnel metrics only: Array of event names for each funnel step",
@@ -1083,13 +1083,13 @@
                                 "type": "string"
                             },
                             "metric_type": {
-                                "description": "Metric type",
                                 "type": "string",
-                                "enum": ["mean", "funnel", "ratio"]
+                                "enum": ["mean", "funnel", "ratio"],
+                                "description": "Metric type"
                             },
                             "event_name": {
-                                "description": "PostHog event name",
-                                "type": "string"
+                                "type": "string",
+                                "description": "PostHog event name"
                             },
                             "funnel_steps": {
                                 "description": "For funnel metrics only: Array of event names",
@@ -1185,11 +1185,10 @@
             "type": "object",
             "properties": {
                 "experimentId": {
-                    "description": "The ID of the experiment to update",
-                    "type": "number"
+                    "type": "number",
+                    "description": "The ID of the experiment to update"
                 },
                 "data": {
-                    "description": "The experiment data to update using user-friendly format",
                     "type": "object",
                     "properties": {
                         "name": {
@@ -1211,13 +1210,13 @@
                                         "type": "string"
                                     },
                                     "metric_type": {
-                                        "description": "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics",
                                         "type": "string",
-                                        "enum": ["mean", "funnel", "ratio"]
+                                        "enum": ["mean", "funnel", "ratio"],
+                                        "description": "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
                                     },
                                     "event_name": {
-                                        "description": "PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase')",
-                                        "type": "string"
+                                        "type": "string",
+                                        "description": "PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase')"
                                     },
                                     "funnel_steps": {
                                         "description": "For funnel metrics only: Array of event names for each funnel step",
@@ -1293,13 +1292,13 @@
                                         "type": "string"
                                     },
                                     "metric_type": {
-                                        "description": "Metric type",
                                         "type": "string",
-                                        "enum": ["mean", "funnel", "ratio"]
+                                        "enum": ["mean", "funnel", "ratio"],
+                                        "description": "Metric type"
                                     },
                                     "event_name": {
-                                        "description": "PostHog event name",
-                                        "type": "string"
+                                        "type": "string",
+                                        "description": "PostHog event name"
                                     },
                                     "funnel_steps": {
                                         "description": "For funnel metrics only: Array of event names",
@@ -1389,7 +1388,8 @@
                             "description": "Archive or unarchive experiment",
                             "type": "boolean"
                         }
-                    }
+                    },
+                    "description": "The experiment data to update using user-friendly format"
                 }
             },
             "required": ["experimentId", "data"]
@@ -1498,18 +1498,18 @@
                                         "type": "object",
                                         "properties": {
                                             "key": {
-                                                "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")",
-                                                "type": "string"
+                                                "type": "string",
+                                                "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
                                             },
                                             "name": {
                                                 "description": "Human-readable name for this variant",
                                                 "type": "string"
                                             },
                                             "rollout_percentage": {
-                                                "description": "Percentage of users who will see this variant (0-100). Must be an integer.",
                                                 "type": "integer",
                                                 "minimum": 0,
-                                                "maximum": 100
+                                                "maximum": 100,
+                                                "description": "Percentage of users who will see this variant (0-100). Must be an integer."
                                             }
                                         },
                                         "required": ["key", "rollout_percentage"]
@@ -1682,18 +1682,18 @@
                                                 "type": "object",
                                                 "properties": {
                                                     "key": {
-                                                        "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")",
-                                                        "type": "string"
+                                                        "type": "string",
+                                                        "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
                                                     },
                                                     "name": {
                                                         "description": "Human-readable name for this variant",
                                                         "type": "string"
                                                     },
                                                     "rollout_percentage": {
-                                                        "description": "Percentage of users who will see this variant (0-100). Must be an integer.",
                                                         "type": "integer",
                                                         "minimum": 0,
-                                                        "maximum": 100
+                                                        "maximum": 100,
+                                                        "description": "Percentage of users who will see this variant (0-100). Must be an integer."
                                                     }
                                                 },
                                                 "required": ["key", "rollout_percentage"]
@@ -1780,9 +1780,9 @@
             "type": "object",
             "properties": {
                 "question": {
-                    "description": "Your natural language query describing the SQL insight (max 1000 characters).",
                     "type": "string",
-                    "maxLength": 1000
+                    "maxLength": 1000,
+                    "description": "Your natural language query describing the SQL insight (max 1000 characters)."
                 }
             },
             "required": ["question"]
@@ -1906,8 +1906,8 @@
             "type": "object",
             "properties": {
                 "key": {
-                    "description": "The attribute key to get values for",
-                    "type": "string"
+                    "type": "string",
+                    "description": "The attribute key to get values for"
                 },
                 "attributeType": {
                     "description": "Type of attribute: \"log\" for log attributes, \"resource\" for resource attributes (default: log)",
@@ -1951,12 +1951,12 @@
             "type": "object",
             "properties": {
                 "dateFrom": {
-                    "description": "Start of date range (ISO 8601 format, e.g., \"2024-01-01T00:00:00Z\")",
-                    "type": "string"
+                    "type": "string",
+                    "description": "Start of date range (ISO 8601 format, e.g., \"2024-01-01T00:00:00Z\")"
                 },
                 "dateTo": {
-                    "description": "End of date range (ISO 8601 format, e.g., \"2024-01-02T00:00:00Z\")",
-                    "type": "string"
+                    "type": "string",
+                    "description": "End of date range (ISO 8601 format, e.g., \"2024-01-02T00:00:00Z\")"
                 },
                 "severityLevels": {
                     "description": "Filter by severity levels (trace, debug, info, warn, error, fatal)",
@@ -2039,13 +2039,13 @@
             "type": "object",
             "properties": {
                 "type": {
-                    "description": "Type of properties to get",
                     "type": "string",
-                    "enum": ["event", "person"]
+                    "enum": ["event", "person"],
+                    "description": "Type of properties to get"
                 },
                 "eventName": {
-                    "description": "Event name to filter properties by, required for event type",
-                    "type": "string"
+                    "type": "string",
+                    "description": "Event name to filter properties by, required for event type"
                 },
                 "includePredefinedProperties": {
                     "description": "Whether to include predefined properties",
@@ -2309,8 +2309,8 @@
                                                         "type": "object",
                                                         "properties": {
                                                             "custom_name": {
-                                                                "description": "A display name",
-                                                                "type": "string"
+                                                                "type": "string",
+                                                                "description": "A display name"
                                                             },
                                                             "math": {
                                                                 "anyOf": [
@@ -2843,8 +2843,8 @@
                                                         "type": "object",
                                                         "properties": {
                                                             "custom_name": {
-                                                                "description": "A display name",
-                                                                "type": "string"
+                                                                "type": "string",
+                                                                "description": "A display name"
                                                             },
                                                             "math": {
                                                                 "anyOf": [
@@ -3339,7 +3339,6 @@
             "type": "object",
             "properties": {
                 "query": {
-                    "description": "The data schema query to execute.",
                     "oneOf": [
                         {
                             "type": "object",
@@ -3359,8 +3358,8 @@
                                     "const": "event_properties"
                                 },
                                 "event_name": {
-                                    "description": "The name of the event that you want to retrieve properties for.",
-                                    "type": "string"
+                                    "type": "string",
+                                    "description": "The name of the event that you want to retrieve properties for."
                                 }
                             },
                             "required": ["kind", "event_name"]
@@ -3373,8 +3372,8 @@
                                     "const": "entity_properties"
                                 },
                                 "entity": {
-                                    "description": "The type of the entity that you want to retrieve properties for.",
-                                    "type": "string"
+                                    "type": "string",
+                                    "description": "The type of the entity that you want to retrieve properties for."
                                 }
                             },
                             "required": ["kind", "entity"]
@@ -3387,10 +3386,10 @@
                                     "const": "action_properties"
                                 },
                                 "action_id": {
-                                    "description": "The ID of the action that you want to retrieve properties for.",
                                     "type": "integer",
                                     "minimum": -9007199254740991,
-                                    "maximum": 9007199254740991
+                                    "maximum": 9007199254740991,
+                                    "description": "The ID of the action that you want to retrieve properties for."
                                 }
                             },
                             "required": ["kind", "action_id"]
@@ -3403,12 +3402,12 @@
                                     "const": "entity_property_values"
                                 },
                                 "entity": {
-                                    "description": "The type of the entity that you want to retrieve properties for.",
-                                    "type": "string"
+                                    "type": "string",
+                                    "description": "The type of the entity that you want to retrieve properties for."
                                 },
                                 "property_name": {
-                                    "description": "Verified property name of an entity.",
-                                    "type": "string"
+                                    "type": "string",
+                                    "description": "Verified property name of an entity."
                                 }
                             },
                             "required": ["kind", "entity", "property_name"]
@@ -3421,12 +3420,12 @@
                                     "const": "event_property_values"
                                 },
                                 "event_name": {
-                                    "description": "Verified event name",
-                                    "type": "string"
+                                    "type": "string",
+                                    "description": "Verified event name"
                                 },
                                 "property_name": {
-                                    "description": "Verified property name of an event.",
-                                    "type": "string"
+                                    "type": "string",
+                                    "description": "Verified property name of an event."
                                 }
                             },
                             "required": ["kind", "event_name", "property_name"]
@@ -3439,27 +3438,28 @@
                                     "const": "action_property_values"
                                 },
                                 "action_id": {
-                                    "description": "Verified action ID",
                                     "type": "integer",
                                     "minimum": -9007199254740991,
-                                    "maximum": 9007199254740991
+                                    "maximum": 9007199254740991,
+                                    "description": "Verified action ID"
                                 },
                                 "property_name": {
-                                    "description": "Verified property name of an action.",
-                                    "type": "string"
+                                    "type": "string",
+                                    "description": "Verified property name of an action."
                                 }
                             },
                             "required": ["kind", "action_id", "property_name"]
                         }
-                    ]
+                    ],
+                    "description": "The data schema query to execute."
                 }
             },
             "required": ["query"]
         },
         "ReadDataWarehouseSchemaSchema": {
-            "description": "No input required. Returns core data warehouse schemas.",
             "type": "object",
-            "properties": {}
+            "properties": {},
+            "description": "No input required. Returns core data warehouse schemas."
         },
         "SurveyCreateSchema": {
             "type": "object",
@@ -3612,7 +3612,6 @@
                                                 "required": ["type"]
                                             },
                                             {
-                                                "description": "For rating questions: use sentiment keys based on scale thirds - negative (lower third), neutral (middle third), positive (upper third)",
                                                 "type": "object",
                                                 "properties": {
                                                     "type": {
@@ -3620,7 +3619,6 @@
                                                         "const": "response_based"
                                                     },
                                                     "responseValues": {
-                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior).",
                                                         "type": "object",
                                                         "properties": {
                                                             "negative": {
@@ -3659,10 +3657,12 @@
                                                                     }
                                                                 ]
                                                             }
-                                                        }
+                                                        },
+                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
                                                     }
                                                 },
-                                                "required": ["type", "responseValues"]
+                                                "required": ["type", "responseValues"],
+                                                "description": "For rating questions: use sentiment keys based on scale thirds - negative (lower third), neutral (middle third), positive (upper third)"
                                             },
                                             {
                                                 "type": "object",
@@ -3706,14 +3706,14 @@
                                         "const": "rating"
                                     },
                                     "display": {
-                                        "description": "NPS questions always use numeric scale",
                                         "type": "string",
-                                        "const": "number"
+                                        "const": "number",
+                                        "description": "NPS questions always use numeric scale"
                                     },
                                     "scale": {
-                                        "description": "NPS questions always use 0-10 scale",
                                         "type": "number",
-                                        "const": 10
+                                        "const": 10,
+                                        "description": "NPS questions always use 0-10 scale"
                                     },
                                     "lowerBoundLabel": {
                                         "description": "Label for 0 rating (typically 'Not at all likely')",
@@ -3746,7 +3746,6 @@
                                                 "required": ["type"]
                                             },
                                             {
-                                                "description": "For NPS rating questions: use sentiment keys based on score ranges - detractors (0-6), passives (7-8), promoters (9-10)",
                                                 "type": "object",
                                                 "properties": {
                                                     "type": {
@@ -3754,7 +3753,6 @@
                                                         "const": "response_based"
                                                     },
                                                     "responseValues": {
-                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior).",
                                                         "type": "object",
                                                         "properties": {
                                                             "detractors": {
@@ -3793,10 +3791,12 @@
                                                                     }
                                                                 ]
                                                             }
-                                                        }
+                                                        },
+                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
                                                     }
                                                 },
-                                                "required": ["type", "responseValues"]
+                                                "required": ["type", "responseValues"],
+                                                "description": "For NPS rating questions: use sentiment keys based on score ranges - detractors (0-6), passives (7-8), promoters (9-10)"
                                             },
                                             {
                                                 "type": "object",
@@ -3840,14 +3840,14 @@
                                         "const": "single_choice"
                                     },
                                     "choices": {
-                                        "description": "Array of choice options. Choice indices (0, 1, 2, etc.) are used for branching logic",
                                         "minItems": 2,
                                         "maxItems": 20,
                                         "type": "array",
                                         "items": {
                                             "type": "string",
                                             "minLength": 1
-                                        }
+                                        },
+                                        "description": "Array of choice options. Choice indices (0, 1, 2, etc.) are used for branching logic"
                                     },
                                     "shuffleOptions": {
                                         "description": "Whether to randomize the order of choices for each respondent",
@@ -3880,7 +3880,6 @@
                                                 "required": ["type"]
                                             },
                                             {
-                                                "description": "For single choice questions: use choice indices as string keys (\"0\", \"1\", \"2\", etc.)",
                                                 "type": "object",
                                                 "properties": {
                                                     "type": {
@@ -3888,7 +3887,6 @@
                                                         "const": "response_based"
                                                     },
                                                     "responseValues": {
-                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior).",
                                                         "type": "object",
                                                         "propertyNames": {
                                                             "type": "string"
@@ -3903,10 +3901,12 @@
                                                                     "const": "end"
                                                                 }
                                                             ]
-                                                        }
+                                                        },
+                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
                                                     }
                                                 },
-                                                "required": ["type", "responseValues"]
+                                                "required": ["type", "responseValues"],
+                                                "description": "For single choice questions: use choice indices as string keys (\"0\", \"1\", \"2\", etc.)"
                                             },
                                             {
                                                 "type": "object",
@@ -3950,14 +3950,14 @@
                                         "const": "multiple_choice"
                                     },
                                     "choices": {
-                                        "description": "Array of choice options. Multiple selections allowed. No branching logic supported.",
                                         "minItems": 2,
                                         "maxItems": 20,
                                         "type": "array",
                                         "items": {
                                             "type": "string",
                                             "minLength": 1
-                                        }
+                                        },
+                                        "description": "Array of choice options. Multiple selections allowed. No branching logic supported."
                                     },
                                     "shuffleOptions": {
                                         "description": "Whether to randomize the order of choices for each respondent",
@@ -4068,8 +4068,8 @@
                     }
                 },
                 "start_date": {
-                    "description": "Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so.",
                     "default": null,
+                    "description": "Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so.",
                     "anyOf": [
                         {
                             "type": "string",
@@ -4226,18 +4226,18 @@
                                         "type": "object",
                                         "properties": {
                                             "key": {
-                                                "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")",
-                                                "type": "string"
+                                                "type": "string",
+                                                "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
                                             },
                                             "name": {
                                                 "description": "Human-readable name for this variant",
                                                 "type": "string"
                                             },
                                             "rollout_percentage": {
-                                                "description": "Percentage of users who will see this variant (0-100). Must be an integer.",
                                                 "type": "integer",
                                                 "minimum": 0,
-                                                "maximum": 100
+                                                "maximum": 100,
+                                                "description": "Percentage of users who will see this variant (0-100). Must be an integer."
                                             }
                                         },
                                         "required": ["key", "rollout_percentage"]
@@ -4477,7 +4477,6 @@
                                                 "required": ["type"]
                                             },
                                             {
-                                                "description": "For rating questions: use sentiment keys based on scale thirds - negative (lower third), neutral (middle third), positive (upper third)",
                                                 "type": "object",
                                                 "properties": {
                                                     "type": {
@@ -4485,7 +4484,6 @@
                                                         "const": "response_based"
                                                     },
                                                     "responseValues": {
-                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior).",
                                                         "type": "object",
                                                         "properties": {
                                                             "negative": {
@@ -4524,10 +4522,12 @@
                                                                     }
                                                                 ]
                                                             }
-                                                        }
+                                                        },
+                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
                                                     }
                                                 },
-                                                "required": ["type", "responseValues"]
+                                                "required": ["type", "responseValues"],
+                                                "description": "For rating questions: use sentiment keys based on scale thirds - negative (lower third), neutral (middle third), positive (upper third)"
                                             },
                                             {
                                                 "type": "object",
@@ -4571,14 +4571,14 @@
                                         "const": "rating"
                                     },
                                     "display": {
-                                        "description": "NPS questions always use numeric scale",
                                         "type": "string",
-                                        "const": "number"
+                                        "const": "number",
+                                        "description": "NPS questions always use numeric scale"
                                     },
                                     "scale": {
-                                        "description": "NPS questions always use 0-10 scale",
                                         "type": "number",
-                                        "const": 10
+                                        "const": 10,
+                                        "description": "NPS questions always use 0-10 scale"
                                     },
                                     "lowerBoundLabel": {
                                         "description": "Label for 0 rating (typically 'Not at all likely')",
@@ -4611,7 +4611,6 @@
                                                 "required": ["type"]
                                             },
                                             {
-                                                "description": "For NPS rating questions: use sentiment keys based on score ranges - detractors (0-6), passives (7-8), promoters (9-10)",
                                                 "type": "object",
                                                 "properties": {
                                                     "type": {
@@ -4619,7 +4618,6 @@
                                                         "const": "response_based"
                                                     },
                                                     "responseValues": {
-                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior).",
                                                         "type": "object",
                                                         "properties": {
                                                             "detractors": {
@@ -4658,10 +4656,12 @@
                                                                     }
                                                                 ]
                                                             }
-                                                        }
+                                                        },
+                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
                                                     }
                                                 },
-                                                "required": ["type", "responseValues"]
+                                                "required": ["type", "responseValues"],
+                                                "description": "For NPS rating questions: use sentiment keys based on score ranges - detractors (0-6), passives (7-8), promoters (9-10)"
                                             },
                                             {
                                                 "type": "object",
@@ -4705,14 +4705,14 @@
                                         "const": "single_choice"
                                     },
                                     "choices": {
-                                        "description": "Array of choice options. Choice indices (0, 1, 2, etc.) are used for branching logic",
                                         "minItems": 2,
                                         "maxItems": 20,
                                         "type": "array",
                                         "items": {
                                             "type": "string",
                                             "minLength": 1
-                                        }
+                                        },
+                                        "description": "Array of choice options. Choice indices (0, 1, 2, etc.) are used for branching logic"
                                     },
                                     "shuffleOptions": {
                                         "description": "Whether to randomize the order of choices for each respondent",
@@ -4745,7 +4745,6 @@
                                                 "required": ["type"]
                                             },
                                             {
-                                                "description": "For single choice questions: use choice indices as string keys (\"0\", \"1\", \"2\", etc.)",
                                                 "type": "object",
                                                 "properties": {
                                                     "type": {
@@ -4753,7 +4752,6 @@
                                                         "const": "response_based"
                                                     },
                                                     "responseValues": {
-                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior).",
                                                         "type": "object",
                                                         "propertyNames": {
                                                             "type": "string"
@@ -4768,10 +4766,12 @@
                                                                     "const": "end"
                                                                 }
                                                             ]
-                                                        }
+                                                        },
+                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
                                                     }
                                                 },
-                                                "required": ["type", "responseValues"]
+                                                "required": ["type", "responseValues"],
+                                                "description": "For single choice questions: use choice indices as string keys (\"0\", \"1\", \"2\", etc.)"
                                             },
                                             {
                                                 "type": "object",
@@ -4815,14 +4815,14 @@
                                         "const": "multiple_choice"
                                     },
                                     "choices": {
-                                        "description": "Array of choice options. Multiple selections allowed. No branching logic supported.",
                                         "minItems": 2,
                                         "maxItems": 20,
                                         "type": "array",
                                         "items": {
                                             "type": "string",
                                             "minLength": 1
-                                        }
+                                        },
+                                        "description": "Array of choice options. Multiple selections allowed. No branching logic supported."
                                     },
                                     "shuffleOptions": {
                                         "description": "Whether to randomize the order of choices for each respondent",
@@ -4852,9 +4852,9 @@
                             "type": "number"
                         },
                         "urlMatchType": {
-                            "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain)",
                             "type": "string",
-                            "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"]
+                            "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
+                            "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain)"
                         },
                         "events": {
                             "type": "object",
@@ -4886,9 +4886,9 @@
                             }
                         },
                         "deviceTypesMatchType": {
-                            "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain)",
                             "type": "string",
-                            "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"]
+                            "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
+                            "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain)"
                         },
                         "linkedFlagVariant": {
                             "description": "The variant of the feature flag linked to this survey",
@@ -5159,18 +5159,18 @@
                                         "type": "object",
                                         "properties": {
                                             "key": {
-                                                "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")",
-                                                "type": "string"
+                                                "type": "string",
+                                                "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
                                             },
                                             "name": {
                                                 "description": "Human-readable name for this variant",
                                                 "type": "string"
                                             },
                                             "rollout_percentage": {
-                                                "description": "Percentage of users who will see this variant (0-100). Must be an integer.",
                                                 "type": "integer",
                                                 "minimum": 0,
-                                                "maximum": 100
+                                                "maximum": 100,
+                                                "description": "Percentage of users who will see this variant (0-100). Must be an integer."
                                             }
                                         },
                                         "required": ["key", "rollout_percentage"]
