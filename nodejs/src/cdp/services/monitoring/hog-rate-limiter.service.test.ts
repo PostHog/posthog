@@ -27,7 +27,7 @@ describe('HogRateLimiter', () => {
                 connection: hub.CDP_REDIS_HOST
                     ? {
                           url: hub.CDP_REDIS_HOST,
-                          options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                          options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD, tls: hub.CDP_REDIS_TLS ? {} : undefined },
                       }
                     : { url: hub.REDIS_URL },
                 poolMinSize: hub.REDIS_POOL_MIN_SIZE,

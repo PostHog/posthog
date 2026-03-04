@@ -155,6 +155,7 @@ services:
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
+            CDP_REDIS_TLS: 'false'
             LOGS_REDIS_HOST: redis7
             LOGS_REDIS_PORT: 6379
             LOGS_REDIS_TLS: 'false'

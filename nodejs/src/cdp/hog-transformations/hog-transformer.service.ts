@@ -406,6 +406,7 @@ export type HogTransformerServiceConfig = Pick<
     | 'CDP_REDIS_HOST'
     | 'CDP_REDIS_PORT'
     | 'CDP_REDIS_PASSWORD'
+    | 'CDP_REDIS_TLS'
     | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
     | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
     | 'CDP_FETCH_BACKOFF_BASE_MS'
@@ -453,7 +454,7 @@ export function createHogTransformerService(
         connection: config.CDP_REDIS_HOST
             ? {
                   url: config.CDP_REDIS_HOST,
-                  options: { port: config.CDP_REDIS_PORT, password: config.CDP_REDIS_PASSWORD },
+                  options: { port: config.CDP_REDIS_PORT, password: config.CDP_REDIS_PASSWORD, tls: config.CDP_REDIS_TLS ? {} : undefined },
                   name: 'hog-transformer-redis',
               }
             : { url: config.REDIS_URL, name: 'hog-transformer-redis-fallback' },

@@ -213,6 +213,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         DISABLE_OPENTELEMETRY_TRACING: false, // Disable OpenTelemetry spans for better performance (keeps metrics and timeouts)
         CDP_REDIS_PASSWORD: '',
+        CDP_REDIS_TLS: isProdEnv() ? true : false,
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_REDIS_HOST: '127.0.0.1',
         CDP_REDIS_PORT: 6379,
