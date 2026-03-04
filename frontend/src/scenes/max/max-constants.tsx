@@ -23,6 +23,7 @@ import { isObject } from '~/lib/utils'
 import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
+import type { SessionSummarizationUpdate } from './messages/SessionSummarizationProgress'
 import { EnhancedToolCall } from './Thread'
 
 export interface DisplayFormatterContext {
@@ -108,7 +109,7 @@ export interface RecordingsWidgetDef {
 
 export interface SessionSummarizationWidgetDef {
     widget: 'session_summarization'
-    args: { updates: object[] }
+    args: { updates: SessionSummarizationUpdate[] }
 }
 
 /** Static mode definition for display purposes. */
@@ -919,12 +920,12 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             // Parse structured updates from the tool call updates
             const updates = toolCall.updates
             if (updates && updates.length > 0) {
-                const parsedUpdates: object[] = []
+                const parsedUpdates: SessionSummarizationUpdate[] = []
                 for (const update of updates) {
                     try {
                         const parsed = JSON.parse(update)
-                        if (isObject(parsed) && typeof parsed.type === 'string') {
-                            parsedUpdates.push(parsed)
+                        if (isObject(parsed) && (parsed.type === 'sessions_discovered' || parsed.type === 'progress')) {
+                            parsedUpdates.push(parsed as unknown as SessionSummarizationUpdate)
                         }
                     } catch {
                         // Not a structured update, skip

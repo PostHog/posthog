@@ -8,7 +8,30 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress/LemonProgress'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
-const VIDEO_ANALYSIS_PLAYBACK_SPEED = 8
+const VIDEO_ANALYSIS_PLAYBACK_SPEED = 8 // Speed must be same as in the backend
+
+interface SessionDiscoveredUpdate {
+    type: 'sessions_discovered'
+    sessions: {
+        id: string
+        first_url: string
+        active_duration_s: number
+        distinct_id: string
+        start_time: string | null
+        snapshot_source: 'web' | 'mobile'
+    }[]
+}
+
+interface SessionProgressUpdate {
+    type: 'progress'
+    status_changes: { id: string; status: string }[]
+    phase: string
+    completed_count: number
+    total_count: number
+    patterns_found: string[]
+}
+
+export type SessionSummarizationUpdate = SessionDiscoveredUpdate | SessionProgressUpdate
 
 interface SessionInfo {
     first_url: string
@@ -56,7 +79,7 @@ function formatEta(seconds: number): string {
     return `~${mins} ${mins === 1 ? 'minute' : 'minutes'} remaining`
 }
 
-function deriveState(updates: object[]): DerivedState {
+function deriveState(updates: SessionSummarizationUpdate[]): DerivedState {
     const sessions = new Map<string, SessionInfo>()
     let phase = 'fetching_data'
     let completedCount = 0
@@ -64,17 +87,8 @@ function deriveState(updates: object[]): DerivedState {
     let patternsFound: string[] = []
 
     for (const update of updates) {
-        const u = update as Record<string, unknown>
-        if (u.type === 'sessions_discovered') {
-            const sessionsList = u.sessions as Array<{
-                id: string
-                first_url: string
-                active_duration_s: number
-                distinct_id: string
-                start_time: string | null
-                snapshot_source: 'web' | 'mobile'
-            }>
-            for (const s of sessionsList) {
+        if (update.type === 'sessions_discovered') {
+            for (const s of update.sessions) {
                 sessions.set(s.id, {
                     first_url: s.first_url,
                     active_duration_s: s.active_duration_s,
@@ -84,42 +98,31 @@ function deriveState(updates: object[]): DerivedState {
                     status: 'queued',
                 })
             }
-            totalCount = sessionsList.length
-        } else if (u.type === 'progress') {
-            const statusChanges = u.status_changes as Array<{ id: string; status: string }>
-            if (statusChanges) {
-                for (const change of statusChanges) {
-                    const existing = sessions.get(change.id)
-                    if (existing) {
-                        existing.status = change.status
-                    } else {
-                        sessions.set(change.id, {
-                            first_url: '',
-                            active_duration_s: 0,
-                            distinct_id: '',
-                            start_time: null,
-                            snapshot_source: 'web',
-                            status: change.status,
-                        })
-                    }
+            totalCount = update.sessions.length
+        } else if (update.type === 'progress') {
+            for (const change of update.status_changes) {
+                const existing = sessions.get(change.id)
+                if (existing) {
+                    existing.status = change.status
+                } else {
+                    sessions.set(change.id, {
+                        first_url: '',
+                        active_duration_s: 0,
+                        distinct_id: '',
+                        start_time: null,
+                        snapshot_source: 'web',
+                        status: change.status,
+                    })
                 }
             }
-            if (typeof u.phase === 'string') {
-                phase = u.phase
-            }
-            if (typeof u.completed_count === 'number') {
-                completedCount = u.completed_count
-            }
-            if (typeof u.total_count === 'number') {
-                totalCount = u.total_count
-            }
-            if (Array.isArray(u.patterns_found) && u.patterns_found.length > 0) {
-                patternsFound = u.patterns_found as string[]
+            phase = update.phase
+            completedCount = update.completed_count
+            totalCount = update.total_count
+            if (update.patterns_found.length > 0) {
+                patternsFound = update.patterns_found
             }
         }
     }
-
-    return { sessions, phase, completedCount, totalCount, patternsFound }
 
     return { sessions, phase, completedCount, totalCount, patternsFound }
 }
@@ -140,7 +143,7 @@ function StatusIcon({ status }: { status: string }): JSX.Element {
     }
 }
 
-export function SessionSummarizationProgress({ updates }: { updates: object[] }): JSX.Element {
+export function SessionSummarizationProgress({ updates }: { updates: SessionSummarizationUpdate[] }): JSX.Element {
     const state = useMemo(() => deriveState(updates), [updates])
     const { sessions, phase, completedCount, totalCount, patternsFound } = state
     const [isExpanded, setIsExpanded] = useState(false)
