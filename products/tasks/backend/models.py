@@ -2,6 +2,8 @@ import os
 import re
 import json
 import uuid
+import string
+import secrets
 from typing import TYPE_CHECKING, Literal, Optional
 
 if TYPE_CHECKING:
@@ -10,7 +12,7 @@ if TYPE_CHECKING:
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import IntegrityError, models, transaction
 from django.utils import timezone
 
 import structlog
@@ -607,3 +609,64 @@ class SandboxEnvironment(UUIDModel):
             return domains
 
         return []
+
+
+class CodeInvite(UUIDModel):
+    """Invite codes for PostHog Code access."""
+
+    code = models.CharField(max_length=50, unique=True, db_index=True, blank=True)
+    max_redemptions = models.PositiveIntegerField(default=1, help_text="Maximum number of redemptions. 0 = unlimited.")
+    redemption_count = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(null=True, blank=True, help_text="Optional expiration date.")
+    description = models.TextField(blank=True, help_text="Internal admin note.")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="created_code_invites"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_code_invite"
+
+    def __str__(self):
+        return self.code
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            alphabet = string.ascii_uppercase + string.digits
+            for attempt in range(10):
+                self.code = "".join(secrets.choice(alphabet) for _ in range(8))
+                try:
+                    with transaction.atomic():
+                        return super().save(*args, **kwargs)
+                except IntegrityError:
+                    if attempt == 9:
+                        raise
+            return
+        super().save(*args, **kwargs)
+
+    @property
+    def is_redeemable(self) -> bool:
+        if not self.is_active:
+            return False
+        if self.expires_at and self.expires_at <= timezone.now():
+            return False
+        if self.max_redemptions > 0 and self.redemption_count >= self.max_redemptions:
+            return False
+        return True
+
+
+class CodeInviteRedemption(UUIDModel):
+    """Tracks each redemption of a PostHog Code invite."""
+
+    invite_code = models.ForeignKey(CodeInvite, on_delete=models.CASCADE, related_name="redemptions")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
+    organization = models.ForeignKey("posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True)
+    redeemed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_code_invite_redemption"
+        unique_together = [("invite_code", "user")]
+
+    def __str__(self):
+        return f"{self.user} redeemed {self.invite_code}"

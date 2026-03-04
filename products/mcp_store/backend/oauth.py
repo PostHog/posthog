@@ -45,6 +45,24 @@ def _fetch_auth_server_metadata(auth_server_url: str) -> dict:
     return metadata
 
 
+# When the origin declares a cross-origin issuer (e.g. Atlassian → Cloudflare),
+# cross-validate by fetching from the declared issuer's own well-known URL.
+def _cross_validate_issuer(declared_issuer: str) -> dict:
+    metadata = _fetch_auth_server_metadata(declared_issuer)
+    if metadata.get("issuer", "").rstrip("/") != declared_issuer.rstrip("/"):
+        raise ValueError("Issuer mismatch in authorization server metadata")
+    return metadata
+
+
+def _resolve_issuer(metadata: dict, expected_issuer: str) -> dict:
+    """Cross-validate if the metadata declares a different issuer, otherwise default it."""
+    declared_issuer = metadata.get("issuer", "").rstrip("/")
+    if declared_issuer and declared_issuer != expected_issuer.rstrip("/"):
+        return _cross_validate_issuer(declared_issuer)
+    metadata.setdefault("issuer", expected_issuer)
+    return metadata
+
+
 def discover_oauth_metadata(server_url: str) -> dict:
     parsed_server = urlparse(server_url)
     origin = f"{parsed_server.scheme}://{parsed_server.netloc}"
@@ -64,20 +82,17 @@ def discover_oauth_metadata(server_url: str) -> dict:
         auth_servers = resource_data.get("authorization_servers", [])
         if auth_servers:
             auth_server_url = auth_servers[0]
-            metadata = _fetch_auth_server_metadata(auth_server_url)
-            if "issuer" in metadata and metadata["issuer"].rstrip("/") != auth_server_url.rstrip("/"):
-                raise ValueError("Issuer mismatch in authorization server metadata")
-            metadata.setdefault("issuer", auth_server_url)
+            metadata = _resolve_issuer(_fetch_auth_server_metadata(auth_server_url), auth_server_url)
+            # Carry scopes from the protected resource metadata when the auth
+            # server metadata doesn't declare them (e.g. Asana).
+            if "scopes_supported" not in metadata and "scopes_supported" in resource_data:
+                metadata["scopes_supported"] = resource_data["scopes_supported"]
             return metadata
 
     # Step 2: Fall back to fetching authorization server metadata directly from the origin.
     # Many MCP servers (e.g. Linear) serve /.well-known/oauth-authorization-server
     # without implementing the protected resource metadata endpoint.
-    metadata = _fetch_auth_server_metadata(origin)
-    if "issuer" in metadata and metadata["issuer"].rstrip("/") != origin.rstrip("/"):
-        raise ValueError("Issuer mismatch in authorization server metadata")
-    metadata.setdefault("issuer", origin)
-    return metadata
+    return _resolve_issuer(_fetch_auth_server_metadata(origin), origin)
 
 
 def register_dcr_client(metadata: dict, redirect_uri: str) -> str:
@@ -85,19 +100,26 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> str:
     if not registration_endpoint:
         raise ValueError("Authorization server does not support Dynamic Client Registration")
 
+    payload: dict[str, object] = {
+        "client_name": "MCP Store (PostHog)",
+        "redirect_uris": [redirect_uri],
+        "grant_types": ["authorization_code"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",
+    }
+    if scope := metadata.get("scopes_supported"):
+        payload["scope"] = " ".join(scope)
+
     _validate_url(registration_endpoint)
-    resp = requests.post(
-        registration_endpoint,
-        json={
-            "client_name": "MCP Store (PostHog)",
-            "redirect_uris": [redirect_uri],
-            "grant_types": ["authorization_code"],
-            "response_types": ["code"],
-            "token_endpoint_auth_method": "none",
-        },
-        timeout=TIMEOUT,
-    )
-    resp.raise_for_status()
+    resp = requests.post(registration_endpoint, json=payload, timeout=TIMEOUT)
+    if not resp.ok:
+        logger.error(
+            "DCR registration request rejected",
+            status=resp.status_code,
+            body=resp.text[:500],
+            registration_endpoint=registration_endpoint,
+        )
+        resp.raise_for_status()
     data = resp.json()
     data.pop("client_secret", None)  # Not used for public clients; don't store in plaintext
 
