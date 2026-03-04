@@ -2,7 +2,6 @@
 title: Implementing MCP tools
 sidebar: Docs
 showTitle: true
-docs: true
 ---
 
 # Implementing MCP tools
