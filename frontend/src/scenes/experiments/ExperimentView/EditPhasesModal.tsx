@@ -1,14 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconPlus } from '@posthog/icons'
+import { IconCheck, IconPencil, IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable, lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { Label } from 'lib/ui/Label/Label'
 
 import type { ExperimentPhase } from '~/types'
 
@@ -18,6 +17,7 @@ interface PhaseRow {
     index: number
     phase: ExperimentPhase
     isSynthetic?: boolean
+    isNew?: boolean
 }
 
 interface EditingState {
@@ -177,6 +177,52 @@ function applyPhaseUpdates(
     return updatedPhases
 }
 
+function DatePickerCell({
+    value,
+    onChange,
+    calendarOpen,
+    calendarKey,
+    onOpenCalendar,
+    onCloseCalendar,
+    readOnlyText,
+}: {
+    value: string | null
+    onChange: (value: string) => void
+    calendarOpen: 'startDate' | 'endDate' | null
+    calendarKey: 'startDate' | 'endDate'
+    onOpenCalendar: (key: 'startDate' | 'endDate') => void
+    onCloseCalendar: () => void
+    readOnlyText?: string
+}): JSX.Element {
+    if (readOnlyText) {
+        return <span className="text-secondary text-xs">{readOnlyText}</span>
+    }
+
+    return (
+        <Popover
+            actionable
+            onClickOutside={onCloseCalendar}
+            visible={calendarOpen === calendarKey}
+            overlay={
+                <LemonCalendarSelect
+                    value={value ? dayjs(value) : dayjs()}
+                    onChange={(v) => {
+                        onChange(v.toISOString())
+                        onCloseCalendar()
+                    }}
+                    onClose={onCloseCalendar}
+                    granularity="minute"
+                    selectionPeriod="past"
+                />
+            }
+        >
+            <LemonButton type="secondary" size="xsmall" onClick={() => onOpenCalendar(calendarKey)}>
+                {value ? dayjs(value).format('MMM D, YYYY hh:mm A') : 'Select date'}
+            </LemonButton>
+        </Popover>
+    )
+}
+
 export function EditPhasesModal(): JSX.Element | null {
     const isEnabled = useFeatureFlag('EXPERIMENT_PHASES')
     const { isEditPhasesModalOpen, experiment, selectedPhaseIndex } = useValues(experimentLogic)
@@ -185,10 +231,8 @@ export function EditPhasesModal(): JSX.Element | null {
     const [baselinePhases, setBaselinePhases] = useState<ExperimentPhase[]>([])
     const [draftPhases, setDraftPhases] = useState<ExperimentPhase[]>([])
     const [editing, setEditing] = useState<EditingState | null>(null)
-    const [newPhase, setNewPhase] = useState<NewPhaseState>({ name: '', reason: '', startDate: dayjs().toISOString() })
-    const [isStartCalendarOpen, setIsStartCalendarOpen] = useState(false)
-    const [isEndCalendarOpen, setIsEndCalendarOpen] = useState(false)
-    const [isAddCalendarOpen, setIsAddCalendarOpen] = useState(false)
+    const [addingNewPhase, setAddingNewPhase] = useState<NewPhaseState | null>(null)
+    const [calendarOpen, setCalendarOpen] = useState<'startDate' | 'endDate' | null>(null)
     const [isSavingChanges, setIsSavingChanges] = useState(false)
     const hasOpenedModalRef = useRef(false)
 
@@ -198,9 +242,8 @@ export function EditPhasesModal(): JSX.Element | null {
         if (!isEditPhasesModalOpen) {
             hasOpenedModalRef.current = false
             setEditing(null)
-            setIsStartCalendarOpen(false)
-            setIsEndCalendarOpen(false)
-            setIsAddCalendarOpen(false)
+            setAddingNewPhase(null)
+            setCalendarOpen(null)
             setIsSavingChanges(false)
             return
         }
@@ -213,11 +256,6 @@ export function EditPhasesModal(): JSX.Element | null {
         const phases = clonePhases(experiment.phases || [])
         setBaselinePhases(phases)
         setDraftPhases(phases)
-        setNewPhase({
-            name: '',
-            reason: '',
-            startDate: getDefaultNewPhaseStartDate(phases, experiment.start_date),
-        })
     }, [isEditPhasesModalOpen, experiment.phases, experiment.start_date])
 
     const draftPhasesJson = useMemo(() => JSON.stringify(draftPhases), [draftPhases])
@@ -237,11 +275,6 @@ export function EditPhasesModal(): JSX.Element | null {
         const syncedPhases = clonePhases(experiment.phases || [])
         setBaselinePhases(syncedPhases)
         setDraftPhases(syncedPhases)
-        setNewPhase({
-            name: '',
-            reason: '',
-            startDate: getDefaultNewPhaseStartDate(syncedPhases, experiment.start_date),
-        })
     }, [
         isEditPhasesModalOpen,
         draftPhasesJson,
@@ -253,28 +286,45 @@ export function EditPhasesModal(): JSX.Element | null {
 
     const hasPendingChanges = draftPhasesJson !== baselinePhasesJson
 
-    const rows: PhaseRow[] =
-        draftPhases.length > 0
-            ? draftPhases.map((phase, i) => ({
-                  index: i + 1,
-                  phase,
-              }))
-            : experiment.start_date
-              ? [
-                    {
-                        index: 1,
-                        phase: {
-                            start_date: experiment.start_date,
-                            end_date: experiment.end_date ?? null,
-                            name: 'Phase 1',
+    const rows: PhaseRow[] = useMemo(() => {
+        const baseRows: PhaseRow[] =
+            draftPhases.length > 0
+                ? draftPhases.map((phase, i) => ({
+                      index: i + 1,
+                      phase,
+                  }))
+                : experiment.start_date
+                  ? [
+                        {
+                            index: 1,
+                            phase: {
+                                start_date: experiment.start_date,
+                                end_date: experiment.end_date ?? null,
+                                name: 'Phase 1',
+                            },
+                            isSynthetic: true,
                         },
-                        isSynthetic: true,
-                    },
-                ]
-              : []
+                    ]
+                  : []
+
+        if (addingNewPhase) {
+            baseRows.push({
+                index: draftPhases.length + 1,
+                phase: {
+                    start_date: addingNewPhase.startDate,
+                    end_date: null,
+                    name: addingNewPhase.name || undefined,
+                    reason: addingNewPhase.reason || undefined,
+                },
+                isNew: true,
+            })
+        }
+
+        return baseRows
+    }, [draftPhases, experiment.start_date, experiment.end_date, addingNewPhase])
 
     const startEditing = (row: PhaseRow): void => {
-        if (row.isSynthetic) {
+        if (row.isSynthetic || row.isNew) {
             return
         }
 
@@ -286,14 +336,12 @@ export function EditPhasesModal(): JSX.Element | null {
             startDate: phase.start_date,
             endDate: phase.end_date ?? null,
         })
-        setIsStartCalendarOpen(false)
-        setIsEndCalendarOpen(false)
+        setCalendarOpen(null)
     }
 
     const cancelEditing = (): void => {
         setEditing(null)
-        setIsStartCalendarOpen(false)
-        setIsEndCalendarOpen(false)
+        setCalendarOpen(null)
     }
 
     const candidatePhases = useMemo((): ExperimentPhase[] | null => {
@@ -324,14 +372,13 @@ export function EditPhasesModal(): JSX.Element | null {
 
         setDraftPhases(candidatePhases)
         setEditing(null)
-        setIsStartCalendarOpen(false)
-        setIsEndCalendarOpen(false)
+        setCalendarOpen(null)
     }
 
     const saveModalValidationError = useMemo(() => validatePhases(draftPhases), [draftPhases])
 
     const handleSaveChanges = async (): Promise<void> => {
-        if (!hasPendingChanges || editing || saveModalValidationError) {
+        if (!hasPendingChanges || editing || addingNewPhase || saveModalValidationError) {
             return
         }
 
@@ -352,34 +399,64 @@ export function EditPhasesModal(): JSX.Element | null {
     const handleDiscardChanges = (): void => {
         setDraftPhases(clonePhases(baselinePhases))
         setEditing(null)
-        setIsStartCalendarOpen(false)
-        setIsEndCalendarOpen(false)
-        setIsAddCalendarOpen(false)
+        setAddingNewPhase(null)
+        setCalendarOpen(null)
         closeEditPhasesModal()
     }
 
+    const handleStartAddingPhase = (): void => {
+        setAddingNewPhase({
+            name: '',
+            reason: '',
+            startDate: getDefaultNewPhaseStartDate(draftPhases, experiment.start_date),
+        })
+        setCalendarOpen(null)
+    }
+
     const addPhaseDisabledReason = useMemo(
-        () => validateNewPhase(newPhase.startDate, draftPhases, experiment.start_date, hasPendingChanges, !!editing),
-        [newPhase.startDate, draftPhases, experiment.start_date, hasPendingChanges, editing]
+        () =>
+            addingNewPhase
+                ? 'Finish or cancel the phase being added'
+                : validateNewPhase('2000-01-01', draftPhases, experiment.start_date, hasPendingChanges, !!editing),
+        [addingNewPhase, draftPhases, experiment.start_date, hasPendingChanges, editing]
     )
 
-    const handleAddPhase = (): void => {
-        if (addPhaseDisabledReason) {
+    const newPhaseValidationError = useMemo(() => {
+        if (!addingNewPhase) {
+            return undefined
+        }
+        return validateNewPhase(addingNewPhase.startDate, draftPhases, experiment.start_date, false, false)
+    }, [addingNewPhase, draftPhases, experiment.start_date])
+
+    const handleConfirmNewPhase = (): void => {
+        if (!addingNewPhase || newPhaseValidationError) {
             return
         }
 
-        addPhase(newPhase.startDate, newPhase.name || undefined, newPhase.reason || undefined)
+        addPhase(addingNewPhase.startDate, addingNewPhase.name || undefined, addingNewPhase.reason || undefined)
+        setAddingNewPhase(null)
+        setCalendarOpen(null)
+    }
+
+    const handleCancelNewPhase = (): void => {
+        setAddingNewPhase(null)
+        setCalendarOpen(null)
     }
 
     const saveChangesDisabledReason = editing
         ? 'Save or cancel the phase currently being edited'
-        : !hasPendingChanges
-          ? 'No changes to save'
-          : saveModalValidationError || undefined
+        : addingNewPhase
+          ? 'Finish or cancel the phase being added'
+          : !hasPendingChanges
+            ? 'No changes to save'
+            : saveModalValidationError || undefined
 
     if (!isEnabled) {
         return null
     }
+
+    const isEditingRow = (row: PhaseRow): boolean => !row.isNew && editing?.phaseIndex === row.index - 1
+    const isNewRow = (row: PhaseRow): boolean => !!row.isNew
 
     return (
         <LemonModal
@@ -387,7 +464,8 @@ export function EditPhasesModal(): JSX.Element | null {
             onClose={handleDiscardChanges}
             title="Manage phases"
             closable={false}
-            hasUnsavedInput={hasPendingChanges || !!editing}
+            width="50rem"
+            hasUnsavedInput={hasPendingChanges || !!editing || !!addingNewPhase}
             footer={
                 <div className="flex items-center justify-between w-full">
                     <LemonButton type="secondary" onClick={handleDiscardChanges} disabled={isSavingChanges}>
@@ -409,7 +487,7 @@ export function EditPhasesModal(): JSX.Element | null {
                     dataSource={rows}
                     columns={[
                         {
-                            title: '',
+                            title: '#',
                             key: 'index',
                             width: 32,
                             render: (_, row) => <span className="text-secondary">{row.index}</span>,
@@ -417,18 +495,116 @@ export function EditPhasesModal(): JSX.Element | null {
                         {
                             title: 'Name',
                             key: 'name',
-                            render: (_, row) => getPhaseName(row.phase, row.index - 1),
+                            render: (_, row) => {
+                                if (isEditingRow(row) && editing) {
+                                    return (
+                                        <div className="flex flex-col gap-1">
+                                            <LemonInput
+                                                value={editing.name}
+                                                onChange={(name) => setEditing({ ...editing, name })}
+                                                placeholder={`Phase ${editing.phaseIndex + 1}`}
+                                                size="xsmall"
+                                            />
+                                            <LemonInput
+                                                value={editing.reason}
+                                                onChange={(reason) => setEditing({ ...editing, reason })}
+                                                placeholder="Reason (optional)"
+                                                size="xsmall"
+                                            />
+                                        </div>
+                                    )
+                                }
+                                if (isNewRow(row) && addingNewPhase) {
+                                    return (
+                                        <div className="flex flex-col gap-1">
+                                            <LemonInput
+                                                value={addingNewPhase.name}
+                                                onChange={(name) => setAddingNewPhase({ ...addingNewPhase, name })}
+                                                placeholder={`Phase ${draftPhases.length + 1}`}
+                                                size="xsmall"
+                                            />
+                                            <LemonInput
+                                                value={addingNewPhase.reason}
+                                                onChange={(reason) => setAddingNewPhase({ ...addingNewPhase, reason })}
+                                                placeholder="Reason (optional)"
+                                                size="xsmall"
+                                            />
+                                        </div>
+                                    )
+                                }
+                                return (
+                                    <div>
+                                        <div>{getPhaseName(row.phase, row.index - 1)}</div>
+                                        {row.phase.reason ? (
+                                            <div className="text-xs text-secondary">{row.phase.reason}</div>
+                                        ) : null}
+                                    </div>
+                                )
+                            },
                         },
                         {
-                            title: 'Dates',
-                            key: 'dates',
+                            title: 'Start date',
+                            key: 'startDate',
                             render: (_, row) => {
-                                const start = dayjs(row.phase.start_date).format('MMM D, YYYY')
-                                const end = row.phase.end_date ? dayjs(row.phase.end_date).format('MMM D, YYYY') : null
-
+                                if (isEditingRow(row) && editing) {
+                                    const isFirstPhase = editing.phaseIndex === 0
+                                    return (
+                                        <DatePickerCell
+                                            value={editing.startDate}
+                                            onChange={(v) => setEditing({ ...editing, startDate: v })}
+                                            calendarOpen={calendarOpen}
+                                            calendarKey="startDate"
+                                            onOpenCalendar={setCalendarOpen}
+                                            onCloseCalendar={() => setCalendarOpen(null)}
+                                            readOnlyText={isFirstPhase ? 'Locked to experiment start' : undefined}
+                                        />
+                                    )
+                                }
+                                if (isNewRow(row) && addingNewPhase) {
+                                    return (
+                                        <DatePickerCell
+                                            value={addingNewPhase.startDate}
+                                            onChange={(v) => setAddingNewPhase({ ...addingNewPhase, startDate: v })}
+                                            calendarOpen={calendarOpen}
+                                            calendarKey="startDate"
+                                            onOpenCalendar={setCalendarOpen}
+                                            onCloseCalendar={() => setCalendarOpen(null)}
+                                        />
+                                    )
+                                }
                                 return (
-                                    <span>
-                                        <strong>{start}</strong> to <strong>{end ?? 'now'}</strong>
+                                    <span className="font-semibold">
+                                        {dayjs(row.phase.start_date).format('MMM D, YYYY')}
+                                    </span>
+                                )
+                            },
+                        },
+                        {
+                            title: 'End date',
+                            key: 'endDate',
+                            render: (_, row) => {
+                                if (isEditingRow(row) && editing) {
+                                    const isLastPhase = editing.phaseIndex === draftPhases.length - 1
+                                    return (
+                                        <DatePickerCell
+                                            value={editing.endDate}
+                                            onChange={(v) => setEditing({ ...editing, endDate: v })}
+                                            calendarOpen={calendarOpen}
+                                            calendarKey="endDate"
+                                            onOpenCalendar={setCalendarOpen}
+                                            onCloseCalendar={() => setCalendarOpen(null)}
+                                            readOnlyText={
+                                                isLastPhase && editing.endDate === null ? 'Active phase' : undefined
+                                            }
+                                        />
+                                    )
+                                }
+                                if (isNewRow(row)) {
+                                    return <span className="text-secondary text-xs">Active phase</span>
+                                }
+                                return (
+                                    <span className="font-semibold">
+                                        {row.phase.end_date ? dayjs(row.phase.end_date).format('MMM D, YYYY') : 'now'}
                                     </span>
                                 )
                             },
@@ -436,199 +612,81 @@ export function EditPhasesModal(): JSX.Element | null {
                         {
                             title: '',
                             key: 'actions',
-                            width: 64,
-                            render: (_, row) =>
-                                row.isSynthetic || editing?.phaseIndex === row.index - 1 ? null : (
-                                    <LemonButton type="secondary" size="xsmall" onClick={() => startEditing(row)}>
-                                        Edit
-                                    </LemonButton>
-                                ),
+                            width: 72,
+                            render: (_, row) => {
+                                if (row.isSynthetic) {
+                                    return null
+                                }
+                                if (isEditingRow(row)) {
+                                    return (
+                                        <div className="flex gap-1">
+                                            <LemonButton
+                                                icon={<IconCheck />}
+                                                size="xsmall"
+                                                tooltip="Save"
+                                                onClick={saveEditedPhase}
+                                                disabledReason={editingValidationError || undefined}
+                                            />
+                                            <LemonButton
+                                                icon={<IconX />}
+                                                size="xsmall"
+                                                tooltip="Cancel"
+                                                onClick={cancelEditing}
+                                            />
+                                        </div>
+                                    )
+                                }
+                                if (isNewRow(row)) {
+                                    return (
+                                        <div className="flex gap-1">
+                                            <LemonButton
+                                                icon={<IconCheck />}
+                                                size="xsmall"
+                                                tooltip="Add"
+                                                onClick={handleConfirmNewPhase}
+                                                disabledReason={newPhaseValidationError}
+                                            />
+                                            <LemonButton
+                                                icon={<IconX />}
+                                                size="xsmall"
+                                                tooltip="Cancel"
+                                                onClick={handleCancelNewPhase}
+                                            />
+                                        </div>
+                                    )
+                                }
+                                if (editing || addingNewPhase) {
+                                    return null
+                                }
+                                return (
+                                    <LemonButton
+                                        icon={<IconPencil />}
+                                        size="xsmall"
+                                        tooltip="Edit"
+                                        onClick={() => startEditing(row)}
+                                    />
+                                )
+                            },
                         },
                     ]}
-                    expandable={{
-                        expandedRowRender: (row) => {
-                            if (!editing || editing.phaseIndex !== row.index - 1) {
-                                return null
-                            }
-
-                            const isLastPhase = editing.phaseIndex === draftPhases.length - 1
-                            const isFirstPhase = editing.phaseIndex === 0
-
-                            return (
-                                <div className="flex flex-col gap-3 p-2">
-                                    <div>
-                                        <Label>Name</Label>
-                                        <LemonInput
-                                            value={editing.name}
-                                            onChange={(name) => setEditing({ ...editing, name })}
-                                            placeholder={`Phase ${editing.phaseIndex + 1}`}
-                                        />
-                                    </div>
-                                    <div>
-                                        <Label>Reason</Label>
-                                        <LemonInput
-                                            value={editing.reason}
-                                            onChange={(reason) => setEditing({ ...editing, reason })}
-                                            placeholder="e.g., Changed rollout to 80%"
-                                        />
-                                    </div>
-                                    <div>
-                                        <Label>Start date</Label>
-                                        {isFirstPhase ? (
-                                            <span className="text-secondary text-sm">
-                                                Phase 1 starts when the experiment starts
-                                            </span>
-                                        ) : (
-                                            <Popover
-                                                actionable
-                                                onClickOutside={() => setIsStartCalendarOpen(false)}
-                                                visible={isStartCalendarOpen}
-                                                overlay={
-                                                    <LemonCalendarSelect
-                                                        value={dayjs(editing.startDate)}
-                                                        onChange={(value) => {
-                                                            setEditing({ ...editing, startDate: value.toISOString() })
-                                                            setIsStartCalendarOpen(false)
-                                                        }}
-                                                        onClose={() => setIsStartCalendarOpen(false)}
-                                                        granularity="minute"
-                                                        selectionPeriod="past"
-                                                    />
-                                                }
-                                            >
-                                                <LemonButton
-                                                    type="secondary"
-                                                    size="small"
-                                                    onClick={() => setIsStartCalendarOpen(true)}
-                                                >
-                                                    {dayjs(editing.startDate).format('MMM D, YYYY hh:mm A')}
-                                                </LemonButton>
-                                            </Popover>
-                                        )}
-                                    </div>
-                                    <div>
-                                        <Label>End date</Label>
-                                        {isLastPhase && editing.endDate === null ? (
-                                            <span className="text-secondary text-sm">
-                                                This is the current active phase (no end date)
-                                            </span>
-                                        ) : (
-                                            <Popover
-                                                actionable
-                                                onClickOutside={() => setIsEndCalendarOpen(false)}
-                                                visible={isEndCalendarOpen}
-                                                overlay={
-                                                    <LemonCalendarSelect
-                                                        value={editing.endDate ? dayjs(editing.endDate) : dayjs()}
-                                                        onChange={(value) => {
-                                                            setEditing({ ...editing, endDate: value.toISOString() })
-                                                            setIsEndCalendarOpen(false)
-                                                        }}
-                                                        onClose={() => setIsEndCalendarOpen(false)}
-                                                        granularity="minute"
-                                                        selectionPeriod="past"
-                                                    />
-                                                }
-                                            >
-                                                <LemonButton
-                                                    type="secondary"
-                                                    size="small"
-                                                    onClick={() => setIsEndCalendarOpen(true)}
-                                                >
-                                                    {editing.endDate
-                                                        ? dayjs(editing.endDate).format('MMM D, YYYY hh:mm A')
-                                                        : 'Select date'}
-                                                </LemonButton>
-                                            </Popover>
-                                        )}
-                                    </div>
-                                    {editingValidationError ? (
-                                        <div className="text-danger text-sm">{editingValidationError}</div>
-                                    ) : null}
-                                    <div className="flex justify-end gap-2">
-                                        <LemonButton type="secondary" size="small" onClick={cancelEditing}>
-                                            Cancel
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="primary"
-                                            size="small"
-                                            onClick={saveEditedPhase}
-                                            disabledReason={editingValidationError || undefined}
-                                        >
-                                            Save phase
-                                        </LemonButton>
-                                    </div>
-                                </div>
-                            )
-                        },
-                        isRowExpanded: (row) => editing?.phaseIndex === row.index - 1,
-                        expandedRowClassName: 'bg-white',
-                        noIndent: true,
-                        showRowExpansionToggle: false,
-                    }}
                     size="small"
                     showHeader={true}
                 />
 
-                {isRunning ? (
-                    <div className="border rounded p-3 bg-bg-light flex flex-col gap-3">
-                        <Label>Add phase</Label>
-                        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 items-end">
-                            <div>
-                                <Label>Start date</Label>
-                                <Popover
-                                    actionable
-                                    onClickOutside={() => setIsAddCalendarOpen(false)}
-                                    visible={isAddCalendarOpen}
-                                    overlay={
-                                        <LemonCalendarSelect
-                                            value={dayjs(newPhase.startDate)}
-                                            onChange={(value) => {
-                                                setNewPhase({ ...newPhase, startDate: value.toISOString() })
-                                                setIsAddCalendarOpen(false)
-                                            }}
-                                            onClose={() => setIsAddCalendarOpen(false)}
-                                            granularity="minute"
-                                            selectionPeriod="past"
-                                        />
-                                    }
-                                >
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        onClick={() => setIsAddCalendarOpen(true)}
-                                    >
-                                        {dayjs(newPhase.startDate).format('MMM D, YYYY hh:mm A')}
-                                    </LemonButton>
-                                </Popover>
-                            </div>
-                            <div>
-                                <Label>Name (optional)</Label>
-                                <LemonInput
-                                    value={newPhase.name}
-                                    onChange={(name) => setNewPhase({ ...newPhase, name })}
-                                    placeholder={`Phase ${draftPhases.length + 1}`}
-                                />
-                            </div>
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                icon={<IconPlus />}
-                                onClick={handleAddPhase}
-                                disabledReason={addPhaseDisabledReason}
-                            >
-                                Add phase
-                            </LemonButton>
-                        </div>
-                        <div>
-                            <Label>Reason (optional)</Label>
-                            <LemonInput
-                                value={newPhase.reason}
-                                onChange={(reason) => setNewPhase({ ...newPhase, reason })}
-                                placeholder="e.g., Changed rollout to 80%"
-                            />
-                        </div>
-                    </div>
+                {editingValidationError ? <div className="text-danger text-sm">{editingValidationError}</div> : null}
+
+                {newPhaseValidationError ? <div className="text-danger text-sm">{newPhaseValidationError}</div> : null}
+
+                {isRunning && !addingNewPhase ? (
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconPlus />}
+                        size="small"
+                        onClick={handleStartAddingPhase}
+                        disabledReason={addPhaseDisabledReason}
+                    >
+                        Add phase
+                    </LemonButton>
                 ) : null}
 
                 {selectedPhaseIndex != null && selectedPhaseIndex >= draftPhases.length ? (
