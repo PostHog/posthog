@@ -18,7 +18,7 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Json, Response},
 };
-use common_hypercache::{CacheSource, HyperCacheError, KeyType};
+use common_hypercache::{HyperCacheError, KeyType};
 use common_metrics::inc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -226,7 +226,19 @@ async fn get_etag_from_redis(state: &AppState, team_key: &KeyType) -> Option<Str
                 None
             }
         },
-        Err(_) => None, // Redis miss or error — degrade gracefully
+        Err(e) => {
+            warn!(
+                etag_key = %etag_key,
+                error = %e,
+                "Failed to read ETag from Redis"
+            );
+            inc(
+                FLAG_DEFINITIONS_ETAG_COUNTER,
+                &[("result".to_string(), "redis_error".to_string())],
+                1,
+            );
+            None
+        }
     }
 }
 
@@ -283,11 +295,7 @@ async fn get_from_cache(
 
     match result {
         Ok((data, source)) => {
-            let source_name = match source {
-                CacheSource::Redis => "redis",
-                CacheSource::S3 => "s3",
-                CacheSource::Fallback => "fallback",
-            };
+            let source_name = source.as_log_str();
             inc(
                 FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
                 &[("source".to_string(), source_name.to_string())],
