@@ -91,7 +91,9 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         if instance.stage != stage:
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
-        if instance.stage not in EarlyAccessFeature.ReleaseStage and stage in EarlyAccessFeature.ReleaseStage:
+        # Only add super_groups when transitioning TO an active stage (Alpha, Beta, GA)
+        # CONCEPT stage allows opt-in but doesn't enable the feature flag
+        if instance.stage not in EarlyAccessFeature.ActiveStage and stage in EarlyAccessFeature.ActiveStage:
             super_conditions = lambda feature_flag_key: [
                 {
                     "properties": [
@@ -122,7 +124,8 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                 )
                 serializer.is_valid(raise_exception=True)
                 serializer.save()
-        elif stage is not None and (stage not in EarlyAccessFeature.ReleaseStage):
+        elif stage is not None and (stage not in EarlyAccessFeature.ActiveStage):
+            # Remove super_groups when leaving an active stage (including moving to CONCEPT)
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
                 related_feature_flag.filters = {
@@ -234,7 +237,8 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             feature_flag = FeatureFlag.objects.get(pk=feature_flag_id, team_id=self.context["team_id"])
             feature_flag_key = feature_flag.key
 
-            if validated_data.get("stage") in EarlyAccessFeature.ReleaseStage:
+            # Only add super_groups for active stages (Alpha, Beta, GA), not CONCEPT
+            if validated_data.get("stage") in EarlyAccessFeature.ActiveStage:
                 serialized_data_filters = {
                     **feature_flag.filters,
                     "super_groups": super_conditions(feature_flag_key),
@@ -255,7 +259,8 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                 "groups": default_condition,
             }
 
-            if validated_data.get("stage") in EarlyAccessFeature.ReleaseStage:
+            # Only add super_groups for active stages (Alpha, Beta, GA), not CONCEPT
+            if validated_data.get("stage") in EarlyAccessFeature.ActiveStage:
                 filters["super_groups"] = super_conditions(feature_flag_key)
 
             feature_flag_serializer = FeatureFlagSerializer(
