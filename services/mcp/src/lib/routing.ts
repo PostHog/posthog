@@ -18,15 +18,17 @@ const AUTH_SERVER_REDIRECTS: AuthRedirect[] = [
     { match: '/.well-known/oauth-authorization-server', status: 302 },
     // JWKS endpoint for token verification
     { match: '/.well-known/jwks.json', status: 301 },
-    // OAuth endpoints (authorize, token, register, revoke, introspect, userinfo)
-    { prefix: '/oauth/', status: 301 },
-    // MCP 3/26 spec fallback endpoints - clients hit these directly when the authorization
-    // server metadata is not available. PostHog serves these under /oauth/ so we rewrite.
-    // /register and /token use 307 to preserve POST method and body across the redirect.
-    // /authorize uses 302 as it's a GET request.
+    // POST-sensitive OAuth endpoints use 307 to preserve method and body.
+    // 301 converts POST→GET per HTTP spec, dropping the body and causing
+    // invalid_client errors (e.g. Claude Desktop native connectors).
+    { match: '/oauth/token/', status: 307 },
+    { match: '/oauth/register/', status: 307 },
+    // MCP 3/26 spec fallback endpoints (without /oauth/ prefix)
     { match: '/register', status: 307, rewriteTo: '/oauth/register' },
-    { match: '/authorize', status: 302, rewriteTo: '/oauth/authorize' },
     { match: '/token', status: 307, rewriteTo: '/oauth/token' },
+    // GET-safe endpoints: authorize, revoke, introspect, userinfo, etc.
+    { match: '/authorize', status: 302, rewriteTo: '/oauth/authorize' },
+    { prefix: '/oauth/', status: 302 },
 ]
 
 export function matchAuthServerRedirect(pathname: string): AuthRedirect | undefined {

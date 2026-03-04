@@ -6,12 +6,12 @@ describe('Authorization server redirects', () => {
     const redirectCases = [
         { pathname: '/.well-known/oauth-authorization-server', expectedStatus: 302 },
         { pathname: '/.well-known/jwks.json', expectedStatus: 301 },
-        { pathname: '/oauth/authorize/', expectedStatus: 301 },
-        { pathname: '/oauth/token/', expectedStatus: 301 },
-        { pathname: '/oauth/register/', expectedStatus: 301 },
-        { pathname: '/oauth/revoke/', expectedStatus: 301 },
-        { pathname: '/oauth/introspect/', expectedStatus: 301 },
-        { pathname: '/oauth/userinfo/', expectedStatus: 301 },
+        { pathname: '/oauth/token/', expectedStatus: 307 },
+        { pathname: '/oauth/register/', expectedStatus: 307 },
+        { pathname: '/oauth/authorize/', expectedStatus: 302 },
+        { pathname: '/oauth/revoke/', expectedStatus: 302 },
+        { pathname: '/oauth/introspect/', expectedStatus: 302 },
+        { pathname: '/oauth/userinfo/', expectedStatus: 302 },
     ]
 
     it.each(redirectCases)('redirects $pathname with status $expectedStatus', ({ pathname, expectedStatus }) => {
