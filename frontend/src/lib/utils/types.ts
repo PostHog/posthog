@@ -10,8 +10,3 @@ export type RequiredExcept<T, K extends keyof T> = {
 
 /** Extract the value type from an array or object type. */
 export type ValueOf<a> = a extends any[] ? a[number] : a[keyof a]
-
-/** Check whether a runtime key exists on an object and narrow it to `keyof T`. */
-export function isKeyOf<T extends object>(key: any, obj: T): key is keyof T {
-    return key in obj
-}

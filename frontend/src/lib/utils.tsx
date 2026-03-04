@@ -484,6 +484,10 @@ export function isString(candidate: unknown): candidate is string {
     return typeof candidate === 'string'
 }
 
+export function isNumber(candidate: unknown): candidate is number {
+    return typeof candidate === 'number'
+}
+
 export function isObject(candidate: unknown): candidate is Record<string, unknown> {
     return typeof candidate === 'object' && candidate !== null
 }
@@ -494,6 +498,11 @@ export function isEmptyObject(candidate: unknown): boolean {
 
 export function isNonEmptyObject(candidate: unknown): candidate is Record<string, unknown> {
     return isObject(candidate) && !isEmptyObject(candidate)
+}
+
+/** Check whether a runtime key exists on an object and narrow it to `keyof T`. */
+export function isKeyOf<T extends object>(key: any, obj: T): key is keyof T {
+    return key in obj
 }
 
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object

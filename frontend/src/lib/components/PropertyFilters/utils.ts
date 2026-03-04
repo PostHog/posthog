@@ -6,8 +6,8 @@ import {
     isOperatorCohort,
     isOperatorFlag,
     isOperatorMulti,
+    isKeyOf,
 } from 'lib/utils'
-import { isKeyOf } from 'lib/utils/types'
 
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'

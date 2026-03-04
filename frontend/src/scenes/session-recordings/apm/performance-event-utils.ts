@@ -3,8 +3,7 @@ import { CapturedNetworkRequest } from 'posthog-js'
 import { eventWithTime } from '@posthog/rrweb-types'
 
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
-import { humanizeBytes } from 'lib/utils'
-import { isKeyOf } from 'lib/utils/types'
+import { humanizeBytes, isKeyOf } from 'lib/utils'
 
 import { PerformanceEvent } from '~/types'
 
