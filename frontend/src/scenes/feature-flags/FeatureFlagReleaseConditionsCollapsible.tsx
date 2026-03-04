@@ -542,24 +542,22 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                             )
                                                         })()}
                                                         {releaseFilters.aggregation_group_type_index == null && (
-                                                            <span>
-                                                                . A user may have{' '}
-                                                                <Tooltip
-                                                                    title={
+                                                            <Tooltip
+                                                                title={
+                                                                    <>
+                                                                        A user may have multiple{' '}
                                                                         <Link
                                                                             to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
                                                                             target="_blank"
                                                                         >
-                                                                            Learn more about profiles
+                                                                            profiles
                                                                         </Link>
-                                                                    }
-                                                                    interactive
-                                                                >
-                                                                    <span className="border-b border-dashed border-current cursor-default">
-                                                                        multiple profiles
-                                                                    </span>
-                                                                </Tooltip>
-                                                            </span>
+                                                                    </>
+                                                                }
+                                                                interactive
+                                                            >
+                                                                <IconInfo className="text-muted text-base" />
+                                                            </Tooltip>
                                                         )}
                                                     </div>
                                                 ) : (
