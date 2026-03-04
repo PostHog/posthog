@@ -293,7 +293,6 @@ pub struct Config {
     pub consumer_name: Option<String>,
 
     //// End kafka-assigner mode configuration ////
-
     /// Fail-open mode: bypass all deduplication and forward events directly to output topic.
     /// When enabled, the deduplicator skips store operations, checkpoint import/export,
     /// and treats all events as unique. Use as an emergency kill switch when the
