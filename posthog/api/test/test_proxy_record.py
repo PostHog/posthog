@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ProxyRecord
@@ -120,9 +121,15 @@ class TestProxyRecordAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @parameterized.expand(
+        [
+            ("erroring", ProxyRecord.Status.ERRORING, "Cloudflare API error"),
+            ("timed_out", ProxyRecord.Status.TIMED_OUT, None),
+        ]
+    )
     @patch("posthog.api.proxy_record.sync_connect")
     @patch("posthoganalytics.capture")
-    def test_retry_erroring_proxy_record(self, mock_capture, mock_sync_connect):
+    def test_retry_proxy_record(self, _name, initial_status, initial_message, mock_capture, mock_sync_connect):
         mock_temporal = AsyncMock()
         mock_sync_connect.return_value = mock_temporal
 
@@ -131,8 +138,8 @@ class TestProxyRecordAPI(APIBaseTest):
             created_by=self.user,
             domain="retry.example.com",
             target_cname="abc123.proxy.posthog.com",
-            status=ProxyRecord.Status.ERRORING,
-            message="Cloudflare API error",
+            status=initial_status,
+            message=initial_message,
         )
 
         response = self.client.post(
@@ -147,26 +154,6 @@ class TestProxyRecordAPI(APIBaseTest):
         self.assertEqual(record.status, ProxyRecord.Status.WAITING)
         self.assertIsNone(record.message)
         mock_temporal.start_workflow.assert_called_once()
-
-    @patch("posthog.api.proxy_record.sync_connect")
-    @patch("posthoganalytics.capture")
-    def test_retry_timed_out_proxy_record(self, mock_capture, mock_sync_connect):
-        mock_temporal = AsyncMock()
-        mock_sync_connect.return_value = mock_temporal
-
-        record = ProxyRecord.objects.create(
-            organization=self.organization,
-            created_by=self.user,
-            domain="timeout.example.com",
-            target_cname="abc123.proxy.posthog.com",
-            status=ProxyRecord.Status.TIMED_OUT,
-        )
-
-        response = self.client.post(
-            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], "waiting")
 
     @patch("posthog.api.proxy_record.sync_connect")
     @patch("posthoganalytics.capture")
