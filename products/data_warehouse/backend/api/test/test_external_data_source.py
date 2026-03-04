@@ -800,6 +800,42 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
 
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")
+    def test_reload_direct_external_data_source_refreshes_schemas(self, mock_trigger, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="table_a", supports_incremental=False, supports_append=False),
+        ]
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432},
+        )
+
+        response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/reload/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_trigger.call_count, 0)
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 1
+        )
+        self.assertEqual(
+            DataWarehouseTable.objects.filter(
+                team_id=self.team.pk,
+                external_data_source=source,
+                deleted=False,
+                name="test_postgres_table_a",
+            ).count(),
+            1,
+        )
+
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
             host=settings.PG_HOST,

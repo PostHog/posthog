@@ -185,6 +185,23 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
         return None
 
+    @property
+    def schema_metadata(self) -> dict[str, Any] | None:
+        if self.sync_type_config:
+            metadata = self.sync_type_config.get("schema_metadata")
+            if isinstance(metadata, dict):
+                return metadata
+        return None
+
+    @property
+    def foreign_keys(self) -> list[dict[str, str]] | None:
+        metadata = self.schema_metadata
+        if metadata:
+            foreign_keys = metadata.get("foreign_keys")
+            if isinstance(foreign_keys, list):
+                return foreign_keys
+        return None
+
     def set_partitioning_enabled(
         self,
         partitioning_keys: list[str],

@@ -732,10 +732,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         instance: ExternalDataSource = self.get_object()
 
         if instance.access_method == ExternalDataSource.AccessMethod.DIRECT:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Direct query sources cannot be reloaded because they do not run sync jobs."},
-            )
+            # Direct query sources do not run sync jobs. Reload means refreshing the discovered schema list.
+            return self.refresh_schemas(request, *args, **kwargs)
 
         if is_any_external_data_schema_paused(self.team_id):
             return Response(
@@ -801,6 +799,66 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
                 schema_names, source_id=str(instance.id), team_id=self.team_id
             )
+
+            if (
+                instance.access_method == ExternalDataSource.AccessMethod.DIRECT
+                and instance.source_type == ExternalDataSourceType.POSTGRES
+            ):
+                from products.data_warehouse.backend.models.table import DataWarehouseTable
+
+                table_prefix = (
+                    f"{instance.prefix}_{instance.source_type}_".lower()
+                    if instance.prefix is not None and isinstance(instance.prefix, str) and instance.prefix != ""
+                    else f"{instance.source_type}_".lower()
+                )
+                schema_models = {
+                    schema.name: schema
+                    for schema in ExternalDataSchema.objects.filter(
+                        team_id=self.team_id, source_id=instance.id, deleted=False
+                    )
+                }
+
+                for source_schema in schemas:
+                    schema_model = schema_models.get(source_schema.name)
+                    if schema_model is None:
+                        continue
+
+                    expected_table_name = f"{table_prefix}{source_schema.name}".lower()
+                    expected_columns = postgres_columns_to_dwh_columns(source_schema.columns)
+
+                    table_model = schema_model.table
+                    if table_model is None or table_model.deleted:
+                        table_model = DataWarehouseTable.objects.create(
+                            name=expected_table_name,
+                            format=DataWarehouseTable.TableFormat.Parquet,
+                            team=self.team,
+                            url_pattern="direct://postgres",
+                            external_data_source=instance,
+                            columns=expected_columns,
+                        )
+                        schema_model.table = table_model
+                        schema_model.save(update_fields=["table"])
+                    else:
+                        table_model.name = expected_table_name
+                        table_model.url_pattern = "direct://postgres"
+                        table_model.external_data_source = instance
+                        table_model.columns = expected_columns
+                        table_model.save(
+                            update_fields=["name", "url_pattern", "external_data_source", "columns", "updated_at"]
+                        )
+
+                stale_schemas = ExternalDataSchema.objects.filter(
+                    team_id=self.team_id, source_id=instance.id, deleted=False
+                ).exclude(name__in=schema_names)
+                stale_count = 0
+                for stale_schema in stale_schemas:
+                    stale_count += 1
+                    if stale_schema.table and not stale_schema.table.deleted:
+                        stale_schema.table.soft_delete()
+                    stale_schema.soft_delete()
+
+                if stale_count > 0:
+                    schemas_deleted = list({*schemas_deleted, *list(stale_schemas.values_list("name", flat=True))})
         logger.debug(
             "refresh_schemas completed",
             source_id=str(instance.id),
