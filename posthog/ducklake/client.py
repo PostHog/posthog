@@ -23,6 +23,7 @@ class DuckLakeQueryResult:
 
 @dataclass
 class DuckLakeTableResult:
+    schema_name: str
     table_name: str
     row_count: int
 
@@ -94,25 +95,27 @@ def execute_ducklake_query(
     )
 
 
-def execute_ducklake_create_table(team_id: int, sql: str, table_name: str) -> DuckLakeTableResult:
+def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, table_name: str) -> DuckLakeTableResult:
     """Execute a query via duckgres and materialize the result as a DuckLake table.
 
-    Creates or replaces a table in the public schema using CREATE OR REPLACE TABLE ... AS.
+    Creates or replaces a table in the given schema using CREATE OR REPLACE TABLE ... AS.
     The table is stored natively in DuckLake (Parquet on S3 + Postgres catalog metadata).
     """
+    safe_schema = sanitize_ducklake_identifier(schema_name, default_prefix="shadow")
     safe_table = sanitize_ducklake_identifier(table_name, default_prefix="model")
+    qualified = f"{safe_schema}.{safe_table}"
 
     conninfo = _make_duckgres_conninfo(team_id)
     with psycopg.connect(conninfo) as conn:
         conn.execute("SET search_path TO 'posthog'")
         with conn.cursor() as cur:
-            cur.execute(f"CREATE OR REPLACE TABLE public.{safe_table} AS {sql}")
-
-            cur.execute(f"SELECT count(*) FROM public.{safe_table}")
+            cur.execute(f"CREATE SCHEMA IF NOT EXISTS {safe_schema}")
+            cur.execute(f"CREATE OR REPLACE TABLE {qualified} AS {sql}")
+            cur.execute(f"SELECT count(*) FROM {qualified}")
             row = cur.fetchone()
             row_count = int(row[0]) if row else 0
-
     return DuckLakeTableResult(
+        schema_name=safe_schema,
         table_name=safe_table,
         row_count=row_count,
     )

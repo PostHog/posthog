@@ -17,6 +17,7 @@ from products.data_warehouse.backend.models.datawarehouse_saved_query import Dat
 LOGGER = get_logger(__name__)
 
 FEATURE_FLAG = "duckgres-data-modeling-shadow"
+SHADOW_SCHEMA_PREFIX = "shadow"
 
 
 @dataclasses.dataclass
@@ -40,6 +41,7 @@ class DuckgresShadowInputs:
 class DuckgresShadowResult:
     row_count: int
     duration_seconds: float
+    schema_name: str
     table_name: str
     error: str | None = None
 
@@ -112,14 +114,16 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
 
     if not await database_sync_to_async(_is_duckgres_shadow_enabled)(team):
         await logger.ainfo("Duckgres shadow disabled for team", extra=inputs.properties_to_log)
-        return DuckgresShadowResult(row_count=0, duration_seconds=0.0, table_name="", error="disabled")
+        return DuckgresShadowResult(row_count=0, duration_seconds=0.0, schema_name="", table_name="", error="disabled")
 
     hogql_query = typing.cast(dict, saved_query.query)["query"]
+    schema_name = f"{SHADOW_SCHEMA_PREFIX}_{team.pk}_models"
     table_name = saved_query.normalized_name
 
     await logger.ainfo(
         "Starting duckgres shadow materialization",
         node_name=node.name,
+        schema_name=schema_name,
         table_name=table_name,
     )
 
@@ -130,7 +134,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
 
         from posthog.ducklake.client import execute_ducklake_create_table
 
-        result = await database_sync_to_async(execute_ducklake_create_table)(team.pk, sql, table_name)
+        result = await database_sync_to_async(execute_ducklake_create_table)(team.pk, sql, schema_name, table_name)
         duration = time.monotonic() - start_time
 
         await logger.ainfo(
@@ -138,12 +142,14 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
             node_name=node.name,
             row_count=result.row_count,
             duration_seconds=round(duration, 2),
+            schema_name=result.schema_name,
             table_name=result.table_name,
         )
 
         return DuckgresShadowResult(
             row_count=result.row_count,
             duration_seconds=duration,
+            schema_name=result.schema_name,
             table_name=result.table_name,
         )
     except Exception as e:
@@ -157,6 +163,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
         return DuckgresShadowResult(
             row_count=0,
             duration_seconds=duration,
+            schema_name=schema_name,
             table_name=table_name,
             error=str(e),
         )

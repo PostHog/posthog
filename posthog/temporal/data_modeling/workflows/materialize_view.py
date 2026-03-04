@@ -311,6 +311,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     "clickhouse_duration_seconds": round(clickhouse_duration_seconds, 2),
                     "duckgres_rows": shadow_result.row_count,
                     "duckgres_duration_seconds": round(shadow_result.duration_seconds, 2),
+                    "duckgres_schema": shadow_result.schema_name,
                     "duckgres_table": shadow_result.table_name,
                     "duckgres_error": shadow_result.error,
                     "row_count_match": row_count_matched,
