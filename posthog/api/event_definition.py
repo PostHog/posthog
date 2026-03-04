@@ -159,6 +159,8 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
                 cast(User, request.user),
                 "event definition created",
                 {"name": event_definition.name},
+                team=view.team,
+                request=request,
             )
 
         return event_definition
@@ -400,6 +402,8 @@ class EventDefinitionViewSet(
             cast(User, request.user),
             "event definition deleted",
             {"name": instance.name},
+            team=self.team,
+            request=request,
         )
         user = cast(User, request.user)
         log_activity(
@@ -436,6 +440,7 @@ class EventDefinitionViewSet(
             self.request.user,
             self.team_id,
             self.project_id,
+            request=self.request,
         )
 
         return response.Response(

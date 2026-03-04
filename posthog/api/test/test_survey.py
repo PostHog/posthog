@@ -441,11 +441,9 @@ class TestSurvey(APIBaseTest):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "surveys",
-                "source": "web",
-                "$current_url": None,
-                "$session_id": None,
-                "was_impersonated": False,
             },
+            team=ANY,
+            request=ANY,
         )
 
     def test_create_adds_user_interactivity_filters(self):
@@ -2408,7 +2406,8 @@ class TestSurvey(APIBaseTest):
                 "start_date": start_date,
                 "end_date": None,
             },
-            self.team,
+            team=self.team,
+            request=ANY,
         )
         mock_report_user_action.reset_mock()
 
@@ -2427,7 +2426,8 @@ class TestSurvey(APIBaseTest):
                 "start_date": start_date,
                 "end_date": end_date,
             },
-            self.team,
+            team=self.team,
+            request=ANY,
         )
         mock_report_user_action.reset_mock()
 
@@ -2446,7 +2446,8 @@ class TestSurvey(APIBaseTest):
                 "start_date": start_date,
                 "end_date": None,
             },
-            self.team,
+            team=self.team,
+            request=ANY,
         )
 
     @freeze_time("2023-05-01 12:00:00")

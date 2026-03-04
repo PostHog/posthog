@@ -142,7 +142,7 @@ export type LemonInputSelectProps<T = string> = Pick<
     disabled?: boolean
     loading?: boolean
     placeholder?: string
-    title?: string // Title shown at the top of the list. Looks the same as section titles in LemonMenu.
+    title?: React.ReactNode // Title shown at the top of the list. Looks the same as section titles in LemonMenu.
     disableFiltering?: boolean
     disablePrompting?: boolean
     mode: 'multiple' | 'single'

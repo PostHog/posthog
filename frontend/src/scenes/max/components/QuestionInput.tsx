@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArrowRight, IconCheck, IconPencil, IconStopFilled, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTextArea, Spinner } from '@posthog/lemon-ui'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
@@ -158,6 +158,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         threadMessageCount,
         queueingEnabled,
         queuedMessages,
+        queueSubmitting,
     } = useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled, updateQueuedMessage } =
         useActions(maxThreadLogic)
@@ -223,9 +224,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             Research mode is a free beta feature with lower daily limits
                         </div>
                     )}
-                    {queueingEnabled && queuedMessages.length > 0 && (
+                    {queueingEnabled && (queuedMessages.length > 0 || queueSubmitting) && (
                         <div className="px-3 py-2">
-                            <div className="text-xs text-muted mb-1.5">Up next</div>
+                            <div className="text-xs text-muted mb-1.5 flex items-center gap-1.5">
+                                Up next
+                                {queueSubmitting && <Spinner size="small" />}
+                            </div>
                             <div className="space-y-1.5">
                                 {displayQueuedMessages.map((message) => (
                                     <QueuedMessageItem
