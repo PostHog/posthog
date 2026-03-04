@@ -234,6 +234,7 @@ export interface LineGraphProps {
     isStacked?: boolean
     showTrendLines?: boolean
     ignoreActionsInSeriesLabels?: boolean
+    yAxisStartAtMin?: boolean | null
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -278,6 +279,7 @@ export function LineGraph_({
     isStacked = true,
     showTrendLines = false,
     ignoreActionsInSeriesLabels = false,
+    yAxisStartAtMin,
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -495,7 +497,7 @@ export function LineGraph_({
             ...(isLog10
                 ? { type: 'logarithmic' as const, min: Math.pow(10, Math.ceil(Math.log10(seriesNonZeroMin)) - 1) }
                 : { type: 'linear' as const }),
-            beginAtZero: true,
+            beginAtZero: !yAxisStartAtMin,
             stacked: showPercentStackView || isArea,
             ticks: {
                 ...tickOptions,
@@ -1089,6 +1091,7 @@ export function LineGraph_({
             hoveredDatasetIndex,
             setHoveredDatasetIndex,
             isHighlightBarMode,
+            yAxisStartAtMin,
         ],
     })
 

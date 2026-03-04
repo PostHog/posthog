@@ -52,6 +52,7 @@ export function ActionsLineGraph({
         showMovingAverage,
         movingAverageIntervals,
         getTrendsColor,
+        yAxisStartAtMin,
     } = useValues(trendsDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
@@ -186,6 +187,7 @@ export function ActionsLineGraph({
                 isLifecycle ? (lifecycleFilter?.stacked ?? true) : display !== ChartDisplayType.ActionsUnstackedBar
             }
             yAxisScaleType={yAxisScaleType}
+            yAxisStartAtMin={yAxisStartAtMin}
             showMultipleYAxes={showMultipleYAxes}
             showTrendLines={showTrendLines}
             tooltip={
