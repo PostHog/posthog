@@ -295,11 +295,6 @@ export function SceneTitleSection({
 
     return (
         <>
-            {!noBorder && (
-                // When this element scrolls out of view, the IntersectionObserver sets isScrolled=true to show the border
-                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute -top-4" aria-hidden />
-            )}
-
             <div
                 className={cn(
                     'group/scene-title-section bg-primary duration-300',
@@ -312,6 +307,10 @@ export function SceneTitleSection({
                     className
                 )}
             >
+                {!noBorder && (
+                    // When this element scrolls out of view, the IntersectionObserver sets isScrolled=true to show the border
+                    <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute -top-4" aria-hidden />
+                )}
                 <div
                     className={cn(
                         'scene-title-section flex-1 flex flex-col @2xl/main-content:flex-row gap-1 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group',

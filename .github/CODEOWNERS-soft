@@ -226,6 +226,7 @@ CODEOWNERS @PostHog/team-devex
 CLAUDE.md @PostHog/team-devex
 AGENTS.md @PostHog/team-devex
 .claude/ @PostHog/team-devex
+.agents/ @PostHog/team-devex
 .claude/agents/ingestion/ @PostHog/team-ingestion
 .agents/skills/ingestion-*/ @PostHog/team-ingestion
 .claude/skills/ingestion-*/ @PostHog/team-ingestion
