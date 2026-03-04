@@ -170,7 +170,7 @@ describe('processEvent', () => {
     let mockProducerObserver: KafkaProducerObserver
 
     beforeAll(async () => {
-        await resetKafka(TEST_CONFIG)
+        await resetKafka()
     })
 
     beforeEach(async () => {
