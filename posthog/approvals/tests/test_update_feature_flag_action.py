@@ -211,7 +211,7 @@ class TestCheckStaleness(APIBaseTest):
         from posthog.approvals.actions.feature_flags import EnableFeatureFlagAction
 
         flag = self._create_flag()
-        intent = {"preconditions": {}}
+        intent: dict[str, Any] = {"preconditions": {}}
         context = {"instance": flag}
 
         result = EnableFeatureFlagAction.check_staleness(intent, context)
