@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, s
 from unittest import mock
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.db import IntegrityError
 
 from orjson import orjson
@@ -20,6 +21,7 @@ from posthog.helpers.dashboard_templates import create_group_type_mapping_detail
 from posthog.models import GroupTypeMapping, GroupUsageMetric, Person, PropertyDefinition
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import create_group
+from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
@@ -1517,6 +1519,68 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertEqual(data["group_type"], "organization")
         self.assertEqual(data["group_type_index"], 0)
         self.assertIsNotNone(data["detail_dashboard"])
+
+    def _seed_cache(self):
+        """Populate both cache keys so we can verify invalidation clears both."""
+        cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}"
+        stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}"
+        cache.set(cache_key, [{"stale": True}], 300)
+        cache.set(stale_cache_key, [{"stale": True}], 300)
+        return cache_key, stale_cache_key
+
+    def test_update_metadata_invalidates_cache(self):
+        GroupTypeMapping.objects.create(
+            team=self.team, project=self.project, group_type="organization", group_type_index=0
+        )
+        cache_key, stale_cache_key = self._seed_cache()
+
+        response = self.client.patch(
+            self.url + "/update_metadata",
+            [{"group_type_index": 0, "name_singular": "org"}],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(stale_cache_key))
+
+    def test_destroy_invalidates_cache(self):
+        GroupTypeMapping.objects.create(
+            team=self.team, project=self.project, group_type="organization", group_type_index=0
+        )
+        cache_key, stale_cache_key = self._seed_cache()
+
+        response = self.client.delete(self.url + "/0")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(stale_cache_key))
+
+    def test_create_detail_dashboard_invalidates_cache(self):
+        GroupTypeMapping.objects.create(
+            team=self.team, project=self.project, group_type="organization", group_type_index=0
+        )
+        cache_key, stale_cache_key = self._seed_cache()
+
+        response = self.client.put(self.url + "/create_detail_dashboard", {"group_type_index": 0})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(stale_cache_key))
+
+    def test_set_default_columns_invalidates_cache(self):
+        GroupTypeMapping.objects.create(
+            team=self.team, project=self.project, group_type="organization", group_type_index=0
+        )
+        cache_key, stale_cache_key = self._seed_cache()
+
+        response = self.client.put(
+            self.url + "/set_default_columns",
+            {"group_type_index": 0, "default_columns": ["name", "email"]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(stale_cache_key))
 
 
 class GroupUsageMetricViewSetTestCase(APIBaseTest):

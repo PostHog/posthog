@@ -38,6 +38,8 @@ export interface SignalSourceConfigApi {
     config?: unknown
     readonly created_at: string
     readonly updated_at: string
+    /** @nullable */
+    readonly status: string | null
 }
 
 export interface PaginatedSignalSourceConfigListApi {

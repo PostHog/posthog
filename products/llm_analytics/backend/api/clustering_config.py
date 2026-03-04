@@ -70,7 +70,8 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             {
                 "filter_count": len(event_filters),
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
         serializer = ClusteringConfigSerializer(config)
