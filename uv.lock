@@ -795,6 +795,15 @@ wheels = [
 ]
 
 [[package]]
+name = "circular-dict"
+version = "1.9"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5c/dd/0c23c95fc6cc02e8566957d15063bea03d2422b4a095a544d4279b5f2373/circular_dict-1.9.tar.gz", hash = "sha256:dc93ea0b5a79de6235a63b734446f1c3fa57498ff9791e7763a232558baa2f7a", size = 6178, upload-time = "2024-05-12T20:40:34.592Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/7b/9da30fa823f020f3dc39bdee7a381dd3cae877933100a75700edb630fa8b/circular_dict-1.9-py3-none-any.whl", hash = "sha256:f7936bb7487c93fe478119e47164777af9bf95c8fa4788f20ea41d4c00cdcea9", size = 6573, upload-time = "2024-05-12T20:40:32.83Z" },
+]
+
+[[package]]
 name = "click"
 version = "8.1.8"
 source = { registry = "https://pypi.org/simple" }
@@ -4752,6 +4761,7 @@ dependencies = [
     { name = "celery-redbeat" },
     { name = "certifi" },
     { name = "chdb" },
+    { name = "circular-dict" },
     { name = "click" },
     { name = "clickhouse-connect" },
     { name = "clickhouse-driver" },
@@ -5002,6 +5012,7 @@ requires-dist = [
     { name = "celery-redbeat", specifier = "==2.1.1" },
     { name = "certifi", specifier = "==2026.1.4" },
     { name = "chdb", specifier = "==3.3.0" },
+    { name = "circular-dict", specifier = "==1.9" },
     { name = "click", specifier = "~=8.0" },
     { name = "clickhouse-connect", specifier = "==0.8.17" },
     { name = "clickhouse-driver", specifier = "==0.2.9" },
