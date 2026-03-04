@@ -289,7 +289,7 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
     } else {
         schemaExpr = schemaParts[0]!
         for (let i = 1; i < schemaParts.length; i++) {
-            schemaExpr += `.merge(${schemaParts[i]})`
+            schemaExpr += `.extend(${schemaParts[i]}.shape)`
         }
     }
 

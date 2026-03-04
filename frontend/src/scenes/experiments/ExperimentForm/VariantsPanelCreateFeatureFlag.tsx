@@ -329,6 +329,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                         <LemonButton
                                                             onClick={() => distributeVariantsEqually()}
                                                             tooltip="Distribute split evenly"
+                                                            data-attr="distribute-variants-equally"
                                                             className={isEvenlyDistributed(variants) ? 'invisible' : ''}
                                                         >
                                                             <IconBalance />

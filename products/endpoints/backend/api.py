@@ -1534,6 +1534,85 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return DashboardFilter(date_from=date_from, date_to=date_to, properties=properties)
 
+    def _should_use_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
+        if version is None:
+            logger.info("Ducklake skip: no version", endpoint_name=endpoint.name)
+            return False
+        if version.query.get("kind") != "HogQLQuery":
+            logger.info("Ducklake skip: not HogQL", endpoint_name=endpoint.name, kind=version.query.get("kind"))
+            return False
+
+        import posthoganalytics
+
+        ff_result = posthoganalytics.feature_enabled(
+            "endpoints-ducklake-execution",
+            str(self.team.uuid),
+            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": str(self.team.id)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        logger.info(
+            "Ducklake FF evaluation",
+            endpoint_name=endpoint.name,
+            ff_result=ff_result,
+            team_uuid=str(self.team.uuid),
+        )
+        if not ff_result:
+            return False
+
+        from posthog.ducklake.common import get_duckgres_server_for_team
+
+        server = get_duckgres_server_for_team(self.team_id)
+        if server is None:
+            logger.info("Ducklake skip: no duckgres server", endpoint_name=endpoint.name, team_id=self.team_id)
+        else:
+            logger.info("Ducklake enabled", endpoint_name=endpoint.name, team_id=self.team_id)
+        return server is not None
+
+    def _execute_ducklake_endpoint(
+        self,
+        endpoint: Endpoint,
+        query: dict,
+        debug: bool = False,
+    ) -> Response:
+        from posthog.schema import HogQLQuery
+
+        from posthog.ducklake.client import execute_ducklake_query
+
+        try:
+            result = execute_ducklake_query(self.team_id, query=HogQLQuery(query=query["query"]))
+            response_data: dict = {
+                "results": result.results,
+                "columns": result.columns,
+                "types": result.types,
+                "hasMore": False,
+                "backend": "ducklake",
+            }
+            if debug:
+                response_data["query"] = query.get("query")
+                response_data["hogql"] = result.hogql
+                response_data["ducklake_sql"] = result.sql
+            return Response(response_data, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.exception(
+                "DuckLake endpoint execution failed",
+                endpoint_name=endpoint.name,
+            )
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team_id,
+                    "ducklake": True,
+                    "endpoint_name": endpoint.name,
+                },
+            )
+            raise
+
     def _execute_inline_endpoint(
         self,
         endpoint: Endpoint,
@@ -1679,6 +1758,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         # Check if we should use materialization for this version
         use_materialized = self._should_use_materialized_table(endpoint, data, version_obj)
 
+        logger.info(
+            "Endpoint run decision",
+            endpoint_name=endpoint.name,
+            use_materialized=use_materialized,
+            version=version_obj.version if version_obj else None,
+        )
+
         debug = data.debug or False
 
         try:
@@ -1694,9 +1780,37 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                         status=status.HTTP_404_NOT_FOUND,
                     )
                 query_to_use = version_obj.query.copy()
-                result = self._execute_inline_endpoint(
-                    endpoint, data, request, query_to_use, version=version_obj, debug=debug, limit=limit, offset=offset
-                )
+
+                use_ducklake = self._should_use_ducklake(endpoint, version_obj)
+                if use_ducklake:
+                    try:
+                        result = self._execute_ducklake_endpoint(endpoint, query_to_use, debug=debug)
+                    except Exception:
+                        logger.warning(
+                            "DuckLake execution failed, falling back to inline",
+                            endpoint_name=endpoint.name,
+                        )
+                        result = self._execute_inline_endpoint(
+                            endpoint,
+                            data,
+                            request,
+                            query_to_use,
+                            version=version_obj,
+                            debug=debug,
+                            limit=limit,
+                            offset=offset,
+                        )
+                else:
+                    result = self._execute_inline_endpoint(
+                        endpoint,
+                        data,
+                        request,
+                        query_to_use,
+                        version=version_obj,
+                        debug=debug,
+                        limit=limit,
+                        offset=offset,
+                    )
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             logger.exception(
                 "Endpoint execution failed",

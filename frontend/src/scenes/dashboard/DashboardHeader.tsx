@@ -51,6 +51,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
@@ -89,6 +90,7 @@ export function DashboardHeader(): JSX.Element | null {
         showTextTileModal,
         textTileId,
         isSavingTags,
+        currentLayoutSize,
     } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard, updateDashboardTags } = useActions(dashboardLogic)
     const { asDashboardTemplate, effectiveEditBarFilters, effectiveDashboardVariableOverrides, tiles } =
@@ -101,6 +103,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { newTab } = useActions(sceneLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
+    const { closeSidePanel } = useActions(sidePanelStateLogic)
 
     const { user } = useValues(userLogic)
 
@@ -299,6 +302,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         setDashboardMode(null, DashboardEventSource.SceneCommonButtons)
                                     } else {
                                         setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                                        closeSidePanel()
                                     }
                                 }}
                                 menuItem
@@ -308,7 +312,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 tooltipPlacement="left"
                             >
                                 <IconGridMasonry />
-                                Edit layout
+                                {currentLayoutSize === 'xs' ? 'Edit dashboard' : 'Edit layout'}
                             </ButtonPrimitive>
                         </AppShortcut>
                     )}
