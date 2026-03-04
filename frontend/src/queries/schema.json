@@ -32122,6 +32122,7 @@
                 "log_attributes",
                 "log_resource_attributes",
                 "replay",
+                "replay_saved_filters",
                 "revenue_analytics_properties",
                 "resources",
                 "error_tracking_properties",
