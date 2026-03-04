@@ -28,17 +28,19 @@ export type SplitAiEventsStepOutput = Omit<SplitAiEventsStepInput, 'eventsToEmit
     eventsToEmit: EventToEmit<EventOutput | AiEventOutput>[]
 }
 
-function maybeStripAiProperties(entry: EventToEmit<EventOutput>): EventToEmit<EventOutput | AiEventOutput>[] {
-    const properties = entry.event.properties ?? {}
-    let hasLarge = false
+function hasLargeAiProperties(properties: Record<string, unknown>): boolean {
     for (const key of LARGE_AI_PROPERTIES) {
         if (key in properties) {
-            hasLarge = true
-            break
+            return true
         }
     }
+    return false
+}
 
-    if (!hasLarge) {
+function maybeStripAiProperties(entry: EventToEmit<EventOutput>): EventToEmit<EventOutput | AiEventOutput>[] {
+    const properties = entry.event.properties ?? {}
+
+    if (!hasLargeAiProperties(properties)) {
         return [entry]
     }
 
