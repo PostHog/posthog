@@ -1536,22 +1536,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     def _should_use_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
         if version is None:
-            logger.info("Ducklake skip: no version", endpoint_name=endpoint.name)
             return False
         if version.query.get("kind") != "HogQLQuery":
-            logger.info("Ducklake skip: not HogQL", endpoint_name=endpoint.name, kind=version.query.get("kind"))
             return False
 
         import posthoganalytics
 
+        user_email = getattr(self.request.user, "email", "") if self.request else ""
         ff_result = posthoganalytics.feature_enabled(
             "endpoints-ducklake-execution",
-            str(self.team.uuid),
-            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
-            group_properties={
-                "organization": {"id": str(self.team.organization_id)},
-                "project": {"id": str(self.team.id)},
-            },
+            user_email,
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
@@ -1559,7 +1553,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "Ducklake FF evaluation",
             endpoint_name=endpoint.name,
             ff_result=ff_result,
-            team_uuid=str(self.team.uuid),
         )
         if not ff_result:
             return False
@@ -1569,8 +1562,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         server = get_duckgres_server_for_team(self.team_id)
         if server is None:
             logger.info("Ducklake skip: no duckgres server", endpoint_name=endpoint.name, team_id=self.team_id)
-        else:
-            logger.info("Ducklake enabled", endpoint_name=endpoint.name, team_id=self.team_id)
         return server is not None
 
     def _execute_ducklake_endpoint(

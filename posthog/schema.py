@@ -288,7 +288,6 @@ class AssistantNavigateUrl(StrEnum):
     SETTINGS = "settings"
     SQL_EDITOR = "sqlEditor"
     SURVEYS = "surveys"
-    SURVEY_TEMPLATES = "surveyTemplates"
     TOOLBAR_LAUNCH = "toolbarLaunch"
     WEB_ANALYTICS = "webAnalytics"
     WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
