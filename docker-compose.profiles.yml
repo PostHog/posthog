@@ -48,5 +48,9 @@ services:
         profiles: [localstack]
     objectstorage-azure:
         profiles: [azure]
+
+    # Coordination - etcd for PersonHog and Kafka partition assignment
+    etcd:
+        profiles: [etcd]
 # Core services NOT listed = always start:
 # - proxy, db, redis, redis7, clickhouse, zookeeper, kafka, objectstorage, echo_server, feature-flags
