@@ -267,9 +267,13 @@ class EventSource(StrEnum):
     WEB = "web"
     API = "api"
     POSTHOG_AI = "posthog_ai"
+    POSTHOG_CODE = "posthog_code"
     TERRAFORM = "terraform"
     MCP = "mcp"
     WIZARD = "wizard"
+
+
+_POSTHOG_CODE_UA_RE = re.compile(r"posthog/(code|[\w.-]+\.hog\.dev)")
 
 
 def get_event_source(request) -> EventSource:
@@ -279,6 +283,8 @@ def get_event_source(request) -> EventSource:
         return EventSource.TERRAFORM
     if "posthog/wizard" in user_agent:
         return EventSource.WIZARD
+    if _POSTHOG_CODE_UA_RE.search(user_agent):
+        return EventSource.POSTHOG_CODE
     if "posthog/mcp-server" in user_agent:
         return EventSource.MCP
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):

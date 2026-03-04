@@ -4,7 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
-from posthog.event_usage import _sanitize_user_agent, report_user_action
+from posthog.event_usage import EventSource, _sanitize_user_agent, get_event_source, report_user_action
 
 
 class TestReportUserAction(BaseTest):
@@ -98,6 +98,23 @@ class TestReportUserAction(BaseTest):
         mock_capture.assert_called_once()
         assert mock_capture.call_args[1]["properties"] == {"key": "val"}
 
+
+class TestGetEventSource(BaseTest):
+    @parameterized.expand(
+        [
+            ("terraform", "posthog/terraform-provider 1.0", EventSource.TERRAFORM),
+            ("wizard", "posthog/wizard 1.0", EventSource.WIZARD),
+            ("posthog_code", "posthog/code 1.2.3", EventSource.POSTHOG_CODE),
+            ("hog_dev_subdomain", "posthog/desktop.hog.dev 0.1.0", EventSource.POSTHOG_CODE),
+            ("hog_dev_complex", "posthog/my-app.hog.dev", EventSource.POSTHOG_CODE),
+            ("mcp_server", "posthog/mcp-server 1.0", EventSource.MCP),
+            ("unknown_ua_falls_through_to_api", "some-random-agent/1.0", EventSource.API),
+        ]
+    )
+    def test_get_event_source(self, _name, user_agent, expected):
+        factory = APIRequestFactory()
+        request = factory.get("/fake", HTTP_USER_AGENT=user_agent)
+        assert get_event_source(request) == expected
 
 class TestSanitizeUserAgent(BaseTest):
     @parameterized.expand(
