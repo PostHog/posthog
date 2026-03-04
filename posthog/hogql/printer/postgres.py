@@ -1,3 +1,4 @@
+import hashlib
 from typing import Literal
 
 from posthog.hogql import ast
@@ -19,6 +20,8 @@ class PostgresPrinter(HogQLPrinter):
         pretty: bool = False,
     ):
         super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
+        self._truncated_identifiers: dict[str, str] = {}
+        self._used_truncated_identifiers: set[str] = set()
 
     def visit_field(self, node: ast.Field):
         if node.type is None:
@@ -152,7 +155,29 @@ class PostgresPrinter(HogQLPrinter):
         pass
 
     def _print_identifier(self, name: str) -> str:
+        if len(name) > 63 and "__" in name:
+            name = self._truncate_identifier(name)
         return escape_postgres_identifier(name)
+
+    def _truncate_identifier(self, name: str) -> str:
+        existing = self._truncated_identifiers.get(name)
+        if existing:
+            return existing
+
+        digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:12]
+        suffix = f"_{digest}"
+        prefix = name[: 63 - len(suffix)]
+        candidate = f"{prefix}{suffix}"
+
+        counter = 1
+        while candidate in self._used_truncated_identifiers:
+            counter_suffix = f"_{digest}_{counter}"
+            candidate = f"{name[: 63 - len(counter_suffix)]}{counter_suffix}"
+            counter += 1
+
+        self._truncated_identifiers[name] = candidate
+        self._used_truncated_identifiers.add(candidate)
+        return candidate
 
     def _json_property_args(self, chain):
         return [self._print_escaped_string(name) for name in chain]

@@ -4338,6 +4338,13 @@ class TestPostgresPrinter(BaseTest):
 
         self.assertIn('AS "select"', printed)
 
+    def test_long_generated_identifier_is_truncated_for_postgres(self):
+        long_alias = "posthog_user__posthog_organizationmemberships__organization___id"
+        printed = self._select(f"SELECT event AS {long_alias} FROM events")
+
+        self.assertIn("AS ", printed)
+        self.assertNotIn(long_alias, printed)
+
     def test_window_functions_keep_postgres_shape(self):
         printed = self._select("SELECT lag(timestamp) OVER (ORDER BY timestamp) FROM events")
 
