@@ -32,17 +32,17 @@ For example, when creating an experiment, ask about the test/control ratio, the 
 
 There are three question types:
 
-### 1. `select` (default) — single-select radio buttons
+### `select` (default) — single-select radio buttons
 - Requires `options`: 2-4 choices with `value` and optional `description`
 - `allow_custom_answer`: Set to false only when custom answers don't make sense
 - Include descriptions when options need clarification or are domain-specific
 - Omit descriptions when options are self-explanatory (e.g., "7 days", "30 days")
 
-### 2. `multi_select` — checkboxes for multiple selections
+### `multi_select` — checkboxes for multiple selections
 - Requires `options`: 2-4 choices with `value` and optional `description`
 - Returns an array of selected values
 
-### 3. `multi_field` — multiple compact fields grouped on one page
+### `multi_field` — multiple compact fields grouped on one page
 - Set `type` to `multi_field` and provide a `fields` array
 - Renders all fields together with a shared submit button
 - Each field has `id`, `type` (required), and `label`

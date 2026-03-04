@@ -3072,19 +3072,21 @@ export const ThreadWithMixedFieldTypeForm: StoryFn = () => {
             ],
         },
         {
-            id: 'team_size',
-            title: 'Team',
-            type: 'slider',
-            question: 'How many people are on your team?',
-            min: 1,
-            max: 100,
-            step: 1,
-        },
-        {
-            id: 'notify',
-            title: 'Notify',
-            type: 'toggle',
-            question: 'Would you like weekly email reports?',
+            id: 'config',
+            title: 'Config',
+            type: 'multi_field',
+            question: 'A few more details',
+            fields: [
+                {
+                    id: 'team_size',
+                    type: 'slider',
+                    label: 'How many people are on your team?',
+                    min: 1,
+                    max: 100,
+                    step: 1,
+                },
+                { id: 'notify', type: 'toggle', label: 'Would you like weekly email reports?' },
+            ],
         },
     ]
 
@@ -3152,32 +3154,32 @@ ThreadWithMixedFieldTypeForm.parameters = {
 export const ThreadWithTextAndNumberForm: StoryFn = () => {
     const formQuestions: MultiQuestionFormQuestion[] = [
         {
-            id: 'project_name',
-            title: 'Project',
-            type: 'text',
-            question: 'What is the name of your project?',
-            placeholder: 'e.g. My SaaS App',
-        },
-        {
-            id: 'monthly_events',
-            title: 'Events',
-            type: 'number',
-            question: 'How many monthly events do you expect?',
-            placeholder: 'e.g. 500000',
-            min: 0,
-            max: 100000000,
-            step: 1000,
-        },
-        {
-            id: 'data_source',
-            title: 'Source',
-            type: 'dropdown',
-            question: 'What is your primary data source?',
-            options: [
-                { value: 'Web app', description: 'JavaScript/React/Vue application' },
-                { value: 'Mobile app', description: 'iOS or Android application' },
-                { value: 'Backend', description: 'Server-side events via API' },
-                { value: 'Third-party', description: 'Import from another analytics tool' },
+            id: 'project_details',
+            title: 'Details',
+            type: 'multi_field',
+            question: 'Tell me about your project',
+            fields: [
+                { id: 'project_name', type: 'text', label: 'Project name', placeholder: 'e.g. My SaaS App' },
+                {
+                    id: 'monthly_events',
+                    type: 'number',
+                    label: 'Expected monthly events',
+                    placeholder: 'e.g. 500000',
+                    min: 0,
+                    max: 100000000,
+                    step: 1000,
+                },
+                {
+                    id: 'data_source',
+                    type: 'dropdown',
+                    label: 'Primary data source',
+                    options: [
+                        { value: 'Web app', description: 'JavaScript/React/Vue application' },
+                        { value: 'Mobile app', description: 'iOS or Android application' },
+                        { value: 'Backend', description: 'Server-side events via API' },
+                        { value: 'Third-party', description: 'Import from another analytics tool' },
+                    ],
+                },
             ],
         },
     ]
@@ -3246,28 +3248,15 @@ ThreadWithTextAndNumberForm.parameters = {
 export const ThreadWithSliderForm: StoryFn = () => {
     const formQuestions: MultiQuestionFormQuestion[] = [
         {
-            id: 'confidence',
-            title: 'Confidence',
-            type: 'slider',
-            question: 'What confidence level do you want for your experiment?',
-            min: 80,
-            max: 99,
-            step: 1,
-        },
-        {
-            id: 'duration',
-            title: 'Duration',
-            type: 'slider',
-            question: 'How many days should the experiment run?',
-            min: 7,
-            max: 90,
-            step: 7,
-        },
-        {
-            id: 'enable_holdout',
-            title: 'Holdout',
-            type: 'toggle',
-            question: 'Do you want to create a holdout group?',
+            id: 'experiment_config',
+            title: 'Config',
+            type: 'multi_field',
+            question: 'Configure your experiment parameters',
+            fields: [
+                { id: 'confidence', type: 'slider', label: 'Confidence level (%)', min: 80, max: 99, step: 1 },
+                { id: 'duration', type: 'slider', label: 'Duration (days)', min: 7, max: 90, step: 7 },
+                { id: 'enable_holdout', type: 'toggle', label: 'Create a holdout group' },
+            ],
         },
     ]
 
