@@ -20,16 +20,24 @@ import { issueFiltersLogic } from './issueFiltersLogic'
 
 export const FilterGroup = ({
     taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
+    excludeFilterTypes,
 }: {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    excludeFilterTypes?: PropertyFilterType[]
 } = {}): JSX.Element => {
     const { filterGroup } = useValues(issueFiltersLogic)
     const { setFilterGroup } = useActions(issueFiltersLogic)
 
+    const inner = filterGroup.values[0] as UniversalFiltersGroup
+    const displayGroup =
+        excludeFilterTypes && excludeFilterTypes.length > 0
+            ? { ...inner, values: inner.values.filter((f: any) => !excludeFilterTypes.includes(f.type)) }
+            : inner
+
     return (
         <UniversalFilters
             rootKey={TAXONOMIC_FILTER_LOGIC_KEY}
-            group={filterGroup.values[0] as UniversalFiltersGroup}
+            group={displayGroup}
             taxonomicGroupTypes={taxonomicGroupTypes}
             onChange={(group) => setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })}
         >

@@ -4,6 +4,7 @@ import { QuickFiltersSection } from 'lib/components/QuickFilters/QuickFiltersSec
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { PropertyFilterType } from '~/types'
 
 import { ErrorFilters } from 'products/error_tracking/frontend/components/IssueFilters'
 
@@ -30,7 +31,10 @@ export function InsightsFilters(): JSX.Element {
             </div>
             <div className="flex gap-2 items-start">
                 <div className="flex-1">
-                    <ErrorFilters.FilterGroup taxonomicGroupTypes={INSIGHTS_TAXONOMIC_GROUP_TYPES} />
+                    <ErrorFilters.FilterGroup
+                        taxonomicGroupTypes={INSIGHTS_TAXONOMIC_GROUP_TYPES}
+                        excludeFilterTypes={[PropertyFilterType.ErrorTrackingIssue]}
+                    />
                 </div>
                 <ErrorFilters.InternalAccounts />
             </div>
