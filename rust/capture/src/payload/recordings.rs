@@ -132,6 +132,21 @@ pub async fn handle_recording_payload(
         chatty_debug_enabled,
     };
 
+    // Apply global rate limit per token if enabled
+    if let Some(token_rate_limiter) = &state.global_token_rate_limiter {
+        let cache_key = GlobalRateLimitKey::Token(&context.token).to_cache_key();
+        if let Some(limited) = token_rate_limiter
+            .is_limited(&cache_key, events.len() as u64)
+            .await
+        {
+            debug_or_info!(chatty_debug_enabled,
+                context=?context,
+                details=?limited,
+                "global token rate limit applied");
+            return Err(CaptureError::GlobalRateLimitExceeded());
+        }
+    }
+
     // Apply global rate limit per (token, distinct_id) if enabled
     if let Some(global_rate_limiter) = &state.global_rate_limiter {
         let mut is_rate_limited = false;

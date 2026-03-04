@@ -983,6 +983,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             sink.clone(),
             redis,
             None, // TODO: add global rate limiter for prod ship
+            None, // global_token_rate_limiter
             quota_limiter,
             TokenDropper::default(),
             None, // event_restriction_service

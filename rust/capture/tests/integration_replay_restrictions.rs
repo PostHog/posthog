@@ -103,6 +103,7 @@ async fn setup_recordings_router_with_restriction(
         sink,
         redis,
         None, // global_rate_limiter
+        None, // global_token_rate_limiter
         quota_limiter,
         TokenDropper::default(),
         Some(service),

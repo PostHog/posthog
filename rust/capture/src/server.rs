@@ -241,14 +241,24 @@ where
         .expect("failed to create redis client"),
     );
 
-    let global_rate_limiter = if config.global_rate_limit_enabled {
-        Some(Arc::new(
-            GlobalRateLimiter::try_from_config(&config, redis_client.clone())
-                .await
-                .expect("failed to create global rate limiter"),
-        ))
+    let (global_rate_limiter, global_token_rate_limiter) = if config.global_rate_limit_enabled {
+        let grl_redis = GlobalRateLimiter::build_redis_client(&config, redis_client.clone())
+            .await
+            .expect("failed to create global rate limiter redis client");
+        let redis_instances = vec![grl_redis];
+
+        let td_limiter = Arc::new(
+            GlobalRateLimiter::new_token_distinct_id(&config, redis_instances.clone())
+                .expect("failed to create token+distinct_id rate limiter"),
+        );
+        let token_limiter = Arc::new(
+            GlobalRateLimiter::new_token(&config, redis_instances)
+                .expect("failed to create token rate limiter"),
+        );
+
+        (Some(td_limiter), Some(token_limiter))
     } else {
-        None
+        (None, None)
     };
 
     // add new "scoped" quota limiters here as new quota tracking buckets are added
@@ -400,6 +410,7 @@ where
         sink,
         redis_client,
         global_rate_limiter,
+        global_token_rate_limiter,
         quota_limiter,
         token_dropper,
         event_restriction_service,
