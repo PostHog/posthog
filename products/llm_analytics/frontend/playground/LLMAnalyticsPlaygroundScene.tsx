@@ -51,12 +51,7 @@ import {
     type MessageRole,
     type PromptConfig,
 } from './llmPlaygroundPromptsLogic'
-import {
-    abortCurrentPlaygroundRun,
-    llmPlaygroundRunLogic,
-    type ComparisonItem,
-    type UsageSummary,
-} from './llmPlaygroundRunLogic'
+import { llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460
@@ -123,7 +118,7 @@ function PlaygroundHeaderActions(): JSX.Element {
     const { hasRunnablePrompts, promptConfigs } = useValues(llmPlaygroundPromptsLogic)
     const { addPromptConfig } = useActions(llmPlaygroundPromptsLogic)
     const { submitting: playgroundSubmitting } = useValues(llmPlaygroundRunLogic)
-    const { submitPrompt } = useActions(llmPlaygroundRunLogic)
+    const { submitPrompt, abortRun } = useActions(llmPlaygroundRunLogic)
     const firstPromptId = promptConfigs[0]?.id
 
     return (
@@ -143,7 +138,7 @@ function PlaygroundHeaderActions(): JSX.Element {
                 size="small"
                 icon={playgroundSubmitting ? <Spinner textColored /> : <IconPlay />}
                 status={playgroundSubmitting ? 'danger' : undefined}
-                onClick={() => (playgroundSubmitting ? abortCurrentPlaygroundRun() : submitPrompt())}
+                onClick={() => (playgroundSubmitting ? abortRun() : submitPrompt())}
                 disabledReason={
                     playgroundSubmitting
                         ? undefined
@@ -332,20 +327,9 @@ function hasUsage(usage: UsageSummary | undefined): boolean {
 
 function PromptResultCard({ prompt, item }: { prompt: PromptConfig; item?: ComparisonItem }): JSX.Element {
     const isStreaming = !!item && item.latencyMs == null && !item.error
-    const { setPendingToolResults } = useActions(llmPlaygroundPromptsLogic)
-    const [toolResultsByCallId, setToolResultsByCallId] = React.useState<Record<string, string>>({})
-
-    React.useEffect(() => {
-        const fromPrompt =
-            prompt.pendingToolResults?.reduce(
-                (acc, toolResult) => {
-                    acc[toolResult.id] = toolResult.result
-                    return acc
-                },
-                {} as Record<string, string>
-            ) ?? {}
-        setToolResultsByCallId(fromPrompt)
-    }, [prompt.pendingToolResults, prompt.id])
+    const { toolResultDraftsByPromptId } = useValues(llmPlaygroundPromptsLogic)
+    const { setPendingToolResults, setToolResultDraft } = useActions(llmPlaygroundPromptsLogic)
+    const toolResultsByCallId = toolResultDraftsByPromptId[prompt.id] ?? {}
 
     return (
         <div className="mb-4 border rounded p-4 bg-transparent h-[30vh] min-w-0 flex flex-col">
@@ -363,10 +347,9 @@ function PromptResultCard({ prompt, item }: { prompt: PromptConfig; item?: Compa
             ) : (
                 <>
                     <div
-                        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden text-xs whitespace-normal break-words p-3 min-w-0 rounded border bg-surface-primary leading-5 ${
+                        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden text-xs whitespace-normal break-words [overflow-wrap:anywhere] p-3 min-w-0 rounded border bg-surface-primary leading-5 ${
                             item.error ? 'text-danger' : ''
                         }`}
-                        style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
                     >
                         {item.response ? (
                             <LemonMarkdown className="whitespace-pre-wrap break-words [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded [&_img]:my-2">
@@ -403,12 +386,7 @@ function PromptResultCard({ prompt, item }: { prompt: PromptConfig; item?: Compa
                                     <LemonTextArea
                                         className="mt-2 text-xs"
                                         value={toolResultsByCallId[toolCall.id] ?? ''}
-                                        onChange={(value) =>
-                                            setToolResultsByCallId((current) => ({
-                                                ...current,
-                                                [toolCall.id]: value,
-                                            }))
-                                        }
+                                        onChange={(value) => setToolResultDraft(toolCall.id, value, prompt.id)}
                                         placeholder="Paste tool result output here"
                                         minRows={2}
                                         maxRows={4}
@@ -472,41 +450,6 @@ function getTrialModelsErrorMessage(errorStatus: number | null): string | null {
         return 'Too many requests. Please wait a moment and try again.'
     }
     return 'Failed to load models. Please refresh the page or try again later.'
-}
-
-function modelSupportsReasoning(modelId: string): boolean {
-    const normalized = modelId.toLowerCase()
-    return (
-        normalized.includes('gpt-5') ||
-        normalized.includes('o1') ||
-        normalized.includes('o3') ||
-        normalized.includes('o4') ||
-        normalized.includes('claude')
-    )
-}
-
-function modelSupportsTools(modelId: string): boolean {
-    const normalized = modelId.toLowerCase()
-    return (
-        normalized.includes('gpt') ||
-        normalized.includes('o1') ||
-        normalized.includes('o3') ||
-        normalized.includes('o4') ||
-        normalized.includes('claude') ||
-        normalized.includes('gemini')
-    )
-}
-
-function modelSupportsMaxTokens(modelId: string): boolean {
-    const normalized = modelId.toLowerCase()
-    return (
-        normalized.includes('gpt') ||
-        normalized.includes('o1') ||
-        normalized.includes('o3') ||
-        normalized.includes('o4') ||
-        normalized.includes('claude') ||
-        normalized.includes('gemini')
-    )
 }
 
 function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element {
@@ -573,9 +516,6 @@ function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Elemen
         return <div className="p-3 text-xs text-muted">Prompt not found</div>
     }
 
-    const supportsReasoning = modelSupportsReasoning(prompt.model)
-    const supportsMaxTokens = modelSupportsMaxTokens(prompt.model)
-
     return (
         <div className="space-y-4 p-4 w-[300px]">
             <div>
@@ -584,18 +524,12 @@ function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Elemen
                     type="number"
                     value={prompt.maxTokens ?? undefined}
                     onChange={(val) => setMaxTokens(val ?? null, promptId)}
-                    disabled={!supportsMaxTokens}
                     min={1}
                     max={16384}
                     step={64}
                     placeholder="Model default"
                     size="small"
                 />
-                {!supportsMaxTokens && (
-                    <p className="mt-1 text-[11px] text-muted">
-                        Selected model compatibility is unknown for max tokens.
-                    </p>
-                )}
             </div>
 
             <div>
@@ -646,9 +580,6 @@ function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Elemen
                     placeholder="None"
                     value={prompt.reasoningLevel}
                     onChange={(value) => setReasoningLevel(value ?? null, promptId)}
-                    disabledReason={
-                        !supportsReasoning ? 'Selected model likely does not support reasoning effort' : undefined
-                    }
                     options={[
                         { label: 'None', value: null },
                         { label: 'Minimal', value: 'minimal' },
@@ -664,11 +595,10 @@ function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Elemen
             <LemonSwitch
                 bordered
                 checked={prompt.thinking}
-                onChange={(checked) => setThinking(checked && supportsReasoning, promptId)}
+                onChange={(checked) => setThinking(checked, promptId)}
                 label="Thinking"
                 size="small"
-                disabledReason={!supportsReasoning ? 'Selected model likely does not support thinking' : undefined}
-                tooltip="Enable thinking/reasoning stream for supported models"
+                tooltip="Enable thinking/reasoning stream (model must support extended thinking)"
             />
         </div>
     )
@@ -676,15 +606,6 @@ function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Elemen
 
 function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { setThinking, setReasoningLevel } = useActions(llmPlaygroundPromptsLogic)
-    const supportsReasoning = prompt ? modelSupportsReasoning(prompt.model) : false
-
-    React.useEffect(() => {
-        if (prompt && !supportsReasoning && (prompt.thinking || prompt.reasoningLevel !== null)) {
-            setThinking(false, promptId)
-            setReasoningLevel(null, promptId)
-        }
-    }, [prompt?.reasoningLevel, prompt?.thinking, promptId, setReasoningLevel, setThinking, supportsReasoning])
 
     if (!prompt) {
         return <LemonSkeleton className="h-8" />
@@ -782,7 +703,6 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
     const toolsJsonString = localToolsJson ?? JSON.stringify(prompt.tools ?? [], null, 2)
     const toolCount = Array.isArray(prompt.tools) ? prompt.tools.length : 0
     const hasTools = toolCount > 0
-    const supportsTools = modelSupportsTools(prompt.model)
 
     const handleToolsChange = (value?: string): void => {
         if (value === undefined) {
@@ -806,13 +726,7 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                 icon={<IconWrench />}
                 active={hasTools}
                 onClick={() => setEditModal({ type: 'tools', promptId })}
-                disabledReason={
-                    submitting
-                        ? 'Generating...'
-                        : !supportsTools
-                          ? 'Selected model compatibility is unknown for tools'
-                          : undefined
-                }
+                disabledReason={submitting ? 'Generating...' : undefined}
                 tooltip={hasTools ? `${toolCount} tool${toolCount === 1 ? '' : 's'} attached` : 'No tools attached'}
             >
                 Tools

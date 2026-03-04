@@ -202,6 +202,11 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         ) => ({ target }),
         toggleCollapsed: (key: string) => ({ key }),
         setToolsJsonError: (promptId: string, error: string | null) => ({ promptId, error }),
+        setToolResultDraft: (toolCallId: string, value: string, promptId?: string) => ({
+            toolCallId,
+            value,
+            promptId,
+        }),
     }),
 
     reducers({
@@ -405,6 +410,53 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     ...state,
                     [key]: !state[key],
                 }),
+            },
+        ],
+        toolResultDraftsByPromptId: [
+            {} as Record<string, Record<string, string>>,
+            {
+                setToolResultDraft: (
+                    state: Record<string, Record<string, string>>,
+                    { toolCallId, value, promptId }: { toolCallId: string; value: string; promptId?: string }
+                ) => {
+                    const resolvedId = promptId ?? Object.keys(state)[0] ?? ''
+                    return {
+                        ...state,
+                        [resolvedId]: { ...state[resolvedId], [toolCallId]: value },
+                    }
+                },
+                setPendingToolResults: (
+                    state: Record<string, Record<string, string>>,
+                    {
+                        pendingToolResults,
+                        promptId,
+                    }: {
+                        pendingToolResults: { id: string; name: string; arguments: string; result: string }[] | null
+                        promptId?: string
+                    }
+                ) => {
+                    const resolvedId = promptId ?? Object.keys(state)[0] ?? ''
+                    const drafts: Record<string, string> = {}
+                    for (const tool of pendingToolResults ?? []) {
+                        drafts[tool.id] = tool.result
+                    }
+                    return { ...state, [resolvedId]: drafts }
+                },
+                clearPendingToolResults: (
+                    state: Record<string, Record<string, string>>,
+                    { promptId }: { promptId?: string }
+                ) => {
+                    const resolvedId = promptId ?? Object.keys(state)[0] ?? ''
+                    const { [resolvedId]: _, ...rest } = state
+                    return rest
+                },
+                removePromptConfig: (
+                    state: Record<string, Record<string, string>>,
+                    { promptId }: { promptId: string }
+                ) => {
+                    const { [promptId]: _, ...rest } = state
+                    return rest
+                },
             },
         ],
         toolsJsonErrorByPromptId: [

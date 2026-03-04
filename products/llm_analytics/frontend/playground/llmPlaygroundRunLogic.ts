@@ -126,10 +126,6 @@ export interface ComparisonItem {
 
 let activeAbortController: AbortController | null = null
 
-export function abortCurrentPlaygroundRun(): void {
-    activeAbortController?.abort()
-}
-
 function parseToolArguments(
     argumentsText: string
 ): Record<string, unknown> | string | number | boolean | null | unknown[] {
@@ -198,6 +194,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
     actions({
         submitPrompt: true,
         finishSubmitPrompt: true,
+        abortRun: true,
         addToComparison: (item: ComparisonItem) => ({ item }),
         updateComparisonItem: (id: string, payload: Partial<ComparisonItem>) => ({ id, payload }),
         setRateLimited: (retryAfterSeconds: number) => ({ retryAfterSeconds }),
@@ -239,6 +236,10 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        abortRun: () => {
+            activeAbortController?.abort()
+        },
+
         submitPrompt: async (_: unknown, breakpoint: () => void) => {
             const runnablePrompts = values.promptConfigs
                 .map((prompt: PromptConfig, index: number) => ({
