@@ -521,29 +521,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                 (affectedUserCount * clamp(rolloutPct, 0, 100)) / 100
                                                             )
 
-                                                            if (rolloutPct === 100) {
-                                                                return (
-                                                                    <>
-                                                                        <b>{humanFriendlyNumber(affectedUserCount)}</b>{' '}
-                                                                        of {humanFriendlyNumber(totalUsers)}{' '}
-                                                                        {aggregationTargetName} match these filters
-                                                                    </>
-                                                                )
-                                                            }
-                                                            return (
-                                                                <>
-                                                                    Will match ~
-                                                                    <b>{humanFriendlyNumber(usersReceivingFlag)}</b> of{' '}
-                                                                    {humanFriendlyNumber(totalUsers)}{' '}
-                                                                    {aggregationTargetName} ({rolloutPct}% of{' '}
-                                                                    {humanFriendlyNumber(affectedUserCount)} matching
-                                                                    the filters)
-                                                                </>
-                                                            )
-                                                        })()}
-                                                        {releaseFilters.aggregation_group_type_index == null && (
-                                                            <Tooltip
-                                                                title={
+                                                            const profilesTooltip =
+                                                                releaseFilters.aggregation_group_type_index == null ? (
                                                                     <>
                                                                         A user may have multiple{' '}
                                                                         <Link
@@ -553,11 +532,34 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                             profiles
                                                                         </Link>
                                                                     </>
-                                                                }
-                                                            >
-                                                                <IconInfo className="text-muted text-base" />
-                                                            </Tooltip>
-                                                        )}
+                                                                ) : undefined
+
+                                                            if (rolloutPct === 100) {
+                                                                return (
+                                                                    <Tooltip title={profilesTooltip}>
+                                                                        <span>
+                                                                            <b>
+                                                                                {humanFriendlyNumber(affectedUserCount)}
+                                                                            </b>{' '}
+                                                                            of {humanFriendlyNumber(totalUsers)}{' '}
+                                                                            {aggregationTargetName} match these filters
+                                                                        </span>
+                                                                    </Tooltip>
+                                                                )
+                                                            }
+                                                            return (
+                                                                <Tooltip title={profilesTooltip}>
+                                                                    <span>
+                                                                        Will match ~
+                                                                        <b>{humanFriendlyNumber(usersReceivingFlag)}</b>{' '}
+                                                                        of {humanFriendlyNumber(totalUsers)}{' '}
+                                                                        {aggregationTargetName} ({rolloutPct}% of{' '}
+                                                                        {humanFriendlyNumber(affectedUserCount)}{' '}
+                                                                        matching the filters)
+                                                                    </span>
+                                                                </Tooltip>
+                                                            )
+                                                        })()}
                                                     </div>
                                                 ) : (
                                                     <div className="text-xs text-muted mt-2 flex items-center gap-1">
