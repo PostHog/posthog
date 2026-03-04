@@ -6,28 +6,33 @@ import traceback
 from datetime import datetime
 from typing import cast
 
+from django.db import transaction
+from django.db.models import F
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 
 import requests as http_requests
+import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.permissions import APIScopePermission
+from posthog.rate_limit import CodeInviteRedeemThrottle
 from posthog.storage import object_storage
 
-from .models import Task, TaskRun
+from .models import CodeInvite, CodeInviteRedemption, Task, TaskRun
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
+    CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
     ErrorResponseSerializer,
     RepositoryReadinessQuerySerializer,
@@ -53,6 +58,31 @@ from .temporal.client import execute_task_processing_workflow, execute_twig_agen
 logger = logging.getLogger(__name__)
 
 
+class TasksAccessPermission(BasePermission):
+    message = "You need a valid invite code to access this feature."
+
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+
+        # Check 1: feature flag (covers existing enrolled users, staff overrides)
+        org_id = str(view.organization.id)
+        flag_enabled = posthoganalytics.feature_enabled(
+            "tasks",
+            user.distinct_id,
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+        if flag_enabled:
+            return True
+
+        # Check 2: invite code redemption (covers new invited users)
+        return CodeInviteRedemption.objects.filter(user=user).exists()
+
+
 @extend_schema(tags=["tasks"])
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
@@ -61,21 +91,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     serializer_class = TaskSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
     scope_object = "task"
     queryset = Task.objects.all()
-    posthog_feature_flag = {
-        "tasks": [
-            "list",
-            "retrieve",
-            "create",
-            "update",
-            "partial_update",
-            "destroy",
-            "run",
-            "repository_readiness",
-        ]
-    }
 
     @validated_request(
         query_serializer=TaskListQuerySerializer,
@@ -220,7 +238,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     serializer_class = TaskRunDetailSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
     scope_object = "task"
     queryset = TaskRun.objects.select_related("task").all()
     posthog_feature_flag = {
@@ -904,3 +922,107 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return str(update.get("sessionUpdate", method)) if isinstance(update, dict) else method
 
         return method
+
+
+def _activate_code_for_user(user) -> None:
+    """Capture an analytics event when a user redeems a Code invite."""
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="code_invite_redeemed",
+    )
+
+
+@extend_schema(tags=["code-invites"])
+class CodeInviteViewSet(viewsets.ViewSet):
+    """API for redeeming PostHog Code invite codes."""
+
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+
+    scope_object = "task"
+
+    throttle_classes = [CodeInviteRedeemThrottle]
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_permissions(self):
+        # Both endpoints are user-account-level operations (not project data).
+        if self.action in ("check_access", "redeem"):
+            return [IsAuthenticated()]
+        return super().get_permissions()
+
+    @validated_request(
+        request_serializer=CodeInviteRedeemRequestSerializer,
+        responses={
+            200: OpenApiResponse(description="Invite code redeemed successfully"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid or expired invite code"),
+        },
+        summary="Redeem invite code",
+        description="Redeem a PostHog Code invite code to enable access.",
+    )
+    @action(detail=False, methods=["post"], url_path="redeem")
+    def redeem(self, request, **kwargs):
+        code_str = request.validated_data["code"].strip()
+
+        try:
+            invite_code = CodeInvite.objects.get(code__iexact=code_str)
+        except CodeInvite.DoesNotExist:
+            return Response(
+                ErrorResponseSerializer({"error": "Invalid invite code"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if CodeInviteRedemption.objects.filter(invite_code=invite_code, user=request.user).exists():
+            return Response({"success": True})
+
+        with transaction.atomic():
+            invite_code = CodeInvite.objects.select_for_update().get(id=invite_code.id)
+
+            if not invite_code.is_redeemable:
+                return Response(
+                    ErrorResponseSerializer({"error": "This invite code is no longer valid"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            organization = request.user.organization if hasattr(request.user, "organization") else None
+
+            CodeInviteRedemption.objects.create(
+                invite_code=invite_code,
+                user=request.user,
+                organization=organization,
+            )
+
+            CodeInvite.objects.filter(id=invite_code.id).update(redemption_count=F("redemption_count") + 1)
+
+            _activate_code_for_user(request.user)
+
+        return Response({"success": True})
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(description="Access check result"),
+        },
+        summary="Check access",
+        description="Check whether the authenticated user has access to PostHog Code.",
+    )
+    @action(detail=False, methods=["get"], url_path="check-access")
+    def check_access(self, request, **kwargs):
+        user = request.user
+
+        # Check feature flag if we can resolve an org
+        org = getattr(user, "organization", None)
+        if org is not None:
+            org_id = str(org.id)
+            flag_enabled = posthoganalytics.feature_enabled(
+                "tasks",
+                user.distinct_id,
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+            if flag_enabled:
+                return Response({"has_access": True})
+
+        # Fallback: check invite code redemption
+        has_redeemed = CodeInviteRedemption.objects.filter(user=user).exists()
+        return Response({"has_access": has_redeemed})
