@@ -99,14 +99,7 @@ function deriveState(updates: object[]): DerivedState {
         }
     }
 
-    // Adjust for skipped sessions
-    let skippedCount = 0
-    for (const s of sessions.values()) {
-        if (s.status === 'skipped') {
-            skippedCount++
-        }
-    }
-    totalCount = Math.max(totalCount - skippedCount, 0)
+    return { sessions, phase, completedCount, totalCount, patternsFound }
 
     return { sessions, phase, completedCount, totalCount, patternsFound }
 }
