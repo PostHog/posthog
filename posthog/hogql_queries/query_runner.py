@@ -1291,7 +1291,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     }
                     if user:
                         report_user_action(
-                            user, "query executed", query_executed_props, team=self.team, request=request
+                            user,
+                            "query executed",
+                            query_executed_props,
+                            team=self.team,
+                            organization=self.team.organization,
+                            request=request,
                         )
                     else:
                         posthoganalytics.capture(
@@ -1369,7 +1374,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "has_error": has_error,
             }
             if user:
-                report_user_action(user, "query executed", query_executed_props, team=self.team, request=request)
+                report_user_action(
+                    user,
+                    "query executed",
+                    query_executed_props,
+                    team=self.team,
+                    organization=self.team.organization,
+                    request=request,
+                )
             else:
                 posthoganalytics.capture(
                     distinct_id=str(self.team.uuid),

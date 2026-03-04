@@ -318,6 +318,7 @@ def report_user_action(
     properties: Optional[dict] = None,
     *,
     team: Optional[Team] = None,
+    organization: Optional[Organization] = None,
     request: Optional["Request"] = None,
 ):
     if user is None or not user.distinct_id:
@@ -330,7 +331,7 @@ def report_user_action(
         distinct_id=user.distinct_id,
         event=event,
         properties=properties,
-        groups=groups(user.current_organization, team or user.current_team),
+        groups=groups(organization or user.current_organization, team or user.current_team),
     )
 
 
