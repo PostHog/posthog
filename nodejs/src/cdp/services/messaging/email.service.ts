@@ -8,7 +8,6 @@ import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
 import { addTrackingToEmail } from './email-tracking.service'
-import { EmailTrackingService } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
@@ -30,8 +29,7 @@ export class EmailService {
         private sesConfig: EmailServiceConfig,
         private integrationManager: IntegrationManagerService,
         encryptionSaltKeys: string,
-        siteUrl: string,
-        private emailTrackingService?: EmailTrackingService
+        siteUrl: string
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
