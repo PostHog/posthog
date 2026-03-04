@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("signals", "0008_alter_signalsourceconfig_source_product_and_more"),
-        ("tasks", "0021_alter_task_origin_product"),
+        ("tasks", "0023_alter_codeinvite_id_alter_codeinviteredemption_id"),
     ]
 
     operations = [
