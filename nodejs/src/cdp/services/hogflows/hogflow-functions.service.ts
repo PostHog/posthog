@@ -76,12 +76,12 @@ export class HogFlowFunctionsService {
 
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
-            id: invocation.state.currentAction?.id || invocation.id,
             hogFunction,
             state: invocation.state.currentAction?.hogFunctionState ?? {
                 globals: await this.hogFunctionExecutor.buildInputsWithGlobals(hogFunction, globalsWithSource),
                 timings: [],
                 attempts: 0,
+                actionId: invocation.state.currentAction?.id,
             },
         }
 

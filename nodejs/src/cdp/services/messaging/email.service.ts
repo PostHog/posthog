@@ -97,7 +97,7 @@ export class EmailService {
         result.metrics.push({
             team_id: invocation.teamId,
             app_source_id: invocation.functionId,
-            instance_id: invocation.id,
+            instance_id: invocation.state.actionId || invocation.id,
             metric_kind: 'email',
             metric_name: success ? 'email_sent' : 'email_failed',
             count: 1,

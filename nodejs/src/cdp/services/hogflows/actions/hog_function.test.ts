@@ -290,7 +290,7 @@ describe('HogFunctionHandler', () => {
         expect(billableMetrics[0]).toMatchObject({
             team_id: team.id,
             app_source_id: invocation.functionId,
-            instance_id: invocation.id,
+            instance_id: action.id,
             metric_kind: 'fetch',
             metric_name: 'billable_invocation',
             count: 1,
@@ -320,7 +320,7 @@ describe('HogFunctionHandler', () => {
         expect(billableMetrics[0]).toMatchObject({
             team_id: team.id,
             app_source_id: invocation.functionId,
-            instance_id: invocation.id,
+            instance_id: action.id,
             metric_kind: 'email',
             metric_name: 'billable_invocation',
             count: 1,
