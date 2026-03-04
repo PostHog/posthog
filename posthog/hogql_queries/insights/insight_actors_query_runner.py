@@ -4,6 +4,7 @@ from posthog.schema import (
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
+    FunnelsFilter,
     FunnelsQuery,
     HogQLQueryModifiers,
     HogQLQueryResponse,
@@ -162,6 +163,15 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                     return int(series.math_group_type_index or 0)
 
         return None
+
+    @property
+    def is_non_person_hogql_aggregation(self) -> bool:
+        if isinstance(self.source_runner, FunnelsQueryRunner):
+            assert isinstance(self.query.source, FunnelsQuery)
+            funnels_filter = self.query.source.funnelsFilter or FunnelsFilter()
+            hogql_agg = funnels_filter.funnelAggregateByHogQL
+            return hogql_agg is not None and hogql_agg != "person_id"
+        return False
 
     def _calculate(self) -> HogQLQueryResponse:
         settings = None
