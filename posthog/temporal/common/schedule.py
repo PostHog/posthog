@@ -123,7 +123,7 @@ async def schedule_exists(temporal: Client, schedule_id: str) -> bool:
     try:
         await temporal.get_schedule_handle(schedule_id).describe()
         return True
-    except:
+    except Exception:
         return False
 
 
@@ -132,5 +132,5 @@ async def a_schedule_exists(temporal: Client, schedule_id: str) -> bool:
     try:
         await temporal.get_schedule_handle(schedule_id).describe()
         return True
-    except:
+    except Exception:
         return False

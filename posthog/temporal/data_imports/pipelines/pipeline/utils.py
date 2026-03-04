@@ -488,7 +488,7 @@ def _json_dumps(obj: Any) -> str:
     except TypeError:
         try:
             return json.dumps(obj)
-        except:
+        except (TypeError, ValueError, OverflowError):
             return str(obj)
 
 
@@ -562,7 +562,7 @@ def _build_decimal_type_from_defaults(values: list[decimal.Decimal | None]) -> p
     ]:
         try:
             return pa.array(values, type=decimal_type)
-        except:
+        except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError):
             pass
 
     raise ValueError("Cant build a decimal type from defaults")
@@ -620,7 +620,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             first_item = {key: first_item.get(key, None) for key in all_keys}
             table_data[0] = first_item
             arrow_schema = pa.Table.from_pylist(table_data).schema
-        except:
+        except Exception:
             arrow_schema = None
     else:
         arrow_schema = schema
@@ -639,7 +639,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
         try:
             # We want to use pyarrow arrays where possible to optimise on memory usage
             columnar_table_data[col] = pa.array(values)
-        except:
+        except Exception:
             # Some values can't be interpreted by pyarrows directly
             columnar_table_data[col] = np.array(values, dtype=object)
 

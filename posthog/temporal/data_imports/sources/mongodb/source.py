@@ -71,7 +71,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
 
         try:
             connection_params = _parse_connection_string(config.connection_string)
-        except:
+        except Exception:
             return False, "Invalid connection string"
 
         if not connection_params.get("database"):
