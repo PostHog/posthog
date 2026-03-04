@@ -7,7 +7,7 @@ import { QuickFilterContext } from '~/queries/schema/schema-general'
 
 import { ErrorFilters } from 'products/error_tracking/frontend/components/IssueFilters'
 
-import { INSIGHTS_LOGIC_KEY } from './errorTrackingInsightsLogic'
+import { ERROR_TRACKING_SCENE_LOGIC_KEY } from '../../errorTrackingSceneLogic'
 
 const INSIGHTS_TAXONOMIC_GROUP_TYPES = [
     TaxonomicFilterGroupType.ErrorTrackingProperties,
@@ -25,7 +25,7 @@ export function InsightsFilters(): JSX.Element {
                 <LemonDivider vertical />
                 <QuickFiltersSection
                     context={QuickFilterContext.ErrorTrackingIssueFilters}
-                    logicKey={INSIGHTS_LOGIC_KEY}
+                    logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
                 />
             </div>
             <div className="flex gap-2 items-start">

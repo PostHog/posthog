@@ -1,21 +1,11 @@
-import { BindLogic, useValues } from 'kea'
-
-import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
+import { useValues } from 'kea'
 
 import { ChartCard } from './ChartCard'
-import { errorTrackingInsightsLogic, INSIGHTS_LOGIC_KEY } from './errorTrackingInsightsLogic'
+import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 import { InsightsFilters } from './InsightsFilters'
 import { SummaryStats } from './SummaryStats'
 
 export function ErrorTrackingInsights(): JSX.Element {
-    return (
-        <BindLogic logic={issueFiltersLogic} props={{ logicKey: INSIGHTS_LOGIC_KEY }}>
-            <InsightsContent />
-        </BindLogic>
-    )
-}
-
-function InsightsContent(): JSX.Element {
     const { exceptionVolumeQuery, crashFreeSessionsQuery } = useValues(errorTrackingInsightsLogic)
 
     return (
