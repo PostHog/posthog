@@ -14,6 +14,7 @@ import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
 import { EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
+import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
@@ -42,6 +43,7 @@ export interface JoinedIngestionPipelineConfig {
     cdpHogWatcherSampleRate: number
     groupId: string
     outputs: IngestionOutputs<EventOutput>
+    splitAiEventsConfig: SplitAiEventsStepConfig
     perDistinctIdOptions: EventPipelineRunnerOptions & {
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
@@ -124,6 +126,7 @@ export function createJoinedIngestionPipeline<
         cdpHogWatcherSampleRate,
         groupId,
         outputs,
+        splitAiEventsConfig,
         perDistinctIdOptions,
     } = config
 
@@ -169,6 +172,7 @@ export function createJoinedIngestionPipeline<
     const perEventConfig: PerDistinctIdPipelineConfig = {
         options: perDistinctIdOptions,
         outputs,
+        splitAiEventsConfig,
         teamManager,
         groupTypeManager,
         hogTransformer,
