@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
-import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress/LemonProgress'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -146,7 +147,6 @@ function StatusIcon({ status }: { status: string }): JSX.Element {
 export function SessionSummarizationProgress({ updates }: { updates: SessionSummarizationUpdate[] }): JSX.Element {
     const state = useMemo(() => deriveState(updates), [updates])
     const { sessions, phase, completedCount, totalCount, patternsFound } = state
-    const [isExpanded, setIsExpanded] = useState(false)
 
     // ETA: max active duration among remaining sessions (concurrent processing, so longest one determines wait)
     const summarizingStartedAt = useRef<number | null>(null)
@@ -190,11 +190,10 @@ export function SessionSummarizationProgress({ updates }: { updates: SessionSumm
     }
 
     const sessionEntries = Array.from(sessions.entries()).filter(([, s]) => s.status !== 'skipped')
-    const showCollapse = sessionEntries.length > 20
 
     return (
         <div className="flex flex-col gap-2 py-2 px-1 w-full">
-            {totalCount > 0 && <LemonProgress percent={progressPercent} />}
+            {totalCount > 0 && <LemonProgress percent={progressPercent} bgColor="var(--color-bg-surface-tertiary)" />}
             <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-medium text-secondary">
                     {PHASE_LABELS[phase] || phase}…
@@ -208,57 +207,43 @@ export function SessionSummarizationProgress({ updates }: { updates: SessionSumm
             </div>
 
             {sessionEntries.length > 0 && (
-                <div>
-                    {showCollapse && (
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            onClick={() => setIsExpanded(!isExpanded)}
-                            className="mb-1"
+                <ScrollableShadows
+                    direction="vertical"
+                    innerClassName="flex flex-col gap-0.5"
+                    className="max-h-60 rounded"
+                >
+                    {sessionEntries.map(([id, session]) => (
+                        <div
+                            key={id}
+                            className="flex items-center gap-1.5 text-xs py-0.5 px-1 rounded hover:bg-fill-button-tertiary-hover"
                         >
-                            {isExpanded ? 'Hide sessions' : `Show all ${sessionEntries.length} sessions`}
-                        </LemonButton>
-                    )}
-                    {(!showCollapse || isExpanded) && (
-                        <div className="flex flex-col gap-0.5 max-h-60 overflow-y-auto">
-                            {sessionEntries.map(([id, session]) => (
-                                <div
-                                    key={id}
-                                    className="flex items-center gap-1.5 text-xs py-0.5 px-1 rounded hover:bg-fill-button-tertiary-hover"
-                                >
-                                    <StatusIcon status={session.status} />
-                                    <PropertyIcon
-                                        property="$device_type"
-                                        value={session.snapshot_source === 'mobile' ? 'Mobile' : 'Desktop'}
-                                        className="text-muted shrink-0"
-                                    />
-                                    <PersonDisplay
-                                        person={session.distinct_id ? { distinct_id: session.distinct_id } : undefined}
-                                        href={`/replay/${id}`}
-                                        maxLength={13}
-                                        withIcon="xs"
-                                        noPopover
-                                        noEllipsis
-                                    />
-                                    {session.start_time && (
-                                        <TZLabel
-                                            className="text-muted shrink-0"
-                                            time={session.start_time}
-                                            placement="right"
-                                        />
-                                    )}
-                                    {session.active_duration_s > 0 && (
-                                        <Tooltip title="Duration of active interaction in this session">
-                                            <span className="text-muted ml-auto shrink-0 select-none">
-                                                {formatDuration(session.active_duration_s)}
-                                            </span>
-                                        </Tooltip>
-                                    )}
-                                </div>
-                            ))}
+                            <StatusIcon status={session.status} />
+                            <PropertyIcon
+                                property="$device_type"
+                                value={session.snapshot_source === 'mobile' ? 'Mobile' : 'Desktop'}
+                                className="text-muted shrink-0"
+                            />
+                            <PersonDisplay
+                                person={session.distinct_id ? { distinct_id: session.distinct_id } : undefined}
+                                href={`/replay/${id}`}
+                                maxLength={13}
+                                withIcon="xs"
+                                noPopover
+                                noEllipsis
+                            />
+                            {session.start_time && (
+                                <TZLabel className="text-muted shrink-0" time={session.start_time} placement="right" />
+                            )}
+                            {session.active_duration_s > 0 && (
+                                <Tooltip title="Duration of active interaction in this session">
+                                    <span className="text-muted ml-auto shrink-0 select-none">
+                                        {formatDuration(session.active_duration_s)}
+                                    </span>
+                                </Tooltip>
+                            )}
                         </div>
-                    )}
-                </div>
+                    ))}
+                </ScrollableShadows>
             )}
 
             {patternsFound.length > 0 && (phase === 'extracting_patterns' || phase === 'assigning_patterns') && (
