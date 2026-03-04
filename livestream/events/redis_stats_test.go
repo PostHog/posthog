@@ -2,7 +2,6 @@ package events
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -191,7 +190,7 @@ func TestUserNaturalDecay(t *testing.T) {
 
 	count, err := w.GetUserCount(ctx, "token_a")
 	require.NoError(t, err)
-	assert.Equal(t, int64(1), count, fmt.Sprintf("only user2 should remain after user1 ages out"))
+	assert.Equal(t, int64(1), count, "only user2 should remain after user1 ages out")
 }
 
 func TestCrossTokenIsolation(t *testing.T) {
