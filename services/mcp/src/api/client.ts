@@ -126,6 +126,8 @@ export interface ApiConfig {
     apiToken: string
     baseUrl: string
     clientUserAgent?: string | undefined
+    mcpClientName?: string | undefined
+    mcpProtocolVersion?: string | undefined
 }
 
 type Endpoint = Record<string, any>
@@ -162,6 +164,10 @@ export class ApiClient {
                       // PostHog API can attach it to analytics events for MCP source attribution.
                       'x-posthog-mcp-user-agent': this.config.clientUserAgent,
                   }
+                : {}),
+            ...(this.config.mcpClientName ? { 'x-posthog-mcp-client-name': this.config.mcpClientName } : {}),
+            ...(this.config.mcpProtocolVersion
+                ? { 'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion }
                 : {}),
         }
         if (options?.body) {
