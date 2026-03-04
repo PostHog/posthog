@@ -1,0 +1,16 @@
+import { describe, expect, it } from 'vitest'
+
+import { sanitizeUserAgent } from '@/lib/utils'
+
+describe('sanitizeUserAgent', () => {
+    it.each([
+        ['passthrough', 'posthog/wizard 1.0', 'posthog/wizard 1.0'],
+        ['strips control chars', 'agent\x00with\x1fnulls', 'agentwithnulls'],
+        ['strips DEL character', 'hello\x7fworld', 'helloworld'],
+        ['truncates to max length', 'a'.repeat(1500), 'a'.repeat(1000)],
+        ['trims whitespace', '  spaces  ', 'spaces'],
+        ['strips then trims', '\x00  hello  \x1f', 'hello'],
+    ])('%s', (_name, input, expected) => {
+        expect(sanitizeUserAgent(input)).toBe(expected)
+    })
+})
