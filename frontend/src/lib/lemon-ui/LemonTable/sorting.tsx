@@ -30,7 +30,6 @@ export function getNextSorting(
     }
     return null
 }
-}
 
 export const SortingIndicator: React.FunctionComponent<
     { order: Sorting['order'] | null } & React.RefAttributes<HTMLDivElement>
