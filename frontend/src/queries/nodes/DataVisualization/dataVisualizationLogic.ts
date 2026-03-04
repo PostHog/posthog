@@ -820,7 +820,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                         n[column.dataIndex] === undefined ||
                                         n[column.dataIndex] === null
                                     if (isNotANumber) {
-                                        return 0
+                                        return null
                                     }
 
                                     const isInt = Number.isInteger(n[column.dataIndex])
@@ -828,7 +828,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                         ? parseInt(n[column.dataIndex], 10) * multiplier
                                         : parseFloat(n[column.dataIndex]) * multiplier
                                 } catch {
-                                    return 0
+                                    return null
                                 }
                             }),
                             settings: series.settings,
