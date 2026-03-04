@@ -77,6 +77,10 @@ export function Default(): JSX.Element {
                 </ButtonPrimitive>
             </ButtonGroupPrimitive>
 
+            <ButtonPrimitive disabledReasons={{ 'Disabled reason': true, 'reason 2': true }}>
+                Disabled button with Tooltip
+            </ButtonPrimitive>
+
             <ButtonGroupPrimitive size="base" groupVariant="outline">
                 <Link
                     buttonProps={{

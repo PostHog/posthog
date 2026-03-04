@@ -15,7 +15,7 @@ from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
-from ee.api.vercel import vercel_sso, vercel_webhooks
+from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
@@ -196,6 +196,18 @@ urlpatterns: list[Any] = [
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     re_path(r"^login/vercel/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     re_path(r"^login/vercel/continue/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
+    re_path(
+        r"^connect/vercel/callback/?$",
+        vercel_connect.VercelConnectCallbackViewSet.as_view({"get": "callback"}),
+    ),
+    re_path(
+        r"^api/vercel/connect/complete/?$",
+        vercel_connect.VercelConnectLinkViewSet.as_view({"post": "complete"}),
+    ),
+    re_path(
+        r"^api/vercel/connect/session/?$",
+        vercel_connect.VercelConnectLinkViewSet.as_view({"get": "session_info"}),
+    ),
     path("webhooks/vercel", csrf_exempt(vercel_webhooks.vercel_webhook), name="vercel_webhooks"),
     path("scim/v2/<uuid:domain_id>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
     path(

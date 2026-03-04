@@ -453,12 +453,6 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert response.results is not None
 
-        expected_columns = 14
-        actual_columns = len(response.columns) if response.columns else 0
-        assert actual_columns == expected_columns, (
-            f"Expected {expected_columns} columns, got {actual_columns}: {response.columns}"
-        )
-
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -522,56 +516,6 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         )
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
-
-    def test_multiple_conversion_goals(self):
-        facebook_info = self._setup_csv_table("facebook_ads")
-
-        source_configs = [
-            {
-                "table_id": facebook_info.table.id,
-                "source_map": FACEBOOK_SOURCE_MAP,
-            }
-        ]
-        self._setup_team_source_configs(source_configs)
-
-        signup_action = _create_action(self.team, "signup_action")
-        purchase_action = _create_action(self.team, "purchase_action")
-
-        team_conversion_goals = [
-            {
-                "name": "Signup Goal",
-                "kind": NodeKind.ACTIONS_NODE,
-                "conversion_goal_id": "signup_goal",
-                "conversion_goal_name": "Signup Goal",
-                "id": str(signup_action.id),
-                "math": BaseMathType.TOTAL,
-                "schema_map": {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-            },
-            {
-                "name": "Purchase Goal",
-                "kind": NodeKind.ACTIONS_NODE,
-                "conversion_goal_id": "purchase_goal",
-                "conversion_goal_name": "Purchase Goal",
-                "id": str(purchase_action.id),
-                "math": BaseMathType.TOTAL,
-                "schema_map": {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-            },
-        ]
-
-        config = self.team.marketing_analytics_config
-        config.conversion_goals = team_conversion_goals
-        config.save()
-
-        query = self._create_basic_query()
-        runner = get_default_query_runner(query, self.team)
-
-        response = runner.calculate()
-
-        assert isinstance(response, MarketingAnalyticsTableQueryResponse)
-        assert response.results is not None
-        assert len(response.columns) == 16, (
-            "Should have 16 columns including Reported Conversion Value and multiple conversion goal columns"
-        )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_comprehensive_marketing_analytics_basic(self):

@@ -585,6 +585,52 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             })
         })
 
+        it('should not update last_seen_at when $update_person_last_seen_at is false', async () => {
+            const distinctId = new UUIDT().toString()
+            const baseTime = DateTime.now().startOf('hour')
+            const firstTimestamp = baseTime.toMillis()
+            const secondTimestamp = baseTime.plus({ hours: 2 }).toMillis()
+
+            // First event creates the person
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({ $set: { initial: true } })
+                        .withTimestamp(firstTimestamp)
+                        .build(),
+                ])
+            )
+
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
+            })
+
+            // Second event 2 hours later with $update_person_last_seen_at=false should NOT update last_seen_at
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('pageview')
+                        .withProperties({ $update_person_last_seen_at: false })
+                        .withTimestamp(secondTimestamp)
+                        .build(),
+                ])
+            )
+
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                // last_seen_at should remain unchanged
+                expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
+            })
+        })
+
         it('should set is_identified to true when merging via $identify with $anon_distinct_id', async () => {
             const anonDistinctId = new UUIDT().toString()
             const identifiedDistinctId = new UUIDT().toString()

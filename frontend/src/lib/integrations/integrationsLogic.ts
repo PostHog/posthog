@@ -245,6 +245,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return integrations?.filter((x) => x.kind == 'slack')
             },
         ],
+        twigSlackIntegrations: [
+            (s) => [s.integrations],
+            (integrations) => {
+                return integrations?.filter((x) => x.kind === 'slack-twig')
+            },
+        ],
         getIntegrationsByKind: [
             (s) => [s.integrations],
             (integrations) => {
@@ -259,7 +265,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return preflight?.slack_service?.available
             },
         ],
-
         getGitHubRepositories: [
             (s) => [s.githubRepositories],
             (githubRepositories) => {

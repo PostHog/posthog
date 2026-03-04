@@ -157,7 +157,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                         <h3 className="mb-0">Materialization</h3>
                         <LemonTag type="warning">BETA</LemonTag>
                         {savedQuery?.latest_error && savedQuery.status === 'Failed' && (
-                            <Tooltip title={savedQuery.latest_error}>
+                            <Tooltip title={savedQuery.latest_error} interactive>
                                 <LemonTag type="danger">Error</LemonTag>
                             </Tooltip>
                         )}
@@ -329,7 +329,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                         }
 
                                         return error && status !== 'Completed' ? (
-                                            <Tooltip title={error}>
+                                            <Tooltip title={error} interactive>
                                                 <LemonTag type={type}>{status}</LemonTag>
                                             </Tooltip>
                                         ) : (

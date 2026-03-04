@@ -54,7 +54,7 @@ describe('Tool Filtering - Features', () => {
         {
             features: ['error-tracking'],
             description: 'error tracking tools',
-            expectedTools: ['list-errors', 'error-details'],
+            expectedTools: ['list-errors', 'error-details', 'update-issue-status'],
         },
         {
             features: ['experiments'],
