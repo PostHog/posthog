@@ -35,7 +35,6 @@ import {
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     WebAnalyticsTile,
-    tabSplitIndexMap,
     tabSplitIndicesMap,
 } from 'scenes/web-analytics/common'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
@@ -342,7 +341,6 @@ export const WebTabs = ({
 
                 <LemonSegmentedDropdown
                     splitIndices={tabSplitIndicesMap[tileId]}
-                    splitIndex={tabSplitIndicesMap[tileId] ? undefined : tabSplitIndexMap[tileId]}
                     size="small"
                     value={activeTabId}
                     onChange={setActiveTabId}

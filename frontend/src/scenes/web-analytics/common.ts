@@ -98,10 +98,6 @@ export type DeviceType = 'Desktop' | 'Mobile'
 
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
 
-export const tabSplitIndexMap: Partial<Record<TileId, number>> = {
-    [TileId.SOURCES]: 1, // Show Channel as button, rest in dropdowns
-}
-
 export const tabSplitIndicesMap: Partial<Record<TileId, number[]>> = {
     [TileId.SOURCES]: [1, 3], // [Channel] [Referring Domain ▼ Referring URL] [UTM Source ▼ ...]
 }
