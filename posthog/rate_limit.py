@@ -735,6 +735,11 @@ class RestoreRedeemThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
+class CodeInviteRedeemThrottle(UserRateThrottle):
+    scope = "code_invite_redeem"
+    rate = "10/hour"
+
+
 class ToolbarOAuthRefreshThrottle(IPThrottle):
     """Rate limit the unauthenticated toolbar OAuth refresh endpoint by IP."""
 
