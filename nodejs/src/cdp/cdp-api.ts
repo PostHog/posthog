@@ -621,6 +621,9 @@ export class CdpApi {
                 if (result.error) {
                     return res.status(500).json({ error: 'Internal error' })
                 }
+                if (!result.finished) {
+                    return res.status(201).json({ status: 'queued' })
+                }
                 return res.status(200).json({ status: 'ok' })
             })
         }
