@@ -1,4 +1,5 @@
 import uuid
+import urllib.parse
 
 import pytest
 
@@ -57,10 +58,8 @@ async def _run_activity(
     )
     workflows_inputs = WorkflowsInsertInputs(
         batch_export=batch_export_inputs,
-        host=server.host,
-        port=server.port,
+        url=urllib.parse.urlunsplit((server.scheme, f"{server.host}:{server.port}", "/", "", "")),
         hog_function_id=hog_function_id,
-        scheme=server.scheme,
     )
 
     assert workflows_inputs.batch_export.batch_export_id is not None

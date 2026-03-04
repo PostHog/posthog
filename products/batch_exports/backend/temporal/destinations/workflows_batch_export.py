@@ -1,5 +1,4 @@
 import json
-import typing
 import datetime as dt
 import dataclasses
 import urllib.parse
@@ -70,18 +69,16 @@ def workflows_default_fields(batch_export_id: str) -> list[BatchExportField]:
 class WorkflowsConsumer(Consumer):
     def __init__(
         self,
-        host: str,
-        port: int,
+        url: str,
         hog_function_id: str,
         team_id: int,
         session: aiohttp.ClientSession,
-        scheme: typing.Literal["http", "https"] = "https",
         model: str = "events",
     ):
         super().__init__(model=model)
 
         path = HOG_FUNCTION_API_PATH.format(team_id=team_id, hog_function_id=hog_function_id)
-        self.url = urllib.parse.urlunsplit((scheme, f"{host}:{port}", path, "", ""))
+        self.url = urllib.parse.urljoin(url, path)
         self.session = session
 
     async def consume_chunk(self, data: bytes):
@@ -106,10 +103,8 @@ class WorkflowsInsertInputs:
     """Inputs for Workflows."""
 
     batch_export: BatchExportInsertInputs
-    host: str
-    port: int
+    url: str
     hog_function_id: str
-    scheme: typing.Literal["http", "https"] = "https"
 
 
 @temporalio.activity.defn
@@ -154,12 +149,10 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
 
         async with aiohttp.ClientSession() as session:
             consumer = WorkflowsConsumer(
-                inputs.host,
-                inputs.port,
+                inputs.url,
                 hog_function_id=inputs.hog_function_id,
                 team_id=inputs.batch_export.team_id,
                 session=session,
-                scheme=inputs.scheme,
                 model=inputs.batch_export.batch_export_model.name
                 if inputs.batch_export.batch_export_model
                 else "events",
@@ -234,10 +227,8 @@ class WorkflowsBatchExportWorkflow(PostHogWorkflow):
 
         insert_inputs = WorkflowsInsertInputs(
             batch_export=batch_export_inputs,
-            host=inputs.host,
-            port=inputs.port,
+            url=settings.BATCH_EXPORT_WORKFLOWS_API_URL,
             hog_function_id=inputs.hog_function_id,
-            scheme=inputs.scheme,
         )
 
         await execute_batch_export_using_internal_stage(

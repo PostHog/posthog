@@ -339,10 +339,7 @@ class WorkflowsBatchExportInputs(BaseBatchExportInputs):
     are not related to Temporal Workflows.
     """
 
-    host: str
-    port: int
     hog_function_id: str
-    scheme: typing.Literal["http", "https"] = "https"
 
 
 @dataclass(kw_only=True)

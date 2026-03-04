@@ -4,6 +4,7 @@ import datetime as dt
 import pytest
 
 from django.conf import settings
+from django.test import override_settings
 
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
@@ -34,10 +35,7 @@ async def workflows_batch_export(ateam, interval, exclude_events, temporal_clien
     destination_data = {
         "type": "Workflows",
         "config": {
-            "host": server.host,
-            "port": server.port,
             "hog_function_id": hog_function_id,
-            "scheme": server.scheme,
         },
     }
     batch_export_data = {
@@ -91,27 +89,28 @@ async def test_workflows_export_workflow(
         exclude_events=exclude_events,
         **workflows_batch_export.destination.config,
     )
-    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-        async with Worker(
-            activity_environment.client,
-            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-            workflows=[WorkflowsBatchExportWorkflow],
-            activities=[
-                start_batch_export_run,
-                insert_into_internal_stage_activity,
-                insert_into_workflows_activity_from_stage,
-                finish_batch_export_run,
-            ],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            await activity_environment.client.execute_workflow(
-                WorkflowsBatchExportWorkflow.run,
-                inputs,
-                id=workflow_id,
+    with override_settings(BATCH_EXPORT_WORKFLOWS_API_URL=f"http://{server.host}:{server.port}/"):
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=20),
-            )
+                workflows=[WorkflowsBatchExportWorkflow],
+                activities=[
+                    start_batch_export_run,
+                    insert_into_internal_stage_activity,
+                    insert_into_workflows_activity_from_stage,
+                    finish_batch_export_run,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                await activity_environment.client.execute_workflow(
+                    WorkflowsBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=20),
+                )
 
     runs = await afetch_batch_export_runs(batch_export_id=workflows_batch_export.id)
     assert len(runs) == 1
