@@ -24,6 +24,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
+import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { AiChatListItem } from 'scenes/max/components/List/AiChatListItem'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -37,7 +38,6 @@ import { ActivityTab } from '~/types'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { NavBarFooter } from './NavBarFooter'
-import { Label } from 'lib/ui/Label/Label'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
@@ -53,25 +53,12 @@ const navBarStyles = cva({
     },
 })
 
-function SectionChevron({ open }: { open: boolean }): JSX.Element {
-    return (
-        <IconChevronRight
-            className={cn(
-                'size-3 text-tertiary opacity-100 group-hover:opacity-100 transition-all duration-150',
-                open && 'rotate-90 opacity-50'
-            )}
-        />
-    )
-}
-
 function SectionTrigger({
     label,
-    open,
     isCollapsed,
     icon,
 }: {
     label: string
-    open: boolean
     isCollapsed: boolean
     icon: React.ReactNode
 }): JSX.Element {
@@ -92,7 +79,6 @@ function SectionTrigger({
                 {icon && !isCollapsed && <span className="size-3 mr-1">{icon}</span>}
                 {label}
             </Label>
-            {!isCollapsed && <SectionChevron open={open} />}
         </Collapsible.Trigger>
     )
 }
@@ -328,17 +314,16 @@ export function AiFirstNavBar({ children }: { children?: React.ReactNode }): JSX
                         <Collapsible
                             open={expandedNavSections.apps ?? false}
                             onOpenChange={() => toggleNavSection('apps')}
-                            className="px-1 mt-2 group/colorful-product-icons colorful-product-icons-true"
+                            className="px-2 mt-2 group/colorful-product-icons colorful-product-icons-true"
                         >
                             <SectionTrigger
                                 icon={<IconApps />}
                                 label={isLayoutNavCollapsed ? 'Apps' : 'All apps'}
-                                open={expandedNavSections.apps ?? false}
                                 isCollapsed={isLayoutNavCollapsed}
                             />
                             <Collapsible.Panel
                                 className={cn(
-                                    '-ml-1 w-[calc(100%+(var(--spacing)*2))]',
+                                    '-ml-2 w-[calc(100%+(var(--spacing)*4))]',
                                     isLayoutNavCollapsed ? 'items-center' : ''
                                 )}
                             >
