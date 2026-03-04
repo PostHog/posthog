@@ -49,6 +49,8 @@ def _make_input(mock_team, generation_id=None):
         generation_id=generation_id,
         event_count=3,
         text_repr_length=100,
+        job_id=123,
+        job_name="OpenAI only",
     )
 
 
@@ -100,6 +102,8 @@ class TestSummarizeAndSaveActivity:
             call_kwargs = mock_create_event.call_args.kwargs
             assert call_kwargs["event"] == "$ai_trace_summary"
             assert call_kwargs["properties"]["$ai_trace_id"] == input_data.trace_id
+            assert call_kwargs["properties"]["$ai_clustering_job_id"] == input_data.job_id
+            assert call_kwargs["properties"]["$ai_clustering_job_name"] == input_data.job_name
             mock_delete.assert_called_once()
 
     @pytest.mark.django_db(transaction=True)
@@ -130,6 +134,8 @@ class TestSummarizeAndSaveActivity:
             call_kwargs = mock_create_event.call_args.kwargs
             assert call_kwargs["event"] == "$ai_generation_summary"
             assert call_kwargs["properties"]["$ai_generation_id"] == generation_id
+            assert call_kwargs["properties"]["$ai_clustering_job_id"] == input_data.job_id
+            assert call_kwargs["properties"]["$ai_clustering_job_name"] == input_data.job_name
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio

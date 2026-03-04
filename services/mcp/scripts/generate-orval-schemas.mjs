@@ -126,6 +126,31 @@ function resolveNestedRefs(schemas, refs) {
     return allRefs
 }
 
+/**
+ * Strip 'default: null' from nullable properties in OpenAPI schemas.
+ *
+ * Orval generates invalid Zod like `.string().default(null)` when it sees
+ * `nullable: true` with `default: null`. Removing the null default causes
+ * Orval to correctly generate `.nullable()` instead.
+ */
+function stripNullDefaults(obj) {
+    if (!obj || typeof obj !== 'object') {
+        return obj
+    }
+    if (Array.isArray(obj)) {
+        return obj.map(stripNullDefaults)
+    }
+    const result = {}
+    for (const [key, value] of Object.entries(obj)) {
+        // Skip 'default' key if value is null and sibling 'nullable' is true
+        if (key === 'default' && value === null && obj.nullable === true) {
+            continue
+        }
+        result[key] = stripNullDefaults(value)
+    }
+    return result
+}
+
 function filterSchemaByOperationIds(fullSchema, operationIds) {
     const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])
     const filteredPaths = {}
@@ -156,12 +181,13 @@ function filterSchemaByOperationIds(fullSchema, operationIds) {
         }
     }
 
-    return {
+    // Strip 'default: null' from nullable fields to prevent invalid Zod generation
+    return stripNullDefaults({
         openapi: fullSchema.openapi,
         info: { ...fullSchema.info, title: `${fullSchema.info?.title ?? 'API'} - MCP ${operationIds.size} ops` },
         paths: filteredPaths,
         components: { schemas: filteredSchemas },
-    }
+    })
 }
 
 // ------------------------------------------------------------------

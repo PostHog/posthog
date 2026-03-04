@@ -400,8 +400,6 @@ class Team(UUIDTClassicModel):
         choices=SessionRecordingRetentionPeriod.choices,
         default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
     )
-    session_recording_encryption = models.BooleanField(null=True, blank=True, default=False)
-
     # Conversations
     conversations_enabled = models.BooleanField(null=True, blank=True)
     conversations_settings = models.JSONField(null=True, blank=True)

@@ -1087,6 +1087,94 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["materialization"]["error"], expected_error)
 
+    def test_enable_materialization_creates_dag_node(self):
+        endpoint = create_endpoint_with_version(
+            name="dag_node_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        from products.data_modeling.backend.models import Node
+
+        version = endpoint.versions.first()
+        version.refresh_from_db()
+        assert version.saved_query is not None
+
+        node = Node.objects.filter(team=self.team, saved_query=version.saved_query).first()
+        self.assertIsNotNone(node)
+
+    def test_disable_materialization_removes_dag_node(self):
+        endpoint = create_endpoint_with_version(
+            name="remove_dag_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            format="json",
+        )
+
+        version = endpoint.versions.first()
+        version.refresh_from_db()
+        assert version.saved_query is not None
+        saved_query_id = version.saved_query.id
+
+        from products.data_modeling.backend.models import Node
+
+        self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": False},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertFalse(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
+
+    def test_delete_endpoint_removes_dag_node(self):
+        endpoint = create_endpoint_with_version(
+            name="delete_dag_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            format="json",
+        )
+
+        version = endpoint.versions.first()
+        version.refresh_from_db()
+        assert version.saved_query is not None
+        saved_query_id = version.saved_query.id
+
+        from products.data_modeling.backend.models import Node
+
+        self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
+
 
 @pytest.mark.asyncio
 class TestEndpointMaterializationTemporal:

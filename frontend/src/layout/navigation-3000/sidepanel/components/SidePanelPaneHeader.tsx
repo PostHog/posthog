@@ -33,7 +33,7 @@ export function SidePanelPaneHeader({
             )}
         >
             {title ? (
-                <h3 className="flex-1 flex items-center gap-1 font-semibold mb-0 truncate pr-1 flex-none pl-2">
+                <h3 className="flex items-center gap-1 font-semibold mb-0 truncate pr-1 pl-2 flex-none text-sm">
                     {title}
                 </h3>
             ) : null}

@@ -8,6 +8,7 @@ import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
+import { EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper } from '../pipelines/extensions/tophog'
 import {
@@ -23,9 +24,9 @@ export type PerDistinctIdPipelineInput = EventSubpipelineInput &
 
 export interface PerDistinctIdPipelineConfig {
     options: EventPipelineRunnerOptions & {
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
+    outputs: IngestionOutputs<EventOutput>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
@@ -60,6 +61,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
 ): PipelineBuilder<TInput, void, TContext> {
     const {
         options,
+        outputs,
         teamManager,
         groupTypeManager,
         hogTransformer,
@@ -87,6 +89,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                     .branch('event', (b) =>
                         createEventSubpipeline(b, {
                             options,
+                            outputs,
                             teamManager,
                             groupTypeManager,
                             hogTransformer,

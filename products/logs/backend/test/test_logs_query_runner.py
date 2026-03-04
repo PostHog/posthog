@@ -657,7 +657,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(data[0]["name"], "cdp-legacy-events-consumer")
+        self.assertEqual(data["results"][0]["name"], "cdp-legacy-events-consumer")
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/logs/values",

@@ -291,13 +291,13 @@ function CreateRecordForm(): JSX.Element {
                         <ul className="list-disc pl-5 space-y-0.5 mb-1">
                             <li>
                                 <strong>Do not use</strong> subdomains containing words related to tracking, analytics,
-                                or advertising (e.g. <code>analytics.mydomain.com</code>,{' '}
-                                <code>posthog.mydomain.com</code>). These are commonly blocked by ad-blockers and will
-                                cause data loss.
+                                advertising, or PostHog (e.g. <code>analytics.mydomain.com</code>,{' '}
+                                <code>posthog.mydomain.com</code>, or <code>ph.mydomain.com</code>). These are commonly
+                                blocked by ad-blockers and will cause data loss. The proxy will <strong>NOT</strong>{' '}
+                                achieve the intended effect if ad-blockers are blocking the domain.
                             </li>
                             <li>
-                                <strong>Use a generic subdomain</strong> such as <code>t.mydomain.com</code> or{' '}
-                                <code>app.mydomain.com</code> instead.
+                                <strong>Use a generic subdomain</strong> such as <code>t.mydomain.com</code> instead.
                             </li>
                         </ul>
                     </LemonBanner>
@@ -363,6 +363,11 @@ const WaitingRecords = (): JSX.Element | null => {
                         />
                     </div>
                 ))}
+            </div>
+            <div className="text-sm">
+                <strong>Important:</strong> If you are using a DNS provider like Cloudflare that offers proxy options
+                (orange cloud), make sure the proxy is <strong>disabled</strong> (gray cloud) for this domain. Enabling
+                the proxy at your DNS provider may interfere with the managed reverse proxy functionality.
             </div>
         </div>
     )

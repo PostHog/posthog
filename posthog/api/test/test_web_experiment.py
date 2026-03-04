@@ -72,11 +72,9 @@ class TestWebExperiment(APIBaseTest):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "web_experiments",
-                "source": "web",
-                "$current_url": None,
-                "$session_id": None,
-                "was_impersonated": False,
             },
+            team=ANY,
+            request=ANY,
         )
 
     def test_can_list_active_web_experiments(self):

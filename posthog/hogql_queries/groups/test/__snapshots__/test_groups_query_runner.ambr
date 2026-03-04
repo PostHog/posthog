@@ -1,8 +1,7 @@
 # serializer version: 1
 # name: TestGroupsQueryRunner.test_groups_query_runner
   '''
-  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
-         groups.key AS key
+  SELECT tuple(coalesce(groups.properties___name, groups.key), toString(groups.key)) AS `tuple(coalesce(properties.name, key), toString(key))`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
@@ -30,7 +29,7 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_normalize_multiple_groups
   '''
-  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
+  SELECT tuple(coalesce(groups.properties___name, groups.key), toString(groups.key)) AS `tuple(coalesce(properties.name, key), toString(key))`,
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
   FROM
@@ -89,7 +88,7 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_numeric_property
   '''
-  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
+  SELECT tuple(coalesce(groups.properties___name, groups.key), toString(groups.key)) AS `tuple(coalesce(properties.name, key), toString(key))`,
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
   FROM
@@ -120,8 +119,7 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_offset
   '''
-  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
-         groups.key AS key
+  SELECT tuple(coalesce(groups.properties___name, groups.key), toString(groups.key)) AS `tuple(coalesce(properties.name, key), toString(key))`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
@@ -149,7 +147,7 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_order_by
   '''
-  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
+  SELECT tuple(coalesce(groups.properties___name, groups.key), toString(groups.key)) AS `tuple(coalesce(properties.name, key), toString(key))`,
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
   FROM
@@ -179,7 +177,7 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_order_by.1
   '''
-  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
+  SELECT tuple(coalesce(groups.properties___name, groups.key), toString(groups.key)) AS `tuple(coalesce(properties.name, key), toString(key))`,
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
   FROM
@@ -209,8 +207,7 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_order_by.2
   '''
-  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
-         groups.key AS key
+  SELECT tuple(coalesce(groups.properties___name, groups.key), toString(groups.key)) AS `tuple(coalesce(properties.name, key), toString(key))`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             groups.group_type_index AS index,
@@ -237,7 +234,7 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_property_columns
   '''
-  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
+  SELECT tuple(coalesce(groups.properties___name, groups.key), toString(groups.key)) AS `tuple(coalesce(properties.name, key), toString(key))`,
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
   FROM
@@ -296,8 +293,7 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_string_property
   '''
-  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
-         groups.key AS key
+  SELECT tuple(coalesce(groups.properties___name, groups.key), toString(groups.key)) AS `tuple(coalesce(properties.name, key), toString(key))`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
@@ -325,8 +321,7 @@
 # ---
 # name: TestGroupsQueryRunner.test_search
   '''
-  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
-         groups.key AS key
+  SELECT tuple(coalesce(groups.properties___name, groups.key), toString(groups.key)) AS `tuple(coalesce(properties.name, key), toString(key))`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
@@ -354,7 +349,7 @@
 # ---
 # name: TestGroupsQueryRunner.test_search_ordering_with_user_orderby
   '''
-  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
+  SELECT tuple(coalesce(groups.properties___name, groups.key), toString(groups.key)) AS `tuple(coalesce(properties.name, key), toString(key))`,
          groups.key AS key,
          groups.properties___arr AS arr
   FROM
@@ -415,8 +410,7 @@
 # ---
 # name: TestGroupsQueryRunner.test_search_ranking
   '''
-  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
-         groups.key AS key
+  SELECT tuple(coalesce(groups.properties___name, groups.key), toString(groups.key)) AS `tuple(coalesce(properties.name, key), toString(key))`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
@@ -444,8 +438,7 @@
 # ---
 # name: TestGroupsQueryRunner.test_search_ranking_with_key_fallback
   '''
-  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
-         groups.key AS key
+  SELECT tuple(coalesce(groups.properties___name, groups.key), toString(groups.key)) AS `tuple(coalesce(properties.name, key), toString(key))`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
@@ -473,7 +466,7 @@
 # ---
 # name: TestGroupsQueryRunner.test_select_property_name_with_whitespaces
   '''
-  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
+  SELECT tuple(coalesce(groups.properties___name, groups.key), toString(groups.key)) AS `tuple(coalesce(properties.name, key), toString(key))`,
          groups.key AS key,
          groups.`properties___prop with whitespace` AS `prop with whitespace`
   FROM
