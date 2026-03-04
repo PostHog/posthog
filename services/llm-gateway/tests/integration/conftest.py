@@ -15,6 +15,8 @@ from openai import OpenAI
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+FIREWORKS_API_KEY = os.environ.get("FIREWORKS_API_KEY")
 
 TEST_POSTHOG_API_KEY = "phx_fake_personal_api_key"
 
@@ -66,6 +68,22 @@ MOCK_MODEL_COSTS = {
         "mode": "chat",
         "input_cost_per_token": 0.0000009,
         "output_cost_per_token": 0.0000009,
+    },
+    "openrouter/meta-llama/llama-3.1-8b-instruct": {
+        "litellm_provider": "openrouter",
+        "max_input_tokens": 131072,
+        "supports_vision": False,
+        "mode": "chat",
+        "input_cost_per_token": 0.00000006,
+        "output_cost_per_token": 0.00000006,
+    },
+    "fireworks_ai/accounts/fireworks/models/llama-v3p1-8b-instruct": {
+        "litellm_provider": "fireworks_ai",
+        "max_input_tokens": 131072,
+        "supports_vision": False,
+        "mode": "chat",
+        "input_cost_per_token": 0.0000002,
+        "output_cost_per_token": 0.0000002,
     },
 }
 
