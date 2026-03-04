@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -16,10 +16,8 @@ export function InsightMoveToDashboardMenu({
     onMoveToDashboard,
 }: InsightMoveToDashboardMenuProps): JSX.Element | null {
     const [searchTerm, setSearchTermState] = useState('')
-    const searchTermRef = useRef(searchTerm)
 
     const handleSearchChange = useCallback((value: string) => {
-        searchTermRef.current = value
         setSearchTermState(value)
     }, [])
 
@@ -36,7 +34,7 @@ export function InsightMoveToDashboardMenu({
                 <LemonInput
                     type="search"
                     placeholder="Search dashboards"
-                    value={searchTermRef.current}
+                    value={searchTerm}
                     onChange={handleSearchChange}
                     size="small"
                     fullWidth
