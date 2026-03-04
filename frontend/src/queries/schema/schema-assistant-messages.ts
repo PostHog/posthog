@@ -342,6 +342,8 @@ export interface NotebookArtifactContent {
     blocks: DocumentBlock[]
     /** Title for the notebook */
     title?: string | null
+    /** Whether this notebook has been saved to the database (not stored, set during enrichment) */
+    is_saved?: boolean
 }
 
 export type ArtifactContent = VisualizationArtifactContent | NotebookArtifactContent
