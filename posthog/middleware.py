@@ -675,14 +675,14 @@ class Fix204Middleware:
 
 class ToolbarOAuthCoopMiddleware:
     """
-    Override Cross-Origin-Opener-Policy for toolbar OAuth popup pages.
+    Override Cross-Origin-Opener-Policy for popup pages that need cross-origin communication.
 
     Django's SecurityMiddleware sets COOP to "same-origin" by default. This severs
-    window.opener when a cross-origin popup navigates to our OAuth pages — breaking
-    the postMessage flow that sends tokens back to the toolbar.
+    window.opener when a cross-origin popup navigates to our pages — breaking
+    the postMessage flow or Vercel's popup monitoring.
 
-    We set COOP to "unsafe-none" on the specific paths involved in the toolbar
-    OAuth popup flow so the opener reference is preserved.
+    We set COOP to "unsafe-none" on the specific paths involved in popup flows
+    so the opener reference is preserved.
     """
 
     def __init__(self, get_response):
@@ -693,7 +693,8 @@ class ToolbarOAuthCoopMiddleware:
         is_toolbar_flow = request.path.startswith("/toolbar_oauth/") or (
             request.path.startswith("/oauth/authorize") and request.session.get("toolbar_oauth_redirect_flow")
         )
-        if is_toolbar_flow:
+        is_vercel_connect = request.path.startswith("/connect/vercel/")
+        if is_toolbar_flow or is_vercel_connect:
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
         return response
 
