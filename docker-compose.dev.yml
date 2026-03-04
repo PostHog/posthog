@@ -89,6 +89,20 @@ services:
                     }
                 }
 
+    capture:
+        extends:
+            file: docker-compose.base.yml
+            service: capture
+        ports:
+            - '3307:3000'
+        depends_on:
+            kafka:
+                condition: service_started
+            redis7:
+                condition: service_healthy
+        profiles:
+            - capture
+
     db:
         extends:
             file: docker-compose.base.yml
