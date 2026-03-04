@@ -48,7 +48,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
             debounce,
         }),
         loadPrompts: (debounce: boolean = true) => ({ debounce }),
-        deletePrompt: (promptId: string) => ({ promptId }),
+        deletePrompt: (promptName: string) => ({ promptName }),
     }),
 
     reducers({
@@ -150,14 +150,13 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
             }
         },
 
-        deletePrompt: async ({ promptId }) => {
+        deletePrompt: async ({ promptName }) => {
             try {
-                const promptName = values.prompts.results.find((prompt) => prompt.id === promptId)?.name
-                await api.llmPrompts.update(promptId, { deleted: true })
-                lemonToast.info(`${promptName || 'Prompt'} has been deleted.`)
+                await api.llmPrompts.archiveByName(promptName)
+                lemonToast.info(`${promptName || 'Prompt'} has been archived.`)
                 await asyncActions.loadPrompts(false)
             } catch {
-                lemonToast.error('Failed to delete prompt')
+                lemonToast.error('Failed to archive prompt')
             }
         },
     })),

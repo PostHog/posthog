@@ -20,7 +20,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
-import { openDeletePromptDialog } from './utils'
+import { openArchivePromptDialog } from './utils'
 
 export const scene: SceneExport = {
     component: LLMPromptsScene,
@@ -61,7 +61,7 @@ export function LLMPromptsScene(): JSX.Element {
             },
         },
         {
-            title: 'Created by',
+            title: 'Latest author',
             dataIndex: 'created_by',
             render: function renderCreatedBy(_, item) {
                 const { created_by } = item
@@ -71,6 +71,24 @@ export function LLMPromptsScene(): JSX.Element {
                         {created_by && <ProfilePicture user={created_by} size="md" showName />}
                     </div>
                 )
+            },
+        },
+        {
+            title: 'Latest version',
+            dataIndex: 'latest_version',
+            key: 'latest_version',
+            width: 120,
+            render: function renderLatestVersion(_, prompt) {
+                return <span className="font-mono text-sm">v{prompt.latest_version}</span>
+            },
+        },
+        {
+            title: 'Versions',
+            dataIndex: 'version_count',
+            key: 'version_count',
+            width: 100,
+            render: function renderVersionCount(_, prompt) {
+                return <span className="text-muted-alt">{prompt.version_count}</span>
             },
         },
         createdAtColumn<LLMPrompt>() as LemonTableColumn<LLMPrompt, keyof LLMPrompt | undefined>,
@@ -91,11 +109,11 @@ export function LLMPromptsScene(): JSX.Element {
                                 >
                                     <LemonButton
                                         status="danger"
-                                        onClick={() => openDeletePromptDialog(() => deletePrompt(prompt.id))}
+                                        onClick={() => openArchivePromptDialog(() => deletePrompt(prompt.name))}
                                         data-attr="prompt-dropdown-delete"
                                         fullWidth
                                     >
-                                        Delete
+                                        Archive
                                     </LemonButton>
                                 </AccessControlAction>
                             </>
