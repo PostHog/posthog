@@ -96,7 +96,7 @@ export function InsightsTable({
         insightsTableDataLogic(insightProps)
     )
     const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
-    const { weekStartDay, timezone } = useValues(teamLogic)
+    const { weekStartDay, timezone, baseCurrency } = useValues(teamLogic)
     const [maxVisibleColumns, setMaxVisibleColumns] = useState(MAX_VALUE_COLUMNS)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
@@ -341,8 +341,8 @@ export function InsightsTable({
     }
 
     const renderCount = useCallback(
-        (value: number) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value),
-        [trendsFilter]
+        (value: number) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value, baseCurrency),
+        [trendsFilter, baseCurrency]
     )
 
     const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = useMemo(() => {
