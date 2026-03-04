@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPencil, IconTrash } from '@posthog/icons'
+import { IconPencil, IconPlay, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTabs, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -31,6 +31,8 @@ export const scene: SceneExport<PromptLogicProps> = {
     paramsToProps: ({ params: { name }, searchParams }) => ({
         promptName: name && name !== 'new' ? name : 'new',
         mode: searchParams?.edit === 'true' ? PromptMode.Edit : PromptMode.View,
+        prefillName: typeof searchParams?.prefill_name === 'string' ? searchParams.prefill_name : undefined,
+        prefillPrompt: typeof searchParams?.prefill_prompt === 'string' ? searchParams.prefill_prompt : undefined,
     }),
 }
 
@@ -49,6 +51,15 @@ export function LLMPromptScene(): JSX.Element {
     const activeViewTab = searchParams?.tab === 'usage' ? 'usage' : 'overview'
 
     const { submitPromptForm, deletePrompt, setMode } = useActions(llmPromptLogic)
+    const sourcePromptId = !isNewPrompt && prompt && isPrompt(prompt) ? prompt.id : null
+    const sourcePromptName = !isNewPrompt && prompt && isPrompt(prompt) ? prompt.name : null
+    const openInPlaygroundUrl = sourcePromptId
+        ? combineUrl(urls.llmAnalyticsPlayground(), {
+              ...searchParams,
+              source_prompt_id: sourcePromptId,
+              source_prompt_name: sourcePromptName ?? undefined,
+          }).url
+        : undefined
 
     if (isPromptMissing) {
         return <NotFound object="prompt" />
@@ -73,6 +84,17 @@ export function LLMPromptScene(): JSX.Element {
                     isLoading={promptLoading}
                     actions={
                         <>
+                            {openInPlaygroundUrl ? (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconPlay />}
+                                    to={openInPlaygroundUrl}
+                                    data-attr="prompt-open-playground-button"
+                                >
+                                    Open in Playground
+                                </LemonButton>
+                            ) : null}
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.LlmAnalytics}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -151,6 +173,18 @@ export function LLMPromptScene(): JSX.Element {
                     isLoading={promptLoading}
                     actions={
                         <>
+                            {openInPlaygroundUrl ? (
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconPlay />}
+                                    to={openInPlaygroundUrl}
+                                    disabledReason={isPromptFormSubmitting ? 'Saving…' : undefined}
+                                    size="small"
+                                    data-attr="prompt-open-playground-button"
+                                >
+                                    Open in Playground
+                                </LemonButton>
+                            ) : null}
                             <LemonButton
                                 type="secondary"
                                 onClick={() => {
