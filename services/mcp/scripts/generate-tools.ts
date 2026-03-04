@@ -164,6 +164,7 @@ function operationIdToPascal(operationId: string): string {
 
 interface SchemaComposition {
     orvalImports: string[]
+    toolInputsImports: string[]
     schemaExpr: string
     pathParamNames: string[]
     queryParamNames: string[]
@@ -293,10 +294,23 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
         }
     }
 
-    // param_overrides (description tweaks) are applied in the tool definitions JSON,
-    // not in the Zod schema — Orval's OpenAPI-derived descriptions are used at runtime.
+    // param_overrides with description tweaks are applied in the tool definitions JSON.
+    // param_overrides with input_schema replace individual fields in the Zod schema.
+    const toolInputsImports: string[] = []
+    if (config.param_overrides) {
+        const schemaOverrides: string[] = []
+        for (const [paramName, override] of Object.entries(config.param_overrides)) {
+            if (override.input_schema) {
+                toolInputsImports.push(override.input_schema)
+                schemaOverrides.push(`${paramName}: ${override.input_schema}`)
+            }
+        }
+        if (schemaOverrides.length > 0) {
+            schemaExpr = `(${schemaExpr}).extend({ ${schemaOverrides.join(', ')} })`
+        }
+    }
 
-    return { orvalImports, schemaExpr, pathParamNames, queryParamNames, bodyFieldNames }
+    return { orvalImports, toolInputsImports, schemaExpr, pathParamNames, queryParamNames, bodyFieldNames }
 }
 
 // ------------------------------------------------------------------
@@ -315,7 +329,7 @@ function generateToolCode(
     resolved: ResolvedOperation,
     category: CategoryConfig,
     spec: OpenApiSpec
-): { code: string; orvalImports: string[]; toolInputsImport: string | undefined } {
+): { code: string; orvalImports: string[]; toolInputsImports: string[] } {
     const schemaName = `${toPascalCase(toolName)}Schema`
     const factoryName = toCamelCase(toolName)
 
@@ -398,7 +412,7 @@ ${handlerBody}    },
 })
 `
 
-    return { code, orvalImports: composition.orvalImports, toolInputsImport: undefined }
+    return { code, orvalImports: composition.orvalImports, toolInputsImports: composition.toolInputsImports }
 }
 
 function generateCustomSchemaToolCode(
@@ -408,7 +422,7 @@ function generateCustomSchemaToolCode(
     category: CategoryConfig,
     schemaName: string,
     factoryName: string
-): { code: string; orvalImports: string[]; toolInputsImport: string | undefined } {
+): { code: string; orvalImports: string[]; toolInputsImports: string[] } {
     const pathParamNames = extractPathParams(resolved.path)
 
     // Build path interpolation
@@ -475,7 +489,7 @@ ${handlerBody}    },
 })
 `
 
-    return { code, orvalImports: [], toolInputsImport: config.input_schema }
+    return { code, orvalImports: [], toolInputsImports: config.input_schema ? [config.input_schema] : [] }
 }
 
 // ------------------------------------------------------------------
@@ -517,13 +531,13 @@ function generateCategoryFile(
     const toolCodes: string[] = []
 
     for (const [name, config, resolved] of enabledTools) {
-        const { code, orvalImports, toolInputsImport } = generateToolCode(name, config, resolved, category, spec)
+        const { code, orvalImports, toolInputsImports } = generateToolCode(name, config, resolved, category, spec)
         toolCodes.push(code)
         for (const imp of orvalImports) {
             allOrvalImports.add(imp)
         }
-        if (toolInputsImport) {
-            allToolInputsImports.add(toolInputsImport)
+        for (const imp of toolInputsImports) {
+            allToolInputsImports.add(imp)
         }
     }
 

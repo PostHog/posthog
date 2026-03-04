@@ -102,9 +102,10 @@ tools:
     enrich_url: '{id}' # appended to url_prefix for result URLs
     exclude_params: [field] # hide params from tool input
     include_params: [field] # whitelist params (excludes all others)
-    param_overrides: # override Orval-generated param descriptions
+    param_overrides: # override individual param descriptions or schemas
       name:
         description: Custom description
+        input_schema: NameSchema # replace this param's type with a schema from tool-inputs
 ```
 
 Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
@@ -138,3 +139,27 @@ When `input_schema` is set:
 - Path parameters are extracted from the URL pattern and interpolated from the input
 - Remaining parameters are forwarded as body (POST/PATCH/PUT) or query (GET/DELETE)
 - `enrich_url` and `list` enrichment still apply as normal
+
+### Per-param schema overrides
+
+You can also override individual parameter schemas without replacing the entire input schema.
+Use `input_schema` inside `param_overrides` to replace a single field's type:
+
+```yaml
+tools:
+  actions-create:
+    operation: actions_create
+    enabled: true
+    scopes: [action:write]
+    annotations:
+      readOnly: false
+      destructive: false
+      idempotent: false
+    param_overrides:
+      steps:
+        input_schema: ActionStepsSchema
+        description: The action steps configuration
+```
+
+This keeps the Orval-derived schema for all other fields but replaces `steps` with `ActionStepsSchema`
+from `src/schema/tool-inputs.ts` via `.extend()`.
