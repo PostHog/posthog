@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { KafkaProducerWrapper } from '../../../src/kafka/producer'
 import { PluginServer } from '../../../src/server'
-import { PluginServerMode, PluginsServerConfig, PropertyUpdateOperation, TimestampFormat } from '../../../src/types'
+import { PluginServerMode, PropertyUpdateOperation, TimestampFormat } from '../../../src/types'
 import { PostgresRouter, PostgresUse } from '../../../src/utils/db/postgres'
 import { parseJSON } from '../../../src/utils/json-parse'
 import { UUIDT, castTimestampOrNow } from '../../../src/utils/utils'
@@ -19,10 +19,6 @@ import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/
 
 jest.mock('../../../src/utils/logger')
 jest.setTimeout(30000)
-
-const extraServerConfig: Partial<PluginsServerConfig> = {
-    LOG_LEVEL: 'info',
-}
 
 describe('postgres parity', () => {
     jest.retryTimes(5) // Flakey due to reliance on kafka/clickhouse
@@ -44,7 +40,7 @@ describe('postgres parity', () => {
         teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
 
         // Reset Kafka and ClickHouse for each test to ensure isolation
-        await resetKafka(extraServerConfig)
+        await resetKafka()
         await clickhouse.resetTestDatabase()
 
         await resetTestDatabase()

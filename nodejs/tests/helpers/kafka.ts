@@ -1,6 +1,7 @@
 import { AdminClient, CODES, KafkaConsumer, LibrdKafkaError } from 'node-rdkafka'
 
-import { defaultConfig, overrideWithEnv } from '../../src/config/config'
+import { getDefaultConfigWithEnv } from '~/config/config'
+
 import {
     KAFKA_APP_METRICS,
     KAFKA_APP_METRICS_2,
@@ -28,10 +29,9 @@ import {
     KAFKA_PLUGIN_LOG_ENTRIES,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 } from '../../src/config/kafka-topics'
-import { PluginsServerConfig } from '../../src/types'
 
-export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
-    const config = { ...overrideWithEnv(defaultConfig, process.env), ...extraServerConfig }
+export async function resetKafka(): Promise<void> {
+    const config = getDefaultConfigWithEnv()
 
     const kafkaConfig = {
         'client.id': 'nodejs-test',

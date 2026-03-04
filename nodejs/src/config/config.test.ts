@@ -1,4 +1,76 @@
-import { buildIntegerMatcher, buildStringMatcher, getDefaultConfig, overrideWithEnv } from '../src/config/config'
+import { buildIntegerMatcher, buildStringMatcher, getDefaultConfig, getDefaultConfigWithEnv } from './config'
+import { defineConfig, mergeConfigs } from './define-config'
+
+describe('defineConfig', () => {
+    test('defaults evaluates factory functions', () => {
+        const section = defineConfig({
+            TEST_HOST: () => 'localhost',
+            TEST_PORT: () => 8080,
+            TEST_ENABLED: () => true,
+        })
+
+        expect(section.defaults()).toEqual({
+            TEST_HOST: 'localhost',
+            TEST_PORT: 8080,
+            TEST_ENABLED: true,
+        })
+    })
+
+    test('defaults calls factories lazily on each invocation', () => {
+        let counter = 0
+        const section = defineConfig({
+            TEST_VALUE: () => ++counter,
+        })
+
+        expect(section.defaults().TEST_VALUE).toBe(1)
+        expect(section.defaults().TEST_VALUE).toBe(2)
+    })
+
+    test('nullable types preserve null and undefined defaults', () => {
+        const section = defineConfig({
+            TEST_NULLABLE: (): string | null => null,
+            TEST_OPTIONAL: (): string | undefined => undefined,
+        })
+        const defaults = section.defaults()
+
+        expect(defaults.TEST_NULLABLE).toBeNull()
+        expect(defaults.TEST_OPTIONAL).toBeUndefined()
+    })
+
+    test('mergeConfigs detects duplicate keys', () => {
+        const a = defineConfig({ TEST_DUPE: () => 1 })
+        const b = defineConfig({ TEST_DUPE: () => 2 })
+
+        expect(() => mergeConfigs(a, b)).toThrow('Config key "TEST_DUPE" is defined in multiple config sections')
+    })
+
+    test('overrideWithEnv works with defineConfig-produced defaults', () => {
+        const env = {
+            SESSION_RECORDING_API_REDIS_HOST: 'redis.prod',
+            SESSION_RECORDING_API_REDIS_PORT: '6380',
+        }
+        const overridden = getDefaultConfigWithEnv(env)
+
+        expect(overridden.SESSION_RECORDING_API_REDIS_HOST).toBe('redis.prod')
+        expect(overridden.SESSION_RECORDING_API_REDIS_PORT).toBe(6380)
+    })
+
+    test('all config sections are included in getDefaultConfig', () => {
+        const config = getDefaultConfig()
+
+        // Session recording
+        expect(config.SESSION_RECORDING_API_REDIS_HOST).toBe('127.0.0.1')
+        expect(config.SESSION_RECORDING_LOCAL_DIRECTORY).toBe('.tmp/sessions')
+        // Common
+        expect(config.REDIS_URL).toBe('redis://127.0.0.1')
+        // CDP
+        expect(config.CDP_WATCHER_BUCKET_SIZE).toBe(10000)
+        // Ingestion
+        expect(config.INGESTION_CONCURRENCY).toBe(10)
+        // Logs ingestion
+        expect(config.LOGS_INGESTION_CONSUMER_GROUP_ID).toBe('ingestion-logs')
+    })
+})
 
 describe('config', () => {
     test('overrideWithEnv 1', () => {
@@ -9,7 +81,7 @@ describe('config', () => {
             REDIS_URL: '0.0.0.0',
             BASE_DIR: undefined,
         }
-        const config = overrideWithEnv(getDefaultConfig(), env)
+        const config = getDefaultConfigWithEnv(env)
 
         expect(config.INSTRUMENT_THREAD_PERFORMANCE).toEqual(false)
         expect(config.TASK_TIMEOUT).toEqual(3008)
@@ -22,7 +94,7 @@ describe('config', () => {
             INSTRUMENT_THREAD_PERFORMANCE: '1',
             TASK_TIMEOUT: '3008.12',
         }
-        const config = overrideWithEnv(getDefaultConfig(), env)
+        const config = getDefaultConfigWithEnv(env)
 
         expect(config.INSTRUMENT_THREAD_PERFORMANCE).toEqual(true)
         expect(config.TASK_TIMEOUT).toEqual(3008.12)
@@ -34,7 +106,7 @@ describe('config', () => {
                 DATABASE_URL: '',
                 POSTHOG_DB_NAME: '',
             }
-            expect(() => overrideWithEnv(getDefaultConfig(), env)).toThrow(
+            expect(() => getDefaultConfigWithEnv(env)).toThrow(
                 'You must specify either DATABASE_URL or the database options POSTHOG_DB_NAME, POSTHOG_DB_USER, POSTHOG_DB_PASSWORD, POSTHOG_POSTGRES_HOST, POSTHOG_POSTGRES_PORT!'
             )
         })
@@ -47,7 +119,7 @@ describe('config', () => {
                 POSTHOG_DB_PASSWORD: 'strong?password',
                 POSTHOG_POSTGRES_HOST: 'my.host',
             }
-            const config = overrideWithEnv(getDefaultConfig(), env)
+            const config = getDefaultConfigWithEnv(env)
             expect(config.DATABASE_URL).toEqual('postgres://user1%40domain:strong%3Fpassword@my.host:5432/mydb')
         })
 
@@ -59,7 +131,7 @@ describe('config', () => {
                 POSTHOG_DB_PASSWORD: 'strongpassword',
                 POSTHOG_POSTGRES_HOST: 'my.host',
             }
-            const config = overrideWithEnv(getDefaultConfig(), env)
+            const config = getDefaultConfigWithEnv(env)
             expect(config.DATABASE_URL).toEqual('my_db_url')
         })
     })

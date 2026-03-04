@@ -14,7 +14,7 @@ import { waitForExpect } from '../../tests/helpers/expectations'
 import { resetKafka } from '../../tests/helpers/kafka'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
-import { defaultConfig, overrideWithEnv } from '../config/config'
+import { getDefaultConfigWithEnv } from '../config/config'
 import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
@@ -191,7 +191,7 @@ async function isS3Available(s3Client: S3Client): Promise<boolean> {
  */
 async function isKafkaAvailable(): Promise<boolean> {
     return new Promise((resolve) => {
-        const config = overrideWithEnv(defaultConfig, process.env)
+        const config = getDefaultConfigWithEnv()
         const producer = new HighLevelProducer({
             'metadata.broker.list': config.KAFKA_HOSTS,
             'socket.timeout.ms': 5000,
@@ -222,7 +222,7 @@ async function isKafkaAvailable(): Promise<boolean> {
  * Checks if Postgres is available with the test database.
  */
 async function isPostgresAvailable(): Promise<boolean> {
-    const config = overrideWithEnv(defaultConfig, process.env)
+    const config = getDefaultConfigWithEnv()
     const pg = new PostgresRouter({ ...config, POSTGRES_CONNECTION_POOL_SIZE: 1 })
     try {
         await pg.query(PostgresUse.COMMON_READ, 'SELECT 1', undefined, 'health-check')
