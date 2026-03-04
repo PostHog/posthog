@@ -97,7 +97,7 @@ export function VercelConnect(): JSX.Element {
                 setSuccess(true)
                 setLinking(false)
 
-                const returnUrl = nextUrl || sessionInfo?.next_url
+                const returnUrl = sessionInfo?.next_url || nextUrl
                 if (returnUrl) {
                     window.location.href = returnUrl
                 }
@@ -108,7 +108,7 @@ export function VercelConnect(): JSX.Element {
             })
     }
 
-    const redirectUrl = nextUrl || sessionInfo?.next_url
+    const redirectUrl = sessionInfo?.next_url || nextUrl
 
     if (loading) {
         return (
