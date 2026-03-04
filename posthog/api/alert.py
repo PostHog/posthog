@@ -2,7 +2,7 @@ import dataclasses
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from django.db.models import QuerySet
+from django.db.models import OuterRef, QuerySet, Subquery
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
@@ -120,6 +120,7 @@ class AlertSerializer(serializers.ModelSerializer):
         help_text="User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object.",
     )
     snoozed_until = RelativeDateTimeField(allow_null=True, required=False)
+    last_value = serializers.FloatField(read_only=True, allow_null=True)
 
     class Meta:
         model = AlertConfiguration
@@ -142,6 +143,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "calculation_interval",
             "snoozed_until",
             "skip_weekend",
+            "last_value",
         ]
         read_only_fields = [
             "id",
@@ -294,6 +296,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         filters = self.request.query_params
         if "insight" in filters:
             queryset = queryset.filter(insight_id=filters["insight"])
+
+        latest_check = AlertCheck.objects.filter(alert_configuration=OuterRef("pk")).order_by("-created_at")
+        queryset = queryset.annotate(last_value=Subquery(latest_check.values("calculated_value")[:1]))
+
         return queryset
 
     def retrieve(self, request, *args, **kwargs):
