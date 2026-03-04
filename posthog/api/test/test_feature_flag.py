@@ -2704,7 +2704,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": False})
         assert response.status_code == 200
-        flag.refresh_from_db()
+        flag = FeatureFlag.objects_including_soft_deleted.get(pk=flag.pk)
         assert flag.deleted is False
         assert flag.key == "undo-flag"
 
