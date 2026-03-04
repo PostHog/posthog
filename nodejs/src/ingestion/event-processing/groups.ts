@@ -4,7 +4,11 @@ import { GroupTypeToColumnIndex, ProjectId, TeamId } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 
 export function enrichPropertiesWithGroupTypes(properties: Properties, groupTypes: GroupTypeToColumnIndex): Properties {
-    for (const [groupType, groupIdentifier] of Object.entries(properties.$groups || {})) {
+    const groups = properties.$groups
+    if (typeof groups !== 'object' || groups === null || Array.isArray(groups)) {
+        return properties
+    }
+    for (const [groupType, groupIdentifier] of Object.entries(groups)) {
         if (groupType in groupTypes) {
             // :TODO: Update event column instead
             properties[`$group_${groupTypes[groupType]}`] = groupIdentifier
@@ -19,8 +23,12 @@ export async function addGroupProperties(
     properties: Properties,
     groupTypeManager: GroupTypeManager
 ): Promise<Properties> {
+    const groups = properties.$groups
+    if (typeof groups !== 'object' || groups === null || Array.isArray(groups)) {
+        return properties
+    }
     const resolvedTypes: GroupTypeToColumnIndex = {}
-    for (const [groupType] of Object.entries(properties.$groups || {})) {
+    for (const [groupType] of Object.entries(groups)) {
         const columnIndex = await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType)
         if (columnIndex !== null) {
             resolvedTypes[groupType] = columnIndex

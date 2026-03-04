@@ -37,7 +37,7 @@ export function createProcessGroupsStep<TInput extends ProcessGroupsStepInput>(
                 await updateGroupsAndFirstEvent(teamManager, groupTypeManager, team, preparedEvent)
             } catch (err) {
                 captureException(err, { tags: { team_id: team.id } })
-                logger.warn('⚠️', 'Failed to update property definitions for an event', {
+                logger.warn('⚠️', 'Failed to update groups and first event for event ', {
                     event: preparedEvent.event,
                     properties: preparedEvent.properties,
                     err,
@@ -79,7 +79,7 @@ async function updateGroupsAndFirstEvent(
         return
     }
 
-    const promises: Promise<any>[] = [teamManager.setTeamIngestedEvent(team, preparedEvent.properties)]
+    const promises: Promise<unknown>[] = [teamManager.setTeamIngestedEvent(team, preparedEvent.properties)]
 
     if (preparedEvent.event === '$groupidentify') {
         const { $group_type: groupType, $group_set: groupPropertiesToSet } = preparedEvent.properties

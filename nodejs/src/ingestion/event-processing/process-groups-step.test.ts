@@ -126,6 +126,50 @@ describe('createProcessGroupsStep', () => {
         expect(mockGroupStore.upsertGroup).toHaveBeenCalledWith(1, 1, 0, 'org::5', { foo: 'bar' }, expect.any(DateTime))
     })
 
+    it.each([
+        {
+            desc: 'missing $group_type',
+            properties: { $group_key: 'org::5', $group_set: { foo: 'bar' } },
+        },
+        {
+            desc: 'missing $group_key',
+            properties: { $group_type: 'organization', $group_set: { foo: 'bar' } },
+        },
+    ])('does not call upsertGroup for $groupidentify when $desc', async ({ properties }) => {
+        mockGroupTypeManager.fetchGroupTypeIndex.mockResolvedValue(0)
+
+        const step = createStep()
+        const result = await step(
+            createInput({
+                preparedEvent: createTestPreIngestionEvent({ event: '$groupidentify', properties }),
+            })
+        )
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        expect(mockGroupStore.upsertGroup).not.toHaveBeenCalled()
+    })
+
+    it('does not call upsertGroup when group type index is null', async () => {
+        mockGroupTypeManager.fetchGroupTypeIndex.mockResolvedValue(null)
+
+        const step = createStep()
+        const result = await step(
+            createInput({
+                preparedEvent: createTestPreIngestionEvent({
+                    event: '$groupidentify',
+                    properties: {
+                        $group_type: 'organization',
+                        $group_key: 'org::5',
+                        $group_set: { foo: 'bar' },
+                    },
+                }),
+            })
+        )
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        expect(mockGroupStore.upsertGroup).not.toHaveBeenCalled()
+    })
+
     it('does not call upsertGroup for non-$groupidentify events', async () => {
         const step = createStep()
         await step(createInput())
