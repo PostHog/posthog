@@ -11,6 +11,8 @@ describe('utils', () => {
             ['truncates to max length', 'a'.repeat(1500), 'a'.repeat(1000)],
             ['trims whitespace', '  spaces  ', 'spaces'],
             ['strips then trims', '\x00  hello  \x1f', 'hello'],
+            ['whitespace only is undefined', ' ', undefined],
+            ['undefined is undefined', undefined, undefined],
         ])('%s', (_name, input, expected) => {
             expect(sanitizeUserAgent(input)).toBe(expected)
         })

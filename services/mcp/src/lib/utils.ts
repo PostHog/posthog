@@ -15,12 +15,16 @@ export function formatPrompt(template: string, vars: Record<string, string>): st
 
 const MAX_USER_AGENT_LENGTH = 1000
 
-export function sanitizeUserAgent(userAgent: string): string {
+export function sanitizeUserAgent(userAgent?: string): string | undefined {
+    if (!userAgent) {
+        return undefined
+    }
     // Strip control characters, then trim and truncate
-    return userAgent
+    const sanitised = userAgent
         .replace(/[\x00-\x1f\x7f]/g, '')
         .trim()
         .slice(0, MAX_USER_AGENT_LENGTH)
+    return sanitised || undefined
 }
 
 export function getSearchParamsFromRecord(

@@ -203,7 +203,7 @@ const handleRequest = async (
     const projectId = request.headers.get('x-posthog-project-id') || url.searchParams.get('project_id') || undefined
 
     const rawUserAgent = request.headers.get('User-Agent') || undefined
-    const clientUserAgent = rawUserAgent ? sanitizeUserAgent(rawUserAgent) : undefined
+    const clientUserAgent = sanitizeUserAgent(rawUserAgent)
 
     Object.assign(ctx.props, {
         apiToken: token,

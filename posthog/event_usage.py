@@ -292,7 +292,7 @@ MAX_USER_AGENT_LENGTH = 1000
 def _sanitize_user_agent(value: str | None) -> str | None:
     if not value:
         return None
-    return re.sub(r"[\x00-\x1f\x7f]", "", value).strip()[:MAX_USER_AGENT_LENGTH]
+    return re.sub(r"[\x00-\x1f\x7f]", "", value).strip()[:MAX_USER_AGENT_LENGTH] or None
 
 
 def get_request_analytics_properties(request) -> dict[str, str | bool | None]:

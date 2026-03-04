@@ -107,6 +107,7 @@ class TestSanitizeUserAgent(BaseTest):
             ("truncates_to_max_length", "a" * 1500, "a" * 1000),
             ("strips_whitespace", "  spaces  ", "spaces"),
             ("empty_string_returns_none", "", None),
+            ("whitespace_only_returns_none", " ", None),
             ("none_returns_none", None, None),
         ]
     )
