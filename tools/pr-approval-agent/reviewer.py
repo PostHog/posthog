@@ -80,13 +80,12 @@ REVIEWER_SYSTEM = textwrap.dedent(
       - Fine: typo fixes, log strings, test fixes, comments, mechanical refactors
       - ESCALATE: behavioral changes to business logic, API contracts, data models
 
-    Review comments:
+    Review comments (inline feedback only, approval states are hidden):
     - Substantive comments unresolved by the current diff → REFUSE
     - Bot comments with valid concerns that were ignored → ESCALATE
-    - Pure approval comments can be ignored
 
-    Tools: You have Read, Grep, Glob, and Bash. All PR metadata (reviews,
-    comments, ownership) is in the prompt — do NOT fetch from GitHub.
+    Tools: You have Read, Grep, Glob, and Bash. All PR metadata (comments,
+    ownership) is in the prompt — do NOT fetch from GitHub.
     1. Run the git diff command to see what changed
     2. Read source files only if something looks off
     3. ESCALATE if you'd need deep review to feel confident
@@ -181,11 +180,6 @@ class Reviewer:
                 lines.append(f"  - @{c['user']}{reply} on {c['path']}: {c['body'][:500]}")
             review_comments = "\n\nReview comments:\n" + "\n".join(lines)
 
-        review_states = ""
-        if pr.reviews:
-            lines = [f"  - @{r['user']}: {r['state']}" for r in pr.reviews]
-            review_states = "\nReview states:\n" + "\n".join(lines)
-
         ownership = self._format_ownership(cl)
 
         gate_lines = []
@@ -218,7 +212,6 @@ class Reviewer:
 
             Changed files:
             {chr(10).join(f"  {f['filename']} (+{f['additions']}/-{f['deletions']})" for f in pr.files)}
-            {review_states}
             {review_comments}
 
             To see the diff, run: git diff {pr.base_sha}..{pr.head_sha}

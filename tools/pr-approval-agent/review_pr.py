@@ -20,11 +20,14 @@ Requires `gh` CLI authenticated and ANTHROPIC_API_KEY in env.
 """
 
 import json
+import time
 import argparse
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from gates import (
+    MAX_FILES,
+    MAX_LINES,
     assign_tier,
     classify_files,
     detect_deny_categories,
@@ -134,35 +137,14 @@ class Pipeline:
 
     def _fetch(self) -> None:
         print(_dim("Fetching PR data..."))
-        self.pr = fetch_pr(self.pr_number, self.repo)
+        self.pr = fetch_pr(self.pr_number, self.repo, repo_root=REPO_ROOT)
         print(_dim(f"  {self.pr.title}"))
         print(
             _dim(
                 f"  by @{self.pr.author} | {self.pr.state} | {len(self.pr.files)} files | {len(self.pr.review_comments)} comments"
             )
         )
-        self._ensure_commits()
         print()
-
-    def _ensure_commits(self) -> None:
-        """Fetch PR commits if not available locally (e.g. squash-merged PRs)."""
-        import subprocess
-
-        result = subprocess.run(
-            ["git", "cat-file", "-t", self.pr.head_sha],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            return
-        print(_dim(f"  Fetching PR ref (commits not local)..."))
-        subprocess.run(
-            ["git", "fetch", "origin", f"pull/{self.pr.number}/head"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            timeout=30,
-        )
 
     def _classify(self) -> None:
         pr = self.pr
@@ -215,6 +197,7 @@ class Pipeline:
         gates = [
             ("prerequisites", self._check_prerequisites),
             ("deny-list", self._check_deny_list),
+            ("size", self._check_size),
             ("tier", self._check_tier),
         ]
         for name, check in gates:
@@ -292,6 +275,13 @@ class Pipeline:
         self.classification["author_on_owning_team"] = len(author_teams) > 0
         return self.classification["ownership_summary"]
 
+    def _check_size(self) -> tuple[bool, str]:
+        lines = self.pr.lines_total
+        files = len(self.pr.files)
+        if lines > MAX_LINES or files > MAX_FILES:
+            return False, f"too large for auto-review ({lines}L, {files}F — ceiling is {MAX_LINES}L / {MAX_FILES}F)"
+        return True, f"{lines}L, {files}F within ceiling"
+
     def _check_tier(self) -> tuple[bool, str]:
         cl = self.classification
         tier_label = cl["tier"]
@@ -315,11 +305,29 @@ class Pipeline:
         }
 
         print(_dim("  Calling reviewer..."))
-        self.reviewer_output = reviewer.review(
-            self.pr,
-            self.classification,
-            gate_context,
-        )
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.reviewer_output = reviewer.review(
+                    self.pr,
+                    self.classification,
+                    gate_context,
+                )
+                break
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait = 2 ** (attempt + 1)
+                    print(_warn(f"Reviewer failed (attempt {attempt + 1}/{max_retries}): {e}"))
+                    print(_dim(f"  Retrying in {wait}s..."))
+                    time.sleep(wait)
+                else:
+                    print(_fail(f"Reviewer failed after {max_retries} attempts: {e}"))
+                    self.reviewer_output = {
+                        "verdict": "ESCALATE",
+                        "reasoning": f"Review agent failed after {max_retries} attempts — needs human review.",
+                        "risk": "unknown",
+                        "issues": [str(e)],
+                    }
 
         llm_verdict = self.reviewer_output.get("verdict", "UNKNOWN")
         print(f"  Verdict: {llm_verdict}")

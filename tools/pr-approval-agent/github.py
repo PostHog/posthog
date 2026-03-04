@@ -1,12 +1,14 @@
-"""GitHub data fetching via gh CLI.
+"""GitHub data fetching via gh CLI + local git.
 
-Fetches PR metadata, files, reviews, comments, check runs, and diffs.
+File stats come from the local checkout (git diff --numstat), everything
+else (PR metadata, reviews, comments, check runs) from the GitHub API.
 Also handles team membership checks for the ownership gate.
 """
 
 import json
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -45,26 +47,75 @@ class PRData:
         return self.lines_added + self.lines_deleted
 
 
-def _gh_api(endpoint: str, paginate: bool = False) -> dict | list:
+def _gh_api(endpoint: str) -> dict | list:
     cmd = ["gh", "api", endpoint]
-    if paginate:
-        cmd.append("--paginate")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     if result.returncode != 0:
         raise RuntimeError(f"gh api {endpoint} failed: {result.stderr.strip()}")
     return json.loads(result.stdout)
 
 
-def fetch_pr(pr_number: int, repo: str) -> PRData:
-    """Fetch all PR data needed for review in parallel-ish gh api calls."""
+def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path) -> list[dict]:
+    """Get changed files with line counts from the local checkout."""
+    result = subprocess.run(
+        ["git", "diff", "--numstat", f"{base_sha}...{head_sha}"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=repo_root,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"git diff --numstat failed: {result.stderr.strip()}")
+
+    files = []
+    for line in result.stdout.strip().splitlines():
+        if not line:
+            continue
+        parts = line.split("\t", 2)
+        if len(parts) != 3:
+            continue
+        added, deleted, filename = parts
+        files.append(
+            {
+                "filename": filename,
+                "additions": int(added) if added != "-" else 0,
+                "deletions": int(deleted) if deleted != "-" else 0,
+            }
+        )
+    return files
+
+
+def ensure_commits(pr_number: int, head_sha: str, repo_root: Path) -> None:
+    """Fetch PR commits if not available locally."""
+    result = subprocess.run(
+        ["git", "cat-file", "-t", head_sha],
+        cwd=repo_root,
+        capture_output=True,
+        timeout=5,
+    )
+    if result.returncode == 0:
+        return
+    subprocess.run(
+        ["git", "fetch", "origin", f"pull/{pr_number}/head"],
+        cwd=repo_root,
+        capture_output=True,
+        timeout=30,
+    )
+
+
+def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData:
+    """Fetch PR data: metadata from API, file stats from local git."""
     pr = _gh_api(f"repos/{repo}/pulls/{pr_number}")
-    files_raw = _gh_api(f"repos/{repo}/pulls/{pr_number}/files")
     reviews_raw = _gh_api(f"repos/{repo}/pulls/{pr_number}/reviews")
     comments_raw = _gh_api(f"repos/{repo}/pulls/{pr_number}/comments")
 
     base_sha = pr["base"]["sha"]
     head_sha = pr["head"]["sha"]
     check_runs_resp = _gh_api(f"repos/{repo}/commits/{head_sha}/check-runs")
+
+    git_root = repo_root or Path.cwd()
+    ensure_commits(pr_number, head_sha, git_root)
+    files = _git_diff_files(base_sha, head_sha, git_root)
 
     return PRData(
         number=pr_number,
@@ -77,16 +128,7 @@ def fetch_pr(pr_number: int, repo: str) -> PRData:
         labels=[label["name"] for label in pr.get("labels", [])],
         base_sha=base_sha,
         head_sha=head_sha,
-        files=[
-            {
-                "filename": f["filename"],
-                "additions": f.get("additions", 0),
-                "deletions": f.get("deletions", 0),
-                "status": f.get("status", ""),
-                "patch": f.get("patch", ""),
-            }
-            for f in files_raw
-        ],
+        files=files,
         reviews=[
             {
                 "user": r["user"]["login"],
@@ -94,6 +136,7 @@ def fetch_pr(pr_number: int, repo: str) -> PRData:
                 "body": r.get("body", ""),
             }
             for r in reviews_raw
+            if r.get("author_association") in ("MEMBER", "OWNER", "COLLABORATOR", "BOT")
         ],
         review_comments=[
             {
@@ -104,6 +147,7 @@ def fetch_pr(pr_number: int, repo: str) -> PRData:
                 "in_reply_to_id": c.get("in_reply_to_id"),
             }
             for c in comments_raw
+            if c.get("author_association") in ("MEMBER", "OWNER", "COLLABORATOR", "BOT")
         ],
         check_runs=check_runs_resp.get("check_runs", []),
     )

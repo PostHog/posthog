@@ -2,19 +2,25 @@ name: PR Approval Agent
 
 on:
     pull_request:
-        types: [labeled]
+        types: [labeled, ready_for_review]
 
 permissions:
     contents: read
-    pull-requests: write
+    pull-requests: read
+
+concurrency:
+    group: pr-approval-${{ github.event.pull_request.number }}
 
 jobs:
     review:
         # Only run on the "stamphog" label, for non-draft PRs by org members
         if: >-
-            github.event.label.name == 'stamphog'
-            && !github.event.pull_request.draft
+            !github.event.pull_request.draft
             && contains(fromJSON('["MEMBER","OWNER"]'), github.event.pull_request.author_association)
+            && (
+              github.event.label.name == 'stamphog'
+              || (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
+            )
         runs-on: depot-ubuntu-latest
         timeout-minutes: 10
 
@@ -39,7 +45,7 @@ jobs:
               run: git fetch origin pull/${{ github.event.pull_request.number }}/head
 
             - name: Install uv
-              uses: astral-sh/setup-uv@v6
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
 
             - name: Run review
               env:
@@ -52,6 +58,7 @@ jobs:
                     --output-json /tmp/review.json
 
             - name: Post review
+              if: success()
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
@@ -66,6 +73,15 @@ jobs:
                     gh pr review "$PR" --comment --body "$REASONING" \
                       --repo ${{ github.repository }}
                   fi
+
+            - name: Post failure notice
+              if: failure()
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  gh pr comment "${{ github.event.pull_request.number }}" \
+                    --body "Review agent failed — check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) and re-apply the label to retry." \
+                    --repo ${{ github.repository }}
 
             - name: Remove label
               if: always()

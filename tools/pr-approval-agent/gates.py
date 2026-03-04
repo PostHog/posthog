@@ -144,9 +144,15 @@ def parse_conventional_commit(subject: str) -> dict:
 # ── File classification ──────────────────────────────────────────
 
 
+_TEST_FILE_RE = re.compile(
+    r"(?:^|/)(?:__tests__|tests?)/|[_.](?:test|spec)\.[^/]+$|_test\.py$",
+    re.IGNORECASE,
+)
+
+
 def classify_path(path: str) -> str:
     low = path.lower()
-    if any(t in low for t in ("test", "__tests__", "_test.py", ".test.ts", ".test.tsx", ".spec.")):
+    if _TEST_FILE_RE.search(low):
         return "test"
     if low.endswith(".md"):
         return "docs"
@@ -226,7 +232,8 @@ def has_dependency_changes(files: list[str]) -> bool:
         "go.mod",
         "go.sum",
     }
-    return any(Path(f).name.lower() in dep_files for f in files)
+    dep_files_lower = {d.lower() for d in dep_files}
+    return any(Path(f).name.lower() in dep_files_lower for f in files)
 
 
 def has_ci_workflow_changes(files: list[str]) -> bool:
@@ -241,7 +248,7 @@ def is_allow_listed_only(files: list[str]) -> bool:
         ext = Path(low).suffix
         if ext in ALLOW_ONLY_EXTENSIONS:
             continue
-        if any(p in low for p in ALLOW_PATH_PATTERNS):
+        if any(p.lower() in low for p in ALLOW_PATH_PATTERNS):
             continue
         return False
     return True
@@ -326,6 +333,10 @@ def detect_ownership(files: list[str], rules: list[CodeownersRule]) -> dict:
 
 
 # ── Tier assignment ──────────────────────────────────────────────
+
+
+MAX_LINES = 500
+MAX_FILES = 20
 
 
 def assign_tier(
