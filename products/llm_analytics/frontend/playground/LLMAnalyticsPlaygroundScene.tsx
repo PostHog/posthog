@@ -209,25 +209,15 @@ function SubscriptionRequiredBanner(): JSX.Element | null {
 }
 
 function PlaygroundLayout(): JSX.Element {
-    const { sourceSetupLoading } = useValues(llmPlaygroundPromptsLogic)
-
     return (
         <div className="flex flex-1 min-h-0 flex-col gap-4">
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
 
             <section className="rounded overflow-hidden min-h-0 flex flex-1 flex-col bg-transparent">
-                {sourceSetupLoading ? (
-                    <div className="h-full min-h-0 p-4 space-y-3">
-                        <LemonSkeleton className="h-8 w-56" />
-                        <LemonSkeleton className="h-28 w-full" />
-                        <LemonSkeleton className="h-28 w-full" />
-                    </div>
-                ) : (
-                    <div className="h-full min-h-0 overflow-y-auto">
-                        <PromptConfigsSection />
-                    </div>
-                )}
+                <div className="h-full min-h-0 overflow-y-auto">
+                    <PromptConfigsSection />
+                </div>
             </section>
         </div>
     )
@@ -401,7 +391,7 @@ function PromptResultCard({ prompt, item }: { prompt: PromptConfig; item?: Compa
                     )}
                     {!!item.toolCalls?.length && (
                         <div className="mt-2 space-y-2 overflow-y-auto max-h-40">
-                            {item.toolCalls.map((toolCall) => (
+                            {item.toolCalls?.map((toolCall) => (
                                 <div key={toolCall.id} className="rounded border bg-surface-primary p-2">
                                     <div className="text-[11px] font-medium">
                                         {toolCall.name || 'tool_call'}{' '}
@@ -430,13 +420,13 @@ function PromptResultCard({ prompt, item }: { prompt: PromptConfig; item?: Compa
                                     type="secondary"
                                     size="xsmall"
                                     disabledReason={
-                                        !item.toolCalls.some((tool) => (toolResultsByCallId[tool.id] ?? '').trim())
+                                        !item.toolCalls?.some((tool) => (toolResultsByCallId[tool.id] ?? '').trim())
                                             ? 'Add at least one tool result'
                                             : undefined
                                     }
                                     onClick={() =>
                                         setPendingToolResults(
-                                            item.toolCalls
+                                            (item.toolCalls ?? [])
                                                 .filter(
                                                     (tool) => (toolResultsByCallId[tool.id] ?? '').trim().length > 0
                                                 )
