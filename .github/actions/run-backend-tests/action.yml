@@ -62,7 +62,7 @@ runs:
                   echo "Attempt $attempt of $max_attempts to start stack..."
 
                   if docker compose -f docker-compose.dev.yml down && \
-                     docker compose -f docker-compose.dev.yml up -d && \
+                     docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d && \
                      bin/wait-for-docker; then
                       echo "Stack started successfully"
                       exit 0
