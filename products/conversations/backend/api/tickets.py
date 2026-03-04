@@ -230,7 +230,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if tags_param:
             try:
                 tags_list = json.loads(tags_param)
-                if tags_list:
+                if isinstance(tags_list, list) and tags_list:
                     queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
             except json.JSONDecodeError:
                 pass

@@ -314,7 +314,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     status !== ticket.status ||
                     priority !== ticket.priority ||
                     JSON.stringify(assignee) !== JSON.stringify(ticket.assignee) ||
-                    JSON.stringify(tags) !== JSON.stringify(ticket.tags || [])
+                    JSON.stringify([...tags].sort()) !== JSON.stringify([...(ticket.tags || [])].sort())
                 )
             },
         ],
