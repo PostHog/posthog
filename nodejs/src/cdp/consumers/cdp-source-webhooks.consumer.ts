@@ -457,7 +457,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             : await this.executeHogFunction(req, hogFunction, hogFunctionState)
 
         void this.promiseScheduler.schedule(
-            Promise.all([this.hogFunctionMonitoringService.flush(), this.hogWatcher.observeResultsBuffered(result)])
+            this.hogFunctionMonitoringService.flush(),
+            this.hogWatcher.observeResultsBuffered(result)
         )
 
         return result
