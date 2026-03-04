@@ -22,7 +22,7 @@ from posthog.batch_exports.models import BatchExport, BatchExportBackfill, Batch
 from posthog.batch_exports.service import (
     BackfillBatchExportInputs,
     BackfillDetails,
-    create_batch_export_backfill,
+    acreate_batch_export_backfill,
     unpause_batch_export,
     update_batch_export_backfill,
 )
@@ -60,6 +60,7 @@ class CreateBatchExportBackfillInputs:
     start_at: str | None
     end_at: str | None
     status: str
+    backfill_id: str | None = None
 
 
 @temporalio.activity.defn
@@ -70,12 +71,13 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
     model instance to represent them in our database.
     """
 
-    backfill = await database_sync_to_async(create_batch_export_backfill)(
+    backfill = await acreate_batch_export_backfill(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
         end_at=inputs.end_at,
         status=inputs.status,
         team_id=inputs.team_id,
+        backfill_id=inputs.backfill_id,
     )
 
     return str(backfill.id)
@@ -678,6 +680,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                 start_at=inputs.start_at,
                 end_at=inputs.end_at,
                 status=BatchExportBackfill.Status.STARTING,
+                backfill_id=inputs.backfill_id,
             ),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(

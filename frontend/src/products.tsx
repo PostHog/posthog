@@ -799,8 +799,9 @@ export const productUrls = {
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
-    surveyWizard: (id: string = 'new'): string => `/surveys/guided/${id}`,
     surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
+    surveyWizard: (id: string = 'new', template?: string): string =>
+        `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,
     taskTracker: (): string => '/tasks',
     taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
     toolbarLaunch: (): string => '/toolbar',
