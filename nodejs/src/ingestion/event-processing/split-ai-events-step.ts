@@ -2,7 +2,7 @@ import { ProcessedEvent } from '../../types'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 import { EventToEmit } from './emit-event-step'
-import { AI_EVENTS_OUTPUT } from './ingestion-outputs'
+import { AI_EVENTS_OUTPUT, AiEventOutput, EventOutput } from './ingestion-outputs'
 
 const LARGE_AI_PROPERTIES = new Set([
     '$ai_input',
@@ -19,18 +19,17 @@ export interface SplitAiEventsStepConfig {
     enabledTeams: Set<number> | '*'
 }
 
-export interface SplitAiEventsStepInput<O extends string = string> {
-    eventsToEmit: EventToEmit<O>[]
+export interface SplitAiEventsStepInput {
+    eventsToEmit: EventToEmit<EventOutput>[]
     teamId: number
 }
 
-function maybeStripAiProperties<O extends string>(entry: EventToEmit<O>): EventToEmit<O | typeof AI_EVENTS_OUTPUT>[] {
-    if (entry.output === AI_EVENTS_OUTPUT) {
-        return [entry]
-    }
+export type SplitAiEventsStepOutput = Omit<SplitAiEventsStepInput, 'eventsToEmit'> & {
+    eventsToEmit: EventToEmit<EventOutput | AiEventOutput>[]
+}
 
+function maybeStripAiProperties(entry: EventToEmit<EventOutput>): EventToEmit<EventOutput | AiEventOutput>[] {
     const properties = entry.event.properties ?? {}
-
     let hasLarge = false
     for (const key of LARGE_AI_PROPERTIES) {
         if (key in properties) {
@@ -71,9 +70,9 @@ export function parseSplitAiEventsConfig(enabled: boolean, teamsStr: string): Sp
     return { enabled, enabledTeams }
 }
 
-export function createSplitAiEventsStep<O extends string, T extends SplitAiEventsStepInput<O>>(
+export function createSplitAiEventsStep<T extends SplitAiEventsStepInput>(
     config: SplitAiEventsStepConfig
-): ProcessingStep<T, T> {
+): ProcessingStep<T, T & SplitAiEventsStepOutput> {
     return function splitAiEventsStep(input) {
         if (!config.enabled || (config.enabledTeams !== '*' && !config.enabledTeams.has(input.teamId))) {
             return Promise.resolve(ok(input))

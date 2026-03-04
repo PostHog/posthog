@@ -13,7 +13,7 @@ import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
-import { EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
+import { AiEventOutput, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
@@ -42,7 +42,7 @@ export interface JoinedIngestionPipelineConfig {
     personsPrefetchEnabled: boolean
     cdpHogWatcherSampleRate: number
     groupId: string
-    outputs: IngestionOutputs<EventOutput>
+    outputs: IngestionOutputs<EventOutput | AiEventOutput>
     splitAiEventsConfig: SplitAiEventsStepConfig
     perDistinctIdOptions: EventPipelineRunnerOptions & {
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string

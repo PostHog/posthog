@@ -42,7 +42,6 @@ export interface EventSubpipelineConfig {
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     kafkaProducer: KafkaProducerWrapper
-    outputs: IngestionOutputs<EventOutput>
     groupId: string
     topHog: TopHogWrapper
 }
@@ -60,7 +59,6 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         personsStore,
         groupStore,
         kafkaProducer,
-        outputs,
         groupId,
         topHog,
     } = config

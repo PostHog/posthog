@@ -10,7 +10,7 @@ import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { AI_EVENT_TYPES } from '../ai'
 import { AiEventSubpipelineInput, createAiEventSubpipeline } from '../ai/pipelines/ai-event-subpipeline'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
-import { EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
+import { AiEventOutput, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper } from '../pipelines/extensions/tophog'
@@ -30,7 +30,7 @@ export interface PerDistinctIdPipelineConfig {
     options: EventPipelineRunnerOptions & {
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
-    outputs: IngestionOutputs<EventOutput>
+    outputs: IngestionOutputs<EventOutput | AiEventOutput>
     splitAiEventsConfig: SplitAiEventsStepConfig
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager

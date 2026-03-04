@@ -164,21 +164,6 @@ describe('split-ai-events-step', () => {
             expect(eventsToEmit[0].output).toBe(EVENTS_OUTPUT)
         })
 
-        it('should skip events already destined for the AI output', async () => {
-            const event = createProcessedEvent({ $ai_input: 'large input' })
-
-            const result = await step({ eventsToEmit: [{ event, output: AI_EVENTS_OUTPUT }], teamId: 1 })
-            expect(isOkResult(result)).toBe(true)
-            if (!isOkResult(result)) {
-                return
-            }
-
-            const { eventsToEmit } = result.value
-            expect(eventsToEmit).toHaveLength(1)
-            expect(eventsToEmit[0].event).toBe(event)
-            expect(eventsToEmit[0].output).toBe(AI_EVENTS_OUTPUT)
-        })
-
         it('should handle multiple events independently', async () => {
             const aiEvent = createProcessedEvent({ $ai_input: 'large', $ai_model: 'gpt-4' }, { uuid: 'ai-1' })
             const regularEvent = createProcessedEvent({ $browser: 'Chrome' }, { uuid: 'regular-1', event: '$pageview' })

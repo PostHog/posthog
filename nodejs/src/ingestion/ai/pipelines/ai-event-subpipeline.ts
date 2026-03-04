@@ -13,7 +13,7 @@ import { createCreateEventStep } from '../../event-processing/create-event-step'
 import { createEmitEventStep } from '../../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../../event-processing/event-pipeline-options'
 import { createHogTransformEventStep } from '../../event-processing/hog-transform-event-step'
-import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../../event-processing/ingestion-outputs'
+import { AiEventOutput, EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../../event-processing/ingestion-outputs'
 import { createNormalizeEventStep } from '../../event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '../../event-processing/normalize-process-person-flag-step'
 import { createPrepareEventStep } from '../../event-processing/prepare-event-step'
@@ -34,7 +34,7 @@ export interface AiEventSubpipelineInput {
 
 export interface AiEventSubpipelineConfig {
     options: EventPipelineRunnerOptions
-    outputs: IngestionOutputs<EventOutput>
+    outputs: IngestionOutputs<EventOutput | AiEventOutput>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService

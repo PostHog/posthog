@@ -36,7 +36,7 @@ import {
     createJoinedIngestionPipeline,
 } from './analytics'
 import { CookielessManager } from './cookieless/cookieless-manager'
-import { EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
@@ -220,6 +220,10 @@ export class IngestionConsumer {
         const outputs = new IngestionOutputs({
             [EVENTS_OUTPUT]: {
                 topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                producer: this.kafkaProducer!,
+            },
+            [AI_EVENTS_OUTPUT]: {
+                topic: this.config.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC,
                 producer: this.kafkaProducer!,
             },
         })
