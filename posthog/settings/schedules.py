@@ -131,3 +131,32 @@ REALTIME_COHORT_CALCULATION_P50_P80_PARALLELISM: int = get_from_env(
     10,
     type_cast=int,
 )
+
+# P80-P90 configuration (previously used module defaults)
+REALTIME_COHORT_CALCULATION_P80_P90_BATCH_DELAY_MINUTES: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P80_P90_BATCH_DELAY_MINUTES",
+    5,
+    type_cast=int,
+)
+REALTIME_COHORT_CALCULATION_P80_P90_PARALLELISM: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P80_P90_PARALLELISM",
+    6,
+    type_cast=int,
+)
+
+# Workflows per batch settings for different percentile ranges
+REALTIME_COHORT_CALCULATION_P0_P50_WORKFLOWS_PER_BATCH: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P0_P50_WORKFLOWS_PER_BATCH",
+    5,
+    type_cast=int,
+)
+REALTIME_COHORT_CALCULATION_P50_P80_WORKFLOWS_PER_BATCH: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P50_P80_WORKFLOWS_PER_BATCH",
+    5,
+    type_cast=int,
+)
+REALTIME_COHORT_CALCULATION_P80_P90_WORKFLOWS_PER_BATCH: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P80_P90_WORKFLOWS_PER_BATCH",
+    2,
+    type_cast=int,
+)

@@ -1224,8 +1224,8 @@ class TestCoordinatorWorkflowInsufficientData:
             )
 
     @pytest.mark.asyncio
-    async def test_coordinator_continues_p0_p90_schedule_when_insufficient_data(self):
-        """Should continue processing for p0-p90 schedule even when no duration data exists."""
+    async def test_coordinator_continues_when_insufficient_duration_data(self):
+        """Should continue processing even when no duration data exists for percentile filtering."""
         from unittest.mock import AsyncMock
 
         # Import the coordinator workflow
@@ -1255,7 +1255,7 @@ class TestCoordinatorWorkflowInsufficientData:
             ]
 
             inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
-                duration_percentile_min=0.0,  # p0-p90 schedule
+                duration_percentile_min=0.0,  # Test with wide percentile range
                 duration_percentile_max=90.0,
             )
 
