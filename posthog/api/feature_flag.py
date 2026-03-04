@@ -1230,7 +1230,9 @@ class FeatureFlagSerializer(
                 candidate = original_key
                 counter = 2
                 while (
-                    FeatureFlag.objects.filter(key=candidate, team__project_id=self.context["project_id"])
+                    FeatureFlag.objects_including_soft_deleted.filter(
+                        key=candidate, team__project_id=self.context["project_id"]
+                    )
                     .exclude(pk=instance.pk)
                     .exists()
                 ):
