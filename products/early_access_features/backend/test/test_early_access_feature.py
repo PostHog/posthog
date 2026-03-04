@@ -6,6 +6,7 @@ from unittest.mock import ANY, patch
 from django.core.cache import cache
 from django.test.client import Client
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import FeatureFlag, Person
@@ -63,8 +64,15 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["feature_flag"]["filters"].get("super_groups", None)
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
 
-    def test_promote_concept_to_alpha_adds_super_groups(self):
-        """Promoting from CONCEPT to ALPHA should add super_groups (enabling flag for opted-in users)."""
+    @parameterized.expand(
+        [
+            (EarlyAccessFeature.Stage.ALPHA,),
+            (EarlyAccessFeature.Stage.BETA,),
+            (EarlyAccessFeature.Stage.GENERAL_AVAILABILITY,),
+        ]
+    )
+    def test_promote_concept_to_active_stage_adds_super_groups(self, target_stage):
+        """Promoting from CONCEPT to any active stage should add super_groups."""
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={
@@ -77,7 +85,6 @@ class TestEarlyAccessFeature(APIBaseTest):
         response_data = response.json()
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
-        # CONCEPT should not have super_groups
         assert not response_data["feature_flag"]["filters"].get("super_groups", None)
 
         feature_id = response_data["id"]
@@ -85,45 +92,14 @@ class TestEarlyAccessFeature(APIBaseTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
             data={
-                "stage": EarlyAccessFeature.Stage.ALPHA,
+                "stage": target_stage,
             },
             format="json",
         )
         response_data = response.json()
 
         assert response.status_code == status.HTTP_200_OK, response_data
-        assert response_data["stage"] == EarlyAccessFeature.Stage.ALPHA
-        # Now ALPHA should have super_groups
-        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
-
-    def test_promote_concept_to_beta(self):
-        """Promoting from CONCEPT to BETA should add super_groups."""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/early_access_feature/",
-            data={
-                "name": "Hick bondoogling",
-                "description": 'Boondoogle your hicks with one click. Just click "bazinga"!',
-                "stage": "concept",
-            },
-            format="json",
-        )
-        response_data = response.json()
-
-        assert response.status_code == status.HTTP_201_CREATED, response_data
-
-        feature_id = response_data["id"]
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
-            data={
-                "stage": EarlyAccessFeature.Stage.BETA,
-            },
-            format="json",
-        )
-        response_data = response.json()
-
-        assert response.status_code == status.HTTP_200_OK, response_data
-        assert response_data["stage"] == EarlyAccessFeature.Stage.BETA
+        assert response_data["stage"] == target_stage
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
 
     def test_demote_alpha_to_concept_removes_super_groups(self):
