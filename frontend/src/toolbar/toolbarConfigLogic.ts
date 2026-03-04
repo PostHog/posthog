@@ -8,7 +8,7 @@ import { ToolbarProps } from '~/types'
 
 import { withTokenRefresh } from './toolbarAuth'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
-import { generatePKCE, LOCALSTORAGE_KEY, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY } from './utils'
+import { cleanToolbarAuthHash, generatePKCE, LOCALSTORAGE_KEY, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY } from './utils'
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
@@ -121,7 +121,11 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 lemonToast.error('Failed to start authentication. Ensure you are on a secure (HTTPS) page.')
                 return
             }
-            sessionStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({ verifier, ts: Date.now() }))
+            const pkcePayload = JSON.stringify({ verifier, ts: Date.now() })
+            sessionStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
+            // Also store in localStorage as a fallback: some browsers (Safari ITP,
+            // mobile) may discard sessionStorage during cross-origin redirects.
+            localStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
 
             const redirect = encodeURIComponent(window.location.href)
             const codeChallenge = encodeURIComponent(challenge)
@@ -131,6 +135,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             toolbarPosthogJS.capture('toolbar logout')
             localStorage.removeItem(LOCALSTORAGE_KEY)
             localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
+            localStorage.removeItem(PKCE_STORAGE_KEY)
             sessionStorage.removeItem(PKCE_STORAGE_KEY)
         },
         tokenExpired: () => {
@@ -179,32 +184,20 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     })),
 
     afterMount(({ props, values, actions }) => {
-        // Handle authorization code from redirect fallback (URL hash).
-        // Decode the hash: browsers and proxies may percent-encode the fragment
-        // delimiters (: and ,), so the regex must run against the decoded string.
-        let hash: string
-        try {
-            hash = decodeURIComponent(window.location.hash)
-        } catch {
-            hash = window.location.hash
-        }
-        const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^&#]+)/)
-        if (codeMatch) {
-            const code = codeMatch[1]
-            const clientId = codeMatch[2]
-            const cleanHash = hash
-                .replace(/__posthog_toolbar=[^&#]*/, '')
-                .replace(/&$/, '')
-                .replace(/^#&/, '#')
-                .replace(/^#$/, '')
-            history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
-            exchangeCodeForTokens(values.uiHost, code, clientId, actions)
+        // Extract authorization code from URL hash and clean it immediately.
+        const authParams = cleanToolbarAuthHash()
+        const pendingCodeExchange = !!authParams
+        if (authParams) {
+            exchangeCodeForTokens(values.uiHost, authParams.code, authParams.clientId, actions)
+            // Defensive retry: some SPAs re-apply the original URL on initial render,
+            // undoing the replaceState above. Re-clean after a short delay.
+            setTimeout(cleanToolbarAuthHash, 500)
         }
 
         // Restore OAuth tokens from separate storage.
         // posthog-js overwrites LOCALSTORAGE_KEY with hash params on each launch,
         // losing the OAuth tokens. This separate key survives that overwrite.
-        if (!values.accessToken) {
+        if (!values.accessToken && !pendingCodeExchange) {
             try {
                 const stored = localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)
                 if (stored) {
@@ -219,8 +212,10 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         }
 
         // Migrate users from the old temporaryToken flow to OAuth.
+        // Skip if we're in the middle of a code exchange — the async token swap
+        // will set the tokens once it completes.
         // TODO(@fcgomes): Remove after September 2026 — gives users 6 months to re-authenticate.
-        if (!values.accessToken && props.temporaryToken) {
+        if (!values.accessToken && props.temporaryToken && !pendingCodeExchange) {
             actions.tokenExpired()
         }
 
@@ -247,12 +242,16 @@ async function exchangeCodeForTokens(
     actions: { setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => void }
 ): Promise<void> {
     let pkceData: { verifier?: string; ts?: number } = {}
+    // Try sessionStorage first (primary), then localStorage (fallback for browsers
+    // that discard sessionStorage during cross-origin redirects like Safari ITP).
     try {
-        pkceData = JSON.parse(sessionStorage.getItem(PKCE_STORAGE_KEY) || '{}')
+        const raw = sessionStorage.getItem(PKCE_STORAGE_KEY) || localStorage.getItem(PKCE_STORAGE_KEY)
+        pkceData = JSON.parse(raw || '{}')
     } catch {
         // corrupted data
     }
     sessionStorage.removeItem(PKCE_STORAGE_KEY)
+    localStorage.removeItem(PKCE_STORAGE_KEY)
 
     if (!pkceData.verifier) {
         console.warn('PostHog Toolbar: no PKCE verifier found, cannot exchange code')

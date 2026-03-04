@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY } from '~/toolbar/utils'
+import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
     Promise.resolve({
@@ -239,7 +239,9 @@ describe('toolbar toolbarConfigLogic', () => {
 
         beforeEach(() => {
             replaceStateSpy = jest.spyOn(window.history, 'replaceState').mockImplementation(() => {})
-            sessionStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({ verifier: 'test-verifier', ts: Date.now() }))
+            const pkcePayload = JSON.stringify({ verifier: 'test-verifier', ts: Date.now() })
+            sessionStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
+            localStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
         })
 
         afterEach(() => {
@@ -268,6 +270,70 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
 
             expect(replaceStateSpy).toHaveBeenCalledWith(null, '', expectedUrl)
+        })
+
+        it('uses localStorage PKCE fallback when sessionStorage is empty', () => {
+            sessionStorage.removeItem(PKCE_STORAGE_KEY)
+            // localStorage still has the PKCE verifier (set in beforeEach)
+
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+
+            ;(global.fetch as jest.Mock).mockImplementation(() =>
+                Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () =>
+                        Promise.resolve({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 }),
+                })
+            )
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/')
+            // fetch was called (code exchange happened using localStorage fallback)
+            expect(global.fetch).toHaveBeenCalled()
+        })
+
+        it('does not trigger temporaryToken migration during code exchange', () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                temporaryToken: 'old-temp-token',
+            })
+            logic.mount()
+
+            // tokenExpired should NOT be dispatched during a pending code exchange
+            expectLogic(logic).toMatchValues({ accessToken: null })
+            // The toast error from tokenExpired should not appear
+        })
+    })
+
+    describe('cleanToolbarAuthHash', () => {
+        let replaceStateSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            replaceStateSpy = jest.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            replaceStateSpy.mockRestore()
+            window.history.pushState({}, '', '/')
+        })
+
+        it('returns code and clientId when hash matches', () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            const result = cleanToolbarAuthHash()
+            expect(result).toEqual({ code: 'abc', clientId: 'xyz' })
+            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/')
+        })
+
+        it('returns null when hash does not match', () => {
+            window.history.pushState({}, '', '/#some-other-hash')
+            const result = cleanToolbarAuthHash()
+            expect(result).toBeNull()
+            expect(replaceStateSpy).not.toHaveBeenCalled()
         })
     })
 })
