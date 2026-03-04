@@ -144,13 +144,13 @@ describe('PersonsManager', () => {
         it('returns undefined when person does not exist', async () => {
             const result = await manager.getCyclotronPerson(team.id, 'nonexistent', 'distinct_id')
 
-            expect(result).toBeUndefined()
+            expect(result).toBeNull()
         })
 
         it('returns undefined when team does not exist', async () => {
             const result = await manager.getCyclotronPerson(99999, 'distinct_id_A_1', 'distinct_id')
 
-            expect(result).toBeUndefined()
+            expect(result).toBeNull()
         })
 
         it('encodes special characters in distinct_id for URL', async () => {
@@ -178,7 +178,7 @@ describe('PersonsManager', () => {
         it('returns undefined for a UUID that does not exist', async () => {
             const result = await manager.getCyclotronPerson(team.id, new UUIDT().toString(), 'person_id')
 
-            expect(result).toBeUndefined()
+            expect(result).toBeNull()
         })
 
         it('returns the correct person for each team when UUIDs differ', async () => {
@@ -196,7 +196,7 @@ describe('PersonsManager', () => {
         it('returns undefined when queried under the wrong team', async () => {
             const result = await manager.getCyclotronPerson(team2.id, persons[0].uuid, 'person_id')
 
-            expect(result).toBeUndefined()
+            expect(result).toBeNull()
         })
     })
 })

@@ -53,16 +53,11 @@ export class PersonsManagerService {
         this.lazyLoaderByDistinctId.clear()
     }
 
-    private async get(args: PersonGetArgs): Promise<PersonManagerPerson | null> {
-        const key = toKey(args)
-        return (await this.lazyLoaderByPersonId.get(key)) ?? null
-    }
-
     public async getCyclotronPerson(
         teamId: number,
         id: string,
         kind: 'distinct_id' | 'person_id'
-    ): Promise<CyclotronPerson | undefined> {
+    ): Promise<CyclotronPerson | null> {
         const key = toKey({ teamId, id })
 
         const [team, dbPerson] = await Promise.all([
@@ -71,7 +66,7 @@ export class PersonsManagerService {
         ])
 
         if (!dbPerson || !team) {
-            return undefined
+            return null
         }
 
         return {
