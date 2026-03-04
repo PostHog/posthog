@@ -540,6 +540,7 @@ class AssistantTool(StrEnum):
     FINALIZE_PLAN = "finalize_plan"
     CALL_MCP_SERVER = "call_mcp_server"
     SEARCH_LLM_TRACES = "search_llm_traces"
+    RUN_HOG_EVAL_TEST = "run_hog_eval_test"
 
 
 class AssistantToolCall(BaseModel):

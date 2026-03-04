@@ -2909,7 +2909,9 @@
                 "upsert_alert",
                 "finalize_plan",
                 "call_mcp_server",
-                "search_llm_traces"
+                "recommend_products",
+                "search_llm_traces",
+                "run_hog_eval_test"
             ],
             "type": "string"
         },
