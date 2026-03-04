@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment } from 'react'
 
-import { IconCopy, IconFlag, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCopy, IconFlag, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
@@ -475,7 +475,8 @@ export function FeatureFlagReleaseConditions({
                                     }
                                     return ''
                                 })()}{' '}
-                                {filters.aggregation_group_type_index == null ? (
+                                <span>of total {aggregationTargetName}.</span>
+                                {filters.aggregation_group_type_index == null && (
                                     <Tooltip
                                         title={
                                             <>
@@ -490,10 +491,8 @@ export function FeatureFlagReleaseConditions({
                                         }
                                         interactive
                                     >
-                                        <span>of total {aggregationTargetName}.</span>
+                                        <IconInfo className="text-muted text-base" />
                                     </Tooltip>
-                                ) : (
-                                    <span>of total {aggregationTargetName}.</span>
                                 )}
                             </div>
                         </div>
