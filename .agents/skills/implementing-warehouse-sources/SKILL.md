@@ -83,13 +83,20 @@ Source implementation:
   - then project-level fan-out,
   - then child/fan-out endpoints with bounded pagination.
 
-## Pagination and key learnings (Sentry pattern)
+## Pagination tips
 
-- Some APIs expose cursor pagination in `Link` headers and require checking both `rel="next"` and a results flag (for example `results="true"`).
-- When following a full cursor URL from response headers, clear request params in paginator updates to avoid duplicate/contradicting query params.
-- Primary keys are endpoint-specific and may not be `id` (for example release endpoints can key by `version`); declare this explicitly in `settings.py` per endpoint.
-- For fan-out endpoints (for example project-scoped or issue-scoped tables), add parent identifiers (`project_id`, `project_slug`, `issue_id`) to each emitted row.
-- Bound fan-out runtime with configurable caps (`max_parents`, `max_pages_per_parent`) and retry/timeouts to keep large org syncs reliable.
+- Some APIs use cursor pagination in `Link` headers — check both `rel="next"` and any results flag (for example `results="true"` in Sentry).
+- When following a full cursor URL from response headers, clear request params in paginator `update_request` to avoid duplicate query params.
+- Primary keys are endpoint-specific and may not be `id` (for example Sentry releases key by `version`); declare per-endpoint in `settings.py`.
+
+## Fan-out endpoints
+
+Fan-out means iterating a parent resource (for example projects) and then querying child endpoints per parent (for example project issues).
+
+- Add parent identifiers (`project_id`, `issue_id`) to each emitted row so tables join cleanly.
+- Bound fan-out with caps on parent count and pages-per-parent to keep large syncs safe.
+- Fan-out endpoints bypass `rest_api_resources` and use a direct iterator — make sure to handle pagination, retries, and error mapping yourself.
+- Do not expose internal fan-out tuning knobs (retry counts, page caps) in the user-facing source form; keep them as internal defaults.
 
 ## Testing expectations
 
