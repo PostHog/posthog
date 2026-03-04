@@ -1002,7 +1002,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }, 2000)
         },
         softDeleteAction: () => {
-            if (props.id === 'new') {
+            if (!props.id || props.id === 'new') {
                 return
             }
             if (cache.autosaveTimer) {
@@ -1013,7 +1013,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }, 10000)
         },
         restoreAction: () => {
-            if (props.id === 'new') {
+            if (!props.id || props.id === 'new') {
                 return
             }
             if (cache.autosaveTimer) {
@@ -1025,7 +1025,7 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         // Autosave: debounce 5s after changes
         setWorkflowValues: () => {
-            if (props.id === 'new') {
+            if (!props.id || props.id === 'new') {
                 return
             }
             if (cache.autosaveTimer) {
