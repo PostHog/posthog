@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, encodeParams } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -183,7 +183,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         },
     })),
 
-    afterMount(({ props, values, actions }) => {
+    afterMount(({ props, values, actions, cache }) => {
         // Extract authorization code from URL hash and clean it immediately.
         const authParams = cleanToolbarAuthHash()
         const pendingCodeExchange = !!authParams
@@ -191,7 +191,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             exchangeCodeForTokens(values.uiHost, authParams.code, authParams.clientId, actions)
             // Defensive retry: some SPAs re-apply the original URL on initial render,
             // undoing the replaceState above. Re-clean after a short delay.
-            setTimeout(cleanToolbarAuthHash, 500)
+            cache.hashRetryTimeout = setTimeout(cleanToolbarAuthHash, 500)
         }
 
         // Restore OAuth tokens from separate storage.
@@ -231,6 +231,12 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
         toolbarPosthogJS.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
     }),
+
+    beforeUnmount(({ cache }) => {
+        if (cache.hashRetryTimeout !== undefined) {
+            clearTimeout(cache.hashRetryTimeout)
+        }
+    }),
 ])
 
 const PKCE_TTL_MS = 10 * 60 * 1000 // 10 minutes
@@ -264,6 +270,9 @@ async function exchangeCodeForTokens(
         return
     }
 
+    // TODO(@fcgomes): Have the backend embed redirect_uri and token_endpoint
+    // in the callback hash so the frontend doesn't derive these from uiHost.
+    // This will fix reverse proxy mismatches where uiHost differs from SITE_URL.
     const body = new URLSearchParams({
         grant_type: 'authorization_code',
         client_id: clientId,
