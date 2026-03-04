@@ -205,13 +205,38 @@ services:
             DYNAMIC_CONFIG_ENABLED: 'true'
 
     objectstorage:
-        image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+        image: chrislusf/seaweedfs:4.03
         restart: on-failure
-        environment:
-            MINIO_ROOT_USER: object_storage_root_user
-            MINIO_ROOT_PASSWORD: object_storage_root_password
-        entrypoint: sh
-        command: -c 'mkdir -p /data/posthog /data/ducklake-dev /data/ai-blobs && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog', 'ducklake-dev', and 'ai-blobs' buckets before starting the service
+        volumes:
+            - ./docker/seaweedfs/s3.conf:/etc/seaweedfs/s3.conf:ro
+        entrypoint:
+            - /bin/sh
+            - -c
+            - |
+                /usr/bin/weed "$$@" &
+                WEED_PID=$$!
+                BUCKETS="posthog ducklake-dev ai-blobs"
+                echo "Waiting for objectstorage SeaweedFS to initialize..."
+                while true; do
+                    sleep 3
+                    LIST_OUTPUT=$$(echo "s3.bucket.list" | /usr/bin/weed shell -master=localhost:19001 2>&1 || true)
+                    MISSING=0
+                    for bucket in $$BUCKETS; do
+                        if ! echo "$$LIST_OUTPUT" | grep -q "$$bucket"; then
+                            MISSING=1
+                            echo "Creating bucket $$bucket..."
+                            echo "s3.bucket.create -name $$bucket" | /usr/bin/weed shell -master=localhost:19001 2>&1 || true
+                        fi
+                    done
+                    if [ "$$MISSING" -eq 0 ]; then
+                        echo "Objectstorage SeaweedFS ready with required buckets"
+                        break
+                    fi
+                done
+                wait $$WEED_PID
+            - --
+        command:
+            ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-s3.config=/etc/seaweedfs/s3.conf', '-dir=/data']
 
     objectstorage-azure:
         image: mcr.microsoft.com/azure-storage/azurite:3.35.0
@@ -575,6 +600,8 @@ services:
     seaweedfs:
         container_name: '${SEAWEEDFS_DOCKER_NAME:-seaweedfs-main}'
         image: chrislusf/seaweedfs:4.03
+        volumes:
+            - ./docker/seaweedfs/s3.conf:/etc/seaweedfs/s3.conf:ro
         ports:
             - '127.0.0.1:8333:8333' # S3 API
             - '127.0.0.1:9333:9333' # Master server (for admin UI)
@@ -599,7 +626,7 @@ services:
                 echo "SeaweedFS ready with posthog bucket"
                 wait $$WEED_PID
             - --
-        command: ['server', '-s3', '-s3.port=8333', '-dir=/data']
+        command: ['server', '-s3', '-s3.port=8333', '-s3.config=/etc/seaweedfs/s3.conf', '-dir=/data']
 
 networks:
     otel_network:
