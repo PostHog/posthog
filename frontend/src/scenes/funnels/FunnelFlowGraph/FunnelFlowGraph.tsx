@@ -8,11 +8,11 @@ import {
     MiniMap,
     NodeTypes,
     ReactFlow,
+    ReactFlowInstance,
     ReactFlowProvider,
-    useReactFlow,
 } from '@xyflow/react'
 import { useValues } from 'kea'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -36,8 +36,6 @@ const EDGE_TYPES = {
 const PROFILE_GRAPH_HEIGHT = 140
 
 function FunnelFlowGraphContent(): JSX.Element {
-    const containerRef = useRef<HTMLDivElement>(null)
-    const { fitView: fitViewImperative } = useReactFlow()
     const { isDarkModeOn } = useValues(themeLogic)
     const { insightProps } = useValues(insightLogic)
     // Property filters are only set when in person/group profile, so we can use that as a proxy
@@ -47,18 +45,12 @@ function FunnelFlowGraphContent(): JSX.Element {
         insightProps.query.source.properties.length > 0
     const { laidOutNodes, edges, fitViewOptions } = useValues(funnelFlowGraphLogic({ ...insightProps, isProfileMode }))
 
-    useEffect(() => {
-        const container = containerRef.current
-        if (!container) {
-            return
-        }
-
-        const observer = new ResizeObserver(() => {
-            fitViewImperative(fitViewOptions)
-        })
-        observer.observe(container)
-        return () => observer.disconnect()
-    }, [fitViewImperative, fitViewOptions])
+    const onInit = useCallback(
+        (instance: ReactFlowInstance) => {
+            instance.fitView(fitViewOptions)
+        },
+        [fitViewOptions]
+    )
 
     const closeOpenPopovers = useCallback(() => {
         document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
@@ -66,7 +58,6 @@ function FunnelFlowGraphContent(): JSX.Element {
 
     return (
         <div
-            ref={containerRef}
             className="relative w-full"
             style={{ height: isProfileMode ? PROFILE_GRAPH_HEIGHT : 'var(--insight-viz-min-height)' }}
         >
@@ -84,6 +75,7 @@ function FunnelFlowGraphContent(): JSX.Element {
                 elevateNodesOnSelect={false}
                 minZoom={0.25}
                 maxZoom={1.5}
+                onInit={onInit}
                 onPaneClick={closeOpenPopovers}
                 onNodeClick={closeOpenPopovers}
             >

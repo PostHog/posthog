@@ -5,11 +5,12 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isUUIDLike } from 'lib/utils'
 
 import { FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { insightsApi } from '~/scenes/insights/utils/api'
-import { FunnelVizType, PropertyFilterType, QueryBasedInsightModel } from '~/types'
+import { FunnelVizType, PropertyFilterType, PropertyOperator, QueryBasedInsightModel } from '~/types'
 
 import { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -174,9 +175,17 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 if (!query || !isProfileMode) {
                     return query
                 }
+                if (personId && !isUUIDLike(personId)) {
+                    return query
+                }
                 const entityFilter = personId
                     ? { type: PropertyFilterType.HogQL, key: `person_id = '${personId}'` }
-                    : { type: PropertyFilterType.HogQL, key: `$group_${groupTypeIndex} = '${groupKey}'` }
+                    : {
+                          type: PropertyFilterType.Event,
+                          key: `$group_${groupTypeIndex}`,
+                          value: [groupKey],
+                          operator: PropertyOperator.Exact,
+                      }
                 return {
                     ...query,
                     full: false,

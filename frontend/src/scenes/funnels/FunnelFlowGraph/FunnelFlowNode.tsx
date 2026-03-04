@@ -46,7 +46,7 @@ export const ProfileFlowNode = React.memo(function ProfileFlowNode({
             <div
                 className={clsx(
                     'relative flex rounded-full border-2 p-1 items-center justify-center w-10 h-10',
-                    isCompleted ? 'border-success bg-success-highlight' : 'border-border bg-bg-light opacity-60',
+                    isCompleted ? 'border-success bg-success/5' : 'border-border bg-bg-light opacity-60',
                     isOptional ? 'border-success-highlight border-dashed' : ''
                 )}
             >
