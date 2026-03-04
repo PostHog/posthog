@@ -13,7 +13,10 @@
     <tbody>
         {% for wf in workflows %}
         <tr>
-            <td class="workflow-id">{{ wf.id }}</td>
+            <td class="workflow-id">
+                <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/workflows/{{ wf.id }}/{{ wf.run_id }}"
+                   target="_blank">{{ wf.id }}</a>
+            </td>
             <td>{{ wf.workflow_type }}</td>
             <td>
                 {% if wf.status == "RUNNING" %}

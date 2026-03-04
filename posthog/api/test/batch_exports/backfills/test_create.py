@@ -1,5 +1,4 @@
 import datetime as dt
-from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
@@ -9,7 +8,10 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
+from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import backfill_batch_export, create_batch_export_ok
+from posthog.api.test.test_team import create_team
+from posthog.api.test.test_user import create_user
 from posthog.models.person.util import create_person
 from posthog.models.team import Team
 
@@ -51,26 +53,6 @@ def _create_batch_export_ok(
     return create_batch_export_ok(client, team.pk, batch_export_data)
 
 
-def _get_expected_backfill_workflow_id(
-    batch_export_id: str, start_date: str, end_date: str, timezone: str, offset_hour: int | None = None
-) -> str:
-    """Helper function to calculate the expected backfill workflow ID.
-
-    Note that we always convert to UTC for the workflow ID.
-    """
-    start_date_obj = dt.date.fromisoformat(start_date)
-    end_date_obj = dt.date.fromisoformat(end_date)
-    expected_start_at = dt.datetime.combine(start_date_obj, dt.time(offset_hour or 0, 0, 0)).replace(
-        tzinfo=ZoneInfo(timezone)
-    )
-    expected_start_at_utc = expected_start_at.astimezone(dt.UTC).isoformat()
-    expected_end_at = dt.datetime.combine(end_date_obj, dt.time(offset_hour or 0, 0, 0)).replace(
-        tzinfo=ZoneInfo(timezone)
-    )
-    expected_end_at_utc = expected_end_at.astimezone(dt.UTC).isoformat()
-    return f"{batch_export_id}-Backfill-{expected_start_at_utc}-{expected_end_at_utc}"
-
-
 @pytest.mark.parametrize("model", ["events", "persons"])
 def test_batch_export_backfill_success(client: HttpClient, organization, team, user, temporal, model):
     """Test a BatchExport can be backfilled.
@@ -91,7 +73,7 @@ def test_batch_export_backfill_success(client: HttpClient, organization, team, u
         start_at="2021-01-01T00:00:00+00:00",
         end_at="2021-01-01T01:00:00+00:00",
     )
-    assert response.status_code == status.HTTP_200_OK, response.json()
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
 
 
 @pytest.mark.parametrize(
@@ -122,12 +104,8 @@ def test_batch_export_backfill_for_daily_schedule(
         start_at="2026-01-01",
         end_at="2026-01-02",
     )
-    assert response.status_code == status.HTTP_200_OK, response.json()
-
-    expected_workflow_id = _get_expected_backfill_workflow_id(
-        batch_export_id, "2026-01-01", "2026-01-02", timezone, offset_hour
-    )
-    assert response.json()["backfill_id"] == expected_workflow_id
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+    assert "backfill_id" in response.json()
 
 
 def test_batch_export_backfill_for_daily_schedule_with_datetime_strings_fails(
@@ -194,12 +172,8 @@ def test_batch_export_backfill_for_weekly_schedule(
         start_at=start_date,
         end_at=end_date,
     )
-    assert response.status_code == status.HTTP_200_OK, response.json()
-
-    expected_workflow_id = _get_expected_backfill_workflow_id(
-        batch_export_id, start_date, end_date, timezone, offset_hour
-    )
-    assert response.json()["backfill_id"] == expected_workflow_id
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+    assert "backfill_id" in response.json()
 
 
 def test_batch_export_backfill_for_weekly_schedule_with_datetime_strings_fails(
@@ -339,10 +313,6 @@ def test_batch_export_backfill_with_start_at_after_end_at(client: HttpClient, or
 
 
 def test_cannot_trigger_backfill_for_another_organization(client: HttpClient, temporal, organization, team, user):
-    from posthog.api.test.batch_exports.fixtures import create_organization
-    from posthog.api.test.test_team import create_team
-    from posthog.api.test.test_user import create_user
-
     other_organization = create_organization("Other Org")
     create_team(other_organization)
     other_user = create_user("other-test@user.com", "Other Test User", other_organization)
@@ -413,8 +383,8 @@ def test_batch_export_backfill_created_in_timezone(client: HttpClient, temporal,
 
     data = response.json()
 
-    assert response.status_code == status.HTTP_200_OK, data
-    assert data["backfill_id"] == f"{batch_export_id}-Backfill-2021-01-01T05:00:00+00:00-2021-10-01T04:00:00+00:00"
+    assert response.status_code == status.HTTP_201_CREATED, data
+    assert "backfill_id" in data
 
 
 def test_batch_export_earliest_backfill_rejected_without_feature_flag(
@@ -463,5 +433,5 @@ def test_batch_export_earliest_backfill_allowed_with_feature_flag(
             None,
             "2021-01-01T01:00:00+00:00",
         )
-        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert "backfill_id" in response.json()

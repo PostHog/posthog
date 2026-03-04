@@ -215,7 +215,7 @@ function TraceSceneWrapper(): JSX.Element {
                 <NotFound object="trace" />
             ) : (
                 <div className="relative flex flex-col gap-3">
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-4">
                         <SceneTitleSection
                             name={trace.id}
                             resourceType={{ type: 'llm_analytics' }}
@@ -887,9 +887,10 @@ const EventContent = React.memo(
             }
 
             const model = event.properties.$ai_model
+            const provider = event.properties.$ai_provider
             const tools = event.properties.$ai_tools
 
-            setupPlaygroundFromEvent({ model, input: loadedInput, tools })
+            setupPlaygroundFromEvent({ model, provider, input: loadedInput, tools })
         }
 
         return (

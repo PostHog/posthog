@@ -86,7 +86,7 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
     assert model_metadata.model_label == saved_query.id.hex
     assert model_metadata.saved_query_name == saved_query.name
     assert model_metadata.source_table_uri == table_uri
-    assert model_metadata.schema_name == "posthog_data_modeling"
+    assert model_metadata.schema_name == f"posthog_data_modeling_team_{ateam.pk}"
     assert model_metadata.table_name == f"model_{saved_query.id.hex}"
     assert model_metadata.verification_queries
     assert model_metadata.verification_queries[0].name == "row_count_delta_vs_ducklake"
@@ -232,7 +232,7 @@ def test_copy_data_modeling_model_to_ducklake_activity_via_duckgres(monkeypatch)
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
         source_table_uri="s3://source/table",
-        schema_name="posthog_data_modeling",
+        schema_name="posthog_data_modeling_team_1",
         table_name="model_a",
         verification_queries=[],
         staging_uri="s3://test-bucket/__posthog_staging/table",
@@ -311,7 +311,7 @@ def test_verify_ducklake_copy_activity_runs_queries(monkeypatch):
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
         source_table_uri="s3://source/table",
-        schema_name="posthog_data_modeling",
+        schema_name="posthog_data_modeling_team_1",
         table_name="model_a",
         verification_queries=[
             DuckLakeCopyVerificationQuery(
@@ -349,7 +349,7 @@ async def test_ducklake_copy_workflow_skips_when_feature_flag_disabled(monkeypat
                 saved_query_name="model",
                 normalized_name="model",
                 source_table_uri="s3://source/table",
-                schema_name="posthog_data_modeling",
+                schema_name="posthog_data_modeling_team_1",
                 table_name="model",
             )
         ]
@@ -460,7 +460,7 @@ def test_verify_ducklake_copy_activity_reports_failures(monkeypatch):
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
         source_table_uri="s3://source/table",
-        schema_name="posthog_data_modeling",
+        schema_name="posthog_data_modeling_team_1",
         table_name="model_b",
         verification_queries=[
             DuckLakeCopyVerificationQuery(
@@ -499,7 +499,7 @@ def test_run_partition_verification_without_temporal_type():
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
         source_table_uri="s3://source/table",
-        schema_name="posthog_data_modeling",
+        schema_name="posthog_data_modeling_team_1",
         table_name="model_partition_string",
         verification_queries=[],
         partition_column="event_id",
@@ -534,7 +534,7 @@ def test_run_partition_verification_with_temporal_type():
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
         source_table_uri="s3://source/table",
-        schema_name="posthog_data_modeling",
+        schema_name="posthog_data_modeling_team_1",
         table_name="model_partition_time",
         verification_queries=[],
         partition_column="timestamp",
@@ -616,7 +616,7 @@ def test_verify_ducklake_copy_activity_respects_tolerance(monkeypatch, observed,
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
         source_table_uri="s3://source/table",
-        schema_name="posthog_data_modeling",
+        schema_name="posthog_data_modeling_team_1",
         table_name="model_tolerance",
         verification_queries=[
             DuckLakeCopyVerificationQuery(
@@ -703,7 +703,7 @@ def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypatch):
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
         source_table_uri="s3://source/table",
-        schema_name="posthog_data_modeling",
+        schema_name="posthog_data_modeling_team_1",
         table_name="model_c",
         verification_queries=[
             DuckLakeCopyVerificationQuery(
@@ -748,7 +748,7 @@ def test_copy_data_modeling_model_to_ducklake_activity_raises_when_no_catalog(mo
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
         source_table_uri="s3://source/table",
-        schema_name="posthog_data_modeling",
+        schema_name="posthog_data_modeling_team_1",
         table_name="model_a",
         verification_queries=[],
         staging_uri="s3://test-bucket/__posthog_staging/table",
@@ -798,7 +798,7 @@ def test_verify_ducklake_copy_activity_raises_when_no_catalog(monkeypatch):
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
         source_table_uri="s3://source/table",
-        schema_name="posthog_data_modeling",
+        schema_name="posthog_data_modeling_team_42",
         table_name="model_a",
         verification_queries=[query],
     )
@@ -827,7 +827,7 @@ async def test_ducklake_copy_workflow_runs_when_feature_flag_enabled(monkeypatch
                 saved_query_name="model",
                 normalized_name="model",
                 source_table_uri="s3://source/table",
-                schema_name="posthog_data_modeling",
+                schema_name="posthog_data_modeling_team_1",
                 table_name="model",
             )
         ]

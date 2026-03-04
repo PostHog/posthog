@@ -134,7 +134,7 @@ async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam, monk
     assert len(result) == 1
     metadata = result[0]
     assert metadata.source_normalized_name == "customers"
-    assert metadata.ducklake_schema_name == "posthog_data_imports"
+    assert metadata.ducklake_schema_name == f"posthog_data_imports_team_{ateam.id}"
     assert metadata.ducklake_table_name == "postgres_customers"
     assert metadata.source_partition_column == "created_at"
 
@@ -227,7 +227,7 @@ async def test_prepare_data_imports_ducklake_metadata_activity_with_prefix(ateam
 
     assert len(result) == 1
     metadata = result[0]
-    assert metadata.ducklake_schema_name == "posthog_data_imports"
+    assert metadata.ducklake_schema_name == f"posthog_data_imports_team_{ateam.id}"
     assert metadata.ducklake_table_name == "stripe_prod_invoices"  # {source_type}_{prefix}_{name}
 
 
@@ -309,7 +309,7 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="posthog_data_imports",
+        ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
         staging_uri="s3://test-bucket/__posthog_staging/team_1/customers",
     )
@@ -342,7 +342,7 @@ def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_querie
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="posthog_data_imports",
+        ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[],
     )
@@ -412,7 +412,7 @@ def test_verify_data_imports_ducklake_copy_activity_executes_configured_query(mo
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="posthog_data_imports",
+        ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[query],
     )
@@ -486,7 +486,7 @@ def test_verify_data_imports_ducklake_copy_activity_handles_query_failure(monkey
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="posthog_data_imports",
+        ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[query],
     )
@@ -569,7 +569,7 @@ def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeyp
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="posthog_data_imports",
+        ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[query_pass, query_fail],
     )
@@ -626,7 +626,7 @@ def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypat
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="posthog_data_imports",
+        ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
         staging_uri="s3://test-bucket/__posthog_staging/team_1/customers",
     )
@@ -676,7 +676,7 @@ def test_verify_data_imports_ducklake_copy_activity_raises_when_no_catalog(monke
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="posthog_data_imports",
+        ducklake_schema_name="posthog_data_imports_team_42",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[query],
     )
@@ -704,7 +704,7 @@ async def test_ducklake_copy_data_imports_workflow_skips_when_feature_flag_disab
                 source_schema_name="customers",
                 source_normalized_name="customers",
                 source_table_uri="s3://bucket/team_1/customers",
-                ducklake_schema_name="posthog_data_imports",
+                ducklake_schema_name="posthog_data_imports_team_1",
                 ducklake_table_name="postgres_customers_abc12345",
             )
         ]
@@ -766,7 +766,7 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
                 source_schema_name="customers",
                 source_normalized_name="customers",
                 source_table_uri="s3://bucket/team_1/customers",
-                ducklake_schema_name="posthog_data_imports",
+                ducklake_schema_name="posthog_data_imports_team_1",
                 ducklake_table_name="postgres_customers_abc12345",
             )
         ]

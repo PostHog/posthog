@@ -1,5 +1,10 @@
+from datetime import UTC, datetime, timedelta
+
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+from unittest.mock import MagicMock
+
+from parameterized import parameterized
 
 from posthog.schema import (
     DateRange,
@@ -404,3 +409,62 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
                 assert not regular_response.usedPreAggregatedTables
 
                 assert self._sort_results(preagg_response.results) == self._sort_results(regular_response.results)
+
+    @parameterized.expand(
+        [
+            # (name, hours_delta, explicit_date_to, expected_is_recent)
+            ("1_hour_no_explicit_date_to", 1, False, True),
+            ("6_hours_no_explicit_date_to", 6, False, True),
+            ("7_hours_no_explicit_date_to", 7, False, False),
+            ("24_hours_no_explicit_date_to", 24, False, False),
+            ("1_hour_with_explicit_date_to", 1, True, False),
+            ("6_hours_with_explicit_date_to", 6, True, False),
+        ]
+    )
+    def test_is_recent_relative_date_range(self, _name, hours_delta, explicit_date_to, expected_is_recent):
+        now = datetime(2025, 1, 31, 12, 0, 0, tzinfo=UTC)
+        date_from = now - timedelta(hours=hours_delta)
+
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_to=now.isoformat() if explicit_date_to else None),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+        )
+
+        runner = MagicMock()
+        runner.query = query
+        runner.team = self.team
+        runner.modifiers = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True, convertToProjectTimezone=False)
+
+        mock_date_range = MagicMock()
+        mock_date_range.date_from.return_value = date_from
+        mock_date_range.date_to.return_value = now
+        runner.query_date_range = mock_date_range
+        runner.query_compare_to_date_range = None
+
+        builder = StatsTablePreAggregatedQueryBuilder(runner)
+        self.assertEqual(builder._is_recent_relative_date_range(), expected_is_recent)
+
+    def test_can_use_preaggregated_tables_rejects_recent_relative_date_range(self):
+        now = datetime(2025, 1, 31, 12, 0, 0, tzinfo=UTC)
+        date_from = now - timedelta(hours=3)
+
+        query = WebStatsTableQuery(
+            dateRange=DateRange(),  # No explicit date_to means query ends at "now"
+            properties=[],
+            breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+        )
+
+        runner = MagicMock()
+        runner.query = query
+        runner.team = self.team
+        runner.modifiers = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True, convertToProjectTimezone=False)
+
+        mock_date_range = MagicMock()
+        mock_date_range.date_from.return_value = date_from
+        mock_date_range.date_to.return_value = now
+        runner.query_date_range = mock_date_range
+        runner.query_compare_to_date_range = None
+
+        builder = StatsTablePreAggregatedQueryBuilder(runner)
+        self.assertFalse(builder.can_use_preaggregated_tables())

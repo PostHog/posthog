@@ -90,8 +90,14 @@ def register_all_admin():
     from products.endpoints.backend.models import Endpoint, EndpointVersion
     from products.signals.backend.admin import SignalReportAdmin
     from products.signals.backend.models import SignalReport
-    from products.tasks.backend.admin import SandboxSnapshotAdmin, TaskAdmin, TaskRunAdmin
-    from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+    from products.tasks.backend.admin import (
+        CodeInviteAdmin,
+        CodeInviteRedemptionAdmin,
+        SandboxSnapshotAdmin,
+        TaskAdmin,
+        TaskRunAdmin,
+    )
+    from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, SandboxSnapshot, Task, TaskRun
 
     admin.site.register(Organization, OrganizationAdmin)
     admin.site.register(OrganizationDomain, OrganizationDomainAdmin)
@@ -146,6 +152,8 @@ def register_all_admin():
     admin.site.register(Task, TaskAdmin)
     admin.site.register(TaskRun, TaskRunAdmin)
     admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)
+    admin.site.register(CodeInvite, CodeInviteAdmin)
+    admin.site.register(CodeInviteRedemption, CodeInviteRedemptionAdmin)
 
     admin.site.register(DesktopRecording, DesktopRecordingAdmin)
 

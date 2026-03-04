@@ -53,6 +53,8 @@ import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording } from './utils/playerUtils'
+import { initialFrameState, resolveFrameTimestamp } from './utils/resolve-frame-timestamp'
+import { selectNewEvents, shouldUpdatePlaybackPosition } from './utils/snapshot-sync'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
@@ -1220,6 +1222,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const config: Partial<playerConfig> & { onError: (error: any) => void } = {
                 root: values.rootFrame,
                 ...COMMON_REPLAYER_CONFIG,
+                insertStyleRules: [
+                    ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
+                    // At high speeds, CSS animations/transitions aren't sped up by rrweb,
+                    // causing visual artifacts - disable them
+                    ...(values.speed >= 2
+                        ? ['*, *::before, *::after { animation: none !important; transition: none !important; }']
+                        : []),
+                ],
                 // these two settings are attempts to improve performance of running two Replayers at once
                 // the main player and a preview player
                 mouseTail: props.mode !== SessionRecordingPlayerMode.Preview,
@@ -1478,15 +1488,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (values.currentSegment?.windowId !== undefined) {
                 const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
-
                 const useStoreBasedLoading = values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test'
-                if (useStoreBasedLoading) {
-                    // The store path loads sources incrementally (not all at once),
-                    // so we need timestamp-based diffing to find truly new events.
-                    eventsToAdd.push(...findNewEvents(allSnapshots, currentEvents))
-                } else {
-                    eventsToAdd.push(...allSnapshots.slice(currentEvents.length))
-                }
+                eventsToAdd.push(...selectNewEvents(allSnapshots, currentEvents, useStoreBasedLoading))
             }
 
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots.
@@ -1796,30 +1799,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 // The main loop of the player. Called on each frame
                 const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
-                let newTimestamp = values.fromRRWebPlayerTime(rrwebPlayerTime)
-
-                // Detect when the replayer is stuck (same timestamp for consecutive frames).
-                // This happens in window segments where the replayer has no events at the
-                // current offset (e.g. inactive segments deep into a window's timeline).
-                // After a few stuck frames, advance time manually so playback doesn't freeze.
-                if (newTimestamp !== undefined && newTimestamp === cache._lastAnimTimestamp) {
-                    cache._stuckFrames = (cache._stuckFrames || 0) + 1
-                } else {
-                    cache._stuckFrames = 0
-                }
-                cache._lastAnimTimestamp = newTimestamp
-
-                const isStuck = cache._stuckFrames >= 5
-                // Only manually advance when rrweb can't provide a timestamp (gap with no
-                // replayer for this windowId) or when truly stuck. Don't override rrweb's
-                // timestamp unconditionally for gaps — rrweb may still be playing at high
-                // speed (e.g. skip inactivity) and overriding causes PostHog's tracked
-                // position to diverge from rrweb's actual playback position.
-                const shouldManuallyAdvance =
-                    (newTimestamp == undefined && values.currentSegment?.kind === 'gap') || isStuck
-                if (shouldManuallyAdvance && values.currentTimestamp) {
-                    newTimestamp = values.currentTimestamp + values.roughAnimationFPS
-                }
+                const frameResult = resolveFrameTimestamp(
+                    values.fromRRWebPlayerTime(rrwebPlayerTime),
+                    values.currentTimestamp,
+                    values.currentSegment?.kind,
+                    values.roughAnimationFPS,
+                    cache._frameState ?? initialFrameState()
+                )
+                cache._frameState = frameResult.newState
+                let newTimestamp = frameResult.resolvedTimestamp
 
                 // If we're beyond buffered position, set to buffering
                 if (values.currentSegment?.kind === 'buffer') {
@@ -1873,7 +1861,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Throttled position update for store-based loading (every 5s)
                 if (
                     values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test' &&
-                    (!cache.lastPlaybackPositionUpdate || newTimestamp - cache.lastPlaybackPositionUpdate > 5000)
+                    shouldUpdatePlaybackPosition(newTimestamp, cache.lastPlaybackPositionUpdate)
                 ) {
                     cache.lastPlaybackPositionUpdate = newTimestamp
                     actions.updatePlaybackPosition(newTimestamp)
@@ -1894,8 +1882,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         stopAnimation: () => {
             cache.disposables.dispose('animationTimer')
             cache.lastFrameTime = undefined
-            cache._stuckFrames = 0
-            cache._lastAnimTimestamp = undefined
+            cache._frameState = initialFrameState()
         },
         pauseIframePlayback: () => {
             const iframe = values.rootFrame?.querySelector('iframe')
