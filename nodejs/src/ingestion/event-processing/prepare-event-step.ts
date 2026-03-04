@@ -1,15 +1,12 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { EventHeaders, PreIngestionEvent, Team } from '../../types'
-import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
 import { TeamManager } from '../../utils/team-manager'
 import { invalidTimestampCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
-import { AI_EVENT_TYPES, processAiEvent } from '../ai'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -41,7 +38,6 @@ export function createPrepareEventStep<TInput extends PrepareEventStepInput>(
 
     return async function prepareEventStep(input: TInput) {
         const { normalizedEvent, ...rest } = input
-        let event = normalizedEvent
 
         const warnings: PipelineWarning[] = []
         const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
@@ -49,21 +45,12 @@ export function createPrepareEventStep<TInput extends PrepareEventStepInput>(
             warnings.push({ type, details })
         }
 
-        if (AI_EVENT_TYPES.has(event.event)) {
-            try {
-                event = processAiEvent(event)
-            } catch (error) {
-                captureException(error)
-                logger.error(error)
-            }
-        }
-
         const preparedEvent = await eventsProcessor.processEvent(
-            String(event.distinct_id),
-            event,
+            String(normalizedEvent.distinct_id),
+            normalizedEvent,
             input.team,
-            parseEventTimestamp(event, invalidTimestampCallback),
-            event.uuid,
+            parseEventTimestamp(normalizedEvent, invalidTimestampCallback),
+            normalizedEvent.uuid,
             input.processPerson,
             groupStore
         )

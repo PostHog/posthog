@@ -25,13 +25,13 @@ logger = structlog.get_logger(__name__)
 T = TypeVar("T")
 
 
-def _person_has_min_timestamp(person: "Person | None", min_timestamp: float | None) -> "Person | None":
-    """Return the person only if it exists and meets the minimum timestamp requirement."""
+def _person_has_min_version(person: "Person | None", min_version: int | None) -> "Person | None":
+    """Return the person only if it exists and meets the minimum version requirement."""
     if person is None:
         return None
-    if min_timestamp is not None:
-        person_timestamp = person.properties.get("$test_timestamp")
-        if person_timestamp is None or person_timestamp < min_timestamp:
+    if min_version is not None:
+        person_version = person.properties.get("$test_version")
+        if person_version is None or person_version < min_version:
             return None
     return person
 
@@ -228,18 +228,18 @@ class PostHogClient:
             description=f"event UUID '{event_uuid}'",
         )
 
-    def query_person_by_distinct_id(self, distinct_id: str, min_timestamp: float | None = None) -> Person | None:
+    def query_person_by_distinct_id(self, distinct_id: str, min_version: int | None = None) -> Person | None:
         """Query for a person by distinct_id, polling until found or timeout.
 
         Args:
             distinct_id: The distinct_id to search for.
-            min_timestamp: If provided, only return the person if their $test_timestamp
+            min_version: If provided, only return the person if their $test_version
                 property is >= this value. This helps ensure eventual consistency by
                 waiting for person updates to propagate.
         """
-        logger.info("Querying for person", distinct_id=distinct_id, min_timestamp=min_timestamp)
+        logger.info("Querying for person", distinct_id=distinct_id, min_version=min_version)
         return self._poll_until_found(
-            fetch_fn=lambda: _person_has_min_timestamp(self._fetch_person_by_distinct_id(distinct_id), min_timestamp),
+            fetch_fn=lambda: _person_has_min_version(self._fetch_person_by_distinct_id(distinct_id), min_version),
             description=f"person with distinct_id '{distinct_id}'",
         )
 
