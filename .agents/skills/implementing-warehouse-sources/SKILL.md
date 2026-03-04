@@ -67,6 +67,29 @@ Source implementation:
 - If API only supports cursor pagination, still declare incremental fields if reliable and let merge semantics dedupe.
 - Set `sort_mode="desc"` only if the endpoint truly returns descending order and cannot return ascending.
 - For descending sources, make sure behavior with `db_incremental_field_earliest_value` is considered.
+- Default unknown endpoints to full refresh first; only enable incremental after confirming a stable filter field and API semantics.
+
+## Endpoint inventory workflow
+
+- Build an endpoint inventory before expanding coverage:
+  - endpoint path and auth scopes,
+  - grain (org/project/child fan-out),
+  - pagination style,
+  - primary key shape (single/composite),
+  - incremental candidate fields.
+- Keep the inventory in source-local docs (for example `posthog/temporal/data_imports/sources/<source>/api_inventory.md`) so future endpoint additions stay consistent.
+- Add endpoints in phases:
+  - org-level list endpoints first,
+  - then project-level fan-out,
+  - then child/fan-out endpoints with bounded pagination.
+
+## Pagination and key learnings (Sentry pattern)
+
+- Some APIs expose cursor pagination in `Link` headers and require checking both `rel="next"` and a results flag (for example `results="true"`).
+- When following a full cursor URL from response headers, clear request params in paginator updates to avoid duplicate/contradicting query params.
+- Primary keys are endpoint-specific and may not be `id` (for example release endpoints can key by `version`); declare this explicitly in `settings.py` per endpoint.
+- For fan-out endpoints (for example project-scoped or issue-scoped tables), add parent identifiers (`project_id`, `project_slug`, `issue_id`) to each emitted row.
+- Bound fan-out runtime with configurable caps (`max_parents`, `max_pages_per_parent`) and retry/timeouts to keep large org syncs reliable.
 
 ## Testing expectations
 
@@ -81,8 +104,11 @@ Add at least two test modules:
 - `tests/test_<source>.py`:
   - paginator behavior from API response headers/body
   - resource generation for incremental vs non-incremental
+  - endpoint-specific primary key mapping
   - credential validation status mapping
   - mapper/filter helpers if present
+  - fan-out endpoint row format assertions (dict shape + parent identifiers)
+  - expected return schema checks for each declared endpoint in `settings.py`
 
 Use parameterized tests for status codes and edge cases.
 
