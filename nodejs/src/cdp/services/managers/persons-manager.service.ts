@@ -1,5 +1,3 @@
-import { PersonPropertyFilter } from '~/types'
-
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
 import { TeamManager } from '../../../utils/team-manager'
@@ -9,102 +7,68 @@ import { getPersonDisplayName } from '../../utils'
 
 export type PersonGetArgs = {
     teamId: number
-    distinctId: string
+    id: string
 }
 
-export type BatchPersonGetArgs = {
-    teamId: number
-    properties: PersonPropertyFilter[]
-}
-
-const toKey = (args: PersonGetArgs): string => `${args.teamId}:${args.distinctId}`
+const toKey = (args: PersonGetArgs): string => `${args.teamId}:${args.id}`
 
 const fromKey = (key: string): PersonGetArgs => {
-    const [teamId, ...distinctIdParts] = key.split(':')
-    return { teamId: parseInt(teamId), distinctId: distinctIdParts.join(':') }
+    const [teamId, ...idParts] = key.split(':')
+    return { teamId: parseInt(teamId), id: idParts.join(':') }
 }
 
 export type PersonManagerPerson = {
     id: string
     properties: Record<string, any>
     team_id: number
+}
+
+export type PersonManagerPersonWithDistinctId = PersonManagerPerson & {
     distinct_id: string
 }
 
 export class PersonsManagerService {
-    private lazyLoader: LazyLoader<PersonManagerPerson>
+    private lazyLoaderByPersonId: LazyLoader<PersonManagerPerson>
+    private lazyLoaderByDistinctId: LazyLoader<PersonManagerPersonWithDistinctId>
 
     constructor(
         private teamManager: TeamManager,
         private personRepository: PersonRepository,
         private siteUrl: string
     ) {
-        this.lazyLoader = new LazyLoader({
-            name: 'person_manager',
-            loader: async (ids) => await this.fetchPersons(ids),
+        this.lazyLoaderByPersonId = new LazyLoader({
+            name: 'person_manager_lookup_by_person_id',
+            loader: async (ids) => await this.fetchPersonsByPersonIds(ids),
+            refreshAgeMs: 1000 * 60, // 1 minute, so that we don't hold stale person data for too long
+        })
+        this.lazyLoaderByDistinctId = new LazyLoader({
+            name: 'person_manager_lookup_by_distinct_id',
+            loader: async (ids) => await this.fetchPersonsByDistinctIds(ids),
             refreshAgeMs: 1000 * 60, // 1 minute, so that we don't hold stale person data for too long
         })
     }
 
     public clear(): void {
-        this.lazyLoader.clear()
+        this.lazyLoaderByPersonId.clear()
+        this.lazyLoaderByDistinctId.clear()
     }
 
-    public async get(args: PersonGetArgs): Promise<PersonManagerPerson | null> {
+    private async get(args: PersonGetArgs): Promise<PersonManagerPerson | null> {
         const key = toKey(args)
-        return (await this.lazyLoader.get(key)) ?? null
+        return (await this.lazyLoaderByPersonId.get(key)) ?? null
     }
 
-    public async getMany(args: PersonGetArgs[]): Promise<Record<string, PersonManagerPerson | null>> {
-        const keys = args.map(toKey)
-        return await this.lazyLoader.getMany(keys)
-    }
+    public async getCyclotronPerson(
+        teamId: number,
+        id: string,
+        kind: 'distinct_id' | 'person_id'
+    ): Promise<CyclotronPerson | undefined> {
+        const key = toKey({ teamId, id })
 
-    public async countMany(filters: BatchPersonGetArgs): Promise<number> {
-        return await this.personRepository.countPersonsByProperties(filters)
-    }
-
-    public async streamMany({
-        filters,
-        options,
-        onPersonBatch,
-    }: {
-        filters: BatchPersonGetArgs
-        options?: { limit?: number }
-        onPersonBatch: (personsBatch: { personId: string; distinctId: string }[]) => Promise<void>
-    }): Promise<void> {
-        const limit = options?.limit || 500
-        let cursor: string | undefined = undefined
-
-        let personBatch = await this.personRepository.fetchPersonsByProperties({
-            ...filters,
-            options: { limit, cursor },
-        })
-        while (personBatch.length > 0) {
-            await onPersonBatch(
-                personBatch.map((personRow) => ({
-                    personId: personRow.uuid,
-                    distinctId: personRow.distinct_id,
-                }))
-            )
-
-            // Skip another query if our page wasn't full
-            if (personBatch.length < limit) {
-                break
-            }
-
-            // Use the last person's ID as the cursor for the next batch
-            // This ensures stable, deterministic pagination even if data changes
-            cursor = personBatch[personBatch.length - 1].id.toString()
-            personBatch = await this.personRepository.fetchPersonsByProperties({
-                ...filters,
-                options: { limit, cursor },
-            })
-        }
-    }
-
-    public async getCyclotronPerson(teamId: number, distinctId: string): Promise<CyclotronPerson | undefined> {
-        const [team, dbPerson] = await Promise.all([this.teamManager.getTeam(teamId), this.get({ teamId, distinctId })])
+        const [team, dbPerson] = await Promise.all([
+            this.teamManager.getTeam(teamId),
+            kind === 'distinct_id' ? this.lazyLoaderByDistinctId.get(key) : this.lazyLoaderByPersonId.get(key),
+        ])
 
         if (!dbPerson || !team) {
             return undefined
@@ -113,30 +77,58 @@ export class PersonsManagerService {
         return {
             id: dbPerson.id,
             properties: dbPerson.properties,
-            name: getPersonDisplayName(team, distinctId, dbPerson.properties),
-            url: `${this.siteUrl}/project/${teamId}/person/${encodeURIComponent(distinctId)}`,
+            name: getPersonDisplayName(team, id, dbPerson.properties),
+            url: `${this.siteUrl}/project/${teamId}/person/${encodeURIComponent(id)}`,
         }
     }
 
-    // NOTE: Currently this essentially loads the "latest" template each time. We may need to swap this to using a specific version
-    private async fetchPersons(ids: string[]): Promise<Record<string, PersonManagerPerson | undefined>> {
+    private async fetchPersonsByDistinctIds(
+        ids: string[]
+    ): Promise<Record<string, PersonManagerPersonWithDistinctId | undefined>> {
         const teamPersons = ids.map(fromKey)
 
         logger.debug('[PersonManager]', 'Fetching persons', { teamPersons })
 
-        const personRows = await this.personRepository.fetchPersonsByDistinctIds(teamPersons)
+        const personRows = await this.personRepository.fetchPersonsByDistinctIds(
+            teamPersons.map(({ teamId, id }) => ({ teamId, distinctId: id }))
+        )
 
         // Map results back to the original keys
-        const result: Record<string, PersonManagerPerson | undefined> = {}
+        const result: Record<string, PersonManagerPersonWithDistinctId | undefined> = {}
 
         for (const row of personRows) {
-            const key = toKey({ teamId: row.team_id, distinctId: row.distinct_id })
+            const key = toKey({ teamId: row.team_id, id: row.distinct_id })
 
             result[key] = {
                 id: row.uuid,
                 properties: row.properties,
                 team_id: row.team_id,
                 distinct_id: row.distinct_id,
+            }
+        }
+
+        return result
+    }
+
+    private async fetchPersonsByPersonIds(ids: string[]): Promise<Record<string, PersonManagerPerson | undefined>> {
+        const teamPersons = ids.map(fromKey)
+
+        logger.debug('[PersonManager]', 'Fetching persons', { teamPersons })
+
+        const personRows = await this.personRepository.fetchPersonsByPersonIds(
+            teamPersons.map(({ teamId, id }) => ({ teamId, personId: id }))
+        )
+
+        // Map results back to the original keys
+        const result: Record<string, PersonManagerPerson | undefined> = {}
+
+        for (const row of personRows) {
+            const key = toKey({ teamId: row.team_id, id: row.uuid })
+
+            result[key] = {
+                id: row.uuid,
+                properties: row.properties,
+                team_id: row.team_id,
             }
         }
 

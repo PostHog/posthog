@@ -1,4 +1,5 @@
 from .clustering_config import ClusteringConfig
+from .clustering_job import ClusteringJob
 from .datasets import Dataset, DatasetItem
 from .evaluation_config import EvaluationConfig
 from .evaluations import Evaluation
@@ -7,6 +8,7 @@ from .provider_keys import LLMProvider, LLMProviderKey
 
 __all__ = [
     "ClusteringConfig",
+    "ClusteringJob",
     "Evaluation",
     "EvaluationConfig",
     "Dataset",

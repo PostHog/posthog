@@ -25,6 +25,7 @@ export * from 'lib/lemon-ui/LemonSegmentedButton'
 export * from 'lib/lemon-ui/LemonSelect'
 export * from 'lib/lemon-ui/LemonSkeleton'
 export * from 'lib/lemon-ui/LemonSlider'
+// eslint-disable-next-line import/no-cycle
 export * from 'lib/lemon-ui/LemonSnack'
 export * from 'lib/lemon-ui/LemonSwitch'
 export * from 'lib/lemon-ui/LemonTable'

@@ -572,6 +572,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "query_kind": query_dict.get("kind") if isinstance(query_dict, dict) else None,
                 },
                 team=self.team,
+                request=request,
             )
 
             current_version = endpoint.get_version()
@@ -1633,6 +1634,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "refresh_mode": data.refresh.value if data.refresh else None,
             },
             team=self.team,
+            request=request,
         )
 
         version_number, err = self._parse_int_param(data.version, request.query_params.get("version"), "version")

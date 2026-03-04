@@ -91,7 +91,8 @@ export class CdpCyclotronWorker<
                 if (!hogFuncState.globals.person) {
                     hogFuncState.globals.person = await this.personsManager.getCyclotronPerson(
                         item.teamId,
-                        hogFuncState.globals.event.distinct_id
+                        hogFuncState.globals.event.distinct_id,
+                        'distinct_id'
                     )
                 }
 

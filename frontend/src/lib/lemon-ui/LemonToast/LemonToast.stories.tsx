@@ -3,10 +3,8 @@ import { useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
-import {
-    INCIDENT_IO_STATUS_PAGE_BASE,
-    sidePanelStatusIncidentIoLogic,
-} from '~/layout/navigation-3000/sidepanel/panels/sidePanelStatusIncidentIoLogic'
+import { INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
+import { sidePanelStatusIncidentIoLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelStatusIncidentIoLogic'
 import { useStorybookMocks } from '~/mocks/browser'
 import * as incidentIoStatusPageCritical from '~/mocks/fixtures/_incident_io_status_page_critical.json'
 

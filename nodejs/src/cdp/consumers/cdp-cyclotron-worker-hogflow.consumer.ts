@@ -54,15 +54,16 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
 
-                const person = await this.personsManager.getCyclotronPerson(
-                    hogFlow.team_id,
-                    hogFlowInvocationState.event.distinct_id
-                )
+                const personIdOrDistinctId = hogFlowInvocationState.event.distinct_id ?? hogFlowInvocationState.personId
+                const kind = hogFlowInvocationState.event.distinct_id ? 'distinct_id' : 'person_id'
+                const person = personIdOrDistinctId
+                    ? await this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind)
+                    : undefined
 
                 if (!person && hogFlow.trigger?.type === 'event') {
                     logger.warn('⚠️', 'Person not found for hog flow invocation', {
                         hogFlowId: hogFlow.id,
-                        distinctId: hogFlowInvocationState.event.distinct_id,
+                        distinctId: hogFlowInvocationState.event?.distinct_id || hogFlowInvocationState.personId,
                         invocationId: item.id,
                     })
                 }
