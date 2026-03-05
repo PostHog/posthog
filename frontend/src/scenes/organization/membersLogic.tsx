@@ -161,6 +161,15 @@ export const membersLogic = kea<membersLogicType>([
                 return Math.max(count ?? 0, members?.length ?? 0)
             },
         ],
+        organizationHasOwner: [
+            (s) => [s.members],
+            (members): boolean => {
+                if (!members) {
+                    return true // Assume owner exists until members are loaded
+                }
+                return members.some((member) => member.level === OrganizationMembershipLevel.Owner)
+            },
+        ],
     }),
 
     listeners(({ values, actions }) => ({

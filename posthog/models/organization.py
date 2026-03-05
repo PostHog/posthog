@@ -509,16 +509,32 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     def __str__(self):
         return str(self.Level(self.level))
 
+    def _organization_has_active_owner(self) -> bool:
+        return OrganizationMembership.objects.filter(
+            organization_id=self.organization_id,
+            level=OrganizationMembership.Level.OWNER,
+            user__is_active=True,
+        ).exists()
+
     def validate_update(
         self,
         membership_being_updated: "OrganizationMembership",
         new_level: Level | None = None,
     ) -> None:
         if new_level is not None:
-            if membership_being_updated.id == self.id:
+            # Allow admins to rescue an ownerless organization by promoting someone to owner.
+            # This covers the case where the previous owner left the company and their account
+            # was deactivated, leaving no one able to manage ownership.
+            is_ownerless_rescue = (
+                new_level == OrganizationMembership.Level.OWNER
+                and self.level >= OrganizationMembership.Level.ADMIN
+                and not self._organization_has_active_owner()
+            )
+
+            if membership_being_updated.id == self.id and not is_ownerless_rescue:
                 raise exceptions.PermissionDenied("You can't change your own access level.")
             if new_level == OrganizationMembership.Level.OWNER:
-                if self.level != OrganizationMembership.Level.OWNER:
+                if self.level != OrganizationMembership.Level.OWNER and not is_ownerless_rescue:
                     raise exceptions.PermissionDenied(
                         "You can only make another member owner if you're this organization's owner."
                     )

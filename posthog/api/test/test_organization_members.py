@@ -381,6 +381,11 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         membership: OrganizationMembership = OrganizationMembership.objects.create(
             user=user, organization=self.organization
         )
+        # Create an active owner so the admin can't use the ownerless rescue path
+        owner_user = User.objects.create_user("owner@x.com", None, "Owner")
+        OrganizationMembership.objects.create(
+            user=owner_user, organization=self.organization, level=OrganizationMembership.Level.OWNER
+        )
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.patch(
@@ -401,6 +406,116 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
+
+    def test_admin_can_promote_to_owner_when_no_active_owner(self):
+        """Admin can rescue an ownerless org by promoting another member to owner."""
+        user = User.objects.create_user("test@x.com", None, "X")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        # Make the test user an admin (not owner)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        # Ensure there are no owners in the org
+        self.assertFalse(
+            OrganizationMembership.objects.filter(
+                organization=self.organization,
+                level=OrganizationMembership.Level.OWNER,
+                user__is_active=True,
+            ).exists()
+        )
+        response = self.client.patch(
+            f"/api/organizations/@current/members/{user.uuid}/",
+            {"level": OrganizationMembership.Level.OWNER},
+        )
+        self.assertEqual(response.status_code, 200)
+        user.refresh_from_db()
+        membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+        self.assertEqual(membership.level, OrganizationMembership.Level.OWNER)
+
+    def test_admin_can_self_promote_to_owner_when_no_active_owner(self):
+        """Admin can promote themselves to owner when the org has no active owner."""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        response = self.client.patch(
+            f"/api/organizations/@current/members/{self.user.uuid}/",
+            {"level": OrganizationMembership.Level.OWNER},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.organization_membership.refresh_from_db()
+        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.OWNER)
+
+    def test_admin_cannot_promote_to_owner_when_active_owner_exists(self):
+        """Admin cannot promote to owner when an active owner already exists."""
+        user = User.objects.create_user("test@x.com", None, "X")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        # Make self.user an owner, then create another admin to test with
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        admin_user = User.objects.create_user("admin@x.com", None, "Admin")
+        OrganizationMembership.objects.create(
+            user=admin_user, organization=self.organization, level=OrganizationMembership.Level.ADMIN
+        )
+        self.client.force_login(admin_user)
+        response = self.client.patch(
+            f"/api/organizations/@current/members/{user.uuid}/",
+            {"level": OrganizationMembership.Level.OWNER},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_can_promote_to_owner_when_only_owner_is_deactivated(self):
+        """Admin can rescue org when the only owner's account has been deactivated."""
+        # Create an owner and then deactivate them
+        owner_user = User.objects.create_user("owner@x.com", None, "Owner")
+        OrganizationMembership.objects.create(
+            user=owner_user, organization=self.organization, level=OrganizationMembership.Level.OWNER
+        )
+        owner_user.is_active = False
+        owner_user.save()
+        # Make test user an admin
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        response = self.client.patch(
+            f"/api/organizations/@current/members/{self.user.uuid}/",
+            {"level": OrganizationMembership.Level.OWNER},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.organization_membership.refresh_from_db()
+        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.OWNER)
+
+    def test_member_cannot_promote_to_owner_even_when_no_active_owner(self):
+        """Regular members cannot rescue an ownerless org - only admins can."""
+        user = User.objects.create_user("test@x.com", None, "X")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.patch(
+            f"/api/organizations/@current/members/{user.uuid}/",
+            {"level": OrganizationMembership.Level.OWNER},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_owner_can_leave_when_other_active_owner_exists(self):
+        """Owner can leave the organization when another active owner exists."""
+        other_user = User.objects.create_user("other@x.com", None, "Other")
+        OrganizationMembership.objects.create(
+            user=other_user, organization=self.organization, level=OrganizationMembership.Level.OWNER
+        )
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        response = self.client.delete(f"/api/organizations/@current/members/{self.user.uuid}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).exists()
+        )
+
+    def test_sole_owner_cannot_leave(self):
+        """The sole owner cannot leave the organization."""
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        response = self.client.delete(f"/api/organizations/@current/members/{self.user.uuid}/")
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).exists()
+        )
 
     def test_list_organization_members_filter_by_email(self):
         # Create additional users
