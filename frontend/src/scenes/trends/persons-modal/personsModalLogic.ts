@@ -5,7 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { isGroupType } from 'lib/utils'
+import { isGroupType, isSessionType } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { urls } from 'scenes/urls'
@@ -146,6 +146,21 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                                 group[field] = result[additionalFieldIndices[index]]
                                             })
                                             return group
+                                        }
+                                        if (result[0].session_id !== undefined) {
+                                            const session: SessionActorType = {
+                                                type: 'session',
+                                                id: result[0].session_id,
+                                                properties: result[0],
+                                                created_at: result[0].$start_timestamp,
+                                                matched_recordings: [],
+                                                value_at_data_point: null,
+                                                person: result[2],
+                                            }
+                                            Object.keys(props.additionalSelect || {}).forEach((field, index) => {
+                                                session[field] = result[additionalFieldIndices[index]]
+                                            })
+                                            return session
                                         }
                                         const person: PersonActorType = {
                                             type: 'person',
@@ -307,6 +322,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                 if (!firstResult) {
                     return { singular: 'result', plural: 'results' }
+                }
+                if (isSessionType(firstResult)) {
+                    return { singular: 'session', plural: 'sessions' }
                 }
                 return aggregationLabel(isGroupType(firstResult) ? firstResult.group_type_index : undefined)
             },
