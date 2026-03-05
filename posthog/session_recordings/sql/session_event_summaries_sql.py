@@ -36,7 +36,7 @@ def SESSION_EVENT_SUMMARIES_DATA_TABLE_SQL():
         SESSION_EVENT_SUMMARIES_TABLE_BASE_SQL
         + """
 PARTITION BY toYYYYMM(min_timestamp)
-ORDER BY (toDate(min_timestamp), team_id, event, session_id)
+ORDER BY (team_id, event, session_id)
 {ttl}
 SETTINGS index_granularity=512
 """
@@ -76,8 +76,8 @@ AS SELECT
     JSONExtractString(properties, '$session_id') as session_id,
     event,
     toInt64(count()) as event_count,
-    groupUniqArray(JSONExtractString(properties, '$host')) as distinct_hosts,
-    groupUniqArray(JSONExtractString(person_properties, 'email')) as distinct_emails,
+    groupUniqArrayIf(JSONExtractString(properties, '$host'), notEmpty(JSONExtractString(properties, '$host'))) as distinct_hosts,
+    groupUniqArrayIf(JSONExtractString(person_properties, 'email'), notEmpty(JSONExtractString(person_properties, 'email'))) as distinct_emails,
     min(timestamp) as min_timestamp,
     max(timestamp) as max_timestamp,
     max(_timestamp) as _timestamp

@@ -3725,8 +3725,8 @@
       JSONExtractString(properties, '$session_id') as session_id,
       event,
       toInt64(count()) as event_count,
-      groupUniqArray(JSONExtractString(properties, '$host')) as distinct_hosts,
-      groupUniqArray(JSONExtractString(person_properties, 'email')) as distinct_emails,
+      groupUniqArrayIf(JSONExtractString(properties, '$host'), notEmpty(JSONExtractString(properties, '$host'))) as distinct_hosts,
+      groupUniqArrayIf(JSONExtractString(person_properties, 'email'), notEmpty(JSONExtractString(person_properties, 'email'))) as distinct_emails,
       min(timestamp) as min_timestamp,
       max(timestamp) as max_timestamp,
       max(_timestamp) as _timestamp
@@ -4750,7 +4750,7 @@
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_event_summaries', '{replica}')
   
   PARTITION BY toYYYYMM(min_timestamp)
-  ORDER BY (toDate(min_timestamp), team_id, event, session_id)
+  ORDER BY (team_id, event, session_id)
   
   SETTINGS index_granularity=512
   
@@ -7497,7 +7497,7 @@
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_event_summaries', '{replica}')
   
   PARTITION BY toYYYYMM(min_timestamp)
-  ORDER BY (toDate(min_timestamp), team_id, event, session_id)
+  ORDER BY (team_id, event, session_id)
   
   SETTINGS index_granularity=512
   
