@@ -140,10 +140,11 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
 
         addStep: ({ insertAtIndex }) => {
             const series = [...values.query.source.series]
+            const defaultEvent = getDefaultEventName()
             const newStep: EventsNode = {
                 kind: NodeKind.EventsNode,
-                event: null as unknown as string,
-                name: 'Select an event',
+                event: defaultEvent,
+                name: defaultEvent === null ? 'All events' : defaultEvent,
             }
             series.splice(insertAtIndex, 0, newStep)
             actions.setQuery({

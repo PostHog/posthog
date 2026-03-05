@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
@@ -15,9 +16,14 @@ const JOURNEY_BUILDER_CONTEXT: QueryContext = {
 export function JourneyBuilder(): JSX.Element {
     const { query, journeyName, isSaving } = useValues(journeyBuilderLogic)
     const { setQuery, setJourneyName, saveJourney, closeBuilder } = useActions(journeyBuilderLogic)
+    const builderRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        builderRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, [])
 
     return (
-        <div className="space-y-4">
+        <div ref={builderRef} className="space-y-4">
             <LemonDivider />
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
