@@ -250,6 +250,13 @@
     color: var(--color-text-secondary);
 }
 
+.LemonTable__cell--truncate {
+    max-width: 20rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .LemonTable__overlay {
     position: absolute;
     top: 0;

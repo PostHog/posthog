@@ -140,6 +140,11 @@ function TableRowRaw<T extends Record<string, any>>({
 
                             const extraCellProps =
                                 isTableCellRepresentation(contents) && contents.props ? contents.props : {}
+
+                            const shouldTruncate = column.truncate !== false
+                            const cellContents = isTableCellRepresentation(contents) ? contents.children : contents
+                            const titleForTruncation = shouldTruncate ? getTitleFromValue(value) : undefined
+
                             return (
                                 <td
                                     key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
@@ -150,7 +155,8 @@ function TableRowRaw<T extends Record<string, any>>({
                                         column.align && `text-${column.align}`,
                                         typeof column.className === 'function'
                                             ? column.className(value as T[keyof T], record, recordIndex)
-                                            : column.className
+                                            : column.className,
+                                        shouldTruncate && 'LemonTable__cell--truncate'
                                     )}
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{
@@ -159,9 +165,10 @@ function TableRowRaw<T extends Record<string, any>>({
                                             : column.style),
                                         ...(isColumnSticky ? { left: `${leftPosition}px` } : {}),
                                     }}
+                                    title={titleForTruncation}
                                     {...extraCellProps}
                                 >
-                                    {isTableCellRepresentation(contents) ? contents.children : contents}
+                                    {cellContents}
                                 </td>
                             )
                         })
@@ -201,4 +208,14 @@ function isTableCellRepresentation(
     contents: React.ReactNode | TableCellRepresentation
 ): contents is TableCellRepresentation {
     return !!contents && typeof contents === 'object' && !React.isValidElement(contents)
+}
+
+function getTitleFromValue(value: unknown): string | undefined {
+    if (typeof value === 'string') {
+        return value
+    }
+    if (typeof value === 'number') {
+        return String(value)
+    }
+    return undefined
 }

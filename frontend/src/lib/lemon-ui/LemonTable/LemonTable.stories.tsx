@@ -23,6 +23,13 @@ interface MockPerson {
     occupation: string
 }
 
+interface MockFeedback {
+    id: number
+    url: string
+    feedback: string
+    email: string
+}
+
 interface MockFunnelSeries {
     name: string
     stepResults: [[number, number], [number, number]]
@@ -509,4 +516,106 @@ export const WithRowActions = (): JSX.Element => {
             }
         />
     )
+}
+
+export const WithLongTextData = (): JSX.Element => {
+    const longTextData: MockFeedback[] = [
+        {
+            id: 1,
+            url: 'https://example.com/very/long/path/to/some/page/with/many/segments/and/query/params?utm_source=newsletter&utm_medium=email&utm_campaign=spring_sale_2024&ref=homepage',
+            feedback:
+                'This is a very long feedback message that contains a lot of text and should be truncated when displayed in the table. The user wanted to express their thoughts in great detail about the product experience.',
+            email: 'verylongemailaddress.that.keeps.going@extremely-long-domain-name-for-testing.example.com',
+        },
+        {
+            id: 2,
+            url: 'https://app.posthog.com/project/12345/dashboard/67890?date_from=2024-01-01&date_to=2024-12-31&interval=month&filter_test_accounts=true',
+            feedback: 'Short feedback',
+            email: 'user@example.com',
+        },
+        {
+            id: 3,
+            url: '/short/path',
+            feedback:
+                'Another extremely long piece of feedback that goes on and on and on. The customer really wanted to make sure we understood every single detail of their experience with our product, including all the minor issues they encountered.',
+            email: 'another.user.with.a.really.long.email.address@subdomain.company-name.co.uk',
+        },
+    ]
+
+    return (
+        <LemonTable<MockFeedback>
+            columns={[
+                {
+                    title: 'ID',
+                    dataIndex: 'id',
+                    width: 50,
+                },
+                {
+                    title: 'URL',
+                    dataIndex: 'url',
+                },
+                {
+                    title: 'Feedback',
+                    dataIndex: 'feedback',
+                },
+                {
+                    title: 'Email',
+                    dataIndex: 'email',
+                },
+            ]}
+            dataSource={longTextData}
+        />
+    )
+}
+WithLongTextData.parameters = {
+    docs: {
+        description: {
+            story: 'Long text is automatically truncated by default. Hover over any truncated cell to see the full text in a native tooltip.',
+        },
+    },
+}
+
+export const WithTruncationDisabled = (): JSX.Element => {
+    const longTextData: MockFeedback[] = [
+        {
+            id: 1,
+            url: 'https://example.com/very/long/path/to/some/page/with/many/segments/and/query/params?utm_source=newsletter&utm_medium=email',
+            feedback:
+                'This is a very long feedback message that should NOT be truncated because truncation is disabled for this column.',
+            email: 'user@example.com',
+        },
+    ]
+
+    return (
+        <LemonTable<MockFeedback>
+            columns={[
+                {
+                    title: 'ID',
+                    dataIndex: 'id',
+                    width: 50,
+                },
+                {
+                    title: 'URL (truncated)',
+                    dataIndex: 'url',
+                },
+                {
+                    title: 'Feedback (not truncated)',
+                    dataIndex: 'feedback',
+                    truncate: false,
+                },
+                {
+                    title: 'Email (truncated)',
+                    dataIndex: 'email',
+                },
+            ]}
+            dataSource={longTextData}
+        />
+    )
+}
+WithTruncationDisabled.parameters = {
+    docs: {
+        description: {
+            story: 'Truncation can be disabled per column by setting `truncate: false`. The feedback column here shows the full text without truncation.',
+        },
+    },
 }

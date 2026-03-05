@@ -54,6 +54,8 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     width?: string | number
     /** Whether the column's contents should expand to the size of the column. */
     fullWidth?: boolean
+    /** Whether to truncate text that overflows the cell. Shows full text on hover via title attribute. Defaults to true. */
+    truncate?: boolean
     /** Cell actions to display in a "More" menu for each cell. Return null to hide actions for specific cells. */
     cellActions?: (
         value: D extends keyof T ? T[D] : undefined,
