@@ -928,18 +928,21 @@ export class PostgresPersonRepository
          */
         const idParamIndex = Object.values(update).length + 1
         const teamIdParamIndex = Object.values(update).length + 2
-        const queryStringWithPropertiesSize = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(
-            update
-        ).map(
-            (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
-        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
+        const setClause = Object.keys(update).map((field, index) => {
+            const sanitized = sanitizeSqlIdentifier(field)
+            const paramRef = `$${index + 1}`
+            // Non-empty wins for group keys to prevent concurrent workers from erasing values
+            if (/^group_\d+_key$/.test(field)) {
+                return `"${sanitized}" = COALESCE(NULLIF(${paramRef}, ''), "${sanitized}")`
+            }
+            return `"${sanitized}" = ${paramRef}`
+        })
+        const queryStringWithPropertiesSize = `UPDATE posthog_person SET version = ${versionString}, ${setClause} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
         RETURNING *, COALESCE(pg_column_size(properties)::bigint, 0::bigint) as properties_size_bytes
         /* operation='updatePersonWithPropertiesSize',purpose='${tag || 'update'}' */`
 
         // Potentially overriding values badly if there was an update to the person after computing updateValues above
-        const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
-            (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
-        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
+        const queryString = `UPDATE posthog_person SET version = ${versionString}, ${setClause} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
         RETURNING *
         /* operation='updatePerson',purpose='${tag || 'update'}' */`
 
@@ -1018,11 +1021,11 @@ export class PostgresPersonRepository
                     properties_last_operation = $3,
                     is_identified = $4,
                     last_seen_at = $5,
-                    group_0_key = $6,
-                    group_1_key = $7,
-                    group_2_key = $8,
-                    group_3_key = $9,
-                    group_4_key = $10,
+                    group_0_key = COALESCE(NULLIF($6, ''), group_0_key),
+                    group_1_key = COALESCE(NULLIF($7, ''), group_1_key),
+                    group_2_key = COALESCE(NULLIF($8, ''), group_2_key),
+                    group_3_key = COALESCE(NULLIF($9, ''), group_3_key),
+                    group_4_key = COALESCE(NULLIF($10, ''), group_4_key),
                     version = COALESCE(version, 0)::numeric + 1
                 WHERE team_id = $11 AND uuid = $12 AND version = $13
                 RETURNING *
@@ -1154,11 +1157,11 @@ export class PostgresPersonRepository
                     is_identified = batch.new_is_identified,
                     created_at = batch.new_created_at::timestamp with time zone,
                     last_seen_at = batch.new_last_seen_at::timestamp with time zone,
-                    group_0_key = batch.new_group_0_key,
-                    group_1_key = batch.new_group_1_key,
-                    group_2_key = batch.new_group_2_key,
-                    group_3_key = batch.new_group_3_key,
-                    group_4_key = batch.new_group_4_key,
+                    group_0_key = COALESCE(NULLIF(batch.new_group_0_key, ''), p.group_0_key),
+                    group_1_key = COALESCE(NULLIF(batch.new_group_1_key, ''), p.group_1_key),
+                    group_2_key = COALESCE(NULLIF(batch.new_group_2_key, ''), p.group_2_key),
+                    group_3_key = COALESCE(NULLIF(batch.new_group_3_key, ''), p.group_3_key),
+                    group_4_key = COALESCE(NULLIF(batch.new_group_4_key, ''), p.group_4_key),
                     version = COALESCE(p.version, 0)::numeric + 1
                 FROM UNNEST(
                     $1::uuid[],
