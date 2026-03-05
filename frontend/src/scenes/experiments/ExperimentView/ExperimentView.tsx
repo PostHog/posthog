@@ -262,7 +262,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
         throw new Error('<ExperimentView /> must receive a tabId prop')
     }
 
-    const { activeTabKey } = useValues(experimentSceneLogic({ tabId }))
+    const { effectiveTabKey } = useValues(experimentSceneLogic({ tabId }))
     const { setActiveTabKey } = useActions(experimentSceneLogic({ tabId }))
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
@@ -281,7 +281,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                     {usesNewQueryRunner ? <Info tabId={tabId} /> : <LegacyExperimentInfo />}
                     {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                     <LemonTabs
-                        activeKey={activeTabKey}
+                        activeKey={effectiveTabKey}
                         onChange={(key) => setActiveTabKey(key)}
                         sceneInset
                         tabs={[
