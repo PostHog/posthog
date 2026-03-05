@@ -135,7 +135,7 @@ export class InsightPage {
     }
 
     async clickDeleteInsight(): Promise<void> {
-        await this.page.getByTestId('insight-delete').click()
+        await this.page.locator('[data-attr="insight-delete"]').click()
     }
 
     async confirmDeleteDialog(): Promise<void> {
