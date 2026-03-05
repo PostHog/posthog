@@ -58,18 +58,6 @@ const ticketActionsMapping: Record<
             ],
         }
     },
-    assignee: function onAssignee(change) {
-        const before = change?.before as { type?: string; user?: { email?: string }; role?: { name?: string } } | null
-        const after = change?.after as { type?: string; user?: { email?: string }; role?: { name?: string } } | null
-        return {
-            description: [
-                <>
-                    changed assignee from <strong>{formatAssignee(before)}</strong> to{' '}
-                    <strong>{formatAssignee(after)}</strong>
-                </>,
-            ],
-        }
-    },
     sla_due_at: function onSlaDueAt(change) {
         const before = change?.before as string | null
         const after = change?.after as string | null
@@ -100,29 +88,27 @@ const ticketActionsMapping: Record<
             ],
         }
     },
-    tags: function onTags(change) {
-        const before = (change?.before as string[]) || []
-        const after = (change?.after as string[]) || []
-        const added = after.filter((t) => !before.includes(t))
-        const removed = before.filter((t) => !after.includes(t))
-
-        const changes: Description[] = []
-        if (added.length) {
-            changes.push(
-                <>
-                    added tag{added.length > 1 ? 's' : ''} <strong>{added.join(', ')}</strong>
-                </>
-            )
+    tag: function onTag(change) {
+        const tagName = (change?.after || change?.before) as string
+        if (change?.action === 'added') {
+            return {
+                description: [
+                    <>
+                        added tag <strong>{tagName}</strong>
+                    </>,
+                ],
+            }
         }
-        if (removed.length) {
-            changes.push(
-                <>
-                    removed tag{removed.length > 1 ? 's' : ''} <strong>{removed.join(', ')}</strong>
-                </>
-            )
+        if (change?.action === 'removed') {
+            return {
+                description: [
+                    <>
+                        removed tag <strong>{tagName}</strong>
+                    </>,
+                ],
+            }
         }
-
-        return changes.length > 0 ? { description: changes } : null
+        return null
     },
 }
 
@@ -149,19 +135,17 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
     if (logItem.activity === 'assigned') {
         const changes = logItem.detail.changes || []
         const assigneeChange = changes.find((c) => c.field === 'assignee')
-        if (assigneeChange) {
-            const after = assigneeChange.after as {
-                type?: string
-                user?: { email?: string }
-                role?: { name?: string }
-            } | null
-            return {
-                description: (
-                    <>
-                        {user} assigned {ticketLink} to <strong>{formatAssignee(after)}</strong>
-                    </>
-                ),
-            }
+        const after = (assigneeChange?.after ?? null) as {
+            type?: string
+            user?: { email?: string }
+            role?: { name?: string }
+        } | null
+        return {
+            description: (
+                <>
+                    {user} assigned {ticketLink} to <strong>{formatAssignee(after)}</strong>
+                </>
+            ),
         }
     }
 
