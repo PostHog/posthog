@@ -91,10 +91,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
 
     reducers({
         reportsResponse: {
-            deleteReport: (
-                state: CountedPaginatedResponse<SignalReport> | null,
-                { reportId }: { reportId: string }
-            ) =>
+            deleteReport: (state: CountedPaginatedResponse<SignalReport> | null, { reportId }: { reportId: string }) =>
                 state
                     ? { ...state, results: state.results.filter((r) => r.id !== reportId), count: state.count - 1 }
                     : state,

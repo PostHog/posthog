@@ -1,8 +1,9 @@
+from posthog.test.base import APIBaseTest
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team.team import Team
-from posthog.test.base import APIBaseTest
 
 from products.signals.backend.models import SignalReport
 
