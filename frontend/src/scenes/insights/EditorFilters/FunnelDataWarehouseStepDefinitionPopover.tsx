@@ -76,7 +76,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                 table={table}
                 selectedKey={activeFieldValue}
                 emptyMessage="No table selected"
-                limit={5}
+                limit={25}
                 className="mt-2"
             />
             <LemonSegmentedButton
