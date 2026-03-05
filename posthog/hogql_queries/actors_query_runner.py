@@ -141,9 +141,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         return enriched
 
-    def _enrich_session_actors_with_person_identity(self, results: Iterable[list], input_columns: list[str]) -> list:
-        person_id_col_index = input_columns.index("person_id")
-
+    def _enrich_session_actors_with_person_identity(self, results: Iterable[list], person_id_col_index: int) -> list:
         # Materialise so we can iterate twice (results may be an iterator)
         results_list = list(results)
 
@@ -155,11 +153,9 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         for row in results_list:
             result_row = list(row)
             person_uuid = str(result_row[person_id_col_index]) if result_row[person_id_col_index] else None
-            person = persons_lookup.get(person_uuid) if person_uuid else {}
-            result_row[person_id_col_index] = person
+            result_row[person_id_col_index] = persons_lookup.get(person_uuid) if person_uuid else {}
             enriched.append(result_row)
 
-        input_columns[person_id_col_index] = "person"
         return enriched
 
     def prepare_recordings(
@@ -219,7 +215,9 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             )
 
         if self.is_session_aggregation and "person_id" in input_columns:
-            results = self._enrich_session_actors_with_person_identity(results, input_columns)
+            person_id_col_index = input_columns.index("person_id")
+            results = self._enrich_session_actors_with_person_identity(results, person_id_col_index)
+            input_columns[person_id_col_index] = "person"
 
         for column_index, col in enumerate(input_columns):
             # convert tuple that gets returned into a dict
