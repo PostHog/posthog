@@ -79,6 +79,7 @@ AGGREGATES_ACTIVITY_RETRY_POLICY = RetryPolicy(
 SENTIMENT_BATCH_SIZE = 5  # trace IDs per sentiment workflow (matches API batch size)
 SENTIMENT_MAX_CONCURRENT = 10  # max concurrent sentiment workflows
 SENTIMENT_PER_BATCH_TIMEOUT = 120  # seconds per sentiment batch
+SENTIMENT_TOTAL_TIMEOUT = 240  # seconds total budget for all sentiment batches (must be < activity timeout)
 
 # Event emission - database write, quick retries
 EMIT_ACTIVITY_RETRY_POLICY = RetryPolicy(

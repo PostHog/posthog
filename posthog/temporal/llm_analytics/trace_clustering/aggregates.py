@@ -31,6 +31,7 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     SENTIMENT_BATCH_SIZE,
     SENTIMENT_MAX_CONCURRENT,
     SENTIMENT_PER_BATCH_TIMEOUT,
+    SENTIMENT_TOTAL_TIMEOUT,
 )
 from posthog.temporal.llm_analytics.trace_clustering.data import ItemMetrics, fetch_item_metrics
 from posthog.temporal.llm_analytics.trace_clustering.models import (
@@ -116,7 +117,7 @@ async def _fetch_sentiment_for_items(
 
     # Check cache first
     cache_keys = {id_: f"{SENTIMENT_CACHE_KEY_PREFIX}:{analysis_level}:{team_id}:{id_}" for id_ in item_ids}
-    cached_values = cache.get_many(list(cache_keys.values()))
+    cached_values = await asyncio.to_thread(cache.get_many, list(cache_keys.values()))
 
     results: dict[str, dict] = {}
     misses: list[str] = []
@@ -174,9 +175,20 @@ async def _fetch_sentiment_for_items(
                 )
                 return {}
 
-    batch_results = await asyncio.gather(*[_run_sentiment_batch(chunk) for chunk in chunks])
-    for batch in batch_results:
-        results.update(batch)
+    try:
+        batch_results = await asyncio.wait_for(
+            asyncio.gather(*[_run_sentiment_batch(chunk) for chunk in chunks]),
+            timeout=SENTIMENT_TOTAL_TIMEOUT,
+        )
+        for batch in batch_results:
+            results.update(batch)
+    except TimeoutError:
+        logger.warning(
+            "sentiment_total_timeout",
+            team_id=team_id,
+            total_chunks=len(chunks),
+            cached_so_far=len(results),
+        )
 
     return results
 
