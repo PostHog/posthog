@@ -30,6 +30,7 @@ import {
     NonNativeMarketingSource,
     VALID_NON_NATIVE_MARKETING_SOURCES,
     VALID_SELF_MANAGED_MARKETING_SOURCES,
+    findSchemaByFieldName,
 } from '../../logic/utils'
 import { AddIntegrationButton } from '../MarketingAnalyticsFilters/AddIntegrationButton'
 import { ColumnMappingModal } from './ColumnMappingModal'
@@ -72,7 +73,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
         }
 
         const syncingTables = requiredFields.filter((field) => {
-            const schema = source.schemas?.find((s) => s.name === field)
+            const schema = findSchemaByFieldName(source.schemas, field, source.source_type)
             return schema?.should_sync ?? false
         })
 

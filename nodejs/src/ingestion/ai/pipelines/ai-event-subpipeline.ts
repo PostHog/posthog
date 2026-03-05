@@ -13,12 +13,13 @@ import { createCreateEventStep } from '../../event-processing/create-event-step'
 import { createEmitEventStep } from '../../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../../event-processing/event-pipeline-options'
 import { createHogTransformEventStep } from '../../event-processing/hog-transform-event-step'
-import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../../event-processing/ingestion-outputs'
+import { AiEventOutput, EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../../event-processing/ingestion-outputs'
 import { createNormalizeEventStep } from '../../event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '../../event-processing/normalize-process-person-flag-step'
 import { createPrepareEventStep } from '../../event-processing/prepare-event-step'
 import { createProcessPersonlessStep } from '../../event-processing/process-personless-step'
 import { createProcessPersonsStep } from '../../event-processing/process-persons-step'
+import { SplitAiEventsStepConfig, createSplitAiEventsStep } from '../../event-processing/split-ai-events-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../../pipelines/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../../pipelines/extensions/tophog'
 import { isDropResult } from '../../pipelines/results'
@@ -33,13 +34,14 @@ export interface AiEventSubpipelineInput {
 
 export interface AiEventSubpipelineConfig {
     options: EventPipelineRunnerOptions
-    outputs: IngestionOutputs<EventOutput>
+    outputs: IngestionOutputs<EventOutput | AiEventOutput>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     kafkaProducer: KafkaProducerWrapper
+    splitAiEventsConfig: SplitAiEventsStepConfig
     groupId: string
     topHog: TopHogWrapper
 }
@@ -57,6 +59,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         personsStore,
         groupStore,
         kafkaProducer,
+        splitAiEventsConfig,
         groupId,
         topHog,
     } = config
@@ -106,6 +109,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         )
         .pipe(createPrepareEventStep(teamManager, groupTypeManager, groupStore, options))
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
+        .pipe(createSplitAiEventsStep(splitAiEventsConfig))
         .pipe(
             topHog(
                 createEmitEventStep({

@@ -39,6 +39,14 @@ class BatchResult:
     def total_duration(self) -> float:
         return self.detect_duration + self.db_write_duration + self.resolve_duration
 
+    @property
+    def teams_per_second(self) -> float:
+        return self.batch_size / self.total_duration if self.total_duration > 0 else 0
+
+    @property
+    def not_processed_rate(self) -> float:
+        return (self.teams_failed + self.teams_skipped) / self.batch_size if self.batch_size > 0 else 0
+
     # Adds up all fields from another BatchResult, e.g. totals += batch_result
     def __iadd__(self, other: "BatchResult") -> "BatchResult":
         for f in dataclasses.fields(self):
