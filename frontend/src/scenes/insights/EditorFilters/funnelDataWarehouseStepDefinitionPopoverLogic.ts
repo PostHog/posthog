@@ -1,4 +1,5 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import type {
@@ -113,6 +114,10 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
     listeners(({ values, props }) => ({
         selectTable: () => {
             props.onSelectItem(props.group, props.table.name, values.localDefinition)
+            posthog.capture('funnel data warehouse step selected')
         },
     })),
+    afterMount(() => {
+        posthog.capture('funnel data warehouse step popover viewed')
+    }),
 ])
