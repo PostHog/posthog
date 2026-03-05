@@ -113,6 +113,18 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         max_value=500,
         help_text="Filter clicks within this many pixels of the left edge (0 = disabled)",
     )
+    edge_margin_right = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        max_value=500,
+        help_text="Filter clicks within this many pixels of the right edge (0 = disabled)",
+    )
+    exclude_out_of_bounds = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Filter clicks with x > viewport_width (outside visible area)",
+    )
 
     def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
         try:
@@ -244,6 +256,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         aggregation = request_serializer.validated_data.pop("aggregation")
         hide_zero_coordinates = request_serializer.validated_data.pop("hide_zero_coordinates", True)
         edge_margin = request_serializer.validated_data.pop("edge_margin", 0)
+        edge_margin_right = request_serializer.validated_data.pop("edge_margin_right", 0)
+        exclude_out_of_bounds = request_serializer.validated_data.pop("exclude_out_of_bounds", True)
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
         placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
@@ -265,6 +279,31 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["x"]),
                     right=Constant(value=scaled_margin),
+                )
+            )
+
+        if edge_margin_right > 0 and not is_scrolldepth_query:
+            # Filter clicks within N pixels of right edge: x <= viewport_width - margin
+            scaled_margin = edge_margin_right // 16
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["x"]),
+                    right=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Sub,
+                        left=ast.Field(chain=["viewport_width"]),
+                        right=Constant(value=scaled_margin),
+                    ),
+                )
+            )
+
+        if exclude_out_of_bounds and not is_scrolldepth_query:
+            # Filter clicks outside viewport: x <= viewport_width
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["x"]),
+                    right=ast.Field(chain=["viewport_width"]),
                 )
             )
 
@@ -388,6 +427,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         validated_data.pop("aggregation", None)
         validated_data.pop("hide_zero_coordinates", None)
         validated_data.pop("edge_margin", None)
+        validated_data.pop("edge_margin_right", None)
+        validated_data.pop("exclude_out_of_bounds", None)
 
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in validated_data.items()}
         placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))

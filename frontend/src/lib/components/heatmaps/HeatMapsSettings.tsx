@@ -10,6 +10,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
@@ -202,6 +203,55 @@ export const HeatmapsSettings = ({
                     onChange={setHeatmapColorPalette}
                 />
             </SectionSetting>
+
+            {heatmapFilters?.type !== 'scrolldepth' && (
+                <SectionSetting
+                    title="Data quality"
+                    info={
+                        <>
+                            Filter out phantom clicks that may appear near screen edges due to browser interactions or
+                            scrollbars. Edge margins exclude clicks within the specified pixel range from left or right
+                            edges.
+                        </>
+                    }
+                >
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs w-20">Left margin:</span>
+                            <LemonSlider
+                                className="flex-1"
+                                min={0}
+                                max={100}
+                                step={1}
+                                value={heatmapFilters?.edgeMarginLeft ?? 0}
+                                onChange={(value) => patchHeatmapFilters?.({ edgeMarginLeft: value })}
+                            />
+                            <code className="w-10 text-xs text-right">{heatmapFilters?.edgeMarginLeft ?? 0}px</code>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs w-20">Right margin:</span>
+                            <LemonSlider
+                                className="flex-1"
+                                min={0}
+                                max={100}
+                                step={1}
+                                value={heatmapFilters?.edgeMarginRight ?? 0}
+                                onChange={(value) => patchHeatmapFilters?.({ edgeMarginRight: value })}
+                            />
+                            <code className="w-10 text-xs text-right">{heatmapFilters?.edgeMarginRight ?? 0}px</code>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <LemonSwitch
+                                checked={heatmapFilters?.excludeOutOfBounds ?? true}
+                                onChange={(checked) => patchHeatmapFilters?.({ excludeOutOfBounds: checked })}
+                            />
+                            <span className="text-xs">Hide clicks outside viewport</span>
+                        </div>
+                    </div>
+                </SectionSetting>
+            )}
 
             {heatmapFilters?.type !== 'scrolldepth' && (
                 <SectionSetting

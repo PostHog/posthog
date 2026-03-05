@@ -175,6 +175,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     const { date_from, date_to, filter_test_accounts } = values.commonFilters
                     const { type, aggregation } = values.heatmapFilters
 
+                    const { edgeMarginLeft = 0, edgeMarginRight = 0, excludeOutOfBounds = true } = values.heatmapFilters
+
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
                     const apiURL = `/api/heatmap/${encodeParams(
                         {
@@ -187,6 +189,9 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             viewport_width_max: values.viewportRange.max,
                             aggregation,
                             filter_test_accounts,
+                            edge_margin: edgeMarginLeft,
+                            edge_margin_right: edgeMarginRight,
+                            exclude_out_of_bounds: excludeOutOfBounds,
                         },
                         '?'
                     )}`

@@ -17,6 +17,9 @@ export const DEFAULT_HEATMAP_FILTERS: HeatmapFilters = {
     type: 'click',
     viewportAccuracy: 0.9,
     aggregation: 'total_count',
+    edgeMarginLeft: 0,
+    edgeMarginRight: 0,
+    excludeOutOfBounds: true,
 }
 
 export const DEFAULT_HEATMAP_WIDTH = 1024
