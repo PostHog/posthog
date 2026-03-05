@@ -80,9 +80,9 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
         useValues(logic)
     const { setShowEnabledSchemasOnly, syncNow, refreshSchemas } = useActions(logic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
-    const isDirectQuerySource = source?.access_method === 'direct'
-
     const { featureFlags } = useValues(featureFlagLogic)
+    const isDirectQuerySource =
+        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && source?.access_method === 'direct'
 
     return (
         <BindLogic logic={dataWarehouseSourceSettingsLogic} props={logicProps}>

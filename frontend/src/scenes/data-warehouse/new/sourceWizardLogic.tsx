@@ -7,6 +7,8 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -277,6 +279,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['dataWarehouseSources'],
             preflightLogic,
             ['preflight'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             dataWarehouseTableLogic,
@@ -448,7 +452,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
 
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
-        isDirectQueryMode: [(s) => [s.source], (source): boolean => source.access_method === 'direct'],
+        isDirectQueryMode: [
+            (s) => [s.source, s.selectedConnector, s.featureFlags],
+            (source, selectedConnector, featureFlags): boolean =>
+                source.access_method === 'direct' &&
+                selectedConnector?.name === 'Postgres' &&
+                !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY],
+        ],
         canGoBack: [
             (s) => [s.currentStep],
             (currentStep): boolean => {
@@ -608,7 +618,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
-                if (values.source.access_method === 'direct') {
+                if (values.isDirectQueryMode) {
                     actions.updateSource({
                         payload: {
                             schemas: values.databaseSchema.map((schema) => ({
@@ -798,7 +808,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 let showToast = false
 
                 for (const schema of schemas) {
-                    if (values.source.access_method === 'direct') {
+                    if (values.isDirectQueryMode) {
                         schema.should_sync = true
                         schema.sync_type = null
                         continue
@@ -922,7 +932,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources),
             errors: (sourceValues) => {
-                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
+                const normalizedValues = {
+                    ...(sourceValues as Record<string, any>),
+                    access_method: values.isDirectQueryMode ? 'direct' : 'warehouse',
+                }
+                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], normalizedValues as any)
 
                 if (values.sourceConnectionDetailsManualErrors.prefix && sourceValues.prefix) {
                     actions.setSourceConnectionDetailsManualErrors({
@@ -934,14 +948,19 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
+                    const isDirectQueryMode =
+                        !!values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
+                        values.selectedConnector.name === 'Postgres' &&
+                        sourceValues.access_method === 'direct'
                     const payload: Record<string, any> = {
                         ...sourceValues,
+                        access_method: isDirectQueryMode ? 'direct' : 'warehouse',
                         source_type: values.selectedConnector.name,
                     }
                     actions.setIsLoading(true)
 
                     try {
-                        if (sourceValues.access_method !== 'direct') {
+                        if (!isDirectQueryMode) {
                             await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
                         }
 

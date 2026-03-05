@@ -2,7 +2,9 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { urls } from 'scenes/urls'
@@ -14,18 +16,20 @@ export const LOADING_CONNECTIONS = '__loading_connections__'
 export const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
 export const CONFIGURE_SOURCES = '__configure_sources__'
 
-export function ConnectionSelector(): JSX.Element {
+export function ConnectionSelector(): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(externalDataSourcesLogic)
     const { loadSources } = useActions(externalDataSourcesLogic)
     const { sourceQuery, selectedConnectionId } = useValues(sqlEditorLogic)
     const { setSourceQuery, syncUrlWithQuery } = useActions(sqlEditorLogic)
     const { setConnection, loadDatabase } = useActions(databaseTableListLogic)
+    const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
 
     useEffect(() => {
-        if (!dataWarehouseSources) {
+        if (isDirectQueryEnabled && !dataWarehouseSources) {
             loadSources()
         }
-    }, [dataWarehouseSources, loadSources])
+    }, [isDirectQueryEnabled, dataWarehouseSources, loadSources])
 
     const directPostgresSources = useMemo(
         () =>
@@ -62,6 +66,10 @@ export function ConnectionSelector(): JSX.Element {
         : selectedConnectionId && directPostgresSources.some((source) => source.id === selectedConnectionId)
           ? selectedConnectionId
           : POSTHOG_WAREHOUSE
+
+    if (!isDirectQueryEnabled) {
+        return null
+    }
 
     return (
         <LemonSelect

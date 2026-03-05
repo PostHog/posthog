@@ -4,7 +4,9 @@ import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
@@ -25,6 +27,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             ['dataWarehouseTables'],
             externalDataSourcesLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             databaseTableListLogic,
@@ -133,11 +137,13 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             },
         ],
         filteredManagedSources: [
-            (s) => [s.dataWarehouseSources, s.managedSearchTerm],
-            (dataWarehouseSources, managedSearchTerm): ExternalDataSource[] => {
-                const sources = (dataWarehouseSources?.results ?? []).filter(
-                    (source) => source.access_method?.toLowerCase() !== 'direct'
-                )
+            (s) => [s.dataWarehouseSources, s.managedSearchTerm, s.featureFlags],
+            (dataWarehouseSources, managedSearchTerm, featureFlags): ExternalDataSource[] => {
+                const sources = featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
+                    ? (dataWarehouseSources?.results ?? []).filter(
+                          (source) => source.access_method?.toLowerCase() !== 'direct'
+                      )
+                    : (dataWarehouseSources?.results ?? [])
                 if (!managedSearchTerm?.trim()) {
                     return sources
                 }

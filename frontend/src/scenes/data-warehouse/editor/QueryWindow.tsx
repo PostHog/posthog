@@ -8,11 +8,13 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { cn } from 'lib/utils/css-classes'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -46,8 +48,10 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
+    const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
 
     return (
         <div className="flex grow flex-col overflow-hidden">
@@ -60,7 +64,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
                 <div className="flex items-center gap-2">
                     <ExpandDatabaseTreeButton />
                     <RunButton />
-                    <CollapsedConnectionSelector mode={mode} />
+                    <CollapsedConnectionSelector mode={mode} isDirectQueryEnabled={isDirectQueryEnabled} />
                     <LemonDivider vertical />
                     <QueryVariablesMenu
                         disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
@@ -249,10 +253,16 @@ const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId
     return <OutputPane tabId={tabId} />
 })
 
-function CollapsedConnectionSelector({ mode }: { mode?: SQLEditorMode }): JSX.Element | null {
+function CollapsedConnectionSelector({
+    mode,
+    isDirectQueryEnabled,
+}: {
+    mode?: SQLEditorMode
+    isDirectQueryEnabled: boolean
+}): JSX.Element | null {
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
 
-    if (!isDatabaseTreeCollapsed || (mode && mode !== SQLEditorMode.FullScene)) {
+    if (!isDirectQueryEnabled || !isDatabaseTreeCollapsed || (mode && mode !== SQLEditorMode.FullScene)) {
         return null
     }
 

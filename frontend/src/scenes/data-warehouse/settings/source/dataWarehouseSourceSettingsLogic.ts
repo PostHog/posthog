@@ -6,6 +6,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 import {
     SSH_FIELD,
@@ -301,6 +303,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     })),
     listeners(({ values, actions, props, cache }) => ({
         loadSourceSuccess: () => {
+            const isDirectQueryEnabled = !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     actions.loadSource()
@@ -313,7 +316,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     id: `managed-${props.id}`,
                 })
                 ?.actions.setBreadcrumbName(
-                    values.source?.access_method === 'direct'
+                    isDirectQueryEnabled && values.source?.access_method === 'direct'
                         ? values.source?.prefix || values.source?.source_type || 'Source'
                         : values.source?.source_type || 'Source'
                 )

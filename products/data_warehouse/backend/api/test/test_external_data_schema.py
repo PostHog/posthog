@@ -462,9 +462,9 @@ class TestUpdateExternalDataSchema:
         client.force_login(user)
         source = ExternalDataSource.objects.create(
             team=team,
-            source_id=uuid.uuid4(),
-            connection_id=uuid.uuid4(),
-            destination_id=uuid.uuid4(),
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
             status=ExternalDataSource.Status.RUNNING,
             source_type=ExternalDataSourceType.POSTGRES,
             access_method=ExternalDataSource.AccessMethod.DIRECT,

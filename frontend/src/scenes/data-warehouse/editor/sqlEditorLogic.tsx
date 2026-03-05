@@ -11,7 +11,9 @@ import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -125,7 +127,7 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
         q: values.queryInput ?? '',
     }
     const connectionId = values.sourceQuery?.source.connectionId
-    if (connectionId) {
+    if (values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && connectionId) {
         hash['c'] = connectionId
     }
     if (values.activeTab?.view) {
@@ -169,6 +171,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['user'],
             draftsLogic,
             ['drafts'],
+            featureFlagLogic,
+            ['featureFlags'],
             outputPaneLogic({ tabId: props.tabId }),
             ['activeTab as outputActiveTab'],
         ],
@@ -1180,8 +1184,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         selectedConnectionId: [
-            (s) => [s.sourceQuery],
-            (sourceQuery) => {
+            (s) => [s.sourceQuery, s.featureFlags],
+            (sourceQuery, featureFlags) => {
+                if (!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]) {
+                    return undefined
+                }
                 const sourceQueryWithConnection = sourceQuery as typeof sourceQuery & { connectionId?: string }
                 return sourceQuery.source.connectionId ?? sourceQueryWithConnection.connectionId
             },
@@ -1439,7 +1446,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             const connectionIdFromHash =
-                typeof hashParams.c === 'string' && hashParams.c !== '' ? hashParams.c : undefined
+                values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
+                typeof hashParams.c === 'string' &&
+                hashParams.c !== ''
+                    ? hashParams.c
+                    : undefined
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
 
             if (connectionIdFromHash !== currentConnectionId) {

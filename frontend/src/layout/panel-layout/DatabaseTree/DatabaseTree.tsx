@@ -5,6 +5,8 @@ import { IconSidebarClose } from '@posthog/icons'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { ConnectionSelector } from 'scenes/data-warehouse/editor/ConnectionSelector'
@@ -24,16 +26,20 @@ export const DatabaseTree = memo(function DatabaseTree({
 }): JSX.Element | null {
     const { databaseTreeWidth, databaseTreeResizerProps, isDatabaseTreeCollapsed, databaseTreeWillCollapse } =
         useValues(editorSizingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { selectedConnectionId } = useValues(sqlEditorLogic)
     const { dataWarehouseSources } = useValues(externalDataSourcesLogic)
     const { toggleDatabaseTreeCollapsed, setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
+    const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
     const selectedDirectSource = (dataWarehouseSources?.results ?? []).find(
         (source) => source.id === selectedConnectionId
     )
 
-    const searchPlaceholder = selectedConnectionId
-        ? `Search ${selectedDirectSource?.prefix ? selectedDirectSource.prefix : 'database'}`
-        : 'Search PostHog Warehouse'
+    const searchPlaceholder = isDirectQueryEnabled
+        ? selectedConnectionId
+            ? `Search ${selectedDirectSource?.prefix ? selectedDirectSource.prefix : 'database'}`
+            : 'Search PostHog Warehouse'
+        : 'Search warehouse'
 
     if (isDatabaseTreeCollapsed) {
         return null
@@ -63,9 +69,13 @@ export const DatabaseTree = memo(function DatabaseTree({
                     >
                         <IconSidebarClose className="size-4 text-tertiary rotate-180" />
                     </ButtonPrimitive>
-                    <ConnectionSelector />
+                    {isDirectQueryEnabled ? (
+                        <ConnectionSelector />
+                    ) : (
+                        <DatabaseSearchField placeholder={searchPlaceholder} />
+                    )}
                 </div>
-                <DatabaseSearchField placeholder={searchPlaceholder} />
+                {isDirectQueryEnabled ? <DatabaseSearchField placeholder={searchPlaceholder} /> : null}
             </div>
             <ScrollableShadows
                 direction="vertical"

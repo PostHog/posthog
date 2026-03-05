@@ -365,92 +365,97 @@ class TestQueryService(APIBaseTest):
             TableNode(
                 name="selected_table",
                 table=PostgresTable(name="selected_table", fields={}, postgres_table_name="selected_table"),
-            )
+            ),
+            table_conflict_mode="override",
+            children_conflict_mode="override",
         )
         database.tables.add_child(
             TableNode(
                 name="other_table",
                 table=PostgresTable(name="other_table", fields={}, postgres_table_name="other_table"),
-            )
+            ),
+            table_conflict_mode="override",
+            children_conflict_mode="override",
         )
-        database.serialize = MagicMock(
-            return_value={
-                "selected_table": DatabaseSchemaDataWarehouseTable(
-                    fields={},
-                    format="Parquet",
-                    id="selected_table_id",
+        serialized_database = {
+            "selected_table": DatabaseSchemaDataWarehouseTable(
+                fields={},
+                format="Parquet",
+                id="selected_table_id",
+                name="selected_table",
+                url_pattern="warehouse://selected",
+                schema=DatabaseSchemaSchema(
+                    id="schema-selected",
                     name="selected_table",
-                    url_pattern="warehouse://selected",
-                    schema=DatabaseSchemaSchema(
-                        id="schema-selected",
-                        name="selected_table",
-                        should_sync=True,
-                        incremental=False,
-                    ),
-                    source=DatabaseSchemaSource(
-                        id=str(selected_source.id),
-                        status=selected_source.status,
-                        source_type=selected_source.source_type,
-                        access_method=selected_source.access_method,
-                        prefix=selected_source.prefix or "",
-                    ),
+                    should_sync=True,
+                    incremental=False,
                 ),
-                "other_table": DatabaseSchemaDataWarehouseTable(
-                    fields={},
-                    format="Parquet",
-                    id="other_table_id",
+                source=DatabaseSchemaSource(
+                    id=str(selected_source.id),
+                    status=selected_source.status,
+                    source_type=selected_source.source_type,
+                    access_method=selected_source.access_method,
+                    prefix=selected_source.prefix or "",
+                ),
+            ),
+            "other_table": DatabaseSchemaDataWarehouseTable(
+                fields={},
+                format="Parquet",
+                id="other_table_id",
+                name="other_table",
+                url_pattern="warehouse://other",
+                schema=DatabaseSchemaSchema(
+                    id="schema-other",
                     name="other_table",
-                    url_pattern="warehouse://other",
-                    schema=DatabaseSchemaSchema(
-                        id="schema-other",
-                        name="other_table",
-                        should_sync=True,
-                        incremental=False,
-                    ),
-                    source=DatabaseSchemaSource(
-                        id=str(other_source.id),
-                        status=other_source.status,
-                        source_type=other_source.source_type,
-                        access_method=other_source.access_method,
-                        prefix=other_source.prefix or "",
-                    ),
+                    should_sync=True,
+                    incremental=False,
                 ),
-            }
-        )
+                source=DatabaseSchemaSource(
+                    id=str(other_source.id),
+                    status=other_source.status,
+                    source_type=other_source.source_type,
+                    access_method=other_source.access_method,
+                    prefix=other_source.prefix or "",
+                ),
+            ),
+        }
         self.assertEqual(
             set(
                 _filter_schema_tables_for_connection(
-                    database.serialize.return_value,
+                    serialized_database,
                     _connection_source_identifiers(selected_source),
                 ).keys()
             ),
             {"selected_table"},
         )
-        mock_create_for.return_value = database
+        with (
+            patch("posthog.api.services.query.Database.serialize", return_value=serialized_database),
+            patch("posthog.api.services.query._prune_database_for_direct_connection") as mock_prune_database,
+        ):
+            mock_create_for.return_value = database
 
-        def _mock_autocomplete(*args, **kwargs):
-            database_arg = kwargs["database_arg"]
-            self.assertIsNotNone(database_arg)
-            self.assertTrue(database_arg.has_table("selected_table"))
-            self.assertFalse(database_arg.has_table("other_table"))
-            self.assertFalse(database_arg.has_table("events"))
-            return HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
+            def _mock_autocomplete(*args, **kwargs):
+                database_arg = kwargs["database_arg"]
+                self.assertIsNotNone(database_arg)
+                self.assertTrue(database_arg.has_table("selected_table"))
+                return HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
 
-        mock_get_hogql_autocomplete.side_effect = _mock_autocomplete
+            mock_get_hogql_autocomplete.side_effect = _mock_autocomplete
 
-        response = process_query_model(
-            self.team,
-            HogQLAutocomplete(
-                kind="HogQLAutocomplete",
-                query="SELECT * FROM ",
-                language=HogLanguage.HOG_QL,
-                startPosition=14,
-                endPosition=14,
-                connectionId="selected-connection",
-            ),
-        )
+            response = process_query_model(
+                self.team,
+                HogQLAutocomplete(
+                    kind="HogQLAutocomplete",
+                    query="SELECT * FROM ",
+                    language=HogLanguage.HOG_QL,
+                    startPosition=14,
+                    endPosition=14,
+                    connectionId="selected-connection",
+                ),
+            )
 
-        self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
+            self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
+            mock_prune_database.assert_called_once_with(database, {"selected_table"})
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.Database.create_for")

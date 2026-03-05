@@ -3,7 +3,9 @@ import { actionToUrl, urlToAction } from 'kea-router'
 import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipelinesSelfManagedSource'
 import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'scenes/data-warehouse/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -171,9 +173,11 @@ function ManagedSourceTabs({
     setCurrentTab: (tab: DataWarehouseSourceSceneTab) => void
 }): JSX.Element {
     const sourceSettingsLogic = dataWarehouseSourceSettingsLogic({ id: sourceId, availableSources: {} })
+    const { featureFlags } = useValues(featureFlagLogic)
     const { source } = useValues(sourceSettingsLogic)
 
-    const isDirectQuerySource = source?.access_method === 'direct'
+    const isDirectQuerySource =
+        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && source?.access_method === 'direct'
 
     useEffect(() => {
         if (isDirectQuerySource && currentTab === 'syncs') {
