@@ -103,16 +103,10 @@ from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 logger = structlog.get_logger(__name__)
 
-QUERY_EXECUTION_SUCCESS = Counter(
-    "posthog_query_execution_success_total",
-    "Successful query executions",
-    labelnames=["query_type"],
-)
-
-QUERY_EXECUTION_FAILURE = Counter(
-    "posthog_query_execution_failure_total",
-    "Failed query executions",
-    labelnames=["query_type", "error_type"],
+QUERY_EXECUTION_TOTAL = Counter(
+    "posthog_query_execution_total",
+    "Query executions by status",
+    labelnames=["query_type", "status"],
 )
 
 QUERY_EXECUTION_DURATION = Histogram(
@@ -1313,11 +1307,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_start = perf_counter()
             try:
                 query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
-                query_duration_s = perf_counter() - query_start
-            except Exception as e:
-                QUERY_EXECUTION_FAILURE.labels(query_type=query_type, error_type=type(e).__name__).inc()
-                QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(perf_counter() - query_start)
+            except Exception:
+                QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="failure").inc()
                 raise
+            finally:
+                QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(perf_counter() - query_start)
 
             fresh_response_dict = {
                 **query_result.model_dump(),
@@ -1353,11 +1347,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             errors: Optional[list] = fresh_response_dict.get("error", None)
             has_error = errors is not None and len(errors) > 0
 
-            if has_error:
-                QUERY_EXECUTION_FAILURE.labels(query_type=query_type, error_type="soft_error").inc()
-            else:
-                QUERY_EXECUTION_SUCCESS.labels(query_type=query_type).inc()
-            QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(query_duration_s)
+            QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="failure" if has_error else "success").inc()
 
             if not has_error and self.limit_context != LimitContext.EXPORT:
                 cache_manager.set_cache_data(
