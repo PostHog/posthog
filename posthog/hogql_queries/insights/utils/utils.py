@@ -79,9 +79,7 @@ def get_response_hogql(
     if len(queries) == 0:
         return ""
 
-    response_hogql_query = (
-        queries[0] if len(queries) == 1 else ast.SelectSetQuery.create_from_queries(list(queries), "UNION ALL")
-    )
+    response_hogql_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
 
     with timings.measure("printing_hogql_for_response"):
         return to_printed_hogql(response_hogql_query, team, modifiers)
