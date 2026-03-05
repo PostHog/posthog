@@ -17,7 +17,7 @@ export const CONFIGURE_SOURCES = '__configure_sources__'
 export function ConnectionSelector(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(externalDataSourcesLogic)
     const { loadSources } = useActions(externalDataSourcesLogic)
-    const { sourceQuery } = useValues(sqlEditorLogic)
+    const { sourceQuery, selectedConnectionId } = useValues(sqlEditorLogic)
     const { setSourceQuery, syncUrlWithQuery } = useActions(sqlEditorLogic)
     const { setConnection, loadDatabase } = useActions(databaseTableListLogic)
 
@@ -57,7 +57,6 @@ export function ConnectionSelector(): JSX.Element {
     }, [dataWarehouseSourcesLoading, directPostgresSources])
 
     const sourceQueryWithConnection = sourceQuery as typeof sourceQuery & { connectionId?: string }
-    const selectedConnectionId = sourceQuery.source.connectionId ?? sourceQueryWithConnection.connectionId
     const selectedValue = dataWarehouseSourcesLoading
         ? LOADING_CONNECTIONS
         : selectedConnectionId && directPostgresSources.some((source) => source.id === selectedConnectionId)

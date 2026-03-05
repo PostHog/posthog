@@ -174,6 +174,20 @@ describe('sourceWizardLogic', () => {
             expect(res.prefix).toBeTruthy()
         })
 
+        it('requires name for direct mode', () => {
+            const res = getErrorsForFields([], { prefix: '   ', payload: {}, access_method: 'direct' })
+            expect(res.prefix).toEqual('Please enter a name for this direct query source.')
+        })
+
+        it('allows non-prefix characters for direct mode name', () => {
+            const res = getErrorsForFields([], {
+                prefix: 'prod us-east (readonly)',
+                payload: {},
+                access_method: 'direct',
+            })
+            expect(res.prefix).toBeUndefined()
+        })
+
         it('returns errors for an empty required text field', () => {
             const res = getErrorsForFields(
                 [

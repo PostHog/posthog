@@ -1179,6 +1179,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 } as ExportContext
             },
         ],
+        selectedConnectionId: [
+            (s) => [s.sourceQuery],
+            (sourceQuery) => {
+                const sourceQueryWithConnection = sourceQuery as typeof sourceQuery & { connectionId?: string }
+                return sourceQuery.source.connectionId ?? sourceQueryWithConnection.connectionId
+            },
+        ],
         isEditingMaterializedView: [
             (s) => [s.editingView],
             (editingView) => {

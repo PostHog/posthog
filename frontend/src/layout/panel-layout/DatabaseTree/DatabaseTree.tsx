@@ -24,15 +24,13 @@ export const DatabaseTree = memo(function DatabaseTree({
 }): JSX.Element | null {
     const { databaseTreeWidth, databaseTreeResizerProps, isDatabaseTreeCollapsed, databaseTreeWillCollapse } =
         useValues(editorSizingLogic)
-    const { sourceQuery } = useValues(sqlEditorLogic)
+    const { selectedConnectionId } = useValues(sqlEditorLogic)
     const { dataWarehouseSources } = useValues(externalDataSourcesLogic)
     const { toggleDatabaseTreeCollapsed, setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
-
-    const sourceQueryWithConnection = sourceQuery as typeof sourceQuery & { connectionId?: string }
-    const selectedConnectionId = sourceQuery.source.connectionId ?? sourceQueryWithConnection.connectionId
     const selectedDirectSource = (dataWarehouseSources?.results ?? []).find(
         (source) => source.id === selectedConnectionId
     )
+
     const searchPlaceholder = selectedConnectionId
         ? `Search ${selectedDirectSource?.prefix ? selectedDirectSource.prefix : 'database'}`
         : 'Search PostHog Warehouse'

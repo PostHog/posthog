@@ -941,7 +941,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.setIsLoading(true)
 
                     try {
-                        await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
+                        if (sourceValues.access_method !== 'direct') {
+                            await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
+                        }
 
                         const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => ({
                             name: n.name,
@@ -999,14 +1001,20 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
 export const getErrorsForFields = (
     fields: SourceFieldConfig[],
-    values: { prefix: string; payload: Record<string, any> } | undefined
+    values: { prefix: string; payload: Record<string, any>; access_method?: 'warehouse' | 'direct' } | undefined
 ): Record<string, any> => {
     const errors: Record<string, any> = {
         payload: {},
     }
 
-    // Prefix errors
-    if (!/^[a-zA-Z0-9_-]*$/.test(values?.prefix ?? '')) {
+    const isDirectMode = values?.access_method === 'direct'
+
+    if (isDirectMode) {
+        if (!values?.prefix?.trim()) {
+            errors['prefix'] = 'Please enter a name for this direct query source.'
+        }
+    } else if (!/^[a-zA-Z0-9_-]*$/.test(values?.prefix ?? '')) {
+        // Prefix errors for warehouse sources
         errors['prefix'] = "Please enter a valid prefix (only letters, numbers, and '_' or '-')."
     }
 
