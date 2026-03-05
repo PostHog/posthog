@@ -3,6 +3,8 @@ import urllib.parse
 
 import pytest
 
+import aiohttp
+
 from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
 
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import (
@@ -150,7 +152,7 @@ async def test_insert_into_workflows_activity_from_stage_fails_on_non_retryable_
     model = BatchExportModel(name="events", schema=None)
 
     if error == 404:
-        expected = NotFound
+        expected: type[aiohttp.ClientResponseError] = NotFound
     else:
         expected = BadRequest
 
