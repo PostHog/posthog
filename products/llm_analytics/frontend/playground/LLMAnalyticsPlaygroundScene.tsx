@@ -832,15 +832,19 @@ function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: Prompt
             ),
             errors: { name: (name) => (!name ? 'A name is required' : undefined) },
             onSubmit: async ({ name }) => {
-                const saved = await api.llmPrompts.create({ name, prompt: prompt.systemPrompt })
-                lemonToast.success(
-                    <>
-                        Prompt saved.{' '}
-                        <Link to={urls.llmAnalyticsPrompt(saved.name)} className="font-semibold">
-                            View prompt
-                        </Link>
-                    </>
-                )
+                try {
+                    const saved = await api.llmPrompts.create({ name, prompt: prompt.systemPrompt })
+                    lemonToast.success(
+                        <>
+                            Prompt saved.{' '}
+                            <Link to={urls.llmAnalyticsPrompt(saved.name)} className="font-semibold">
+                                View prompt
+                            </Link>
+                        </>
+                    )
+                } catch {
+                    lemonToast.error('Failed to save prompt')
+                }
             },
         })
     }
@@ -860,29 +864,33 @@ function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: Prompt
                 if (!teamId) {
                     return
                 }
-                const saved = await api.create(`/api/environments/${teamId}/evaluations/`, {
-                    name,
-                    evaluation_type: 'llm_judge',
-                    evaluation_config: { prompt: prompt.systemPrompt },
-                    model_configuration: selectedModel
-                        ? {
-                              model: prompt.model,
-                              provider: selectedModel.provider?.toLowerCase(),
-                              provider_key_id: prompt.selectedProviderKeyId ?? null,
-                          }
-                        : null,
-                    output_type: 'boolean',
-                    conditions: [],
-                    enabled: false,
-                })
-                lemonToast.success(
-                    <>
-                        Evaluation saved.{' '}
-                        <Link to={urls.llmAnalyticsEvaluation(saved.id)} className="font-semibold">
-                            View evaluation
-                        </Link>
-                    </>
-                )
+                try {
+                    const saved = await api.create(`/api/environments/${teamId}/evaluations/`, {
+                        name,
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: prompt.systemPrompt },
+                        model_configuration: selectedModel
+                            ? {
+                                  model: prompt.model,
+                                  provider: selectedModel.provider?.toLowerCase(),
+                                  provider_key_id: prompt.selectedProviderKeyId ?? null,
+                              }
+                            : null,
+                        output_type: 'boolean',
+                        conditions: [],
+                        enabled: false,
+                    })
+                    lemonToast.success(
+                        <>
+                            Evaluation saved.{' '}
+                            <Link to={urls.llmAnalyticsEvaluation(saved.id)} className="font-semibold">
+                                View evaluation
+                            </Link>
+                        </>
+                    )
+                } catch {
+                    lemonToast.error('Failed to save evaluation')
+                }
             },
         })
     }
@@ -891,8 +899,12 @@ function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: Prompt
         if (!linkedPromptId) {
             return
         }
-        await api.llmPrompts.update(linkedPromptId, { prompt: prompt.systemPrompt })
-        lemonToast.success(`Prompt "${linkedPromptLabel}" updated`)
+        try {
+            await api.llmPrompts.update(linkedPromptId, { prompt: prompt.systemPrompt })
+            lemonToast.success(`Prompt "${linkedPromptLabel}" updated`)
+        } catch {
+            lemonToast.error('Failed to update prompt')
+        }
     }
 
     const confirmSaveToLinkedPrompt = (): void => {
@@ -915,19 +927,23 @@ function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: Prompt
         if (!teamId) {
             return
         }
-        await api.update(`/api/environments/${teamId}/evaluations/${linkedEvaluationId}/`, {
-            evaluation_config: { prompt: prompt.systemPrompt },
-            ...(selectedModel
-                ? {
-                      model_configuration: {
-                          model: prompt.model,
-                          provider: selectedModel.provider?.toLowerCase(),
-                          provider_key_id: prompt.selectedProviderKeyId ?? null,
-                      },
-                  }
-                : {}),
-        })
-        lemonToast.success(`Evaluation "${linkedEvaluationLabel}" updated`)
+        try {
+            await api.update(`/api/environments/${teamId}/evaluations/${linkedEvaluationId}/`, {
+                evaluation_config: { prompt: prompt.systemPrompt },
+                ...(selectedModel
+                    ? {
+                          model_configuration: {
+                              model: prompt.model,
+                              provider: selectedModel.provider?.toLowerCase(),
+                              provider_key_id: prompt.selectedProviderKeyId ?? null,
+                          },
+                      }
+                    : {}),
+            })
+            lemonToast.success(`Evaluation "${linkedEvaluationLabel}" updated`)
+        } catch {
+            lemonToast.error('Failed to update evaluation')
+        }
     }
 
     const confirmSaveToLinkedEvaluation = (): void => {
@@ -1093,11 +1109,13 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const linkedContextLabel =
         linkedSource.promptId && linkedSource.promptName
             ? `Editing prompt: ${linkedSource.promptName}`
-            : linkedSource.evaluationId && linkedSource.evaluationName
-              ? `Editing evaluation: ${linkedSource.evaluationName}`
-              : linkedSource.evaluationId
-                ? `Editing evaluation: ${linkedSource.evaluationId.slice(0, 8)}`
-                : null
+            : linkedSource.promptId
+              ? `Editing prompt: ${linkedSource.promptId}`
+              : linkedSource.evaluationId && linkedSource.evaluationName
+                ? `Editing evaluation: ${linkedSource.evaluationName}`
+                : linkedSource.evaluationId
+                  ? `Editing evaluation: ${linkedSource.evaluationId.slice(0, 8)}`
+                  : null
 
     const copySystemPromptToOtherPrompts = (): void => {
         if (!hasOtherPrompts) {
