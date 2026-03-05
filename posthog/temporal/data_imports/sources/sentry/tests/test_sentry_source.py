@@ -32,7 +32,8 @@ class TestSentrySource:
 
         assert config.name.value == "Sentry"
         assert config.label == "Sentry"
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is not True  # Released
+        assert config.betaSource is True  # BETA tag in UI
         assert len(config.fields) == 3
 
         field_names = [f.name for f in config.fields]

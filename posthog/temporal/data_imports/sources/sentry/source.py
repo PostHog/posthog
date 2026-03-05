@@ -49,7 +49,7 @@ Create a token in Sentry and make sure it includes:
                         label="Auth token",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
-                        placeholder="sntrys_...",
+                        placeholder="324587...",
                     ),
                     SourceFieldInputConfig(
                         name="organization_slug",
@@ -68,7 +68,7 @@ Create a token in Sentry and make sure it includes:
                     ),
                 ],
             ),
-            unreleasedSource=True,
+            betaSource=True,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
