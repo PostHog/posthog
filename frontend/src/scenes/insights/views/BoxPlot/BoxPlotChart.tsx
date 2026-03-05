@@ -6,6 +6,7 @@ import { Chart, ChartConfiguration, ChartEvent } from 'lib/Chart'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { useChart } from 'lib/hooks/useChart'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -58,9 +59,8 @@ function getNearestDataIndex(chart: Chart, event: ChartEvent | { x: number; y: n
 
 export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { boxplotData, chartData, labels, yAxisScaleType, querySource, interval, insightData } = useValues(
-        boxPlotChartLogic(insightProps)
-    )
+    const { boxplotData, chartData, labels, yAxisScaleType, querySource, interval, insightData, trendsFilter } =
+        useValues(boxPlotChartLogic(insightProps))
     const { timezone, weekStartDay } = useValues(teamLogic)
 
     const colors = getGraphColors()
@@ -91,7 +91,7 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
                     dateRange={insightData?.resolved_date_range}
                     hideColorCol
                     renderSeries={(value) => <div className="datum-label-column">{value}</div>}
-                    renderCount={(value: number) => value.toLocaleString()}
+                    renderCount={(value: number) => formatAggregationAxisValue(trendsFilter, value)}
                     hideInspectActorsSection={!showPersonsModal}
                     groupTypeLabel="people"
                 />
@@ -100,7 +100,7 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
             const bounds = chart.canvas.getBoundingClientRect()
             positionTooltip(tooltipEl, bounds, caretX, caretY, true)
         },
-        [boxplotData, getTooltip, positionTooltip, timezone, interval, insightData, showPersonsModal]
+        [boxplotData, getTooltip, positionTooltip, timezone, interval, insightData, showPersonsModal, trendsFilter]
     )
 
     const handleClick = useCallback(
@@ -221,6 +221,9 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
                             ticks: {
                                 color: colors.axisLabel as string,
                                 font: { size: 12 },
+                                callback: (value) => {
+                                    return formatAggregationAxisValue(trendsFilter, value)
+                                },
                             },
                             grid: {
                                 color: colors.axisLine as string,
@@ -242,6 +245,7 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
             yAxisScaleType,
             handleClick,
             showPersonsModal,
+            trendsFilter,
         ],
     })
 
@@ -256,7 +260,7 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
         }
         canvas.addEventListener('mouseleave', onMouseLeave)
         return () => canvas.removeEventListener('mouseleave', onMouseLeave)
-    }, [hideTooltip])
+    }, [hideTooltip, canvasRef.current])
 
     if (!boxplotData || boxplotData.length === 0) {
         return <div className="flex items-center justify-center h-full text-muted">No data for this time range</div>

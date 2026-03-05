@@ -156,8 +156,7 @@ export function InsightDisplayConfig(): JSX.Element {
             : []),
         ...(!showPercentStackView &&
         isTrends &&
-        display !== ChartDisplayType.CalendarHeatmap &&
-        display !== ChartDisplayType.BoxPlot
+        display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
@@ -252,8 +251,7 @@ export function InsightDisplayConfig(): JSX.Element {
             : []),
         ...(mightContainFractionalNumbers &&
         isTrends &&
-        display !== ChartDisplayType.CalendarHeatmap &&
-        display !== ChartDisplayType.BoxPlot
+        display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: 'Decimal places',
