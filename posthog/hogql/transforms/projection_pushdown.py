@@ -287,5 +287,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
 def pushdown_projections(node: _T_AST, context: HogQLContext) -> _T_AST:
     """Prune unused columns from asterisk expansions in subqueries"""
+    if not isinstance(node, (ast.SelectQuery, ast.SelectSetQuery)):
+        return node
     optimizer = ProjectionPushdownOptimizer()
     return cast(_T_AST, optimizer.visit(node))
