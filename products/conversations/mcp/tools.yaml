@@ -86,6 +86,7 @@ tools:
         description: >
             Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium,
             high), assignee, or SLA due date.
+        mcp_version: 1
     conversations-tickets-destroy:
         operation: conversations_tickets_destroy
         enabled: false
