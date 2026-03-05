@@ -1340,6 +1340,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="success").inc()
             except Exception:
                 QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="failure").inc()
+                report_user_or_team_action(
+                    "query executed",
+                    {
+                        "insight_id": insight_id,
+                        "dashboard_id": dashboard_id,
+                        "cache_hit": False,
+                        "cache_key": cache_key,
+                        "calculation_trigger": trigger,
+                        "execution_mode": execution_mode.value,
+                        "query_type": query_type,
+                        "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+                        "has_error": True,
+                    },
+                    user=user,
+                    team=self.team,
+                    organization=self.team.organization,
+                    request=request,
+                )
                 raise
             finally:
                 QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(perf_counter() - query_start)

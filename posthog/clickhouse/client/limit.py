@@ -252,6 +252,10 @@ def get_app_org_rate_limiter():
             get_task_name=lambda *args, **kwargs: f"app:query:per-org:{kwargs.get('org_id')}",
             get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
             ttl=600,
+            # Absorb brief bursts (e.g. page loads firing multiple queries) before rejecting.
+            # p50 query duration is ~450ms so a 3s window allows most slots to free up.
+            retry=0.134,
+            retry_timeout=3.0,
         )
     return __APP_CONCURRENT_QUERY_PER_ORG
 
@@ -288,6 +292,10 @@ def get_app_dashboard_queries_rate_limiter():
             get_task_name=lambda *args, **kwargs: f"app:dashboard_query:per-org:{kwargs.get('org_id')}",
             get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
             ttl=600,
+            # Dashboard loads fire all tiles simultaneously; retry gives concurrent slots time to free up
+            # before failing. 5s window is longer than org queries since dashboard bursts are expected.
+            retry=0.134,
+            retry_timeout=5.0,
         )
     return __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG
 

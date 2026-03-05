@@ -1,4 +1,4 @@
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiError, ApiMethodOptions } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils'
 
@@ -265,6 +265,8 @@ export async function performQuery<N extends DataNode>(
             query: queryNode,
             queryId,
             duration: performance.now() - startTime,
+            failure_reason: e instanceof ApiError ? e.status : null,
+            error_detail: e instanceof ApiError ? e.detail : null,
             ...logParams,
         })
         throw e
