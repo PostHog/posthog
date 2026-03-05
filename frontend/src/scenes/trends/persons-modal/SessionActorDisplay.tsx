@@ -26,8 +26,12 @@ export function SessionActorDisplay({ actor }: { actor: SessionActorType }): JSX
                         · {humanFriendlyDuration(actor.properties.$session_duration)}
                     </span>
                 )}
-                <span className="text-secondary font-normal">·</span>
-                <PropertyIcons recordingProperties={iconProps} loading={false} />
+                {iconProps.length > 0 && (
+                    <>
+                        <span className="text-secondary font-normal">·</span>
+                        <PropertyIcons recordingProperties={iconProps} loading={false} />
+                    </>
+                )}
             </div>
             <CopyToClipboardInline
                 explicitValue={actor.person ? asDisplay(actor.person) : actor.id}
