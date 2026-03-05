@@ -117,6 +117,11 @@ async def test_insert_into_workflows_activity_from_stage_posts_data_to_server(
     handler,
     hog_function_id,
 ):
+    """Assert basic activity behavior.
+
+    This configures the activity to POST requests to an aiohttp test server, configured
+    in the server fixture.
+    """
     model = BatchExportModel(name="events", schema=None)
 
     await _run_activity(
@@ -149,6 +154,7 @@ async def test_insert_into_workflows_activity_from_stage_fails_on_non_retryable_
     hog_function_id,
     error,
 ):
+    """Assert the activity immediately fails on non-retryable error codes."""
     model = BatchExportModel(name="events", schema=None)
 
     if error == 404:
@@ -171,6 +177,9 @@ async def test_insert_into_workflows_activity_from_stage_fails_on_non_retryable_
             sort_key="event",
         )
 
+    assert len(handler.error_data) == 1  # First request failed...
+    assert not len(handler.data)  # And it wasn't retried
+
 
 @pytest.mark.parametrize("error", [429, 500], indirect=True)
 async def test_insert_into_workflows_activity_from_stage_retries_on_retryable_errors(
@@ -187,6 +196,7 @@ async def test_insert_into_workflows_activity_from_stage_retries_on_retryable_er
     hog_function_id,
     error,
 ):
+    """Assert the activity retries requests on retryable error codes."""
     model = BatchExportModel(name="events", schema=None)
 
     await _run_activity(
@@ -205,3 +215,55 @@ async def test_insert_into_workflows_activity_from_stage_retries_on_retryable_er
 
     assert len(handler.error_data) == 1  # First request failed...
     assert handler.error_data[0] in handler.data  # And should have been retried
+
+
+async def test_insert_into_workflows_activity_from_stage_fails_with_empty_url(
+    clickhouse_client,
+    activity_environment,
+    exclude_events,
+    data_interval_start,
+    data_interval_end,
+    generate_test_data,
+    ateam,
+    server,
+    path,
+    handler,
+    hog_function_id,
+    error,
+):
+    """Assert activity fails when an empty URL is passed."""
+    model = BatchExportModel(name="events", schema=None)
+
+    batch_export_id = str(uuid.uuid4())
+    batch_export_inputs = BatchExportInsertInputs(
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        run_id=None,
+        backfill_details=None,
+        is_backfill=False,
+        batch_export_model=model,
+        batch_export_id=batch_export_id,
+    )
+    workflows_inputs = WorkflowsInsertInputs(
+        batch_export=batch_export_inputs,
+        url="",
+        hog_function_id=hog_function_id,
+    )
+
+    await activity_environment.run(
+        insert_into_internal_stage_activity,
+        BatchExportInsertIntoInternalStageInputs(
+            team_id=workflows_inputs.batch_export.team_id,
+            batch_export_id=batch_export_id,
+            data_interval_start=workflows_inputs.batch_export.data_interval_start,
+            data_interval_end=workflows_inputs.batch_export.data_interval_end,
+            exclude_events=workflows_inputs.batch_export.exclude_events,
+            is_workflows=True,
+            batch_export_model=workflows_inputs.batch_export.batch_export_model,
+            destination_default_fields=workflows_default_fields(batch_export_id),
+        ),
+    )
+
+    with pytest.raises(ValueError):
+        await activity_environment.run(insert_into_workflows_activity_from_stage, workflows_inputs)

@@ -107,6 +107,11 @@ class WorkflowsConsumer(Consumer):
         super().__init__(model=model)
 
         path = HOG_FUNCTION_API_PATH.format(team_id=team_id, hog_function_id=hog_function_id)
+
+        parsed = urllib.parse.urlparse(url)
+        if not all((parsed.scheme, parsed.netloc)):
+            raise ValueError("Invalid URL")
+
         self.url = urllib.parse.urljoin(url, path)
         self.session = session
 

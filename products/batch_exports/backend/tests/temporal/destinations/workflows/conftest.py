@@ -24,6 +24,17 @@ def path() -> str:
 
 
 class Handler:
+    """Handler for the test server.
+
+    The handler can be configured to return an error response once with the code given
+    by ``error``.
+
+    ``data`` and ``error_data`` can be used to verify request data in tests. They will
+    contain a three item tuple: (team_id, hog_function_id, body). ``error_data`` is only
+    populated when an error response is returned, and ``data`` is only populated on
+    successful responses.
+    """
+
     def __init__(self, error: int | None = None):
         self.data: list[RequestData] = []
 
@@ -50,6 +61,7 @@ class Handler:
 
 @pytest.fixture
 def error(request) -> int | None:
+    """Parameterize this fixture with an error status code for the request to fail."""
     try:
         return request.param
     except AttributeError:
@@ -63,6 +75,7 @@ def handler(error):
 
 @pytest_asyncio.fixture
 async def server(aiohttp_server, path, handler):
+    """Test server provided by aiohttp."""
     app = aiohttp.web.Application()
     app.add_routes(
         [
