@@ -177,6 +177,16 @@ def web_analytics_watchdog(context: AssetExecutionContext, config: WatchdogConfi
     total_passing = total_checked - len(failing_partitions)
     accuracy_rate = (total_passing / max(total_checked, 1)) * 100
 
+    # If all partition checks failed with errors, fail the entire run to surface the issue
+    if total_checked == 0 and errors:
+        raise dagster.Failure(
+            description=f"All partition checks failed with errors ({len(errors)} errors)",
+            metadata={
+                "errors": MetadataValue.json(errors),
+                "lookback_days": MetadataValue.int(lookback_days),
+            },
+        )
+
     # Overall status based on percentage of partitions within tolerance:
     # - EXCELLENT: ≥95% passing - system is healthy
     # - GOOD: ≥90% passing - minor issues, likely transient
@@ -199,11 +209,22 @@ def web_analytics_watchdog(context: AssetExecutionContext, config: WatchdogConfi
         f"{len(failing_partitions)} need remediation, {len(errors)} errors"
     )
 
-    if dry_run and failing_partitions:
-        context.log.info(
-            f"DRY RUN: {len(remediation_configs)} partition(s) would be re-materialized: "
-            f"{[c['partition_key'] for c in remediation_configs]}"
-        )
+    if failing_partitions:
+        if dry_run:
+            context.log.info(
+                f"DRY RUN: {len(remediation_configs)} partition(s) would be re-materialized: "
+                f"{[c['partition_key'] for c in remediation_configs]}"
+            )
+        else:
+            # NOTE: Automatic job triggering from within assets is an anti-pattern in Dagster.
+            # The remediation_configs are produced for use by:
+            # 1. Manual intervention via Dagster UI using the provided configs
+            # 2. A separate sensor that watches for watchdog results (future enhancement)
+            context.log.warning(
+                f"REMEDIATION NEEDED: {len(remediation_configs)} partition(s) require re-materialization: "
+                f"{[c['partition_key'] for c in remediation_configs]}. "
+                "Use the remediation_configs metadata to trigger web_pre_aggregate_job manually."
+            )
 
     failing_rows_md = "\n".join(
         f"| {p['partition_date']} "

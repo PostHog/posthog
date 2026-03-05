@@ -1,4 +1,5 @@
 import datetime
+from typing import Any
 
 import pytest
 from freezegun import freeze_time
@@ -142,7 +143,7 @@ class TestWebAnalyticsWatchdogAsset:
         context = dagster.build_asset_context(
             asset_config={"team_id": 2, "lookback_days": 3, "tolerance_pct": 5.0, "dry_run": True}
         )
-        result = web_analytics_watchdog(context)
+        result: Any = web_analytics_watchdog(context)
 
         assert result.metadata["overall_status"].value == "EXCELLENT"
         assert result.metadata["failing_partition_count"].value == 0
@@ -180,7 +181,7 @@ class TestWebAnalyticsWatchdogAsset:
         context = dagster.build_asset_context(
             asset_config={"team_id": 2, "lookback_days": 3, "tolerance_pct": 5.0, "dry_run": True}
         )
-        result = web_analytics_watchdog(context)
+        result: Any = web_analytics_watchdog(context)
 
         assert result.metadata["failing_partition_count"].value == 1
         assert result.metadata["total_checked"].value == 3
@@ -202,11 +203,9 @@ class TestWebAnalyticsWatchdogAsset:
         context = dagster.build_asset_context(
             asset_config={"team_id": 2, "lookback_days": 2, "tolerance_pct": 5.0, "dry_run": True}
         )
-        result = web_analytics_watchdog(context)
 
-        assert result.metadata["total_checked"].value == 0
-        assert result.metadata["error_count"].value == 2
-        assert len(result.metadata["errors"].data) == 2
+        with pytest.raises(dagster.Failure, match="All partition checks failed"):
+            web_analytics_watchdog(context)
 
     @freeze_time("2024-01-20 12:00:00")
     @patch("products.web_analytics.dags.web_analytics_watchdog.check_partition_accuracy")
@@ -246,7 +245,7 @@ class TestWebAnalyticsWatchdogAsset:
         context = dagster.build_asset_context(
             asset_config={"team_id": 2, "lookback_days": 1, "tolerance_pct": 5.0, "dry_run": True}
         )
-        result = web_analytics_watchdog(context)
+        result: Any = web_analytics_watchdog(context)
 
         assert result.metadata["dry_run"].value is True
         assert result.metadata["failing_partition_count"].value == 1
@@ -284,7 +283,7 @@ class TestWebAnalyticsWatchdogAsset:
         context = dagster.build_asset_context(
             asset_config={"team_id": 2, "lookback_days": total_count, "tolerance_pct": 5.0, "dry_run": True}
         )
-        result = web_analytics_watchdog(context)
+        result: Any = web_analytics_watchdog(context)
 
         assert result.metadata["overall_status"].value == expected_status
 
