@@ -184,11 +184,15 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
         }
     }, [sidePanelOpen, selectedTab, sidePanelOpenAndAvailable, closeSidePanel])
 
-    const sidePanelWidth = !visibleTabs.length
+    const viewportWidth = window.innerWidth ?? undefined
+
+    const rawSidePanelWidth = !visibleTabs.length
         ? 0
         : sidePanelOpenAndAvailable
           ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH_COMPACT)
           : 0
+
+    const sidePanelWidth = viewportWidth ? Math.min(rawSidePanelWidth, viewportWidth) : rawSidePanelWidth
 
     // Update sidepanel width in panelLayoutLogic
     useEffect(() => {
