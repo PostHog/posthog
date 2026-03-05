@@ -19,6 +19,7 @@ from typing import (
 
 import structlog
 import posthoganalytics
+from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
@@ -117,6 +118,18 @@ from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 logger = structlog.get_logger(__name__)
 
+QUERY_EXECUTION_TOTAL = Counter(
+    "posthog_query_execution_total",
+    "Query executions by status",
+    labelnames=["query_type", "status"],
+)
+
+QUERY_EXECUTION_DURATION = Histogram(
+    "posthog_query_execution_duration_seconds",
+    "Query execution duration in seconds",
+    labelnames=["query_type"],
+    buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
+)
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
 
@@ -1309,7 +1322,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
                 self.modifiers.useMaterializedViews = True
 
-            query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
+            query_type = getattr(self.query, "kind", "Other")
+            query_start = perf_counter()
+            try:
+                query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
+                QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="success").inc()
+            except Exception:
+                QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="failure").inc()
+                raise
+            finally:
+                QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(perf_counter() - query_start)
 
             fresh_response_dict = {
                 **query_result.model_dump(),
@@ -1344,6 +1366,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Don't cache debug queries with errors and export queries
             errors: Optional[list] = fresh_response_dict.get("error", None)
             has_error = errors is not None and len(errors) > 0
+
             if not has_error and self.limit_context != LimitContext.EXPORT:
                 cache_manager.set_cache_data(
                     response=fresh_response_dict,

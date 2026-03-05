@@ -40,6 +40,7 @@ export interface PropertyFiltersProps {
     addText?: string | null
     editable?: boolean
     buttonText?: string
+    buttonClassName?: string
     buttonSize?: 'xsmall' | 'small' | 'medium'
     hasRowOperator?: boolean
     sendAllKeyUpdates?: boolean
@@ -75,6 +76,7 @@ export function PropertyFilters({
     propertyGroupType = null,
     addText = null,
     buttonText = 'Filter',
+    buttonClassName = '',
     editable = true,
     buttonSize,
     hasRowOperator = true,
@@ -131,6 +133,7 @@ export function PropertyFilters({
                                     showConditionBadge={showConditionBadge}
                                     disablePopover={disablePopover || orFiltering}
                                     label={buttonText}
+                                    labelClassName={buttonClassName}
                                     size={buttonSize}
                                     onRemove={remove}
                                     orFiltering={orFiltering}

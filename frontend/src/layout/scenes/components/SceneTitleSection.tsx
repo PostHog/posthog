@@ -339,7 +339,7 @@ export function SceneTitleSection({
                                         hasDescription ? (
                                             <ButtonPrimitive
                                                 className={cn(
-                                                    'size-[var(--button-height-sm)] shrink-0 -ml-2',
+                                                    'size-[var(--button-height-sm)] shrink-0',
                                                     isScrolled
                                                         ? 'animate-fade-out-subtle pointer-events-none'
                                                         : 'animate-fade-in-subtle group-hover/scene-title-section:opacity-100 opacity-30 transition-opacity duration-200 motion-reduce:transition-none'
