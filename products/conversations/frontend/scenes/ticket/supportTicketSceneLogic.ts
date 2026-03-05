@@ -188,6 +188,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         const allTickets = responses.flatMap((r) => r.results || [])
 
                         // Deduplicate by ID and exclude current ticket
+                        // some important change
                         const uniqueTickets = Array.from(
                             new Map(allTickets.map((ticket) => [ticket.id, ticket])).values()
                         ).filter((ticket) => ticket.id !== currentTicketId)
