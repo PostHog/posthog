@@ -142,7 +142,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         return enriched
 
     def _enrich_session_actors_with_person_identity(
-        self, results: Sequence[list] | list, input_columns: list[str]
+        self, results: Sequence[list] | Iterator[list], input_columns: list[str]
     ) -> list:
         person_id_col_index = input_columns.index("person_id")
 
