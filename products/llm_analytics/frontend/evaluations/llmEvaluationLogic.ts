@@ -14,7 +14,7 @@ import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
 import { Breadcrumb } from '~/types'
 
 import { parseTrialProviderKeyId } from '../ModelPicker'
-import { LLMProviderKey, llmProviderKeysLogic, normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
+import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
@@ -41,30 +41,15 @@ return result`
 export interface LLMEvaluationLogicProps {
     evaluationId: string
     templateKey?: EvaluationTemplateKey
-    prefillName?: string
-    prefillDescription?: string
-    prefillPrompt?: string
-    prefillModel?: string
-    prefillProvider?: string
-    prefillProviderKeyId?: string
     tabId?: string
 }
 
 export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     path(['products', 'llm_analytics', 'evaluations', 'llmEvaluationLogic']),
     props({} as LLMEvaluationLogicProps),
-    key((props) =>
-        [
-            props.evaluationId || 'new',
-            props.templateKey || '',
-            props.prefillName || '',
-            props.prefillDescription || '',
-            props.prefillPrompt || '',
-            props.prefillModel || '',
-            props.prefillProvider || '',
-            props.prefillProviderKeyId || '',
-            props.tabId ?? 'default',
-        ].join('::')
+    key(
+        (props) =>
+            `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}::${props.tabId ?? 'default'}`
     ),
 
     connect(() => ({
@@ -370,17 +355,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
                     const evaluation = await api.get(`/api/environments/${teamId}/evaluations/${props.evaluationId}/`)
                     actions.loadEvaluationSuccess(evaluation)
-                    if (props.prefillPrompt && evaluation.evaluation_type === 'llm_judge') {
-                        actions.setEvaluationPrompt(props.prefillPrompt)
-                    }
-                    const normalizedProvider = normalizeLLMProvider(props.prefillProvider)
-                    if (props.prefillModel && normalizedProvider) {
-                        actions.setModelConfiguration({
-                            provider: normalizedProvider,
-                            model: props.prefillModel,
-                            provider_key_id: props.prefillProviderKeyId ?? null,
-                        })
-                    }
                 } catch (error) {
                     console.error('Failed to load evaluation:', error)
                     actions.loadEvaluationSuccess(null)
@@ -422,22 +396,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                               ...baseFields,
                               evaluation_type: 'llm_judge' as const,
                               evaluation_config: {
-                                  prompt:
-                                      props.prefillPrompt ?? (template && 'prompt' in template ? template.prompt : ''),
+                                  prompt: template && 'prompt' in template ? template.prompt : '',
                               },
-                              model_configuration:
-                                  props.prefillModel && normalizeLLMProvider(props.prefillProvider)
-                                      ? {
-                                            provider: normalizeLLMProvider(props.prefillProvider)!,
-                                            model: props.prefillModel,
-                                            provider_key_id: props.prefillProviderKeyId ?? null,
-                                        }
-                                      : null,
                           }
-                if (props.prefillName || props.prefillDescription) {
-                    newEvaluation.name = props.prefillName ?? newEvaluation.name
-                    newEvaluation.description = props.prefillDescription ?? newEvaluation.description
-                }
                 actions.loadEvaluationSuccess(newEvaluation)
             }
         },

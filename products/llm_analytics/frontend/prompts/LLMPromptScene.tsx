@@ -35,8 +35,6 @@ export const scene: SceneExport<PromptLogicProps> = {
         promptName: name && name !== 'new' ? name : 'new',
         mode: searchParams?.edit === 'true' ? PromptMode.Edit : PromptMode.View,
         selectedVersion: searchParams?.version ? Number(searchParams.version) || null : null,
-        prefillName: typeof searchParams?.prefill_name === 'string' ? searchParams.prefill_name : undefined,
-        prefillPrompt: typeof searchParams?.prefill_prompt === 'string' ? searchParams.prefill_prompt : undefined,
     }),
 }
 
@@ -63,7 +61,8 @@ export function LLMPromptScene(): JSX.Element {
         useActions(llmPromptLogic)
     const sourcePromptId = !isNewPrompt && prompt && isPrompt(prompt) ? prompt.id : null
     const openInPlaygroundUrl = sourcePromptId
-        ? combineUrl(urls.llmAnalyticsPlayground(), { source_prompt_id: sourcePromptId }).url
+        ? combineUrl(urls.llmAnalyticsPlayground(), { source_prompt_id: sourcePromptId,
+          }).url
         : undefined
 
     if (isPromptMissing) {
