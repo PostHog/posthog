@@ -236,7 +236,7 @@ describe('DWH source webhooks', () => {
             })
 
             expect(res.status).toEqual(201)
-            expect(res.body).toEqual({ status: 'ok' })
+            expect(res.body).toEqual({ status: 'queued' })
 
             await waitForBackgroundTasks()
 
@@ -293,7 +293,7 @@ describe('DWH source webhooks', () => {
             })
 
             expect(res.status).toEqual(201)
-            expect(res.body).toEqual({ status: 'ok' })
+            expect(res.body).toEqual({ status: 'queued' })
 
             await waitForBackgroundTasks()
 
