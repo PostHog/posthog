@@ -287,7 +287,12 @@ def get_event_source(request) -> EventSource:
         return EventSource.POSTHOG_CODE
     if "posthog/mcp-server" in user_agent:
         return EventSource.MCP
+    # DRF sets successful_authenticator during view dispatch; before that
+    # (e.g. in middleware), fall back to checking the Django session cookie
+    # which is available after Django's AuthenticationMiddleware runs.
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
+        return EventSource.WEB
+    if hasattr(request, "session") and request.session.session_key is not None:
         return EventSource.WEB
     return EventSource.API
 
