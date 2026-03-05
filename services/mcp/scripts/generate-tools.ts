@@ -605,7 +605,7 @@ ${spreads}
     // Combined tool definitions for external consumers (docs site)
     const v1Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V1_PATH, 'utf-8'))
     const v2Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V2_PATH, 'utf-8'))
-    const allDefinitions = { ...v2Definitions, ...v1Definitions, ...definitions }
+    const allDefinitions = { ...v1Definitions, ...v2Definitions, ...definitions }
     fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
 
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
