@@ -383,7 +383,8 @@ export function LemonTable<T extends Record<string, any>>({
                                                                           const nextSorting = getNextSorting(
                                                                               currentSorting,
                                                                               determineColumnKey(column, 'sorting'),
-                                                                              disableSortingCancellation
+                                                                              disableSortingCancellation,
+                                                                              column.defaultSortOrder
                                                                           )
 
                                                                           setLocalSorting(nextSorting)
@@ -440,7 +441,8 @@ export function LemonTable<T extends Record<string, any>>({
                                                                                     const nextSorting = getNextSorting(
                                                                                         currentSorting,
                                                                                         columnKey,
-                                                                                        disableSortingCancellation
+                                                                                        disableSortingCancellation,
+                                                                                        column.defaultSortOrder
                                                                                     )
                                                                                     return `Click to ${
                                                                                         nextSorting

@@ -59,10 +59,14 @@ export function StackedBar({
     segments,
     className,
     size = 'md',
+    showTooltips = true,
+    barValueFormatter = formatCount,
 }: {
     segments: StackedBarSegment[]
     className?: string
     size?: StackedBarSize
+    showTooltips?: boolean
+    barValueFormatter?: (count: number, total: number) => string
 }): JSX.Element | null {
     const sizeClasses = SIZE_CONFIG[size]
     const total = segments.reduce((sum, segment) => sum + segment.count, 0)
@@ -84,37 +88,44 @@ export function StackedBar({
                     const isLast = index === segments.length - 1
                     const isOnly = segments.length === 1
 
-                    return (
-                        <Tooltip
+                    const segmentContent = (
+                        <div
                             key={`stacked-bar-${label}`}
+                            className={clsx(
+                                'text-white text-center absolute cursor-pointer',
+                                sizeClasses.bar,
+                                colorClass,
+                                isFirst || isOnly ? 'rounded-l' : '',
+                                isLast || isOnly ? 'rounded-r' : ''
+                            )}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                width: `${percentage}%`,
+                                left: `${left}%`,
+                            }}
+                        >
+                            <span
+                                className={clsx(
+                                    'inline-flex font-semibold max-w-full px-1 truncate',
+                                    sizeClasses.label
+                                )}
+                            >
+                                {barValueFormatter(count, total)}
+                            </span>
+                        </div>
+                    )
+
+                    return showTooltips ? (
+                        <Tooltip
+                            key={`stacked-bar-tooltip-${label}`}
                             title={tooltip || `${label}: ${count} (${percentage.toFixed(1)}%)`}
                             delayMs={0}
                             placement="top"
                         >
-                            <div
-                                className={clsx(
-                                    'text-white text-center absolute cursor-pointer',
-                                    sizeClasses.bar,
-                                    colorClass,
-                                    isFirst || isOnly ? 'rounded-l' : '',
-                                    isLast || isOnly ? 'rounded-r' : ''
-                                )}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    width: `${percentage}%`,
-                                    left: `${left}%`,
-                                }}
-                            >
-                                <span
-                                    className={clsx(
-                                        'inline-flex font-semibold max-w-full px-1 truncate',
-                                        sizeClasses.label
-                                    )}
-                                >
-                                    {formatCount(count, total)}
-                                </span>
-                            </div>
+                            {segmentContent}
                         </Tooltip>
+                    ) : (
+                        segmentContent
                     )
                 })}
             </div>

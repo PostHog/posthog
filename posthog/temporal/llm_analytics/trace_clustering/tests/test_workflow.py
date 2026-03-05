@@ -260,3 +260,5 @@ class TestActivityInputOutputModels:
         assert len(inputs.cluster_labels) == 2
         assert len(inputs.coords_2d) == 2
         assert len(inputs.centroid_coords_2d) == 2
+        assert inputs.job_id == ""
+        assert inputs.job_name == ""

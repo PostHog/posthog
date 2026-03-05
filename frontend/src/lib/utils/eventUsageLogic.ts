@@ -340,7 +340,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportDashboardModeToggled: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
-            mode: DashboardMode,
+            mode: DashboardMode | null,
             source: DashboardEventSource | null
         ) => ({ dashboard, mode, source }),
         reportDashboardRefreshed: (
@@ -405,6 +405,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportDashboardWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
+        reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized') => ({
+            dashboardId,
+            action,
+        }),
+        reportDashboardInsightMetaUpdated: (
+            dashboardId: number | undefined,
+            insightId: number,
+            attribute: 'name' | 'description'
+        ) => ({ dashboardId, insightId, attribute }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -749,8 +758,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportSurveyEdited: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
-        reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
+        reportSurveyTemplateClicked: (template: SurveyTemplateType, source?: string) => ({ template, source }),
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
+        reportSurveyConsolidatedResultsQuery: (
+            survey: Survey,
+            totalDurationMs: number,
+            queryDurations: { aggregate: number; openEnded: number }
+        ) => ({ survey, totalDurationMs, queryDurations }),
+        reportSurveyEmptyStateViewed: true,
+        reportSurveyAiPromptSubmitted: (source: string) => ({ source }),
         reportProductTourViewed: (tour: ProductTour) => ({ tour }),
         reportProductTourCreated: (tour: ProductTour, creationSource?: 'app' | 'toolbar') => ({
             tour,
@@ -1170,6 +1186,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardWhitelabelToggled: async ({ isWhiteLabelled }) => {
             posthog.capture(`dashboard whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
+        },
+        reportDashboardTileRepositioned: async ({ dashboardId, action }) => {
+            posthog.capture('dashboard tile repositioned', {
+                dashboard_id: dashboardId,
+                action,
+            })
+        },
+        reportDashboardInsightMetaUpdated: async ({ dashboardId, insightId, attribute }) => {
+            posthog.capture('dashboard insight meta updated', {
+                dashboard_id: dashboardId,
+                insight_id: insightId,
+                attribute,
+            })
         },
         reportUpgradeModalShown: async (payload) => {
             posthog.capture('upgrade modal shown', payload)
@@ -1821,9 +1850,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 }),
             })
         },
-        reportSurveyTemplateClicked: ({ template }) => {
+        reportSurveyTemplateClicked: ({ template, source }) => {
             posthog.capture('survey template clicked', {
                 template,
+                source,
+            })
+        },
+        reportSurveyEmptyStateViewed: () => {
+            posthog.capture('survey empty state viewed')
+        },
+        reportSurveyAiPromptSubmitted: ({ source }) => {
+            posthog.capture('survey AI prompt submitted', {
+                source,
             })
         },
         reportSurveyCycleDetected: ({ survey }) => {
@@ -1832,6 +1870,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 id: survey.id,
                 start_date: survey.start_date,
                 end_date: survey.end_date,
+            })
+        },
+        reportSurveyConsolidatedResultsQuery: ({ survey, totalDurationMs, queryDurations }) => {
+            posthog.capture('survey consolidated results query completed', {
+                name: survey.name,
+                id: survey.id,
+                duration: totalDurationMs,
+                aggregate_duration: queryDurations.aggregate,
+                open_ended_duration: queryDurations.openEnded,
             })
         },
         reportProductTourViewed: ({ tour }) => {

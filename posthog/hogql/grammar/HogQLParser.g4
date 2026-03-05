@@ -55,13 +55,13 @@ select: (selectSetStmt | selectStmt | hogqlxTagElement) SEMICOLON? EOF;
 
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
 
-subsequentSelectSetClause: (EXCEPT | UNION ALL | UNION DISTINCT | INTERSECT | INTERSECT DISTINCT) selectStmtWithParens;
+subsequentSelectSetClause: (EXCEPT ALL | EXCEPT | UNION ALL | UNION DISTINCT | INTERSECT ALL | INTERSECT DISTINCT | INTERSECT) selectStmtWithParens;
 selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
 
 selectStmt:
     with=withClause?
     SELECT DISTINCT? topClause?
-    columns=columnExprList
+    columns=selectColumnExprList
     from=fromClause?
     arrayJoinClause?
     prewhereClause?
@@ -146,6 +146,11 @@ columnTypeExpr
     | identifier LPAREN columnExprList? RPAREN                                               # ColumnTypeExprParam    // FixedString(N)
     ;
 columnExprList: columnExpr (COMMA columnExpr)* COMMA?;
+selectColumnExprList: selectColumnExpr (COMMA selectColumnExpr)* COMMA?;
+selectColumnExpr
+    : identifier COLON columnExpr                                                   # ColumnExprAliasBefore
+    | columnExpr                                                                    # ColumnExprSelectValue
+    ;
 columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast

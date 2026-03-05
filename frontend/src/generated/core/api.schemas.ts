@@ -1109,6 +1109,7 @@ export interface SharingConfigurationApi {
 
 /**
  * * `slack` - Slack
+ * `slack-twig` - Slack Twig
  * `salesforce` - Salesforce
  * `hubspot` - Hubspot
  * `google-pubsub` - Google Pubsub
@@ -1135,10 +1136,11 @@ export interface SharingConfigurationApi {
  * `jira` - Jira
  * `pinterest-ads` - Pinterest Ads
  */
-export type KindE61EnumApi = (typeof KindE61EnumApi)[keyof typeof KindE61EnumApi]
+export type Kind439EnumApi = (typeof Kind439EnumApi)[keyof typeof Kind439EnumApi]
 
-export const KindE61EnumApi = {
+export const Kind439EnumApi = {
     Slack: 'slack',
+    SlackTwig: 'slack-twig',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',
@@ -1171,7 +1173,7 @@ export const KindE61EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindE61EnumApi
+    kind: Kind439EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1193,7 +1195,7 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: KindE61EnumApi
+    kind?: Kind439EnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi

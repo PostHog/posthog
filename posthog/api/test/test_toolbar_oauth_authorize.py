@@ -2,7 +2,13 @@ from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
+from django.test import override_settings
 
+from posthog.api.oauth.test_dcr import generate_rsa_key
+
+
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestToolbarOAuthAuthorize(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -12,8 +18,10 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
         self.user.save(update_fields=["current_team"])
         self.client.force_login(self.user)
 
-    def _get_authorize(self, redirect_url: str = "https://mysite.com/page"):
-        return self.client.get(f"/toolbar_oauth/authorize/?redirect={redirect_url}")
+    def _get_authorize(
+        self, redirect_url: str = "https://mysite.com/page", code_challenge: str = "test_challenge_abc123"
+    ):
+        return self.client.get(f"/toolbar_oauth/authorize/?redirect={redirect_url}&code_challenge={code_challenge}")
 
     def _assert_authorize_redirects(self, response):
         assert response.status_code == 302, (
@@ -34,9 +42,14 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
         response = self.client.get("/toolbar_oauth/authorize/")
         assert response.status_code == 400
 
-    def test_rejects_disallowed_domain(self):
+    def test_disallowed_domain_returns_error_page_with_hostname(self):
         response = self._get_authorize(redirect_url="https://evil.com/page")
         assert response.status_code == 403
+        content = response.content.decode()
+        assert "Domain not authorized" in content
+        assert "evil.com" in content
+        assert "authorized URLs" in content
+        assert "/settings/project-toolbar#authorized-urls" in content
 
     def test_requires_authentication(self):
         self.client.logout()
@@ -62,11 +75,9 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
         assert "toolbar_oauth" in redirect_uri
         assert "callback" in redirect_uri
 
-    def test_code_verifier_is_stored_in_session(self):
+    def test_redirect_flow_marker_is_stored_in_session(self):
         response = self._get_authorize()
         self._assert_authorize_redirects(response)
 
         session = self.client.session
-        assert "toolbar_oauth_code_verifier" in session
-        assert len(session["toolbar_oauth_code_verifier"]) >= 43
-        assert "toolbar_oauth_code_verifier_ts" in session
+        assert session.get("toolbar_oauth_redirect_flow") is True
