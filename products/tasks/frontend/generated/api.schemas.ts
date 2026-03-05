@@ -121,6 +121,7 @@ export interface PatchedTaskApi {
     readonly slug?: string
     /** @maxLength 255 */
     title?: string
+    title_manually_set?: boolean
     description?: string
     origin_product?: OriginProductEnumApi
     /**

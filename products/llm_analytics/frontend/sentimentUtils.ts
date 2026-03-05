@@ -60,18 +60,3 @@ export function buildSentimentBarTooltip(
     }
     return parts.length > 1 ? `${parts[0]} (${parts.slice(1).join(', ')})` : parts[0]
 }
-
-export function flattenGenerationMessages(
-    generations?: Record<string, { messages?: Record<string | number, MessageScore> }>
-): Record<string, MessageScore> | undefined {
-    if (!generations) {
-        return undefined
-    }
-    const flat: Record<string, MessageScore> = {}
-    for (const [genId, gen] of Object.entries(generations)) {
-        for (const [msgId, msg] of Object.entries(gen.messages ?? {})) {
-            flat[`${genId}:${msgId}`] = msg
-        }
-    }
-    return Object.keys(flat).length > 0 ? flat : undefined
-}
