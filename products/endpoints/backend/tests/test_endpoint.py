@@ -65,7 +65,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         response_data = response.json()
 
         self.assertEqual("test_query", response_data["name"])
-        self.assertEqual(self.sample_hogql_query, response_data["query"])
+        self.assertEqual({**self.sample_hogql_query, "connectionId": None}, response_data["query"])
         self.assertEqual("Test query description", response_data["description"])
         self.assertTrue(response_data["is_active"])
         self.assertIn("id", response_data)
@@ -80,7 +80,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         # Query is stored on the version, not the endpoint
         version = endpoint.get_version()
         assert version is not None
-        self.assertEqual(version.query, self.sample_hogql_query)
+        self.assertEqual(version.query, {**self.sample_hogql_query, "connectionId": None})
         self.assertEqual(endpoint.created_by, self.user)
         self.assertIsNone(endpoint.derived_from_insight)
 
@@ -329,6 +329,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("Updated description", response_data["description"])
         self.assertFalse(response_data["is_active"])
         want_query = {
+            "connectionId": None,
             "explain": None,
             "filters": None,
             "kind": "HogQLQuery",
