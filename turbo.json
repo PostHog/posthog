@@ -32,25 +32,32 @@
             "inputs": ["src", "Cargo.toml", "!**/*.pyc"],
             "outputs": ["dist", "index.node", ".turbo"],
             "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT"],
-            "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME", "DATABASE_URL", "REDIS_URL", "NODE_OPTIONS"]
+            "passThroughEnv": [
+                "RUSTUP_HOME",
+                "CARGO_HOME",
+                "DATABASE_URL",
+                "REDIS_URL",
+                "NODE_OPTIONS",
+                "SSL_CERT_FILE"
+            ]
         },
         "test": {
             "dependsOn": ["^build"],
             "inputs": ["src", "tests", "Cargo.toml", "!**/*.pyc"],
             "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT"],
-            "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME", "DATABASE_URL", "REDIS_URL", "NODE_OPTIONS"]
+            "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME", "DATABASE_URL", "REDIS_URL", "NODE_OPTIONS", "PERSONS_DATABASE_URL", "PERSONS_READONLY_DATABASE_URL"]
         },
         "start": {
             "dependsOn": ["^build"],
             "persistent": true,
             "cache": false,
-            "passThroughEnv": ["SKIP_TYPEGEN"]
+            "passThroughEnv": ["SKIP_TYPEGEN", "COREPACK_ENABLE_DOWNLOAD_PROMPT", "SSL_CERT_FILE"]
         },
         "start-vite": {
             "dependsOn": ["^build"],
             "persistent": true,
             "cache": false,
-            "passThroughEnv": ["SKIP_TYPEGEN"]
+            "passThroughEnv": ["SKIP_TYPEGEN", "COREPACK_ENABLE_DOWNLOAD_PROMPT", "SSL_CERT_FILE"]
         },
         "dev": {
             "dependsOn": ["^build"],

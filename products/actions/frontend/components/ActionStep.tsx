@@ -59,7 +59,7 @@ export function ActionStep({
         <div className="bg-surface-primary rounded border p-3 relative">
             {index > 0 && !(index % 2 === 0) && (
                 <div className="absolute top-1/2 -left-5">
-                    <OperandTag operand="or" />
+                    <OperandTag operand="or" className="bg-surface-primary" />
                 </div>
             )}
             <div className="deprecated-space-y-4">
@@ -91,7 +91,7 @@ export function ActionStep({
                     step.event !== '$autocapture' &&
                     step.event !== '$pageview' &&
                     step.event !== '$screen' && (
-                        <div className="deprecated-space-y-1">
+                        <div className="flex flex-col gap-2">
                             <LemonLabel>Event name</LemonLabel>
                             <EventName
                                 value={step.event}
@@ -106,12 +106,9 @@ export function ActionStep({
                                 disabled={!!disabledReason}
                             />
 
-                            <small>
-                                <Link to="https://posthog.com/docs/libraries" target="_blank">
-                                    See documentation
-                                </Link>{' '}
-                                on how to send custom events in lots of languages.
-                            </small>
+                            <Link to="https://posthog.com/docs/libraries" target="_blank">
+                                See documentation
+                            </Link>
                         </div>
                     )}
                 {step.event === '$pageview' && (

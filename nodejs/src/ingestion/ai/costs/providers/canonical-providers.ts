@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-02-27 20:04:09 UTC
+// Generated at: 2026-03-05 10:13:09 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -9,12 +9,10 @@ export type CanonicalProvider =
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
-    | 'ambient-bf16'
     | 'anthropic'
     | 'arcee-ai-bf16'
     | 'arcee-ai-modal'
     | 'arcee-ai-prime'
-    | 'atlas-cloud-bf16'
     | 'atlas-cloud-fast'
     | 'atlas-cloud-fp16'
     | 'atlas-cloud-fp8'

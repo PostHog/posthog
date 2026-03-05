@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconFeatures } from '@posthog/icons'
+import { IconFeatures, IconRefresh } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import {
     AssigneeIconDisplay,
@@ -14,6 +14,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
+import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -75,6 +76,7 @@ export function PropertyValue({
     const isDateTimeProperty = operator && isOperatorDate(operator)
     const isBetweenProperty = operator && isOperatorBetween(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
+    const { isRefreshing } = useValues(propertyValueLogic({ propertyKey, type: propertyDefinitionType }))
 
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
@@ -130,10 +132,19 @@ export function PropertyValue({
     // (to avoid overwriting suggestions based on search input)
     useEffect(() => {
         if (propertyOptions?.status === 'loaded' && propertyOptions?.values && currentSearchInput.current === '') {
-            const orderedKeys = propertyOptions.values.map((v) => toString(v.name))
-            setInitialSuggestedValues({
-                set: new Set(orderedKeys),
-                orderedKeys,
+            const newKeys = propertyOptions.values.map((v) => toString(v.name))
+            setInitialSuggestedValues((prev) => {
+                // Merge new keys into existing ones so that values already shown are never removed
+                // from under the user's cursor when a background refresh arrives with a different list.
+                const merged = [...prev.orderedKeys]
+                const existingSet = new Set(prev.orderedKeys)
+                for (const key of newKeys) {
+                    if (!existingSet.has(key)) {
+                        merged.push(key)
+                        existingSet.add(key)
+                    }
+                }
+                return { set: existingSet, orderedKeys: merged }
             })
         }
     }, [propertyOptions?.status, propertyOptions?.values])
@@ -296,11 +307,42 @@ export function PropertyValue({
     // Disable comma splitting for user agent properties that contain commas in their values
     const isUserAgentProperty = ['$raw_user_agent', '$initial_raw_user_agent', '$user_agent'].includes(propertyKey)
 
+    const suggestionsLabel = PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
+        ? 'Suggested values (last 7 days)'
+        : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
+          ? 'Suggested values'
+          : null
+    const refreshDisabledReason =
+        propertyOptions?.status === 'loading' ? 'Loading values…' : isRefreshing ? 'Refreshing values…' : undefined
+    const titleNode = suggestionsLabel ? (
+        <span className="flex justify-between items-center gap-4">
+            {suggestionsLabel}
+            <LemonButton
+                size="xsmall"
+                icon={<IconRefresh />}
+                tooltip="Refresh values"
+                disabledReason={refreshDisabledReason}
+                onClick={() =>
+                    loadPropertyValues({
+                        endpoint,
+                        type: propertyDefinitionType,
+                        newInput: currentSearchInput.current || undefined,
+                        propertyKey,
+                        eventNames,
+                        properties: [],
+                        forceRefresh: true,
+                    })
+                }
+                noPadding
+            />
+        </span>
+    ) : undefined
+
     return (
         <LemonInputSelect
             className={inputClassName}
             data-attr="prop-val"
-            loading={propertyOptions?.status === 'loading'}
+            loading={propertyOptions?.status === 'loading' || isRefreshing}
             value={formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
             singleValueAsSnack
@@ -311,13 +353,7 @@ export function PropertyValue({
             size={size}
             disableCommaSplitting={isUserAgentProperty}
             status={validationError ? 'danger' : 'default'}
-            title={
-                PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
-                    ? 'Suggested values (last 7 days)'
-                    : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
-                      ? 'Suggested values'
-                      : undefined
-            }
+            title={titleNode}
             popoverClassName="max-w-200"
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)

@@ -162,6 +162,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 user=request.user,  # type: ignore[arg-type]
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
                 limit_context=limit_context,
+                request=request,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
@@ -239,7 +240,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         if len(prompt) > 400:
             raise ValidationError({"prompt": ["This field is too long."]}, code="too_long")
         try:
-            result = write_sql_from_prompt(prompt, current_query=current_query, user=request.user, team=self.team)
+            result = write_sql_from_prompt(
+                prompt, current_query=current_query, user=request.user, team=self.team, request=request
+            )
         except PromptUnclear as e:
             raise ValidationError({"prompt": [str(e)]}, code="unclear")
         return Response({"sql": result})

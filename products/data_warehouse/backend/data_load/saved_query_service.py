@@ -1,3 +1,5 @@
+import uuid
+import random
 from dataclasses import asdict
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -43,6 +45,13 @@ def get_sync_frequency(saved_query: "DataWarehouseSavedQuery") -> tuple[timedelt
     return (interval, timedelta(hours=1))
 
 
+def _get_midnight_offset(saved_query_id: uuid.UUID) -> timedelta:
+    """Deterministic offset of 0h, +1h, or -1h (as 23h) to spread 24h schedules around midnight UTC."""
+    rng = random.Random(str(saved_query_id))
+    offset_seconds = rng.choice([-3600, 0, 3600])
+    return timedelta(seconds=offset_seconds) % timedelta(hours=24)
+
+
 def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule:
     from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 
@@ -52,6 +61,7 @@ def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule
     )
 
     sync_frequency, jitter = get_sync_frequency(saved_query)
+    offset = _get_midnight_offset(saved_query.id) if sync_frequency >= timedelta(hours=24) else timedelta()
 
     return Schedule(
         action=ScheduleActionStartWorkflow(
@@ -67,7 +77,7 @@ def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule
             ),
         ),
         spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=sync_frequency)],
+            intervals=[ScheduleIntervalSpec(every=sync_frequency, offset=offset)],
             jitter=jitter,
         ),
         state=ScheduleState(note=f"Schedule for saved query: {saved_query.pk}"),

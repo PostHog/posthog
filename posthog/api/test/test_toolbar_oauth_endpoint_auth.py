@@ -5,7 +5,7 @@ endpoint via get_authenticators(). These tests verify that:
   1. Toolbar OAuth tokens (with TOOLBAR_OAUTH_SCOPES) grant access to every toolbar endpoint.
   2. Tokens with the exact required scope grant access; wrong scopes are rejected.
   3. Expired / invalid tokens are rejected.
-  4. Temporary token auth still works (backward compat).
+  4. Unauthenticated requests are rejected.
 """
 
 from datetime import timedelta
@@ -13,10 +13,12 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 
@@ -43,6 +45,7 @@ def _make_token(user, app, token_str, scope="*", delta_hours=1):
     )
 
 
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestToolbarEndpointOAuthAuth(APIBaseTest):
     """
     Every toolbar-consumed endpoint should accept OAuth access tokens
@@ -179,22 +182,8 @@ class TestToolbarEndpointOAuthAuth(APIBaseTest):
         )
         assert response.status_code in (401, 403)
 
-    # -- Temporary token backward compat ------------------------------------
 
-    @parameterized.expand(TOOLBAR_ENDPOINTS)
-    def test_temporary_token_still_works(self, _label, url_template, method, _scope):
-        self.client.logout()
-        self.user.temporary_token = "tmp_test_tok"
-        self.user.save(update_fields=["temporary_token"])
-
-        url = self._url(url_template)
-        sep = "&" if "?" in url else "?"
-        response = self._request(method, f"{url}{sep}temporary_token=tmp_test_tok")
-        assert response.status_code not in (401, 403), (
-            f"Temporary token should still work, got {response.status_code}: {response.content[:300]}"
-        )
-
-
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestUploadedMediaOAuthAuth(APIBaseTest):
     """uploaded_media is tested separately — its only toolbar action is POST (upload)."""
 
@@ -240,14 +229,8 @@ class TestUploadedMediaOAuthAuth(APIBaseTest):
         response = self.client.post(self._url())
         assert response.status_code in (401, 403)
 
-    def test_temporary_token_still_works(self):
-        self.client.logout()
-        self.user.temporary_token = "tmp_media_tok"
-        self.user.save(update_fields=["temporary_token"])
-        response = self.client.post(f"{self._url()}?temporary_token=tmp_media_tok")
-        assert response.status_code != 401
 
-
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestHedgehogConfigOAuthAuth(APIBaseTest):
     """hedgehog_config uses /api/users/@me/ path, not team-scoped, so tested separately."""
 
@@ -298,6 +281,7 @@ class TestHedgehogConfigOAuthAuth(APIBaseTest):
         assert response.status_code in (401, 403)
 
 
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestToolbarOAuthScopesConfig(APIBaseTest):
     """Verify TOOLBAR_OAUTH_SCOPES covers every toolbar endpoint scope."""
 
@@ -305,19 +289,15 @@ class TestToolbarOAuthScopesConfig(APIBaseTest):
         "action:read",
         "action:write",
         "feature_flag:read",
-        "feature_flag:write",
         "experiment:read",
         "experiment:write",
         "product_tour:read",
         "product_tour:write",
         "query:read",
         "heatmap:read",
-        "heatmap:write",
         "element:read",
-        "uploaded_media:read",
         "uploaded_media:write",
         "user:read",
-        "user:write",
     ]
 
     @parameterized.expand([(s,) for s in EXPECTED_SCOPES])

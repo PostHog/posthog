@@ -49,6 +49,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { isNonEmptyObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -570,6 +571,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.PropertyValuesQuery]: {
+        name: 'Property values',
+        icon: IconHogQL,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
@@ -771,11 +777,13 @@ export function SavedInsights(): JSX.Element {
                 )
             },
             align: 'right',
+            defaultSortOrder: -1,
             sorter: (a, b) => dayjs(a.created_at || 0).diff(b.created_at || 0),
         },
         {
             title: 'Last modified',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_modified_at',
             render: function renderLastModified(last_modified_at: string) {
                 return (
@@ -786,6 +794,7 @@ export function SavedInsights(): JSX.Element {
         {
             title: 'Last viewed',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_viewed_at',
             render: function renderLastViewed(last_viewed_at: string | null) {
                 return (
@@ -898,7 +907,21 @@ export function SavedInsights(): JSX.Element {
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
                 tabs={[
-                    ...(showHomeTab ? [{ key: SavedInsightsTabs.Home, label: 'Home' }] : []),
+                    ...(showHomeTab
+                        ? [
+                              {
+                                  key: SavedInsightsTabs.Home,
+                                  label: (
+                                      <div className="flex items-center gap-2">
+                                          Home
+                                          <LemonTag type="warning" size="small">
+                                              BETA
+                                          </LemonTag>
+                                      </div>
+                                  ),
+                              },
+                          ]
+                        : []),
                     { key: SavedInsightsTabs.All, label: 'Insights' },
                     {
                         key: SavedInsightsTabs.Alerts,

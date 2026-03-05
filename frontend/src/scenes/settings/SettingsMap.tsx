@@ -63,6 +63,7 @@ import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegratio
 import { ExperimentRecalculationTime } from './environment/ExperimentRecalculationTime'
 import {
     DefaultEvaluationContexts,
+    DefaultReleaseConditions,
     FlagChangeConfirmationSettings,
     FlagPersistenceSettings,
     FlagsSecureApiKeys,
@@ -106,6 +107,7 @@ import {
     WebSnippetV2,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { TwigSlackIntegration } from './environment/TwigSlackIntegration'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
@@ -114,6 +116,7 @@ import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { MembersPlatformAddonAd } from './organization/MembersPlatformAddonAd'
+import { OAuthApps } from './organization/OAuthApps'
 import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
@@ -323,6 +326,19 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'See the latest PostHog AI features and control whether the changelog appears in the main UI.',
                 component: <MaxChangelogSettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-twig',
+        title: 'Twig',
+        flag: 'TASKS',
+        settings: [
+            {
+                id: 'integration-twig-slack',
+                title: 'Slack integration',
+                component: <TwigSlackIntegration />,
             },
         ],
     },
@@ -787,15 +803,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['headers', 'payload', 'body', 'request', 'response'],
             },
             {
-                id: 'web-vitals-autocapture',
-                title: 'Web vitals',
-                description: 'Capture web vitals metrics alongside session recordings for performance analysis.',
-                docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
-                platformSupport: FEATURE_SUPPORT.webVitals,
-                component: <WebVitalsAutocaptureSettings />,
-                keywords: ['lcp', 'cls', 'fcp', 'inp', 'performance'],
-            },
-            {
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 description:
@@ -924,6 +931,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'DEFAULT_EVALUATION_ENVIRONMENTS',
                 component: <DefaultEvaluationContexts />,
                 keywords: ['evaluation', 'default', 'context', 'tag'],
+            },
+            {
+                id: 'feature-flag-default-release-conditions',
+                title: 'Default release conditions',
+                description:
+                    'Automatically apply default release conditions to newly created feature flags. Users can still modify them during flag creation.',
+                component: <DefaultReleaseConditions />,
+                keywords: ['release', 'conditions', 'default', 'rollout', 'groups'],
             },
             {
                 id: 'feature-flag-secure-api-key',
@@ -1427,6 +1442,20 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Manage integrations connected at the organization level.',
                 component: <OrganizationIntegrations />,
                 keywords: ['integration', 'connect', 'third-party', 'oauth'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-oauth-apps',
+        title: 'OAuth applications',
+        settings: [
+            {
+                id: 'organization-oauth-apps-list',
+                title: 'OAuth applications',
+                description: 'View applications that have been authorized to connect to your organization.',
+                component: <OAuthApps />,
+                keywords: ['oauth', 'app', 'client', 'integration', 'api', 'authentication', 'third-party'],
             },
         ],
     },

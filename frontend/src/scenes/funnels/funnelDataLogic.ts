@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
@@ -18,6 +19,7 @@ import { FunnelsFilter, FunnelsQuery, NodeKind } from '~/queries/schema/schema-g
 import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
+    EntityType,
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelResultType,
@@ -143,7 +145,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             router,
             ['searchParams'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource'], router, ['push']],
+        actions: [
+            insightVizDataLogic(props),
+            ['updateInsightFilter', 'updateQuerySource'],
+            insightDataLogic(props),
+            ['cancelChanges'],
+            router,
+            ['push'],
+        ],
     })),
 
     actions({
@@ -169,12 +178,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             null as number | null,
             {
                 setConversionWindowInterval: (_, { funnelWindowInterval }) => funnelWindowInterval,
+                cancelChanges: () => null,
             },
         ],
         conversionWindowUnit: [
             null as FunnelConversionWindowTimeUnit | null,
             {
                 setConversionWindowUnit: (_, { funnelWindowIntervalUnit }) => funnelWindowIntervalUnit,
+                cancelChanges: () => null,
             },
         ],
     }),
@@ -293,7 +304,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
 
                 // we need to check wether results are an array, since isTimeToConvertFunnel can be false,
                 // while still having "time-to-convert" results in insightData
-                if (!isTimeToConvertFunnel && Array.isArray(results)) {
+                if (!isTimeToConvertFunnel && Array.isArray(results) && results.length > 0) {
                     if (isBreakdownFunnelResults(results)) {
                         const breakdownProperty = breakdownFilter?.breakdowns
                             ? breakdownFilter?.breakdowns.map((b) => b.property).join('::')
@@ -302,7 +313,40 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     }
                     return results.sort((a, b) => a.order - b.order)
                 }
+
                 return []
+            },
+        ],
+        stepNames: [
+            (s) => [s.querySource],
+            (querySource): FunnelStepWithNestedBreakdown[] => {
+                if (!querySource?.series?.length) {
+                    return []
+                }
+
+                return querySource.series.map((node, index) => ({
+                    action_id:
+                        node.kind === NodeKind.ActionsNode
+                            ? String(node.id)
+                            : node.kind === NodeKind.EventsNode
+                              ? (node.event ?? '')
+                              : '',
+                    name:
+                        node.custom_name ||
+                        (node.kind === NodeKind.ActionsNode
+                            ? `Action ${node.id}`
+                            : node.kind === NodeKind.EventsNode
+                              ? (node.event ?? '')
+                              : ''),
+                    custom_name: node.custom_name ?? null,
+                    order: index,
+                    count: 0,
+                    type: (node.kind === NodeKind.ActionsNode ? 'actions' : 'events') as EntityType,
+                    average_conversion_time: null,
+                    median_conversion_time: null,
+                    converted_people_url: '',
+                    dropped_people_url: null,
+                }))
             },
         ],
         stepsWithConversionMetrics: [
@@ -444,23 +488,22 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         hasFunnelResults: [
-            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource],
-            (insightData, funnelsFilter, steps, histogramGraphData, querySource) => {
+            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource, s.stepNames],
+            (insightData, funnelsFilter, steps, histogramGraphData, querySource, stepNames) => {
                 if (!isFunnelsQueryOrLegacyFilter(insightData, querySource)) {
                     return false
                 }
 
-                if (
-                    funnelsFilter?.funnelVizType === FunnelVizType.Steps ||
-                    funnelsFilter?.funnelVizType === FunnelVizType.Flow ||
-                    !funnelsFilter?.funnelVizType
-                ) {
+                if (funnelsFilter?.funnelVizType === FunnelVizType.Steps || !funnelsFilter?.funnelVizType) {
                     return !!(steps && steps[0] && steps[0].count > -1)
                 } else if (funnelsFilter.funnelVizType === FunnelVizType.TimeToConvert) {
                     return (histogramGraphData?.length ?? 0) > 0
                 } else if (funnelsFilter.funnelVizType === FunnelVizType.Trends) {
                     return (steps?.length ?? 0) > 0 && !!steps?.[0]?.labels
+                } else if (funnelsFilter.funnelVizType === FunnelVizType.Flow && stepNames.length > 0) {
+                    return true
                 }
+
                 return false
             },
         ],

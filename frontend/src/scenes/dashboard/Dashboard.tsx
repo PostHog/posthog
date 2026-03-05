@@ -3,13 +3,15 @@ import './Dashboard.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -69,16 +71,28 @@ function DashboardScene(): JSX.Element {
         dashboardFailedToLoad,
         accessDeniedToDashboard,
         hasVariables,
+        refreshAnalysisResult,
+        analysisRating,
+        showApplyFiltersBanner,
+        loadingPreview,
+        cancellingPreview,
+        hasUrlFilters,
     } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const {
+        reportDashboardViewed,
+        abortAnyRunningQuery,
+        setRefreshAnalysisResult,
+        setAnalysisRating,
+        applyFilters,
+        setDashboardMode,
+    } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
     useFileSystemLogView({
         type: 'dashboard',
         ref: dashboard?.id,
         enabled: Boolean(currentTeamId && dashboard?.id && !dashboardFailedToLoad && !accessDeniedToDashboard),
-        deps: [currentTeamId, dashboard?.id, dashboardFailedToLoad, accessDeniedToDashboard],
     })
 
     useOnMountEffect(() => {
@@ -113,8 +127,70 @@ function DashboardScene(): JSX.Element {
                 >
                     <DashboardOverridesBanner />
 
+                    {refreshAnalysisResult && (
+                        <LemonBanner
+                            type="info"
+                            onClose={() => setRefreshAnalysisResult(null)}
+                            className="mb-4 [&>.flex]:items-start"
+                            hideIcon
+                        >
+                            <div className="whitespace-pre-wrap">{refreshAnalysisResult}</div>
+                            <div className="flex items-center gap-0.5 mt-2">
+                                {analysisRating ? (
+                                    <span className="text-muted text-xs">Thanks for the feedback!</span>
+                                ) : (
+                                    <>
+                                        <LemonButton
+                                            size="xsmall"
+                                            icon={<IconThumbsUp />}
+                                            tooltip="Helpful"
+                                            onClick={() => setAnalysisRating('up')}
+                                        />
+                                        <LemonButton
+                                            size="xsmall"
+                                            icon={<IconThumbsDown />}
+                                            tooltip="Not helpful"
+                                            onClick={() => setAnalysisRating('down')}
+                                        />
+                                    </>
+                                )}
+                            </div>
+                        </LemonBanner>
+                    )}
+
+                    {showApplyFiltersBanner && (
+                        <LemonBanner type="info" className="mb-2">
+                            <div className="flex items-center justify-between gap-2">
+                                <span>Filters are not automatically applied on large dashboards.</span>
+                                <div className="flex gap-2 shrink-0">
+                                    <LemonButton
+                                        onClick={() =>
+                                            setDashboardMode(
+                                                hasUrlFilters ? dashboardMode : null,
+                                                DashboardEventSource.DashboardHeaderDiscardChanges
+                                            )
+                                        }
+                                        loading={cancellingPreview}
+                                        type="secondary"
+                                        size="small"
+                                    >
+                                        Cancel
+                                    </LemonButton>
+                                    <LemonButton
+                                        onClick={applyFilters}
+                                        loading={loadingPreview}
+                                        type="primary"
+                                        size="small"
+                                    >
+                                        Apply filters
+                                    </LemonButton>
+                                </div>
+                            </div>
+                        </LemonBanner>
+                    )}
+
                     <SceneStickyBar showBorderBottom={false}>
-                        <div className="flex gap-2 justify-between">
+                        <div className="flex flex-col md:flex-row gap-2 justify-between">
                             {![
                                 DashboardPlacement.Public,
                                 DashboardPlacement.Export,

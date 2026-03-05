@@ -115,7 +115,7 @@ jobs:
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image }}
                   docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
 
             - name: Wait for Docker services
               run: bin/wait-for-docker

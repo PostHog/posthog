@@ -3,117 +3,221 @@ package events
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/rueidis"
-	"github.com/redis/rueidis/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 )
 
-func okResult() rueidis.RedisResult {
-	return mock.Result(mock.RedisInt64(1))
-}
-
-func TestAddUser_SendsCorrectCommands(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	client := mock.NewClient(ctrl)
-	ctx := context.Background()
-
-	wantKey := "livestream:users:token_a"
-	client.EXPECT().
-		DoMulti(ctx,
-			mock.MatchFn(func(cmd []string) bool {
-				return len(cmd) >= 3 && cmd[0] == "ZADD" && cmd[1] == wantKey
-			}, "ZADD "+wantKey),
-			mock.Match("EXPIRE", wantKey, "60"),
-		).
-		Return([]rueidis.RedisResult{okResult(), okResult()})
-
-	w := NewStatsInRedisFromClient(client)
-	err := w.AddUser(ctx, "token_a", "user1")
+func setupMiniredis(t *testing.T) (*StatsInRedis, rueidis.Client) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	client, err := rueidis.NewClient(rueidis.ClientOption{
+		InitAddress:  []string{mr.Addr()},
+		DisableCache: true,
+	})
 	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
+	return NewStatsInRedisFromClient(client), client
 }
 
-func TestGetUserCount_ReturnsCount(t *testing.T) {
+func TestAddUser_GetUserCount(t *testing.T) {
 	tests := []struct {
 		name      string
-		token     string
-		mockCount int64
+		users     []struct{ token, distinctID string }
+		queryTkn  string
 		wantCount int64
 	}{
 		{
-			name:      "returns count from ZCARD",
-			token:     "token_a",
-			mockCount: 5,
-			wantCount: 5,
+			name: "single user counted once",
+			users: []struct{ token, distinctID string }{
+				{"token_a", "user1"},
+			},
+			queryTkn:  "token_a",
+			wantCount: 1,
 		},
 		{
-			name:      "returns zero for empty set",
-			token:     "token_b",
-			mockCount: 0,
+			name: "duplicate distinct ID is deduplicated",
+			users: []struct{ token, distinctID string }{
+				{"token_a", "user1"},
+				{"token_a", "user1"},
+				{"token_a", "user1"},
+			},
+			queryTkn:  "token_a",
+			wantCount: 1,
+		},
+		{
+			name: "multiple distinct users counted",
+			users: []struct{ token, distinctID string }{
+				{"token_a", "user1"},
+				{"token_a", "user2"},
+				{"token_a", "user3"},
+			},
+			queryTkn:  "token_a",
+			wantCount: 3,
+		},
+		{
+			name:      "unknown token returns zero",
+			users:     nil,
+			queryTkn:  "token_unknown",
 			wantCount: 0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			client := mock.NewClient(ctrl)
+			w, _ := setupMiniredis(t)
 			ctx := context.Background()
 
-			key := "livestream:users:" + tt.token
-			client.EXPECT().
-				DoMulti(ctx,
-					mock.MatchFn(func(cmd []string) bool {
-						return len(cmd) >= 4 && cmd[0] == "ZREMRANGEBYSCORE" && cmd[1] == key && cmd[2] == "-inf"
-					}, "ZREMRANGEBYSCORE "+key),
-					mock.Match("ZCARD", key),
-				).
-				Return([]rueidis.RedisResult{
-					okResult(),
-					mock.Result(mock.RedisInt64(tt.mockCount)),
-				})
+			for _, u := range tt.users {
+				require.NoError(t, w.AddUser(ctx, u.token, u.distinctID))
+			}
 
-			w := NewStatsInRedisFromClient(client)
-			count, err := w.GetUserCount(ctx, tt.token)
+			count, err := w.GetUserCount(ctx, tt.queryTkn)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantCount, count)
 		})
 	}
 }
 
-func TestAddKey_PropagatesError(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	client := mock.NewClient(ctrl)
-	ctx := context.Background()
+func TestAddSession_GetSessionCount(t *testing.T) {
+	tests := []struct {
+		name      string
+		sessions  []struct{ token, sessionID string }
+		queryTkn  string
+		wantCount int64
+	}{
+		{
+			name: "single session counted",
+			sessions: []struct{ token, sessionID string }{
+				{"token_a", "session_1"},
+			},
+			queryTkn:  "token_a",
+			wantCount: 1,
+		},
+		{
+			name: "duplicate session ID is deduplicated",
+			sessions: []struct{ token, sessionID string }{
+				{"token_a", "session_1"},
+				{"token_a", "session_1"},
+			},
+			queryTkn:  "token_a",
+			wantCount: 1,
+		},
+		{
+			name: "multiple sessions counted",
+			sessions: []struct{ token, sessionID string }{
+				{"token_a", "session_1"},
+				{"token_a", "session_2"},
+				{"token_a", "session_3"},
+			},
+			queryTkn:  "token_a",
+			wantCount: 3,
+		},
+		{
+			name:      "unknown token returns zero",
+			sessions:  nil,
+			queryTkn:  "token_unknown",
+			wantCount: 0,
+		},
+	}
 
-	client.EXPECT().
-		DoMulti(ctx, gomock.Any(), gomock.Any()).
-		Return([]rueidis.RedisResult{
-			mock.ErrorResult(rueidis.ErrClosing),
-			okResult(),
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w, _ := setupMiniredis(t)
+			ctx := context.Background()
+
+			for _, s := range tt.sessions {
+				require.NoError(t, w.AddSession(ctx, s.token, s.sessionID))
+			}
+
+			count, err := w.GetSessionCount(ctx, tt.queryTkn)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCount, count)
 		})
-
-	w := NewStatsInRedisFromClient(client)
-	err := w.AddUser(ctx, "token_a", "user1")
-	require.Error(t, err)
+	}
 }
 
-func TestGetCount_PropagatesError(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	client := mock.NewClient(ctrl)
+func TestSessionExpiry(t *testing.T) {
+	w, client := setupMiniredis(t)
+	ctx := context.Background()
+	key := sessionKey("token_a")
+	oldScore := float64(time.Now().Add(-6 * time.Minute).Unix())
+
+	cmd := client.B().Zadd().Key(key).ScoreMember().
+		ScoreMember(oldScore, "session_1").
+		ScoreMember(oldScore, "session_2").
+		Build()
+	require.NoError(t, client.Do(ctx, cmd).Error())
+
+	count, err := w.GetSessionCount(ctx, "token_a")
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), count)
+}
+
+func TestUserExpiry(t *testing.T) {
+	w, client := setupMiniredis(t)
+	ctx := context.Background()
+	key := userKey("token_a")
+	oldScore := float64(time.Now().Add(-61 * time.Second).Unix())
+
+	cmd := client.B().Zadd().Key(key).ScoreMember().
+		ScoreMember(oldScore, "user1").
+		ScoreMember(oldScore, "user2").
+		Build()
+	require.NoError(t, client.Do(ctx, cmd).Error())
+
+	count, err := w.GetUserCount(ctx, "token_a")
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), count)
+}
+
+func TestUserNaturalDecay(t *testing.T) {
+	w, client := setupMiniredis(t)
+	ctx := context.Background()
+	key := userKey("token_a")
+
+	oldScore := float64(time.Now().Add(-70 * time.Second).Unix())
+	freshScore := float64(time.Now().Unix())
+
+	cmd := client.B().Zadd().Key(key).ScoreMember().
+		ScoreMember(oldScore, "user1").
+		ScoreMember(freshScore, "user2").
+		Build()
+	require.NoError(t, client.Do(ctx, cmd).Error())
+
+	count, err := w.GetUserCount(ctx, "token_a")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), count, "only user2 should remain after user1 ages out")
+}
+
+func TestCrossTokenIsolation(t *testing.T) {
+	w, _ := setupMiniredis(t)
 	ctx := context.Background()
 
-	client.EXPECT().
-		DoMulti(ctx, gomock.Any(), gomock.Any()).
-		Return([]rueidis.RedisResult{
-			mock.ErrorResult(rueidis.ErrClosing),
-			okResult(),
-		})
+	require.NoError(t, w.AddUser(ctx, "token_a", "user1"))
+	require.NoError(t, w.AddUser(ctx, "token_a", "user2"))
+	require.NoError(t, w.AddUser(ctx, "token_b", "user3"))
 
-	w := NewStatsInRedisFromClient(client)
-	count, err := w.GetUserCount(ctx, "token_a")
-	require.Error(t, err)
-	assert.Equal(t, int64(0), count)
+	require.NoError(t, w.AddSession(ctx, "token_a", "session_1"))
+	require.NoError(t, w.AddSession(ctx, "token_b", "session_2"))
+	require.NoError(t, w.AddSession(ctx, "token_b", "session_3"))
+
+	countA, err := w.GetUserCount(ctx, "token_a")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), countA)
+
+	countB, err := w.GetUserCount(ctx, "token_b")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), countB)
+
+	sessA, err := w.GetSessionCount(ctx, "token_a")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), sessA)
+
+	sessB, err := w.GetSessionCount(ctx, "token_b")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), sessB)
 }

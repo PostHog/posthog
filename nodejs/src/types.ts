@@ -285,8 +285,14 @@ export type IngestionConsumerConfig = {
     EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
 
+    // AI event splitting config
+    INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
+    /** '*' for all teams, or comma-separated team IDs */
+    INGESTION_AI_EVENT_SPLITTING_TEAMS: string
+
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
 
     // Cookieless server hash mode config
@@ -792,6 +798,25 @@ export interface RawKafkaEvent extends RawClickHouseEvent {
      * That's because we need it in `property-defs-rs` and not elsewhere.
      */
     project_id: ProjectId
+}
+
+/** Pre-serialization event produced by create-event, before ClickHouse formatting. */
+export interface ProcessedEvent {
+    uuid: string
+    event: string
+    properties: Record<string, unknown>
+    timestamp: ISOTimestamp
+    team_id: TeamId
+    project_id: ProjectId
+    distinct_id: string
+    elements_chain: string
+    created_at: null
+    captured_at: Date | null
+    person_id: string
+    person_properties: Record<string, unknown>
+    person_created_at: DateTime | null
+    person_mode: PersonMode
+    historical_migration?: boolean
 }
 
 /** Parsed event row from ClickHouse. */

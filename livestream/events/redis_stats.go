@@ -78,7 +78,7 @@ func sessionKey(token string) string {
 	return fmt.Sprintf("livestream:sessions:%s", token)
 }
 
-// Adds a member to a sorted set scored by the current timestamp, then sets the key expiry. 
+// Adds a member to a sorted set scored by the current timestamp, then sets the key expiry.
 func (s *StatsInRedis) addKey(ctx context.Context, key string, memberId string, ttl time.Duration, metricsLabel string) error {
 	now := time.Now()
 	score := float64(now.Unix())

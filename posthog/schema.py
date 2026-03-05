@@ -58,6 +58,7 @@ class AggregationAxisFormat(StrEnum):
     PERCENTAGE = "percentage"
     PERCENTAGE_SCALED = "percentage_scaled"
     CURRENCY = "currency"
+    SHORT = "short"
 
 
 class AlertCalculationInterval(StrEnum):
@@ -288,7 +289,6 @@ class AssistantNavigateUrl(StrEnum):
     SETTINGS = "settings"
     SQL_EDITOR = "sqlEditor"
     SURVEYS = "surveys"
-    SURVEY_TEMPLATES = "surveyTemplates"
     TOOLBAR_LAUNCH = "toolbarLaunch"
     WEB_ANALYTICS = "webAnalytics"
     WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
@@ -729,6 +729,7 @@ class ChartSettingsDisplay(BaseModel):
 class Style(StrEnum):
     NONE = "none"
     NUMBER = "number"
+    SHORT = "short"
     PERCENT = "percent"
 
 
@@ -1047,14 +1048,6 @@ class DataWarehouseSyncInterval(StrEnum):
     FIELD_24HOUR = "24hour"
     FIELD_7DAY = "7day"
     FIELD_30DAY = "30day"
-
-
-class DataWarehouseViewLinkConfiguration(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    experiments_optimized: bool | None = None
-    experiments_timestamp_key: str | None = None
 
 
 class DatabaseSchemaManagedViewTableKind(StrEnum):
@@ -1869,6 +1862,7 @@ class FileSystemIconType(StrEnum):
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_DATASETS = "llm_datasets"
+    LLM_PLAYGROUND = "llm_playground"
     LLM_PROMPTS = "llm_prompts"
     LLM_CLUSTERS = "llm_clusters"
     EXPORTS = "exports"
@@ -1979,6 +1973,31 @@ class FunnelVizType(StrEnum):
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
     FLOW = "flow"
+
+
+class GithubIssueSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    html_url: str
+    labels: list[str]
+    locked: bool
+    number: float
+    state: str
+    updated_at: str
+
+
+class GithubIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: GithubIssueSignalExtra
+    source_id: str
+    source_product: Literal["github"] = "github"
+    source_type: Literal["issue"] = "issue"
+    weight: float
 
 
 class Position(StrEnum):
@@ -2247,6 +2266,7 @@ class IntegrationFilter(BaseModel):
 
 class IntegrationKind(StrEnum):
     SLACK = "slack"
+    SLACK_TWIG = "slack-twig"
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"
     GOOGLE_PUBSUB = "google-pubsub"
@@ -2321,6 +2341,30 @@ class LinkedinAdsTableExclusions(StrEnum):
 
 class LinkedinAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
+
+
+class LlmEvalSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    evaluation_id: str
+    model: str | None = None
+    provider: str | None = None
+    target_event_id: str | None = None
+    target_event_type: str | None = None
+    trace_id: str
+
+
+class LlmEvaluationSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LlmEvalSignalExtra
+    source_id: str
+    source_product: Literal["llm_analytics"] = "llm_analytics"
+    source_type: Literal["evaluation"] = "evaluation"
+    weight: float
 
 
 class LoadingBlock(BaseModel):
@@ -2691,6 +2735,23 @@ class MaxErrorTrackingSearchResponse(BaseModel):
     status: str | None = Field(default=None, description="Issue status filter (active, resolved, etc.)")
 
 
+class EvaluationType(StrEnum):
+    HOG = "hog"
+    LLM_JUDGE = "llm_judge"
+
+
+class MaxEvaluationContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    evaluation_type: EvaluationType
+    hog_source: str | None = None
+    id: str
+    name: str | None = None
+    type: Literal["evaluation"] = "evaluation"
+
+
 class MaxEventContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2929,6 +2990,7 @@ class NodeKind(StrEnum):
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
+    PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
 class NonIntegratedConversionsColumnsSchemaNames(StrEnum):
@@ -3236,6 +3298,11 @@ class PropertyOperator(StrEnum):
     NOT_ICONTAINS_MULTI = "not_icontains_multi"
 
 
+class PropertyType(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+
+
 class Mark(BaseModel):
     attrs: dict[str, Any] | None = None
     type: str
@@ -3455,6 +3522,11 @@ class RetentionEntityKind(StrEnum):
     EVENTS_NODE = "EventsNode"
 
 
+class AggregationPropertyType(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+
+
 class AggregationType(StrEnum):
     COUNT = "count"
     SUM = "sum"
@@ -3647,6 +3719,48 @@ class SessionReplayBlock(BaseModel):
     timestamp_ms: float
     title: str | None = None
     type: Literal["session_replay"] = "session_replay"
+
+
+class SessionReplaySegment(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    distinct_id: str
+    end_time: str
+    session_id: str
+    start_time: str
+
+
+class SessionSegmentClusterMetrics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active_users_in_period: float
+    occurrence_count: float
+    relevant_user_count: float
+
+
+class SessionSegmentClusterSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actionable: bool
+    label_title: str
+    metrics: SessionSegmentClusterMetrics
+    segments: list[SessionReplaySegment]
+
+
+class SessionSegmentClusterSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SessionSegmentClusterSignalExtra
+    source_id: str
+    source_product: Literal["session_replay"] = "session_replay"
+    source_type: Literal["session_segment_cluster"] = "session_segment_cluster"
+    weight: float
 
 
 class SharingConfigurationSettings(BaseModel):
@@ -3981,6 +4095,7 @@ class TaxonomicFilterGroupType(StrEnum):
     LOG_ATTRIBUTES = "log_attributes"
     LOG_RESOURCE_ATTRIBUTES = "log_resource_attributes"
     REPLAY = "replay"
+    REPLAY_SAVED_FILTERS = "replay_saved_filters"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
@@ -4310,6 +4425,30 @@ class YAxisSettings(BaseModel):
     showGridLines: bool | None = None
     showTicks: bool | None = None
     startAtZero: bool | None = Field(default=None, description="Whether the Y axis should start at zero")
+
+
+class ZendeskTicketSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    priority: str
+    status: str
+    tags: list[str]
+    type: str
+    url: str
+
+
+class ZendeskTicketSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ZendeskTicketSignalExtra
+    source_id: str
+    source_product: Literal["zendesk"] = "zendesk"
+    source_type: Literal["ticket"] = "ticket"
+    weight: float
 
 
 class Integer(RootModel[int]):
@@ -4998,7 +5137,6 @@ class DataWarehouseViewLink(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    configuration: DataWarehouseViewLinkConfiguration | None = None
     created_at: str | None = None
     created_by: UserBasicType | None = None
     field_name: str | None = None
@@ -5831,6 +5969,14 @@ class ProductsData(BaseModel):
     products: list[ProductItem]
 
 
+class PropertyValueItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: int | None = None
+    name: str | float | bool | None = None
+
+
 class QueryResponseAlternative9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6521,6 +6667,16 @@ class SessionsTimelineQueryResponse(BaseModel):
     )
 
 
+class SignalInput(
+    RootModel[
+        SessionSegmentClusterSignalInput | LlmEvaluationSignalInput | ZendeskTicketSignalInput | GithubIssueSignalInput
+    ]
+):
+    root: (
+        SessionSegmentClusterSignalInput | LlmEvaluationSignalInput | ZendeskTicketSignalInput | GithubIssueSignalInput
+    ) = Field(..., discriminator="source_type")
+
+
 class SourceFieldFileUploadConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6886,6 +7042,7 @@ class TrendsFilter(BaseModel):
     formulas: list[str] | None = None
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
+    hideWeekends: bool | None = False
     minDecimalPlaces: float | None = None
     movingAverageIntervals: float | None = None
     resultCustomizationBy: ResultCustomizationBy | None = Field(
@@ -8559,6 +8716,43 @@ class CachedPathsQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[PathsLink]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
+class CachedPropertyValuesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[PropertyValueItem]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -12114,6 +12308,32 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
+class PropertyValuesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[PropertyValueItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
 class QueryResponseAlternative1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13952,6 +14172,32 @@ class QueryResponseAlternative87(BaseModel):
     )
 
 
+class QueryResponseAlternative88(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[PropertyValueItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
 class RecordingsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -14007,6 +14253,10 @@ class RetentionFilter(BaseModel):
     aggregationProperty: str | None = Field(
         default=None,
         description="The property to aggregate when aggregationType is sum or avg",
+    )
+    aggregationPropertyType: AggregationPropertyType | None = Field(
+        default=AggregationPropertyType.EVENT,
+        description=("The type of property to aggregate on (event or person). Defaults to event."),
     )
     aggregationType: AggregationType | None = Field(
         default=AggregationType.COUNT,
@@ -16006,6 +16256,22 @@ class PropertyGroupFilter(BaseModel):
     values: list[PropertyGroupFilterValue]
 
 
+class PropertyValuesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event_names: list[str] | None = None
+    is_column: bool | None = None
+    kind: Literal["PropertyValuesQuery"] = "PropertyValuesQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    property_key: str
+    property_type: PropertyType
+    response: PropertyValuesQueryResponse | None = None
+    search_value: str | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class QueryResponseAlternative17(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -17981,6 +18247,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative85
         | QueryResponseAlternative86
         | QueryResponseAlternative87
+        | QueryResponseAlternative88
     ]
 ):
     root: (
@@ -18064,6 +18331,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative85
         | QueryResponseAlternative86
         | QueryResponseAlternative87
+        | QueryResponseAlternative88
     )
 
 
@@ -18978,6 +19246,7 @@ class MaxInsightContext(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
     result: Any | None = None
     type: Literal["insight"] = "insight"
@@ -18991,6 +19260,7 @@ class MaxUIContext(BaseModel):
     actions: list[MaxActionContext] | None = None
     dashboards: list[MaxDashboardContext] | None = None
     error_tracking_issues: list[MaxErrorTrackingIssueContext] | None = None
+    evaluations: list[MaxEvaluationContext] | None = None
     events: list[MaxEventContext] | None = None
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
@@ -19087,6 +19357,7 @@ class QueryRequest(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
     ) = Field(
         ...,
         description=(
@@ -19190,6 +19461,7 @@ class QuerySchemaRoot(
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
     ]
 ):
     root: (
@@ -19263,6 +19535,7 @@ class QuerySchemaRoot(
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
 
 
@@ -19341,6 +19614,7 @@ class QueryUpgradeRequest(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
 
 
@@ -19419,6 +19693,7 @@ class QueryUpgradeResponse(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
 
 
@@ -19623,6 +19898,7 @@ class VisualizationArtifactContent(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
     )
 
 

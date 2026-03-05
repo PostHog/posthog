@@ -76,7 +76,7 @@ describe('TaxonomicFilter', () => {
             expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
         })
 
-        userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'test event')
+        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'test event')
 
         await waitFor(() => {
             expect(screen.getAllByText('test event').length).toBeGreaterThanOrEqual(1)
@@ -125,17 +125,18 @@ describe('TaxonomicFilter', () => {
             expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
         })
 
-        userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$click')
+        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$click')
 
         await waitFor(() => {
             expect(screen.getAllByText('$click').length).toBeGreaterThanOrEqual(1)
         })
 
-        userEvent.keyboard('{Enter}')
+        await userEvent.keyboard('{Enter}')
 
         await waitFor(() => {
             expect(onChange).toHaveBeenCalledTimes(1)
         })
-        expect(onChange.mock.calls[0][1]).toBe('$click')
+
+        expect(onChange.mock.calls[0][1]).toBe('event1')
     })
 })

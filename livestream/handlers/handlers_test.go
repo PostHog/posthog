@@ -13,7 +13,6 @@ import (
 	"github.com/posthog/posthog/livestream/auth"
 	"github.com/posthog/posthog/livestream/events"
 	"github.com/redis/rueidis"
-	"github.com/redis/rueidis/mock"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -158,33 +157,13 @@ func TestStatsHandler_ReadsFromRedis(t *testing.T) {
 	viper.Set("jwt.secret", "test-secret-for-stats")
 	apiToken := "phx_test_token"
 
-	ctrl := gomock.NewController(t)
-	client := mock.NewClient(ctrl)
-
-	client.EXPECT().
-		DoMulti(gomock.Any(),
-			mock.MatchFn(func(cmd []string) bool {
-				return len(cmd) >= 3 && cmd[0] == "ZREMRANGEBYSCORE" && cmd[1] == "livestream:users:"+apiToken
-			}, "ZREMRANGEBYSCORE users"),
-			mock.Match("ZCARD", "livestream:users:"+apiToken),
-		).
-		Return([]rueidis.RedisResult{
-			mock.Result(mock.RedisInt64(0)),
-			mock.Result(mock.RedisInt64(2)),
-		})
-
-	client.EXPECT().
-		DoMulti(gomock.Any(),
-			mock.MatchFn(func(cmd []string) bool {
-				return len(cmd) >= 3 && cmd[0] == "ZREMRANGEBYSCORE" && cmd[1] == "livestream:sessions:"+apiToken
-			}, "ZREMRANGEBYSCORE sessions"),
-			mock.Match("ZCARD", "livestream:sessions:"+apiToken),
-		).
-		Return([]rueidis.RedisResult{
-			mock.Result(mock.RedisInt64(0)),
-			mock.Result(mock.RedisInt64(1)),
-		})
-
+	mr := miniredis.RunT(t)
+	client, err := rueidis.NewClient(rueidis.ClientOption{
+		InitAddress:  []string{mr.Addr()},
+		DisableCache: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
 	rw := events.NewStatsInRedisFromClient(client)
 	stats := events.NewStatsKeeper()
 	sessionStats := events.NewSessionStatsKeeper(0, 0)
@@ -202,7 +181,7 @@ func TestStatsHandler_ReadsFromRedis(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	err := handler(c)
+	err = handler(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
