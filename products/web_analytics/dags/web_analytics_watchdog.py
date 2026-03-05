@@ -177,15 +177,23 @@ def web_analytics_watchdog(context: AssetExecutionContext, config: WatchdogConfi
     total_passing = total_checked - len(failing_partitions)
     accuracy_rate = (total_passing / max(total_checked, 1)) * 100
 
-    # If all partition checks failed with errors, fail the entire run to surface the issue
-    if total_checked == 0 and errors:
+    # If partition checks failed with errors, fail the run to surface the issue.
+    # This ensures monitoring alerts are triggered during ClickHouse outages or other failures.
+    if errors:
+        error_pct = (len(errors) / lookback_days) * 100
         raise dagster.Failure(
-            description=f"All partition checks failed with errors ({len(errors)} errors)",
+            description=f"{len(errors)} of {lookback_days} partition checks failed with errors ({error_pct:.0f}%)",
             metadata={
                 "total_checked": MetadataValue.int(total_checked),
                 "error_count": MetadataValue.int(len(errors)),
                 "errors": MetadataValue.json(errors),
                 "lookback_days": MetadataValue.int(lookback_days),
+                "partial_results": MetadataValue.json(partition_results)
+                if partition_results
+                else MetadataValue.json([]),
+                "failing_partitions": MetadataValue.json(failing_partitions)
+                if failing_partitions
+                else MetadataValue.json([]),
             },
         )
 

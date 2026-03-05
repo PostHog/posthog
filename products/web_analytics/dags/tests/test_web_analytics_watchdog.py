@@ -204,13 +204,48 @@ class TestWebAnalyticsWatchdogAsset:
             asset_config={"team_id": 2, "lookback_days": 2, "tolerance_pct": 5.0, "dry_run": True}
         )
 
-        with pytest.raises(dagster.Failure, match="All partition checks failed") as exc_info:
+        with pytest.raises(dagster.Failure, match="2 of 2 partition checks failed with errors") as exc_info:
             web_analytics_watchdog(context)
 
         failure: Any = exc_info.value
         assert failure.metadata["total_checked"].value == 0
         assert failure.metadata["error_count"].value == 2
         assert len(failure.metadata["errors"].value) == 2
+        assert failure.metadata["partial_results"].value == []
+
+    @freeze_time("2024-01-20 12:00:00")
+    @patch("products.web_analytics.dags.web_analytics_watchdog.check_partition_accuracy")
+    def test_partial_errors_still_fail_run(self, mock_check):
+        """When some partitions succeed but others error, the run should still fail."""
+        call_count = [0]
+
+        def side_effect(context, team_id, partition_date, tolerance_pct):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return {
+                    "partition_date": partition_date,
+                    "status": "CHECKED",
+                    "regular_count": 1000,
+                    "pre_aggregated_count": 1000,
+                    "pct_difference": 0.0,
+                    "within_tolerance": True,
+                    "quality_status": "GOOD",
+                }
+            raise Exception("ClickHouse connection failed")
+
+        mock_check.side_effect = side_effect
+
+        context = dagster.build_asset_context(
+            asset_config={"team_id": 2, "lookback_days": 3, "tolerance_pct": 5.0, "dry_run": True}
+        )
+
+        with pytest.raises(dagster.Failure, match="2 of 3 partition checks failed with errors") as exc_info:
+            web_analytics_watchdog(context)
+
+        failure: Any = exc_info.value
+        assert failure.metadata["total_checked"].value == 1
+        assert failure.metadata["error_count"].value == 2
+        assert len(failure.metadata["partial_results"].value) == 1
 
     @freeze_time("2024-01-20 12:00:00")
     @patch("products.web_analytics.dags.web_analytics_watchdog.check_partition_accuracy")
