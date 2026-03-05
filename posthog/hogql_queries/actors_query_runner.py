@@ -1,6 +1,6 @@
 import re
 import itertools
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
@@ -141,9 +141,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         return enriched
 
-    def _enrich_session_actors_with_person_identity(
-        self, results: Sequence[list] | Iterator[list], input_columns: list[str]
-    ) -> list:
+    def _enrich_session_actors_with_person_identity(self, results: Iterable[list], input_columns: list[str]) -> list:
         person_id_col_index = input_columns.index("person_id")
 
         # Materialise so we can iterate twice (results may be an iterator)

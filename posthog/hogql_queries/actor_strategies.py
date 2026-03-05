@@ -252,20 +252,13 @@ class SessionStrategy(ActorStrategy):
     origin = "sessions"
     origin_id = "session_id"
 
-    SESSION_FIELDS = [
-        "session_id",
-        "$start_timestamp",
-        "$session_duration",
-    ]
-
     def get_actors(self, actor_ids) -> dict[str, dict]:
         session_ids = list(actor_ids)
         if not session_ids:
             return {}
 
-        fields = ", ".join(self.SESSION_FIELDS)
         query = parse_select(
-            f"SELECT {fields} FROM sessions WHERE session_id IN {{session_ids}}",  # nosemgrep: hogql-fstring-audit (static field names, not user input)
+            "SELECT session_id, `$start_timestamp`, `$session_duration` FROM sessions WHERE session_id IN {session_ids}",
             {"session_ids": ast.Constant(value=session_ids)},
         )
 
