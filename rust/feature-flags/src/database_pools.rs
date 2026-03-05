@@ -275,7 +275,6 @@ impl DatabasePools {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use common_database::PoolConfig;
     use std::sync::Arc;
 
     #[test]
