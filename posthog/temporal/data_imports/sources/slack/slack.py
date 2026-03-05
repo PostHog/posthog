@@ -193,6 +193,7 @@ def _fetch_thread_replies(
         if not data.get("ok"):
             error = data.get("error", "unknown_error")
             if error == "thread_not_found":
+                logger.info("Thread not found, skipping", channel_id=channel_id, thread_ts=thread_ts)
                 return
             raise Exception(f"Slack API error fetching thread replies for {channel_id}/{thread_ts}: {error}")
 
