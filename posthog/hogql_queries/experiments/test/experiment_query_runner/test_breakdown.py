@@ -2244,3 +2244,707 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         assert safari_breakdown is not None
         self.assertIsNotNone(safari_breakdown.baseline)
         self.assertEqual(safari_breakdown.baseline.number_of_samples, 0)  # No control users with Safari
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_mean_metric_with_person_property_breakdown(self):
+        """Test that mean metrics can be broken down by person properties"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="country", type="person")]),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control group - 2 users from US, 2 from UK
+        for i in range(4):
+            country = "US" if i < 2 else "UK"
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk, properties={"country": country})
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "amount": 10 if country == "US" else 20,
+                },
+            )
+
+        # Test group - 2 users from US, 2 from UK
+        for i in range(4):
+            country = "US" if i < 2 else "UK"
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk, properties={"country": country})
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "amount": 15 if country == "US" else 25,
+                },
+            )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Verify results are grouped by person property breakdown
+        self.assertIsNotNone(result.baseline)
+        self.assertIsNotNone(result.variant_results)
+
+        # Verify breakdown_results is populated
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+        self.assertEqual(len(result.breakdown_results), 2)  # US and UK
+
+        # Verify each breakdown has correct structure
+        for breakdown_result in result.breakdown_results:
+            self.assertIn(breakdown_result.breakdown_value, [["US"], ["UK"]])
+            self.assertIsNotNone(breakdown_result.baseline)
+            self.assertIsNotNone(breakdown_result.variants)
+            self.assertGreater(len(breakdown_result.variants), 0)
+
+            # Verify each variant has data
+            for variant in breakdown_result.variants:
+                self.assertIsNotNone(variant.key)
+                self.assertIsNotNone(variant.number_of_samples)
+                self.assertEqual(variant.number_of_samples, 2)  # 2 users per country per variant
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_mean_metric_with_null_person_property_breakdown(self):
+        """Test that NULL person properties are handled correctly with BREAKDOWN_NULL_STRING_LABEL"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="country", type="person")]),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control group - 1 user with country, 1 without
+        _create_person(distinct_ids=["user_control_with_country"], team_id=self.team.pk, properties={"country": "US"})
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_control_with_country",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control_with_country",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={
+                feature_flag_property: "control",
+                "amount": 10,
+            },
+        )
+
+        _create_person(
+            distinct_ids=["user_control_no_country"],
+            team_id=self.team.pk,
+            properties={},  # No country property
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_control_no_country",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control_no_country",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={
+                feature_flag_property: "control",
+                "amount": 20,
+            },
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Verify breakdown_results includes both US and NULL
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+        self.assertEqual(len(result.breakdown_results), 2)  # US and NULL
+
+        breakdown_values = [br.breakdown_value for br in result.breakdown_results]
+        self.assertIn(["US"], breakdown_values)
+        self.assertIn([BREAKDOWN_NULL_STRING_LABEL], breakdown_values)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_with_person_property_breakdown(self):
+        """Test that funnel metrics can be broken down by person properties"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="purchase"),
+            ],
+            conversion_window=14,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            funnel_order_type=StepOrderValue.ORDERED,
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="country", type="person")]),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control group - users from different countries
+        for i in range(4):
+            country = "US" if i < 2 else "UK"
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk, properties={"country": country})
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "control"},
+            )
+            # Only first user in each country completes funnel
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-02T12:02:00Z",
+                    properties={feature_flag_property: "control"},
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Verify breakdown_results is populated
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+        self.assertEqual(len(result.breakdown_results), 2)  # US and UK
+
+        # Verify each breakdown has correct conversion rates
+        for breakdown_result in result.breakdown_results:
+            self.assertIn(breakdown_result.breakdown_value, [["US"], ["UK"]])
+            self.assertIsNotNone(breakdown_result.baseline)
+            # 1 out of 2 users converted in each country
+            self.assertEqual(breakdown_result.baseline.number_of_samples, 2)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_mean_metric_with_null_type_defaults_to_event_breakdown(self):
+        """Test backward compatibility: type=None defaults to event property"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        # One breakdown with explicit type="event", one with type=None (should default to event)
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="$browser", type="event"),
+                    Breakdown(property="$current_url", type=None),  # Should default to event
+                ]
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Create test data
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+                "$browser": "Chrome",
+                "$current_url": "https://example.com",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_1",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={
+                feature_flag_property: "control",
+                "amount": 10,
+                "$browser": "Chrome",
+                "$current_url": "https://example.com",
+            },
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Query should complete successfully
+        self.assertIsNotNone(result.baseline)
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+        # Should have breakdown combinations for browser x url
+        self.assertGreater(len(result.breakdown_results), 0)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_ratio_metric_with_person_property_breakdown(self):
+        """Test that ratio metrics can be broken down by person properties"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        metric = ExperimentRatioMetric(
+            numerator=EventsNode(event="purchase"),
+            denominator=EventsNode(event="$pageview"),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="country", type="person")]),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control group - users from different countries with different conversion rates
+        for i in range(4):
+            country = "US" if i < 2 else "UK"
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk, properties={"country": country})
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # All users see pageviews
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "control"},
+            )
+            # Only first user in each country makes a purchase
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-02T12:02:00Z",
+                    properties={feature_flag_property: "control"},
+                )
+
+        # Test group - users from different countries
+        for i in range(4):
+            country = "US" if i < 2 else "UK"
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk, properties={"country": country})
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # All users see pageviews
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "test"},
+            )
+            # Both users in each country make a purchase
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:02:00Z",
+                properties={feature_flag_property: "test"},
+            )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Verify breakdown_results is populated
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+        self.assertEqual(len(result.breakdown_results), 2)  # US and UK
+
+        # Verify each breakdown has correct structure
+        for breakdown_result in result.breakdown_results:
+            self.assertIn(breakdown_result.breakdown_value, [["US"], ["UK"]])
+            self.assertIsNotNone(breakdown_result.baseline)
+            self.assertIsNotNone(breakdown_result.variants)
+            self.assertGreater(len(breakdown_result.variants), 0)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_retention_metric_with_person_property_breakdown(self):
+        """Test that retention metrics can be broken down by person properties"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(event="signup"),
+            completion_event=EventsNode(event="login"),
+            retention_window_start=1,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="country", type="person")]),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control group - users from different countries with different retention
+        for i in range(4):
+            country = "US" if i < 2 else "UK"
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk, properties={"country": country})
+            # Exposure
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # Start event (day 0)
+            _create_event(
+                team=self.team,
+                event="signup",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "control"},
+            )
+            # Return event (day 1) - only first user in each country returns
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="login",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-03T12:01:00Z",
+                    properties={feature_flag_property: "control"},
+                )
+
+        # Test group - users from different countries
+        for i in range(4):
+            country = "US" if i < 2 else "UK"
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk, properties={"country": country})
+            # Exposure
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # Start event (day 0)
+            _create_event(
+                team=self.team,
+                event="signup",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "test"},
+            )
+            # Return event (day 1) - all test users return
+            _create_event(
+                team=self.team,
+                event="login",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-03T12:01:00Z",
+                properties={feature_flag_property: "test"},
+            )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Verify breakdown_results is populated
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+        self.assertEqual(len(result.breakdown_results), 2)  # US and UK
+
+        # Verify each breakdown has correct structure
+        for breakdown_result in result.breakdown_results:
+            self.assertIn(breakdown_result.breakdown_value, [["US"], ["UK"]])
+            self.assertIsNotNone(breakdown_result.baseline)
+            self.assertIsNotNone(breakdown_result.variants)
+            self.assertGreater(len(breakdown_result.variants), 0)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_person_property_breakdown_attribution_at_exposure(self):
+        """
+        Test that person properties are attributed from the PERSON at exposure time,
+        not from the event. This is critical because person properties can change over time.
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="country", type="person")]),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control user with country = "US"
+        _create_person(
+            distinct_ids=["user_control"],
+            team_id=self.team.pk,
+            properties={"country": "US"},
+        )
+
+        # Exposure event
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_control",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+
+        # Purchase event - should be attributed to US
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control",
+            timestamp="2020-01-02T12:02:00Z",
+            properties={
+                feature_flag_property: "control",
+                "amount": 100,
+            },
+        )
+
+        # Test user with country = "UK"
+        _create_person(
+            distinct_ids=["user_test"],
+            team_id=self.team.pk,
+            properties={"country": "UK"},
+        )
+
+        # Exposure event
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_test",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "test",
+                "$feature_flag_response": "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+
+        # Purchase event - should be attributed to UK
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_test",
+            timestamp="2020-01-02T12:02:00Z",
+            properties={
+                feature_flag_property: "test",
+                "amount": 150,
+            },
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Should have both US and UK breakdowns
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+        self.assertEqual(len(result.breakdown_results), 2)
+
+        breakdown_values = [br.breakdown_value for br in result.breakdown_results]
+        self.assertIn(["US"], breakdown_values)
+        self.assertIn(["UK"], breakdown_values)
+
+        # Verify US breakdown (control user)
+        us_breakdown = next((br for br in result.breakdown_results if br.breakdown_value == ["US"]), None)
+        self.assertIsNotNone(us_breakdown)
+        assert us_breakdown is not None
+        self.assertIsNotNone(us_breakdown.baseline)
+        self.assertEqual(us_breakdown.baseline.number_of_samples, 1)
+
+        # Verify UK breakdown (test user)
+        uk_breakdown = next((br for br in result.breakdown_results if br.breakdown_value == ["UK"]), None)
+        self.assertIsNotNone(uk_breakdown)
+        assert uk_breakdown is not None
+        self.assertIsNotNone(uk_breakdown.variants)
+        self.assertEqual(len(uk_breakdown.variants), 1)
+        self.assertEqual(uk_breakdown.variants[0].number_of_samples, 1)

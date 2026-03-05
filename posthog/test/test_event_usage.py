@@ -4,7 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
-from posthog.event_usage import EventSource, _sanitize_user_agent, get_event_source, report_user_action
+from posthog.event_usage import EventSource, _sanitize_header_value, get_event_source, report_user_action
 
 
 class TestReportUserAction(BaseTest):
@@ -20,6 +20,9 @@ class TestReportUserAction(BaseTest):
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": None,
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
                 },
             ),
             (
@@ -36,6 +39,28 @@ class TestReportUserAction(BaseTest):
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": "posthog/cursor 1.0",
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
+                },
+            ),
+            (
+                "includes_mcp_client_info_from_headers",
+                {
+                    "X-Posthog-Mcp-Client-Name": "claude-code",
+                    "X-Posthog-Mcp-Client-Version": "1.2.3",
+                    "X-Posthog-Mcp-Protocol-Version": "2025-03-26",
+                },
+                None,
+                {
+                    "source": "api",
+                    "$current_url": None,
+                    "$session_id": None,
+                    "was_impersonated": False,
+                    "mcp_user_agent": None,
+                    "mcp_client_name": "claude-code",
+                    "mcp_client_version": "1.2.3",
+                    "mcp_protocol_version": "2025-03-26",
                 },
             ),
             (
@@ -48,6 +73,9 @@ class TestReportUserAction(BaseTest):
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": None,
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
                     "key": "val",
                 },
             ),
@@ -61,6 +89,9 @@ class TestReportUserAction(BaseTest):
                     "$session_id": "sess-123",
                     "was_impersonated": False,
                     "mcp_user_agent": None,
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
                 },
             ),
             (
@@ -73,6 +104,9 @@ class TestReportUserAction(BaseTest):
                     "$session_id": None,
                     "was_impersonated": False,
                     "mcp_user_agent": None,
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
                     "key": "val",
                 },
             ),
@@ -117,7 +151,7 @@ class TestGetEventSource(BaseTest):
         assert get_event_source(request) == expected
 
 
-class TestSanitizeUserAgent(BaseTest):
+class TestSanitizeHeaderValue(BaseTest):
     @parameterized.expand(
         [
             ("passthrough", "posthog/wizard 1.0", "posthog/wizard 1.0"),
@@ -129,5 +163,5 @@ class TestSanitizeUserAgent(BaseTest):
             ("none_returns_none", None, None),
         ]
     )
-    def test_sanitize_user_agent(self, _name, input_value, expected):
-        assert _sanitize_user_agent(input_value) == expected
+    def test_sanitize_header_value(self, _name, input_value, expected):
+        assert _sanitize_header_value(input_value) == expected

@@ -1021,7 +1021,7 @@ export interface ChartAxis {
 export interface ChartSettingsFormatting {
     prefix?: string
     suffix?: string
-    style?: 'none' | 'number' | 'percent'
+    style?: 'none' | 'number' | 'short' | 'percent'
     decimalPlaces?: number
 }
 

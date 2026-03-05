@@ -58,6 +58,7 @@ class AggregationAxisFormat(StrEnum):
     PERCENTAGE = "percentage"
     PERCENTAGE_SCALED = "percentage_scaled"
     CURRENCY = "currency"
+    SHORT = "short"
 
 
 class AlertCalculationInterval(StrEnum):
@@ -288,7 +289,6 @@ class AssistantNavigateUrl(StrEnum):
     SETTINGS = "settings"
     SQL_EDITOR = "sqlEditor"
     SURVEYS = "surveys"
-    SURVEY_TEMPLATES = "surveyTemplates"
     TOOLBAR_LAUNCH = "toolbarLaunch"
     WEB_ANALYTICS = "webAnalytics"
     WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
@@ -729,6 +729,7 @@ class ChartSettingsDisplay(BaseModel):
 class Style(StrEnum):
     NONE = "none"
     NUMBER = "number"
+    SHORT = "short"
     PERCENT = "percent"
 
 
