@@ -80,6 +80,7 @@ jobs:
             preview-mode: ${{ steps.check-preview.outputs.preview }}
             comment-id: ${{ steps.post-comment.outputs.comment-id }}
             deployment-id: ${{ steps.create-deployment.outputs.deployment-id }}
+            conclusion: ${{ steps.wait-for-image.outputs.conclusion }}
         steps:
             - name: 'Check for preview mode'
               id: check-preview

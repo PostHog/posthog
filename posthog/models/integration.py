@@ -887,6 +887,13 @@ class OauthIntegration:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
 
+            # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
+            # refresh response includes a new refresh_token and the old one is
+            # invalidated.  Always store the latest one to avoid "invalid refresh
+            # token" errors on subsequent refreshes.
+            if config.get("refresh_token"):
+                self.integration.sensitive_config["refresh_token"] = config["refresh_token"]
+
             # Handle case where Salesforce doesn't provide expires_in in refresh response
             expires_in = config.get("expires_in")
             if not expires_in and self.integration.kind == "salesforce":
