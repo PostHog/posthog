@@ -255,6 +255,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+
+    &:has(.LemonTable) {
+        max-width: none;
+        overflow: visible;
+        text-overflow: unset;
+        white-space: normal;
+    }
 }
 
 .LemonTable__overlay {
