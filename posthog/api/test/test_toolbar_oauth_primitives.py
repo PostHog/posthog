@@ -689,6 +689,8 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
         assert redirect_url.startswith("https://example.com/page#")
         assert "__posthog_toolbar=code:auth_code_123" in redirect_url
         assert "client_id:" in redirect_url
+        assert "redirect_uri:" in redirect_url
+        assert "token_endpoint:" in redirect_url
 
     def test_callback_preserves_original_url_fragment(self):
         state = self._authorize_and_get_state(redirect_url="https://example.com/page#section1")

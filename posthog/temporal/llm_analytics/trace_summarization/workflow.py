@@ -178,6 +178,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         """
         start_time = temporalio.workflow.now()
         batch_run_id = f"{inputs.team_id}_{start_time.isoformat()}"
+        if inputs.job_id:
+            batch_run_id = f"{batch_run_id}_{inputs.job_id}"
         metrics = BatchSummarizationMetrics()
 
         increment_workflow_started(inputs.analysis_level)
