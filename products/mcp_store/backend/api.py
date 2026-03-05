@@ -233,7 +233,7 @@ class OAuthRedirectResponseSerializer(serializers.Serializer):
 @extend_schema(tags=["mcp_store"])
 class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
-    scope_object_read_actions = ["list", "retrieve", "authorize", "oauth_redirect"]
+    scope_object_read_actions = ["list", "retrieve", "authorize"]
     scope_object_write_actions = [
         "create",
         "update",
@@ -690,7 +690,63 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         response["Location"] = authorize_url
         return response
 
-    def _consume_oauth_state(self, state_token: str) -> MCPOAuthState | None:
+
+@extend_schema(tags=["mcp_store"])
+class MCPOAuthRedirectViewSet(viewsets.ViewSet):
+    """Team-agnostic public OAuth callback endpoint.
+
+    OAuth providers redirect here after authorization. This endpoint
+    validates the state token, exchanges the code for tokens, and
+    redirects to the originating client (PostHog web or Twig).
+    """
+
+    permission_classes: list = []
+    authentication_classes: list = []
+    throttle_classes = [MCPOAuthRedirectBurstThrottle, MCPOAuthRedirectSustainedThrottle]
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        state_token = request.query_params.get("state")
+        if not state_token:
+            return Response({"detail": "Missing state parameter"}, status=status.HTTP_400_BAD_REQUEST)
+
+        oauth_state = self._consume_oauth_state(state_token)
+        if not oauth_state:
+            logger.warning("OAuth redirect: invalid or expired state")
+            return Response({"detail": "Invalid or expired OAuth state"}, status=status.HTTP_400_BAD_REQUEST)
+
+        installation = oauth_state.installation
+        install_source = oauth_state.install_source
+        twig_callback_url = oauth_state.twig_callback_url
+        server = oauth_state.server
+
+        error = request.query_params.get("error")
+        if error:
+            logger.warning("OAuth redirect: provider error", error=error)
+            error_msg = "cancelled" if error == "access_denied" else error
+            return self._build_oauth_redirect(
+                install_source, installation, error=error_msg, twig_callback_url=twig_callback_url
+            )
+
+        code = request.query_params.get("code")
+        if not code:
+            return self._build_oauth_redirect(
+                install_source, installation, error="Missing authorization code", twig_callback_url=twig_callback_url
+            )
+
+        try:
+            self._exchange_and_store_tokens(installation, server, code, oauth_state.pkce_verifier)
+        except OAuthTokenExchangeError:
+            return self._build_oauth_redirect(
+                install_source,
+                installation,
+                error="token_exchange_failed",
+                twig_callback_url=twig_callback_url,
+            )
+
+        return self._build_oauth_redirect(install_source, installation, twig_callback_url=twig_callback_url)
+
+    @staticmethod
+    def _consume_oauth_state(state_token: str) -> MCPOAuthState | None:
         token_hash = _hash_oauth_state_token(state_token)
         now = timezone.now()
 
@@ -708,70 +764,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             oauth_state.save(update_fields=["consumed_at", "updated_at"])
             return oauth_state
 
-    @action(
-        detail=False,
-        methods=["get"],
-        url_path="oauth_redirect",
-        permission_classes=[],
-        authentication_classes=[],
-        throttle_classes=[MCPOAuthRedirectBurstThrottle, MCPOAuthRedirectSustainedThrottle],
-    )
-    def oauth_redirect(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        """Public OAuth callback endpoint.
-
-        OAuth providers redirect here after authorization. This endpoint
-        validates the state token, exchanges the code for tokens, and
-        redirects to the originating client (PostHog web or Twig).
-        """
-        state_token = request.query_params.get("state")
-        if not state_token:
-            return Response({"detail": "Missing state parameter"}, status=status.HTTP_400_BAD_REQUEST)
-
-        oauth_state = self._consume_oauth_state(state_token)
-        if not oauth_state:
-            logger.warning("OAuth redirect: invalid or expired state")
-            return Response({"detail": "Invalid or expired OAuth state"}, status=status.HTTP_400_BAD_REQUEST)
-
-        installation = oauth_state.installation
-        install_source = oauth_state.install_source
-        twig_callback_url = oauth_state.twig_callback_url
-        server = oauth_state.server
-
-        # Handle provider errors
-        error = request.query_params.get("error")
-        if error:
-            logger.warning("OAuth redirect: provider error", error=error)
-            error_msg = "cancelled" if error == "access_denied" else error
-            return self._build_oauth_redirect(
-                install_source, installation, error=error_msg, twig_callback_url=twig_callback_url
-            )
-
-        code = request.query_params.get("code")
-        if not code:
-            return self._build_oauth_redirect(
-                install_source, installation, error="Missing authorization code", twig_callback_url=twig_callback_url
-            )
-
-        # Exchange code for tokens and store them
-        try:
-            self._exchange_and_store_tokens(installation, server, code, oauth_state.pkce_verifier)
-        except OAuthTokenExchangeError as e:
-            return self._build_oauth_redirect(
-                install_source,
-                installation,
-                error=str(e),
-                twig_callback_url=twig_callback_url,
-            )
-
-        return self._build_oauth_redirect(install_source, installation, twig_callback_url=twig_callback_url)
-
+    @staticmethod
     def _exchange_and_store_tokens(
-        self, installation: MCPServerInstallation, server: MCPServer, code: str, pkce_verifier: str
+        installation: MCPServerInstallation, server: MCPServer, code: str, pkce_verifier: str
     ) -> None:
-        """Exchange authorization code for tokens and store them on the installation."""
         has_pkce = bool(pkce_verifier)
         redirect_uri = _get_oauth_redirect_uri()
-        # PKCE means the authorize step used DCR, so callback must exchange via DCR.
         if has_pkce:
             token_data = exchange_dcr_token(
                 server=server,
@@ -780,7 +778,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 redirect_uri=redirect_uri,
                 is_https=_is_https,
             )
-        # Without PKCE, prefer known-provider token exchange when configured.
         elif server.oauth_provider_kind:
             try:
                 token_data = exchange_known_provider_token(
@@ -788,7 +785,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     code=code,
                     redirect_uri=redirect_uri,
                 )
-            # Some configured provider kinds are not implemented here; fall back to DCR.
             except NotImplementedError:
                 token_data = exchange_dcr_token(
                     server=server,
@@ -797,7 +793,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     redirect_uri=redirect_uri,
                     is_https=_is_https,
                 )
-        # No known-provider mapping, so use generic DCR token exchange.
         else:
             token_data = exchange_dcr_token(
                 server=server,
@@ -832,7 +827,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         error: str | None = None,
         twig_callback_url: str = "",
     ) -> HttpResponse:
-        """Build a 302 redirect to the appropriate client after OAuth completes."""
         if install_source == "twig" and twig_callback_url:
             params = {"status": "error", "error": error} if error else {"status": "success"}
             separator = "&" if "?" in twig_callback_url else "?"
@@ -848,16 +842,3 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         response = HttpResponse(status=302)
         response["Location"] = redirect_url
         return response
-
-
-@extend_schema(tags=["mcp_store"])
-class MCPOAuthRedirectViewSet(viewsets.ViewSet):
-    """Team-agnostic public OAuth callback endpoint."""
-
-    permission_classes: list = []
-    authentication_classes: list = []
-    throttle_classes = [MCPOAuthRedirectBurstThrottle, MCPOAuthRedirectSustainedThrottle]
-
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        handler = MCPServerInstallationViewSet()
-        return MCPServerInstallationViewSet.oauth_redirect(handler, request, *args, **kwargs)
