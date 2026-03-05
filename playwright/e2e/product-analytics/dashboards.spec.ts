@@ -127,7 +127,7 @@ test.describe('Dashboards', () => {
             await expect(dashboard.insightCards.first().getByText(newTileName)).toBeVisible()
         })
 
-        await test.step('remove the first tile', async ({ page }) => {
+        await test.step('remove the first tile', async () => {
             await dashboard.openFirstTileMenu()
             await dashboard.selectTileMenuOption('Remove from dashboard')
 
