@@ -2,20 +2,20 @@ import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { IconChevronDown, IconTrending, IconWarning } from '@posthog/icons'
+import { IconChevronDown, IconExternal, IconTrending, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
+import { StarHog } from 'lib/components/hedgehogs'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
-import { StarHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { UnexpectedNeverError, humanFriendlyDuration, percentage, tryDecodeURIComponent } from 'lib/utils'
 import {
@@ -28,12 +28,15 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import {
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_REFERRER_PREFIX,
     GeographyTab,
     ProductTab,
     TileId,
     faviconUrl,
     webStatsBreakdownToPropertyName,
 } from 'scenes/web-analytics/common'
+import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -81,6 +84,73 @@ export const toUtcOffsetFormat = (value: number): string => {
 
     // E.g. UTC-3, UTC, UTC+5:30, UTC+11:45
     return `UTC${sign}${integerPart}${formattedMinutes}`
+}
+
+const PAGE_LIKE_BREAKDOWNS = new Set([
+    WebStatsBreakdown.Page,
+    WebStatsBreakdown.InitialPage,
+    WebStatsBreakdown.ExitPage,
+    WebStatsBreakdown.ExitClick,
+    WebStatsBreakdown.FrustrationMetrics,
+])
+
+const buildOpenUrl = (breakdownBy: WebStatsBreakdown, value: string, effectiveDomain: string | null): string | null => {
+    if (!value || !PAGE_LIKE_BREAKDOWNS.has(breakdownBy)) {
+        return null
+    }
+
+    // For ExitClick, the value is already a full URL
+    if (breakdownBy === WebStatsBreakdown.ExitClick) {
+        return value.startsWith('http') ? value : `https://${value}`
+    }
+
+    if (!effectiveDomain) {
+        return null
+    }
+
+    // Parse the effectiveDomain to preserve its protocol (http vs https)
+    // Wrap in try/catch since domainFilter can be invalid (e.g., from URL params)
+    try {
+        const domainUrl = new URL(effectiveDomain)
+        const path = value.startsWith('/') ? value : `/${value}`
+        return `${domainUrl.origin}${path}`
+    } catch {
+        return null
+    }
+}
+
+const PathValueWithHoverLink = ({
+    children,
+    breakdownBy,
+    value,
+}: {
+    children: React.ReactNode
+    breakdownBy: WebStatsBreakdown
+    value: string
+}): JSX.Element => {
+    const { effectiveDomain } = useValues(webAnalyticsFilterLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const url = buildOpenUrl(breakdownBy, value, effectiveDomain)
+
+    if (!url || !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_URL]) {
+        return <>{children}</>
+    }
+
+    return (
+        <span className="inline-flex items-center gap-1">
+            {children}
+            <Link
+                to={url}
+                target="_blank"
+                onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                className="opacity-0 transition-opacity text-muted hover:text-primary [[data-row-key]:hover_&]:opacity-100"
+            >
+                <Tooltip title="Open URL">
+                    <IconExternal className="text-base" />
+                </Tooltip>
+            </Link>
+        </span>
+    )
 }
 
 type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean; isDuration?: boolean }
@@ -244,7 +314,22 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return <>{value}</>
             }
             const decoded = tryDecodeURIComponent(value)
-            return <>{source.doPathCleaning ? parseAliasToReadable(decoded) : decoded}</>
+            const displayValue = source.doPathCleaning ? parseAliasToReadable(decoded) : decoded
+            return (
+                <PathValueWithHoverLink breakdownBy={breakdownBy} value={value}>
+                    {displayValue}
+                </PathValueWithHoverLink>
+            )
+        }
+        case WebStatsBreakdown.ExitClick: {
+            if (typeof value !== 'string') {
+                return <>{value}</>
+            }
+            return (
+                <PathValueWithHoverLink breakdownBy={breakdownBy} value={value}>
+                    {value}
+                </PathValueWithHoverLink>
+            )
         }
         case WebStatsBreakdown.Viewport:
             if (Array.isArray(value)) {
@@ -339,6 +424,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                         </div>
                     )
                 }
+            }
+            break
+        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+            if (typeof value === 'string') {
+                return <>{value.replace(BREAKDOWN_REFERRER_PREFIX, '')}</>
             }
             break
     }
@@ -511,12 +601,13 @@ export const WebStatsTrendTile = ({
     insightProps,
     attachTo,
 }: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
-    const { togglePropertyFilter, setInterval } = useActions(webAnalyticsLogic)
+    const { togglePropertyFilter, setDateInterval } = useActions(webAnalyticsLogic)
     const {
         hasCountryFilter,
         dateFilter: { interval },
     } = useValues(webAnalyticsLogic)
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
+    const regionPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Region)?.key
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
@@ -528,6 +619,21 @@ export const WebStatsTrendTile = ({
             })
         },
         [togglePropertyFilter, worldMapPropertyName, hasCountryFilter]
+    )
+
+    const onRegionMapClick = useCallback(
+        (breakdownValue: string) => {
+            if (!regionPropertyName || !worldMapPropertyName) {
+                return
+            }
+
+            const [countryCode, subdivisionCode] = breakdownValue.split('::')
+            if (countryCode && subdivisionCode) {
+                togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, countryCode)
+                togglePropertyFilter(PropertyFilterType.Event, regionPropertyName, subdivisionCode)
+            }
+        },
+        [togglePropertyFilter, regionPropertyName, worldMapPropertyName]
     )
 
     const context = useMemo((): QueryContext => {
@@ -545,6 +651,26 @@ export const WebStatsTrendTile = ({
             query.source?.kind === NodeKind.TrendsQuery &&
             query.source.trendsFilter?.display === ChartDisplayType.WorldMap
 
+        const isRegionMap =
+            isWorldMap &&
+            query.source?.kind === NodeKind.TrendsQuery &&
+            query.source.breakdownFilter?.breakdowns &&
+            query.source.breakdownFilter.breakdowns.length >= 2 &&
+            query.source.breakdownFilter.breakdowns.some(
+                (b) => b.property === '$geoip_subdivision_1_code' || b.property === '$geoip_subdivision_1_name'
+            )
+
+        if (isRegionMap) {
+            return {
+                ...baseContext,
+                onDataPointClick({ breakdown }, data) {
+                    if (typeof breakdown === 'string' && data && (data.count > 0 || data.aggregated_value > 0)) {
+                        onRegionMapClick(breakdown)
+                    }
+                },
+            }
+        }
+
         if (isWorldMap) {
             return {
                 ...baseContext,
@@ -557,7 +683,7 @@ export const WebStatsTrendTile = ({
         }
 
         return baseContext
-    }, [onWorldMapClick, insightProps, query])
+    }, [onWorldMapClick, onRegionMapClick, insightProps, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -565,7 +691,7 @@ export const WebStatsTrendTile = ({
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">
                         <span className="mr-2">Group by</span>
-                        <IntervalFilterStandalone interval={interval} onIntervalChange={setInterval} />
+                        <IntervalFilterStandalone interval={interval} onIntervalChange={setDateInterval} />
                     </div>
                 </div>
             )}
@@ -579,7 +705,7 @@ export const AveragePageViewVisualizationTile = ({
     insightProps,
     attachTo,
 }: QueryWithInsightProps<DataVisualizationNode>): JSX.Element => {
-    const { setInterval } = useActions(webAnalyticsLogic)
+    const { setDateInterval } = useActions(webAnalyticsLogic)
     const {
         dateFilter: { interval },
     } = useValues(webAnalyticsLogic)
@@ -589,7 +715,7 @@ export const AveragePageViewVisualizationTile = ({
             <div className="flex flex-row items-center justify-end m-2 mr-4">
                 <div className="flex flex-row items-center">
                     <span className="mr-2">Group by</span>
-                    <IntervalFilterStandalone interval={interval} onIntervalChange={setInterval} />
+                    <IntervalFilterStandalone interval={interval} onIntervalChange={setDateInterval} />
                 </div>
             </div>
             <Query
@@ -608,7 +734,7 @@ export const MarketingAnalyticsTrendTile = ({
     insightProps,
     attachTo,
 }: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
-    const { setInterval, setChartDisplayType, setTileColumnSelection } = useActions(marketingAnalyticsLogic)
+    const { setDateInterval, setChartDisplayType, setTileColumnSelection } = useActions(marketingAnalyticsLogic)
     const { dateFilter, chartDisplayType, tileColumnSelection } = useValues(marketingAnalyticsLogic)
 
     const MARKETING_COLUMN_OPTIONS: { value: validColumnsForTiles; label: string }[] = [
@@ -621,6 +747,7 @@ export const MarketingAnalyticsTrendTile = ({
             label: 'Reported conversion value',
         },
         { value: 'roas', label: 'Reported ROAS' },
+        { value: 'cost_per_reported_conversion', label: 'Cost per reported conversion' },
     ]
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -635,7 +762,10 @@ export const MarketingAnalyticsTrendTile = ({
                     <div className="flex flex-row items-center">
                         <div className="flex flex-row items-center mr-4">
                             <span className="mr-2">Group by</span>
-                            <IntervalFilterStandalone interval={dateFilter.interval} onIntervalChange={setInterval} />
+                            <IntervalFilterStandalone
+                                interval={dateFilter.interval}
+                                onIntervalChange={setDateInterval}
+                            />
                         </div>
                         <LemonSegmentedButton
                             value={chartDisplayType}
@@ -672,32 +802,77 @@ export const WebStatsTableTile = ({
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
+    const isCompoundBreakdown =
+        breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign ||
+        breakdownBy === WebStatsBreakdown.Viewport ||
+        breakdownBy === WebStatsBreakdown.Timezone
+
+    const utmSource = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMSource)!
+    const utmMedium = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMMedium)!
+    const utmCampaign = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMCampaign)!
+    const referringDomain = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialReferringDomain)!
+
     const onClick = useCallback(
         (breakdownValue: string | null) => {
-            if (!key || !type) {
-                return
-            }
-
             if (productTab === ProductTab.PAGE_REPORTS) {
                 lemonToast.info('Filters are not yet supported in this tile')
                 return
             }
 
+            if (breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign && breakdownValue) {
+                const values = breakdownValue.split(' / ')
+                const sourceValue = values[0]
+                if (sourceValue && sourceValue !== BREAKDOWN_NULL_DISPLAY) {
+                    if (sourceValue.startsWith(BREAKDOWN_REFERRER_PREFIX)) {
+                        togglePropertyFilter(
+                            referringDomain.type,
+                            referringDomain.key,
+                            sourceValue.slice(BREAKDOWN_REFERRER_PREFIX.length)
+                        )
+                    } else {
+                        togglePropertyFilter(utmSource.type, utmSource.key, sourceValue)
+                    }
+                }
+                if (values[1] && values[1] !== BREAKDOWN_NULL_DISPLAY) {
+                    togglePropertyFilter(utmMedium.type, utmMedium.key, values[1])
+                }
+                if (values[2] && values[2] !== BREAKDOWN_NULL_DISPLAY) {
+                    togglePropertyFilter(utmCampaign.type, utmCampaign.key, values[2])
+                }
+                return
+            }
+
+            if (breakdownBy === WebStatsBreakdown.Viewport && breakdownValue) {
+                const [width, height] = breakdownValue.split('x')
+                if (width) {
+                    togglePropertyFilter(PropertyFilterType.Event, '$viewport_width', Number(width))
+                }
+                if (height) {
+                    togglePropertyFilter(PropertyFilterType.Event, '$viewport_height', Number(height))
+                }
+                return
+            }
+
+            if (breakdownBy === WebStatsBreakdown.Timezone && breakdownValue) {
+                // Backend displays -(offset_minutes)/60, so reverse: offset = -(display * 60)
+                const offsetMinutes = -(Number(breakdownValue) * 60)
+                togglePropertyFilter(PropertyFilterType.Event, '$timezone_offset', offsetMinutes)
+                return
+            }
+
+            if (!key || !type) {
+                return
+            }
+
             togglePropertyFilter(type, key, breakdownValue)
         },
-        [togglePropertyFilter, type, key, productTab]
+        [togglePropertyFilter, type, key, productTab, breakdownBy, utmSource, utmMedium, utmCampaign, referringDomain]
     )
 
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
-            // `onClick` won't know how to handle the breakdown value if these don't exist,
-            // so let's prevent from `onClick` from being set up in the first place to avoid a noop click
-            if (!key || !type) {
-                return {}
-            }
-
-            // Tricky to calculate because the breakdown is a computed value rather than a DB column, make it non-filterable for now
-            if (breakdownBy === WebStatsBreakdown.Language || breakdownBy === WebStatsBreakdown.Timezone) {
+            // Compound breakdowns (UTM s/m/c, Viewport, Timezone) have dedicated handling in onClick
+            if (!key && !type && !isCompoundBreakdown) {
                 return {}
             }
 
@@ -715,7 +890,7 @@ export const WebStatsTableTile = ({
             rowProps,
             compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
         }
-    }, [onClick, insightProps, breakdownBy, key, type, query])
+    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -756,6 +931,16 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
         case WebStatsBreakdown.City:
             if (Array.isArray(breakdownValue)) {
                 return breakdownValue[1]
+            }
+            break
+        case WebStatsBreakdown.Viewport:
+            if (Array.isArray(breakdownValue)) {
+                return `${breakdownValue[0]}x${breakdownValue[1]}`
+            }
+            break
+        case WebStatsBreakdown.Timezone:
+            if (typeof breakdownValue === 'number') {
+                return String(breakdownValue)
             }
             break
         case WebStatsBreakdown.FrustrationMetrics:

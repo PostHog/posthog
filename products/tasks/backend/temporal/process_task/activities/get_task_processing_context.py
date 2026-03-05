@@ -31,6 +31,16 @@ class TaskProcessingContext:
     repository: str
     distinct_id: str
     create_pr: bool = True
+    state: dict | None = None
+
+    @property
+    def mode(self) -> str:
+        """Get the execution mode from state. Defaults to 'background'."""
+        return (self.state or {}).get("mode", "background")
+
+    @property
+    def interaction_origin(self) -> str | None:
+        return (self.state or {}).get("interaction_origin")
 
     def to_log_context(self) -> dict:
         """Return a dict suitable for structured logging."""
@@ -40,6 +50,7 @@ class TaskProcessingContext:
             "team_id": self.team_id,
             "repository": self.repository,
             "distinct_id": self.distinct_id,
+            "mode": self.mode,
         }
 
 
@@ -109,4 +120,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         repository=repository_full_name,
         distinct_id=distinct_id,
         create_pr=input.create_pr,
+        state=task_run.state,
     )

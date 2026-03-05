@@ -14,6 +14,7 @@ import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+// eslint-disable-next-line import/no-cycle
 import { isRevenueAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import {
     DataTableNode,

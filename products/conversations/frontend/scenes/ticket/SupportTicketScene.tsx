@@ -1,15 +1,19 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
+import { IconAI, IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { newInternalTab } from 'lib/utils/newInternalTab'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -19,12 +23,15 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
+import { SlaDisplay } from '../../components/SlaDisplay'
+import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
+import { TicketActivityPanel } from './TicketActivityPanel'
 
 export const scene: SceneExport<{ ticketId: string }> = {
     component: SupportTicketScene,
@@ -41,20 +48,47 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         status,
         priority,
         assignee,
+        tags,
         chatMessages,
         messagesLoading,
         messageSending,
         hasMoreMessages,
         olderMessagesLoading,
         eventsQuery,
-        personLoading,
         previousTickets,
         previousTicketsLoading,
         exceptionsQuery,
         chatPanelWidth,
+        hasUnsavedChanges,
+        draftContent,
+        draftIsPrivate,
+        suggesting,
     } = useValues(logic)
-    const { setStatus, setPriority, setAssignee, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
-    const { push } = useActions(router)
+    const {
+        setStatus,
+        setPriority,
+        setAssignee,
+        setTags,
+        sendMessage,
+        updateTicket,
+        loadOlderMessages,
+        setDraftContent,
+        setDraftIsPrivate,
+        suggestReply,
+    } = useActions(logic)
+
+    const aiSuggestionEnabled = useFeatureFlag('PRODUCT_SUPPORT_AI_SUGGESTION')
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const { preflight } = useValues(preflightLogic)
+    const aiAvailable = preflight?.openai_available
+
+    const aiDisabledReason = !aiAvailable
+        ? 'AI features are not available on this instance'
+        : !dataProcessingAccepted
+          ? dataProcessingApprovalDisabledReason || 'AI data processing must be approved for your organization'
+          : suggesting
+            ? 'Generating suggestion...'
+            : null
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -123,6 +157,28 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onSendMessage={sendMessage}
                         onLoadOlderMessages={loadOlderMessages}
                         showPrivateOption
+                        unreadCustomerCount={ticket?.unread_customer_count}
+                        showDeliveryStatus={ticket?.channel_source === 'widget'}
+                        draftContent={draftContent}
+                        onDraftChange={setDraftContent}
+                        isPrivate={draftIsPrivate}
+                        onPrivateChange={setDraftIsPrivate}
+                        extraActions={
+                            aiSuggestionEnabled ? (
+                                <AIConsentPopoverWrapper>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconAI />}
+                                        onClick={suggestReply}
+                                        loading={suggesting}
+                                        disabledReason={aiDisabledReason}
+                                    >
+                                        Suggest reply
+                                    </LemonButton>
+                                </AIConsentPopoverWrapper>
+                            ) : undefined
+                        }
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} />
@@ -138,14 +194,36 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <div className="flex items-center justify-between mb-3">
                                     <h3 className="text-sm font-semibold">Customer</h3>
                                     <LemonButton
-                                        size="xsmall"
+                                        size="small"
                                         type="secondary"
-                                        onClick={() => push(urls.personByDistinctId(ticket.distinct_id))}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            newInternalTab(urls.personByDistinctId(ticket.distinct_id))
+                                        }}
                                     >
                                         View person
                                     </LemonButton>
                                 </div>
-                                <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
+                                <PersonDisplay
+                                    person={
+                                        ticket.person
+                                            ? {
+                                                  id: ticket.person.id,
+                                                  distinct_id: ticket.distinct_id,
+                                                  distinct_ids: ticket.person.distinct_ids,
+                                                  // Merge anonymous_traits as fallback for missing person properties
+                                                  properties: {
+                                                      ...ticket.anonymous_traits,
+                                                      ...ticket.person.properties,
+                                                  },
+                                              }
+                                            : {
+                                                  distinct_id: ticket.distinct_id,
+                                                  properties: ticket.anonymous_traits || {},
+                                              }
+                                    }
+                                    withIcon
+                                />
                                 <div className="my-3 border-t" />
                             </>
                         )}
@@ -177,6 +255,21 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     </span>
                                 </div>
                             )}
+                            {ticket?.channel_source === 'slack' &&
+                                ticket?.slack_team_id &&
+                                ticket?.slack_channel_id &&
+                                ticket?.slack_thread_ts && (
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-muted-alt">Slack thread</span>
+                                        <Link
+                                            to={`https://app.slack.com/client/${ticket.slack_team_id}/${ticket.slack_channel_id}/thread/${ticket.slack_channel_id}-${ticket.slack_thread_ts.replace('.', '')}`}
+                                            target="_blank"
+                                            className="text-xs"
+                                        >
+                                            <LemonTag type="highlight">Open in Slack</LemonTag>
+                                        </Link>
+                                    </div>
+                                )}
                             {ticket?.session_context?.current_url && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Page URL</span>
@@ -193,7 +286,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Status</span>
                                 <LemonSelect
-                                    size="xsmall"
+                                    size="small"
                                     value={status}
                                     options={statusOptionsWithoutAll}
                                     onChange={(value: TicketStatus | null) => value && setStatus(value)}
@@ -203,7 +296,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Priority</span>
                                 <LemonSelect
-                                    size="xsmall"
+                                    size="small"
                                     value={priority}
                                     options={priorityOptions}
                                     onChange={(value: TicketPriority | null) => value && setPriority(value)}
@@ -215,7 +308,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <AssigneeSelect assignee={assignee} onChange={setAssignee}>
                                     {(resolvedAssignee, isOpen) => (
                                         <LemonButton
-                                            size="xsmall"
+                                            size="small"
                                             type="secondary"
                                             active={isOpen}
                                             sideIcon={<IconChevronDown />}
@@ -228,37 +321,61 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     )}
                                 </AssigneeSelect>
                             </div>
+                            {ticket?.sla_due_at && (
+                                <div className="flex justify-between items-center">
+                                    <span className="text-muted-alt">SLA</span>
+                                    <SlaDisplay slaDueAt={ticket.sla_due_at} />
+                                </div>
+                            )}
+                            <div className="flex justify-between items-center">
+                                <span className="text-muted-alt">Tags</span>
+                                <TicketTags tags={tags} onChange={setTags} saving={false} />
+                            </div>
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">
-                            <LemonButton type="primary" size="small" onClick={() => updateTicket()}>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => updateTicket()}
+                                disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
+                            >
                                 Save changes
                             </LemonButton>
                         </div>
                     </LemonCard>
 
-                    {/* Session Recording Panel */}
-                    <SessionRecordingPanel sessionContext={ticket?.session_context} distinctId={ticket?.distinct_id} />
+                    {/* Activity History Panel */}
+                    {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
 
-                    {/* Recent Events Panel */}
-                    <RecentEventsPanel
-                        eventsQuery={eventsQuery}
-                        personLoading={personLoading}
-                        distinctId={ticket?.distinct_id}
-                        sessionId={ticket?.session_id}
-                    />
+                    {ticket?.channel_source === 'widget' && (
+                        <>
+                            {/* Session Recording Panel */}
+                            <SessionRecordingPanel
+                                sessionContext={ticket?.session_context}
+                                distinctId={ticket?.distinct_id}
+                            />
 
-                    {/* Exceptions Panel */}
-                    <ExceptionsPanel
-                        exceptionsQuery={exceptionsQuery}
-                        sessionId={ticket?.session_id}
-                        distinctId={ticket?.distinct_id}
-                    />
+                            {/* Recent Events Panel */}
+                            <RecentEventsPanel
+                                eventsQuery={eventsQuery}
+                                distinctId={ticket?.distinct_id}
+                                sessionId={ticket?.session_id}
+                            />
 
-                    {/* Previous Tickets Panel */}
-                    <PreviousTicketsPanel
-                        previousTickets={previousTickets}
-                        previousTicketsLoading={previousTicketsLoading}
-                    />
+                            {/* Exceptions Panel */}
+                            <ExceptionsPanel
+                                exceptionsQuery={exceptionsQuery}
+                                sessionId={ticket?.session_id}
+                                distinctId={ticket?.distinct_id}
+                            />
+
+                            {/* Previous Tickets Panel */}
+                            <PreviousTicketsPanel
+                                previousTickets={previousTickets}
+                                previousTicketsLoading={previousTicketsLoading}
+                            />
+                        </>
+                    )}
                 </div>
             </div>
         </SceneContent>

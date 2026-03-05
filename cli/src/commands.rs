@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use tracing::error;
 
 use crate::{
+    dsym::DsymSubcommand,
     error::CapturedError,
     experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
     invocation_context::{context, init_context},
@@ -34,7 +35,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Interactively authenticate with PostHog, storing a personal API token locally. You can also use the
-    /// environment variables `POSTHOG_CLI_TOKEN` and `POSTHOG_CLI_ENV_ID`
+    /// environment variables `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID`
     Login,
 
     /// Experimental commands, not quite ready for prime time
@@ -47,6 +48,24 @@ pub enum Commands {
     Sourcemap {
         #[command(subcommand)]
         cmd: SourcemapCommand,
+    },
+
+    #[command(about = "Upload Apple dSYM debug symbol files to PostHog")]
+    Dsym {
+        #[command(subcommand)]
+        cmd: DsymSubcommand,
+    },
+
+    #[command(about = "Upload hermes sourcemaps to PostHog")]
+    Hermes {
+        #[command(subcommand)]
+        cmd: HermesSubcommand,
+    },
+
+    #[command(about = "Upload proguard mapping files to PostHog")]
+    Proguard {
+        #[command(subcommand)]
+        cmd: ProguardSubcommand,
     },
 }
 
@@ -75,17 +94,25 @@ pub enum ExpCommand {
         cmd: EndpointCommand,
     },
 
-    #[command(about = "Upload hermes sourcemaps to PostHog")]
+    // TODO(sept 2026): remove these backward-compat aliases, they moved to top-level commands
+    #[command(about = "Upload hermes sourcemaps to PostHog", hide = true)]
     Hermes {
         #[command(subcommand)]
         cmd: HermesSubcommand,
     },
 
-    #[command(about = "Upload proguard mapping files to PostHog")]
+    #[command(about = "Upload proguard mapping files to PostHog", hide = true)]
     Proguard {
         #[command(subcommand)]
         cmd: ProguardSubcommand,
     },
+
+    #[command(about = "Upload iOS/macOS dSYM files to PostHog", hide = true)]
+    Dsym {
+        #[command(subcommand)]
+        cmd: DsymSubcommand,
+    },
+
     /// Download event definitions and generate typed SDK
     Schema {
         #[command(subcommand)]
@@ -154,6 +181,27 @@ impl Cli {
                     crate::sourcemaps::plain::upload::upload(&upload)?;
                 }
             },
+            Commands::Dsym { cmd } => match cmd {
+                DsymSubcommand::Upload(args) => {
+                    crate::dsym::upload::upload(&args)?;
+                }
+            },
+            Commands::Hermes { cmd } => match cmd {
+                HermesSubcommand::Inject(args) => {
+                    crate::sourcemaps::hermes::inject::inject(&args)?;
+                }
+                HermesSubcommand::Upload(args) => {
+                    crate::sourcemaps::hermes::upload::upload(&args)?;
+                }
+                HermesSubcommand::Clone(args) => {
+                    crate::sourcemaps::hermes::clone::clone(&args)?;
+                }
+            },
+            Commands::Proguard { cmd } => match cmd {
+                ProguardSubcommand::Upload(args) => {
+                    crate::proguard::upload::upload(&args)?;
+                }
+            },
             Commands::Exp { cmd } => match cmd {
                 ExpCommand::Task {
                     cmd,
@@ -167,6 +215,7 @@ impl Cli {
                 ExpCommand::Endpoints { cmd } => {
                     cmd.run()?;
                 }
+                // TODO(sept 2026): remove these backward-compat aliases
                 ExpCommand::Hermes { cmd } => match cmd {
                     HermesSubcommand::Inject(args) => {
                         crate::sourcemaps::hermes::inject::inject(&args)?;
@@ -181,6 +230,11 @@ impl Cli {
                 ExpCommand::Proguard { cmd } => match cmd {
                     ProguardSubcommand::Upload(args) => {
                         crate::proguard::upload::upload(&args)?;
+                    }
+                },
+                ExpCommand::Dsym { cmd } => match cmd {
+                    DsymSubcommand::Upload(args) => {
+                        crate::dsym::upload::upload(&args)?;
                     }
                 },
                 ExpCommand::Schema { cmd } => match cmd {

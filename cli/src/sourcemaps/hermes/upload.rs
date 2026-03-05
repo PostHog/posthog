@@ -1,6 +1,7 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Instant};
 
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, Result};
+use serde_json::json;
 use tracing::{info, warn};
 use walkdir::WalkDir;
 
@@ -16,13 +17,21 @@ pub struct Args {
     #[arg(short, long)]
     pub directory: PathBuf,
 
+    /// The maximum number of chunks to upload in a single batch
+    #[arg(long, default_value = "50")]
+    pub batch_size: usize,
+
     #[clap(flatten)]
     pub release: ReleaseArgs,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
     context().capture_command_invoked("hermes_upload");
-    let Args { directory, release } = args;
+    let Args {
+        directory,
+        release,
+        batch_size,
+    } = args;
 
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
@@ -56,8 +65,35 @@ pub fn upload(args: &Args) -> Result<()> {
 
     info!("Found {} maps to upload", uploads.len());
 
-    symbol_sets::upload(&uploads, 100)?;
+    let file_count = uploads.len();
+    let total_bytes: usize = uploads.iter().map(|u| u.data.len()).sum();
+    context().capture_event(
+        "error_tracking_cli_sourcemaps_upload_started",
+        vec![
+            ("type", json!("hermes")),
+            ("file_count", json!(file_count)),
+            ("total_bytes", json!(total_bytes)),
+        ],
+    );
 
+    let started_at = Instant::now();
+    let upload_result =
+        symbol_sets::upload_with_retry(uploads, *batch_size, release.skip_release_on_fail);
+    let duration_ms = started_at.elapsed().as_millis();
+
+    let mut props = vec![
+        ("type", json!("hermes")),
+        ("file_count", json!(file_count)),
+        ("total_bytes", json!(total_bytes)),
+        ("duration_ms", json!(duration_ms)),
+        ("success", json!(upload_result.is_ok())),
+    ];
+    if let Err(ref e) = upload_result {
+        props.push(("error", json!(format!("{:#}", e))));
+    }
+    context().capture_event("error_tracking_cli_sourcemaps_upload_finished", props);
+
+    upload_result?;
     Ok(())
 }
 

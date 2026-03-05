@@ -20,9 +20,9 @@ export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningL
     path(['scenes', 'feature-flags', 'featureFlagConditionWarningLogic']),
     props({} as FeatureFlagConditionWarningLogicProps),
     key((props) => JSON.stringify(props.properties)),
-    connect({
+    connect(() => ({
         values: [cohortsModel, ['cohortsById']],
-    }),
+    })),
 
     selectors({
         warning: [

@@ -63,8 +63,11 @@ PRODUCTS: dict[Product, ProductInfo | None] = {
         "description": "Monitor LLM/AI application performance, costs, and quality.",
         "best_for": "Teams building AI features, tracking token usage, evaluating model outputs.",
     },
+    Product.WORKFLOWS: {
+        "description": "Build no-code, drag-and-drop logic that automates processes or sends messages to users.",
+        "best_for": "Teams building communication workflows and/or who need processes automation.",
+    },
     Product.REVENUE_ANALYTICS: None,
-    Product.WORKFLOWS: None,
     Product.LOGS: None,
     Product.ENDPOINTS: None,
 }

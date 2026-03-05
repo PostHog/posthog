@@ -11,9 +11,9 @@ import { LemonRow, Link } from '@posthog/lemon-ui'
 
 import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { percentage } from 'lib/utils'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
@@ -71,7 +71,7 @@ function useBoldNumberTooltip({
                 renderSeries={(value: React.ReactNode) => <span className="font-semibold">{value}</span>}
                 hideColorCol
                 hideInspectActorsSection={!showPersonsModal}
-                groupTypeLabel={groupTypeLabel || aggregationLabel(series?.[0].math_group_type_index).plural}
+                groupTypeLabel={groupTypeLabel || aggregationLabel(series?.[0]?.math_group_type_index).plural}
             />
         )
     }, [isTooltipShown]) // oxlint-disable-line react-hooks/exhaustive-deps
@@ -109,6 +109,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
         <div className="BoldNumber">
             <div
                 className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
+                data-attr="bold-number-value"
                 onClick={
                     context?.onDataPointClick
                         ? () => context?.onDataPointClick?.({ compare: 'current' }, resultSeries)
@@ -189,6 +190,7 @@ function BoldNumberComparison({
                 )
             }
             className="BoldNumber__comparison"
+            data-attr="bold-number-comparison"
             fullWidth
             center
         >

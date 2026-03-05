@@ -3,7 +3,6 @@ from typing import cast
 
 from django.conf import settings
 
-import requests
 import structlog
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -11,6 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.models import User
+from posthog.security.outbound_proxy import external_requests
 from posthog.utils import capture_exception
 
 logger = structlog.get_logger(__name__)
@@ -77,7 +77,7 @@ def ensure_zendesk_organization(request: Request) -> Response:
         search_url = f"{base_url}/organizations/search.json"
         search_params = {"external_id": org_id}
 
-        search_response = requests.get(search_url, headers=auth_headers, params=search_params, timeout=10)
+        search_response = external_requests.get(search_url, headers=auth_headers, params=search_params, timeout=10)
 
         if search_response.status_code == 200:
             search_data = search_response.json()
@@ -94,7 +94,7 @@ def ensure_zendesk_organization(request: Request) -> Response:
             }
         }
 
-        requests.post(
+        external_requests.post(
             create_url, headers={**auth_headers, "Content-Type": "application/json"}, json=create_payload, timeout=10
         )
 

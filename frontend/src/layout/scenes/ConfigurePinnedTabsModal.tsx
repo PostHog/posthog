@@ -2,14 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSelect, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
-import { Scene, SceneTab } from '~/scenes/sceneTypes'
 import { emptySceneParams } from '~/scenes/scenes'
+import { Scene, SceneTab } from '~/scenes/sceneTypes'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
 
@@ -19,6 +20,7 @@ export interface ConfigurePinnedTabsModalProps {
 }
 
 export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTabsModalProps): JSX.Element {
+    const isAIFirst = useFeatureFlag('AI_FIRST')
     const { tabs, homepage } = useValues(sceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const { rawDashboards, nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
@@ -39,8 +41,16 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
 
     const homepageDisplayTitle = homepageTabForDisplay
         ? homepageTabForDisplay.customTitle || homepageTabForDisplay.title
-        : "Project's default dashboard"
-    const homepageSubtitle = isUsingProjectDefault ? projectDefaultSubtitle : isUsingNewTabHomepage ? 'Search' : null
+        : isAIFirst
+          ? 'Search'
+          : "Project's default dashboard"
+    const homepageSubtitle = isUsingProjectDefault
+        ? isAIFirst
+            ? 'AI-first default'
+            : projectDefaultSubtitle
+        : isUsingNewTabHomepage
+          ? 'Search'
+          : null
 
     const projectDefaultDashboardOptions: LemonSelectOptions<number | null> = [
         { value: null, label: 'No default dashboard / show the "new tab" page' },

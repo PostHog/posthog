@@ -10,21 +10,21 @@ import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { TEMPLATE_LINK_HEADING, TEMPLATE_LINK_PII_WARNING } from 'lib/components/Sharing/templateLinkMessages'
+import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
@@ -84,6 +84,7 @@ export interface SharingModalProps extends SharingModalBaseProps {
     isOpen: boolean
     closeModal: () => void
     inline?: boolean
+    'data-attr'?: string
 }
 
 export function SharingModalContent({
@@ -262,7 +263,7 @@ export function SharingModalContent({
                                     )}
                                     <LemonButton
                                         data-attr="sharing-link-button"
-                                        type="secondary"
+                                        type="primary"
                                         onClick={() => {
                                             // TRICKY: there's a chance this was sending useless errors to error tracking
                                             // even when it succeeded, so we're explicitly ignoring the promise success
@@ -274,8 +275,7 @@ export function SharingModalContent({
                                             )
                                         }}
                                         icon={<IconLink />}
-                                        fullWidth
-                                        className="mb-4"
+                                        className="ml-auto mb-4"
                                     >
                                         Copy public link
                                     </LemonButton>
@@ -411,6 +411,7 @@ export function SharingModalContent({
                                                         <iframe
                                                             className="block"
                                                             {...iframeProperties}
+                                                            title="Shared insight preview"
                                                             onLoad={() => setIframeLoaded(true)}
                                                             sandbox="allow-scripts allow-same-origin allow-popups"
                                                         />
@@ -484,7 +485,7 @@ function createRenderQuerySnippet({
     const escapedResults = escapeScriptJson(serializedResults)
     const escapedQuery = escapeScriptJson(serializedQuery)
 
-    return `<iframe id="${iframeId}" src="${renderQueryUrl}" style="width: 100%; height: 600px; border: 0;" loading="lazy"></iframe>
+    return `<iframe id="${iframeId}" title="PostHog embedded query" src="${renderQueryUrl}" style="width: 100%; height: 600px; border: 0;" loading="lazy"></iframe>
 <script>
   (function () {
     const iframe = document.getElementById('${iframeId}')
@@ -630,13 +631,21 @@ function LegendCheckbox({ insightShortId }: { insightShortId: InsightShortId }):
     )
 }
 
-export function SharingModal({ closeModal, isOpen, inline, title, ...props }: SharingModalProps): JSX.Element {
+export function SharingModal({
+    closeModal,
+    isOpen,
+    inline,
+    title,
+    'data-attr': dataAttr,
+    ...props
+}: SharingModalProps): JSX.Element {
     return (
         <LemonModal
             onClose={closeModal}
             isOpen={isOpen}
             width={SHARING_MODAL_WIDTH}
             title={title ?? 'Sharing'}
+            data-attr={dataAttr}
             footer={
                 <LemonButton type="secondary" onClick={closeModal}>
                     Done

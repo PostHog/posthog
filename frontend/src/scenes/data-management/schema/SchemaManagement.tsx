@@ -45,11 +45,14 @@ function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): J
             <div className="w-32">
                 <PropertyTypeTag propertyName={property.name} schemaPropertyType={property.property_type} />
             </div>
-            <div className="w-24">
+            <div className="w-24 flex gap-1 flex-wrap">
                 {property.is_required ? (
                     <LemonTag type="danger">Required</LemonTag>
                 ) : (
                     <LemonTag type="muted">Optional</LemonTag>
+                )}
+                {property.is_required && property.is_optional_in_types && (
+                    <LemonTag type="muted">Optional in types</LemonTag>
                 )}
             </div>
             <div className="flex-1 text-muted">{property.description || '—'}</div>

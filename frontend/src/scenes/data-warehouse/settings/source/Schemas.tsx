@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { IconInfo } from '@posthog/icons'
 import {
     LemonButton,
+    LemonDialog,
     LemonInput,
     LemonModal,
     LemonSelect,
@@ -20,8 +21,11 @@ import {
 
 import { AccessControlAction, AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { pluralize } from 'lib/utils'
 import { SyncTypeLabelMap, defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -72,42 +76,99 @@ const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 export const Schemas = ({ id }: SchemasProps): JSX.Element => {
     const logicProps = { id, availableSources: {} }
     const logic = dataWarehouseSourceSettingsLogic(logicProps)
-    const { source, sourceLoading, filteredSchemas, showEnabledSchemasOnly } = useValues(logic)
-    const { setShowEnabledSchemasOnly } = useActions(logic)
+    const { source, sourceLoading, filteredSchemas, showEnabledSchemasOnly, syncingNow, refreshingSchemas } =
+        useValues(logic)
+    const { setShowEnabledSchemasOnly, syncNow, refreshSchemas } = useActions(logic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <BindLogic logic={dataWarehouseSourceSettingsLogic} props={logicProps}>
-            <div className="flex items-center gap-2 mb-2">
-                <LemonSwitch
-                    checked={showEnabledSchemasOnly}
-                    onChange={setShowEnabledSchemasOnly}
-                    label="Show enabled only"
-                />
+            <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-3">
+                    <LemonSwitch
+                        checked={showEnabledSchemasOnly}
+                        onChange={setShowEnabledSchemasOnly}
+                        label="Show enabled only"
+                    />
+                    <span className="text-muted text-sm">{pluralize(filteredSchemas.length, 'schema', 'schemas')}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <SourceEditorAction source={source}>
+                        <LemonButton
+                            type="secondary"
+                            loading={syncingNow}
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Sync all enabled schemas?',
+                                    content: (
+                                        <div className="text-sm text-secondary">
+                                            This will trigger a sync for all schemas you have enabled. New sync jobs
+                                            will appear in the Syncs tab.
+                                        </div>
+                                    ),
+                                    primaryButton: {
+                                        children: 'Sync now',
+                                        type: 'primary',
+                                        onClick: () => syncNow(),
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                        type: 'tertiary',
+                                    },
+                                })
+                            }}
+                            disabledReason={
+                                sourceLoading
+                                    ? 'Source is loading'
+                                    : refreshingSchemas
+                                      ? 'Schema refresh in progress'
+                                      : undefined
+                            }
+                        >
+                            Sync now
+                        </LemonButton>
+                    </SourceEditorAction>
+                    <SourceEditorAction source={source}>
+                        <LemonButton
+                            type="secondary"
+                            loading={refreshingSchemas}
+                            onClick={() => refreshSchemas()}
+                            disabledReason={
+                                sourceLoading ? 'Source is loading' : syncingNow ? 'Sync in progress' : undefined
+                            }
+                        >
+                            Pull new schemas
+                        </LemonButton>
+                    </SourceEditorAction>
+                </div>
             </div>
             <SchemaTable schemas={filteredSchemas} isLoading={sourceLoading} />
-            {source?.source_type && REVENUE_ENABLED_SOURCES.includes(source.source_type) && (
-                <div className="flex justify-end">
-                    <LemonButton
-                        type="primary"
-                        className="mt-2"
-                        tooltip="This source is feeding data into our Revenue analytics product - currently in beta."
-                        onClick={() => {
-                            addProductIntentForCrossSell({
-                                from: ProductKey.DATA_WAREHOUSE,
-                                to: ProductKey.REVENUE_ANALYTICS,
-                                intent_context: ProductIntentContext.DATA_WAREHOUSE_STRIPE_SOURCE_CREATED,
-                            })
-                            router.actions.push(urls.revenueAnalytics())
-                        }}
-                    >
-                        See data in Revenue analytics
-                        <LemonTag className="ml-2" type="warning" size="small">
-                            BETA
-                        </LemonTag>
-                    </LemonButton>
-                </div>
-            )}
+            {source?.source_type &&
+                REVENUE_ENABLED_SOURCES.includes(source.source_type) &&
+                featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
+                    <div className="flex justify-end">
+                        <LemonButton
+                            type="primary"
+                            className="mt-2"
+                            tooltip="This source is feeding data into our Revenue analytics product - currently in beta."
+                            onClick={() => {
+                                addProductIntentForCrossSell({
+                                    from: ProductKey.DATA_WAREHOUSE,
+                                    to: ProductKey.REVENUE_ANALYTICS,
+                                    intent_context: ProductIntentContext.DATA_WAREHOUSE_STRIPE_SOURCE_CREATED,
+                                })
+                                router.actions.push(urls.revenueAnalytics())
+                            }}
+                        >
+                            See data in Revenue analytics
+                            <LemonTag className="ml-2" type="warning" size="small">
+                                BETA
+                            </LemonTag>
+                        </LemonButton>
+                    </div>
+                )}
         </BindLogic>
     )
 }
@@ -360,7 +421,9 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                 </LemonTag>
                             )
                             return schema.latest_error && schema.status === 'Failed' ? (
-                                <Tooltip title={schema.latest_error}>{tagContent}</Tooltip>
+                                <Tooltip title={schema.latest_error} interactive>
+                                    {tagContent}
+                                </Tooltip>
                             ) : (
                                 tagContent
                             )

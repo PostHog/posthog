@@ -73,6 +73,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
             <LemonTable
                 hideScrollbar
                 dataSource={filteredJobs}
+                rowKey="id"
                 loading={jobsLoading}
                 disableTableWhileLoading={false}
                 columns={[
@@ -89,7 +90,9 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                                 <LemonTag type={StatusTagSetting[job.status] || 'default'}>{job.status}</LemonTag>
                             )
                             return job.latest_error && job.status === ExternalDataJobStatus.Failed ? (
-                                <Tooltip title={job.latest_error}>{tagContent}</Tooltip>
+                                <Tooltip title={job.latest_error} interactive>
+                                    {tagContent}
+                                </Tooltip>
                             ) : (
                                 tagContent
                             )
@@ -114,6 +117,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                               expandedRowRender: (job) => (
                                   <div className="p-4">
                                       <LogsViewer
+                                          logicKey={`external_data_jobs:${job.id}`}
                                           sourceType="external_data_jobs"
                                           sourceId={job.schema.id}
                                           groupByInstanceId={false}

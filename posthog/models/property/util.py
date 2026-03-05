@@ -917,17 +917,13 @@ class HogQLPropertyChecker(TraversingVisitor):
             self.person_properties.append(node.chain[3])
 
 
-def extract_tables_and_properties(props: list[Property], team_id: Optional[int] = None) -> TCounter[PropertyIdentifier]:
+def extract_tables_and_properties(props: list[Property], team_id: int) -> TCounter[PropertyIdentifier]:
     counters: list[tuple] = []
     for prop in props:
         if prop.type == "hogql":
             counters.extend(count_hogql_properties(prop.key))
         elif prop.type == "behavioral" and prop.event_type == "actions":
-            if team_id is not None:
-                action = Action.objects.get(pk=prop.key, team_id=team_id)
-            else:
-                # nosemgrep: idor-lookup-without-team -- legacy fallback, all callers now pass team_id
-                action = Action.objects.get(pk=prop.key)
+            action = Action.objects.get(pk=prop.key, team_id=team_id)
             action_counter = get_action_tables_and_properties(action)
             counters.extend(action_counter)
         else:
@@ -998,6 +994,7 @@ def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFi
         in [
             PropertyOperator.IS_NOT,
             PropertyOperator.NOT_ICONTAINS,
+            PropertyOperator.NOT_ICONTAINS_MULTI,
             PropertyOperator.NOT_REGEX,
             PropertyOperator.IS_SET,
             PropertyOperator.NOT_IN,
@@ -1015,6 +1012,8 @@ def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFi
         query += "__isnull"
         value = True
     elif operator == PropertyOperator.ICONTAINS or operator == PropertyOperator.NOT_ICONTAINS:
+        query += "__icontains"
+    elif operator == PropertyOperator.ICONTAINS_MULTI or operator == PropertyOperator.NOT_ICONTAINS_MULTI:
         query += "__icontains"
     elif operator == PropertyOperator.REGEX:
         query += "__regex"

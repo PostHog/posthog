@@ -3,6 +3,7 @@ import React, { forwardRef } from 'react'
 import { twMerge } from 'tailwind-merge'
 
 import { IconX } from '@posthog/icons'
+// eslint-disable-next-line import/no-cycle
 import { LemonButton } from '@posthog/lemon-ui'
 
 export interface LemonSnackProps {

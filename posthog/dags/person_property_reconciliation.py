@@ -517,21 +517,21 @@ def get_affected_person_ids_from_clickhouse(
     bug_window_end: str,
 ) -> list[str]:
     """
-    Query ClickHouse for distinct person_ids who had property-setting events in the bug window.
+    Query ClickHouse for person_ids whose events in the bug window produce property
+    diffs when compared against current person state.
 
-    This is the first step of the batched windowed query flow:
-    1. get_affected_person_ids_from_clickhouse() - identify affected persons (bounded)
-    2. For each batch of persons: run windowed event queries filtered to that batch
-    3. compare_raw_updates_with_person_state() to filter to actual diffs
+    Uses the same aggregation + person-state comparison structure as the
+    non-windowed query (get_person_property_updates_from_clickhouse) but:
+    - Bounded by bug_window_end (not now()) to keep the scan lightweight
+    - Returns only person_ids (no full diff data)
 
-    The query is bounded by bug_window_end to limit the set of affected persons,
-    even though the actual event property aggregation will extend to now() to
-    capture all property updates for those persons.
+    This means only persons whose bug-window event aggregation actually differs
+    from their current person properties are returned, dramatically reducing the
+    set compared to a simple event-presence check.
 
-    Note: This query checks for presence of $set/$set_once/$unset but doesn't filter
-    FILTERED_PERSON_UPDATE_PROPERTIES. This may include persons who only had filtered
-    properties updated, but the subsequent raw update queries will filter them out.
-    This is a minor inefficiency that doesn't affect correctness.
+    Possible false positives (acceptable): a person whose bug-window aggregation
+    shows a diff that disappears when events up to now() are included. These are
+    filtered out by the downstream windowed comparison step.
 
     Args:
         team_id: Team ID to query
@@ -542,7 +542,7 @@ def get_affected_person_ids_from_clickhouse(
         List of person_id strings (UUIDs) affected in the bug window
     """
     query = """
-    -- CTE 1: Get all overrides for the team
+    -- CTE 1: Get all overrides for the team (no filtering)
     WITH overrides AS (
         SELECT
             argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -551,31 +551,125 @@ def get_affected_person_ids_from_clickhouse(
         WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
+    ),
+    -- CTE 2: Extract properties from events, grouped by RESOLVED person_id (after overrides)
+    event_properties_raw AS (
+        SELECT
+            person_id,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_keys,
+            arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_values,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_keys,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_keys
+        FROM (
+            SELECT
+                person_id,
+                groupArray(tuple(key, value, kv_timestamp, prop_type)) AS grouped_props
+            FROM (
+                SELECT
+                    if(notEmpty(o.distinct_id), o.person_id, e.person_id) AS person_id,
+                    kv_tuple.2 AS key,
+                    kv_tuple.1 AS prop_type,
+                    if(kv_tuple.1 = 'set',
+                        argMaxIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != ''),
+                        argMinIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != '')
+                    ) AS value,
+                    if(kv_tuple.1 = 'set_once', min(e.timestamp), max(e.timestamp)) AS kv_timestamp
+                FROM events e
+                LEFT JOIN overrides o ON e.distinct_id = o.distinct_id
+                ARRAY JOIN
+                    arrayConcat(
+                        arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null' AND x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('set', x.1, toString(x.2)),
+                                arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set'))
+                            )
+                        ),
+                        arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null' AND x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('set_once', x.1, toString(x.2)),
+                                arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set_once'))
+                            )
+                        ),
+                        arrayFilter(x -> x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('unset', JSON_VALUE(x, '$'), ''),
+                                JSONExtractArrayRaw(e.properties, '$unset')
+                            )
+                        )
+                    ) AS kv_tuple
+                WHERE e.team_id = %(team_id)s
+                  AND e.timestamp >= %(bug_window_start)s
+                  AND e.timestamp < %(bug_window_end)s
+                  AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
+                GROUP BY if(notEmpty(o.distinct_id), o.person_id, e.person_id), kv_tuple.2, kv_tuple.1
+            )
+            GROUP BY person_id
+        )
+    ),
+    -- CTE 3: Filter to only persons with non-empty property sets
+    event_properties_flat AS (
+        SELECT *
+        FROM event_properties_raw
+        WHERE length(set_keys) > 0 OR length(set_once_keys) > 0 OR length(unset_keys) > 0
+    ),
+    -- CTE 4: Get person properties only for affected persons
+    person_props AS (
+        SELECT
+            id,
+            argMax(properties, version) as person_properties
+        FROM person
+        WHERE team_id = %(team_id)s
+          AND id IN (SELECT person_id FROM event_properties_flat)
+        GROUP BY id
+        HAVING argMax(is_deleted, version) = 0
     )
-    -- Get distinct resolved person_ids with property-setting events in the bug window
-    SELECT DISTINCT
-        if(notEmpty(o.distinct_id), o.person_id, e.person_id) AS person_id
-    FROM events e
-    LEFT JOIN overrides o ON e.distinct_id = o.distinct_id
-    WHERE e.team_id = %(team_id)s
-      AND e.timestamp >= %(bug_window_start)s
-      AND e.timestamp < %(bug_window_end)s
-      AND (
-        JSONExtractString(e.properties, '$set') != ''
-        OR JSONExtractString(e.properties, '$set_once') != ''
-        OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset'))
-      )
-    ORDER BY person_id
+    -- Return only person_ids that have actual diffs against current state
+    SELECT ep.person_id
+    FROM event_properties_flat ep
+    INNER JOIN (
+        SELECT
+            id,
+            person_properties,
+            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(person_properties)) AS keys2,
+            arrayMap(x -> toString(x.2), JSONExtractKeysAndValuesRaw(person_properties)) AS vals2
+        FROM person_props
+    ) AS p ON p.id = ep.person_id
+    WHERE
+        -- $set: key exists in person AND value differs
+        length(arrayFilter(
+            i -> (
+                indexOf(p.keys2, ep.set_keys[i]) > 0
+                AND ep.set_values[i] != p.vals2[indexOf(p.keys2, ep.set_keys[i])]
+            ),
+            arrayEnumerate(ep.set_keys)
+        )) > 0
+        -- $set_once: key does NOT exist in person
+        OR length(arrayFilter(
+            i -> indexOf(p.keys2, ep.set_once_keys[i]) = 0,
+            arrayEnumerate(ep.set_once_keys)
+        )) > 0
+        -- $unset: key EXISTS in person
+        OR length(arrayFilter(
+            i -> indexOf(p.keys2, ep.unset_keys[i]) > 0,
+            arrayEnumerate(ep.unset_keys)
+        )) > 0
+    ORDER BY ep.person_id
     SETTINGS
         readonly=2,
-        max_execution_time=600,
-        allow_experimental_analyzer=1
+        max_execution_time=1200,
+        allow_experimental_object_type=1,
+        format_csv_allow_double_quotes=0,
+        max_ast_elements=4000000,
+        max_expanded_ast_elements=4000000,
+        allow_experimental_analyzer=1,
+        transform_null_in=1,
+        optimize_min_equality_disjunction_chain_length=4294967295,
+        allow_experimental_join_condition=1,
+        use_hive_partitioning=0
     """
 
     params = {
         "team_id": team_id,
         "bug_window_start": bug_window_start,
         "bug_window_end": bug_window_end,
+        "filtered_properties": tuple(FILTERED_PERSON_UPDATE_PROPERTIES),
     }
 
     rows = sync_execute(query, params)

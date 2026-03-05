@@ -7,8 +7,8 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
@@ -46,6 +46,7 @@ export function FunnelTooltip({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     return (
         <div
+            data-attr="funnel-tooltip"
             className={clsx('FunnelTooltip InsightTooltip', {
                 'p-2': !embedded,
                 'border-none': embedded,

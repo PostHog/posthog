@@ -1,6 +1,6 @@
 import { IconCheck, IconLoading, IconX } from '@posthog/icons'
 
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonPrimitive, DisabledReasonsObject } from 'lib/ui/Button/ButtonPrimitives'
 import { SelectPrimitiveItemProps } from 'lib/ui/SelectPrimitive/SelectPrimitive'
 
 export type SceneCanEditProps = {
@@ -13,6 +13,7 @@ export type SceneLoadingProps = {
 
 export type SceneDataAttrKeyProps = {
     dataAttrKey: string
+    disabledReasons?: DisabledReasonsObject
 }
 
 export type SceneNameProps = {

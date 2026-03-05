@@ -24,8 +24,8 @@ from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExpo
 from products.llm_analytics.backend.providers.gemini import GeminiProvider
 
 from ee.hogai.session_summaries.constants import (
-    DEFAULT_VIDEO_EXPORT_MIME_TYPE,
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
+    MOMENT_VIDEO_EXPORT_FORMAT,
     SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
     VALIDATION_VIDEO_DURATION,
 )
@@ -128,6 +128,7 @@ class SessionMomentsLLMAnalyzer:
             logger.exception(exception_message)
             # Remove all the generated videos to not bloat the database
             asset_ids = list(moment_to_asset_id.values())
+            # nosemgrep: idor-lookup-without-team (internal AI pipeline, IDs from team-scoped context)
             await ExportedAsset.objects.filter(id__in=asset_ids).adelete()
             raise Exception(exception_message)
         return moment_to_asset_id
@@ -146,7 +147,7 @@ class SessionMomentsLLMAnalyzer:
             expires_after = created_at + timedelta(days=expires_after_days)
             exported_asset = await ExportedAsset.objects.acreate(
                 team_id=self.team_id,
-                export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+                export_format=MOMENT_VIDEO_EXPORT_FORMAT,
                 export_context={
                     "session_recording_id": self.session_id,
                     "timestamp": moment.timestamp_s,
@@ -187,6 +188,7 @@ class SessionMomentsLLMAnalyzer:
         try:
             content: bytes | None = None
             # Fetch the asset from the database
+            # nosemgrep: idor-lookup-without-team (asset_id from internal _export_moment_video, not user input)
             asset = await ExportedAsset.objects.aget(id=asset_id)
             # Get content from either database or object storage
             if asset.content:
@@ -231,7 +233,7 @@ class SessionMomentsLLMAnalyzer:
             # Analyze the video with LLM
             content = await self._provider.understand_video(
                 video_bytes=video_bytes,
-                mime_type=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+                mime_type=MOMENT_VIDEO_EXPORT_FORMAT,
                 prompt=prompt,
                 start_offset_s=start_offset_s,
                 # No end offset is required, as we expect the export rendering to stop right after the video was played
@@ -249,6 +251,7 @@ class SessionMomentsLLMAnalyzer:
             )
             # If the LLM validation fails - ensure to remove the generated video to not bloat the database,
             # as it would be linked to the summary (to reuse) only after the LLM video validation is completed
+            # nosemgrep: idor-lookup-without-team (internal AI pipeline, IDs from team-scoped context)
             await ExportedAsset.objects.filter(id=asset_id).adelete()
             return err  # Let caller handle the error
 

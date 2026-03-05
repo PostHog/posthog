@@ -31,6 +31,7 @@ import {
 import {
     buildNotebookDependencyGraph,
     collectDuckSqlNodes,
+    collectHogqlSqlNodes,
     collectNodeIndices,
     collectPythonNodes,
 } from '../Nodes/notebookNodeContent'
@@ -351,9 +352,12 @@ export const notebookLogic = kea<notebookLogicType>([
                             values.localContent &&
                             notebook.content === values.localContent
                         ) {
-                            const currentPosition = values.editor.getCurrentPosition()
-                            values.editor.setContent(response.content)
-                            values.editor.setTextSelection(currentPosition)
+                            const currentEditorContent = values.editor.getJSON()
+                            if (JSON.stringify(response.content) !== JSON.stringify(currentEditorContent)) {
+                                const currentPosition = values.editor.getCurrentPosition()
+                                values.editor.setContent(response.content)
+                                values.editor.setTextSelection(currentPosition)
+                            }
                         }
 
                         // If the object is identical then no edits were made, so we can safely clear the local changes
@@ -364,6 +368,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         return response
                     } catch (error: any) {
                         if (error.code === 'conflict') {
+                            actions.clearLocalContent()
                             actions.showConflictWarning()
                             return null
                         }
@@ -538,6 +543,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         pythonNodeSummaries: [(s) => [s.content], (content) => collectPythonNodes(content)],
         duckSqlNodeSummaries: [(s) => [s.content], (content) => collectDuckSqlNodes(content)],
+        hogqlSqlNodeSummaries: [(s) => [s.content], (content) => collectHogqlSqlNodes(content)],
         dependencyGraph: [(s) => [s.content], (content) => buildNotebookDependencyGraph(content)],
 
         pythonNodeIndices: [
@@ -559,6 +565,10 @@ export const notebookLogic = kea<notebookLogicType>([
         duckSqlNodeIndices: [
             (s) => [s.content],
             (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.DuckSQL),
+        ],
+        hogqlSqlNodeIndices: [
+            (s) => [s.content],
+            (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.HogQLSQL),
         ],
 
         isShowingLeftColumn: [

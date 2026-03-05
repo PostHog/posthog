@@ -3,7 +3,7 @@ import { z } from 'zod'
 export const ProjectSchema = z.object({
     id: z.number(),
     name: z.string(),
-    organization: z.string().uuid(),
+    organization: z.string(),
     api_token: z.string(),
 })
 

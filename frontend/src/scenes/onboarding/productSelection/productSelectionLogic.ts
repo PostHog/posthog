@@ -35,7 +35,7 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             onboardingLogic,
             ['setOnCompleteOnboardingRedirectUrl'],
             eventUsageLogic,
-            ['reportOnboardingStarted', 'reportOnboardingProductSelectionPath'],
+            ['reportOnboardingStarted', 'reportOnboardingProductSelectionPath', 'reportOnboardingProductToggled'],
         ],
         values: [teamLogic, ['currentTeam']],
     })),
@@ -307,6 +307,8 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
                 const remaining = values.selectedProducts.filter((k) => k !== productKey)
                 actions.setFirstProductOnboarding(remaining[0] || null)
             }
+
+            actions.reportOnboardingProductToggled(productKey, isNowSelected, values.recommendationSource)
         },
 
         handleStartOnboarding: () => {

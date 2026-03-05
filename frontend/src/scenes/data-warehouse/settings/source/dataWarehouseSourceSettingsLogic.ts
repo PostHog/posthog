@@ -40,6 +40,10 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
         setShowEnabledSchemasOnly: (showEnabledSchemasOnly: boolean) => ({ showEnabledSchemasOnly }),
+        syncNow: true,
+        setSyncingNow: (syncing: boolean) => ({ syncing }),
+        refreshSchemas: true,
+        setRefreshingSchemas: (refreshing: boolean) => ({ refreshing }),
     }),
     loaders(({ actions, values }) => ({
         source: [
@@ -76,8 +80,21 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                         return await api.externalDataSources.jobs(values.sourceId, null, null)
                     }
 
-                    const newJobs = await api.externalDataSources.jobs(values.sourceId, null, values.jobs[0].created_at)
-                    return [...newJobs, ...values.jobs]
+                    // Re-fetch recent jobs without an `after` filter to get updated statuses.
+                    // The API returns up to 50 jobs sorted by created_at desc, so this
+                    // will refresh the status of recent jobs (e.g. Running -> Completed).
+                    const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null)
+
+                    // Merge fresh jobs with existing jobs, preferring the fresh data
+                    const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
+                    for (const job of freshJobs) {
+                        jobsById.set(job.id, job)
+                    }
+
+                    // Sort by created_at descending (newest first)
+                    return Array.from(jobsById.values()).sort(
+                        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                    )
                 },
                 loadMoreJobs: async () => {
                     const hasJobs = values.jobs.length >= 0
@@ -128,6 +145,20 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             false as boolean,
             {
                 setShowEnabledSchemasOnly: (_, { showEnabledSchemasOnly }) => showEnabledSchemasOnly,
+            },
+        ],
+        syncingNow: [
+            false as boolean,
+            {
+                setSyncingNow: (_, { syncing }) => syncing,
+                syncNow: () => true,
+            },
+        ],
+        refreshingSchemas: [
+            false as boolean,
+            {
+                setRefreshingSchemas: (_, { refreshing }) => refreshing,
+                refreshSchemas: () => true,
             },
         ],
         sourceConfigLoading: [
@@ -238,6 +269,34 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 return () => clearTimeout(timerId)
             }, 'sourceRefreshTimeout')
         },
+        refreshSchemas: async () => {
+            try {
+                const { added = 0, deleted = 0 } = await api.externalDataSources.refreshSchemas(values.sourceId)
+                actions.loadSource()
+                posthog.capture('schemas refreshed', {
+                    sourceType: values.source?.source_type,
+                    added,
+                    deleted,
+                })
+                const parts = ['Schemas refreshed']
+                if (added > 0 || deleted > 0) {
+                    parts.push(
+                        [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
+                            .filter(Boolean)
+                            .join(' / ')
+                    )
+                }
+                lemonToast.success(parts.join(', '))
+            } catch (e: any) {
+                if (e.message) {
+                    lemonToast.error(e.message)
+                } else {
+                    lemonToast.error("Can't refresh schemas at this time")
+                }
+            } finally {
+                actions.setRefreshingSchemas(false)
+            }
+        },
         loadJobsSuccess: () => {
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
@@ -253,6 +312,19 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 }, REFRESH_INTERVAL)
                 return () => clearTimeout(timerId)
             }, 'jobsRefreshTimeout')
+        },
+        syncNow: async () => {
+            try {
+                await api.externalDataSources.reload(values.sourceId)
+                actions.loadSource()
+                actions.loadJobs()
+                lemonToast.success('Sync started')
+                posthog.capture('sync now triggered', { sourceType: values.source?.source_type })
+            } catch (e: any) {
+                lemonToast.error(e.message || "Can't start sync at this time")
+            } finally {
+                actions.setSyncingNow(false)
+            }
         },
         reloadSchema: async ({ schema }) => {
             // Optimistic UI updates before sending updates to the backend

@@ -13,7 +13,10 @@ type InsightCreationPayload = {
 
 test('create trends insight via API and snapshot', async ({ page, playwrightSetup }) => {
     // Create workspace with API key
-    const workspace = await playwrightSetup.createWorkspace('API Test Org')
+    const workspace = await playwrightSetup.createWorkspace({
+        organization_name: 'API Test Org',
+        skip_onboarding: true,
+    })
 
     // Create a trends insight via API using the personal API key
     const payload: InsightCreationPayload = {
@@ -28,11 +31,6 @@ test('create trends insight via API and snapshot', async ({ page, playwrightSetu
                         event: '$pageview',
                     },
                 ],
-                dateRange: {
-                    date_from: '2024-10-04',
-                    date_to: '2024-11-03',
-                    explicitDate: true,
-                },
             },
         },
     }
@@ -51,15 +49,20 @@ test('create trends insight via API and snapshot', async ({ page, playwrightSetu
     expect(insightData.name).toBe('Pageview Trends Analysis')
     expect(insightData.query.source.series[0].event).toBe('$pageview')
 
-    // Login and navigate to the insight page using the short URL
-    await playwrightSetup.loginAndNavigateToTeam(page, workspace)
+    // Login and navigate directly to the insight page
+    await playwrightSetup.login(page, workspace)
     await page.goto(`/project/${workspace.team_id}/insights/${insightData.short_id}`)
 
-    // Wait for the insights graph container to be visible and loaded
-    await expect(page.locator('[data-attr="insights-graph"]')).toBeVisible()
+    // Wait for the insight query to finish loading
+    await page.getByTestId('insight-loading-waiting-message').waitFor({ state: 'detached', timeout: 30000 })
 
-    // Wait for any canvas element within the insights graph (more robust than specific chart type)
-    await expect(page.locator('[data-attr="insights-graph"] canvas')).toBeVisible()
+    // Wait for the insights graph container to be visible and loaded
+    await expect(page.locator('[data-attr="insights-graph"]')).toBeVisible({ timeout: 30000 })
+
+    // Verify the insight rendered — either a chart canvas or an empty state
+    const canvas = page.locator('[data-attr="insights-graph"] canvas')
+    const emptyState = page.getByText('There are no matching events for this query')
+    await expect(canvas.or(emptyState)).toBeVisible({ timeout: 30000 })
 
     // Verify we're on the correct insight page by checking the URL
     await expect(page).toHaveURL(new RegExp(`/insights/${insightData.short_id}`))

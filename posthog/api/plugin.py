@@ -10,7 +10,6 @@ from django.http import HttpResponse
 from django.utils.encoding import smart_str
 from django.utils.timezone import now
 
-import requests
 from dateutil.relativedelta import relativedelta
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -46,6 +45,7 @@ from posthog.plugins import can_configure_plugins, can_install_plugins, parse_ur
 from posthog.plugins.access import can_globally_manage_plugins, has_plugin_access_level
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers
 from posthog.queries.app_metrics.app_metrics import TeamPluginsDeliveryRateQuery
+from posthog.security.outbound_proxy import external_requests
 from posthog.utils import format_query_params_absolute_url
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
@@ -331,6 +331,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Modifying our underyling permissions system too much.
             try:
                 lookup_value = self.kwargs.get(self.lookup_field)
+                # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check only; returns NotFound for non-global plugins)
                 obj = Plugin.objects.get(pk=lookup_value)
                 if obj.is_global:
                     return [IsAuthenticated(), APIScopePermission(), PluginsAccessLevelPermission()]
@@ -374,7 +375,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs):
         url = "https://raw.githubusercontent.com/PostHog/integrations-repository/main/plugins.json"
-        plugins = requests.get(url)
+        plugins = external_requests.get(url)
         return Response(json.loads(plugins.text))
 
     @action(methods=["GET"], detail=False)
@@ -712,6 +713,8 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                     "plugin_id": validated_data["plugin"].id,
                     "team_id": self.context["team_id"],
                 },
+                team=hog_function.team,
+                request=self.context["request"],
             )
             # Return plugin config without saving if hog function was created successfully
             return PluginConfig(**validated_data)

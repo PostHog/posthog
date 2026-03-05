@@ -1,4 +1,5 @@
 import json
+import socket
 import asyncio
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -16,7 +17,36 @@ from clickhouse_driver.errors import Error, ErrorCodes
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.redis import get_client, redis
+from posthog.security.outbound_proxy import external_requests_session
 from posthog.utils import initialize_self_capture_api_token
+
+
+def _is_retryable_clickhouse_exception(e: Exception) -> bool:
+    """Check if a ClickHouse-related exception should be retried.
+
+    Handles both ClickHouse driver errors (with specific error codes) and
+    network-level exceptions like socket timeouts.
+    """
+    # Network-level exceptions (socket timeouts, connection errors)
+    if isinstance(e, (TimeoutError, socket.timeout, OSError, ConnectionError)):
+        return True
+
+    # ClickHouse driver-specific errors
+    return isinstance(e, Error) and (
+        (
+            e.code
+            in (  # these are typically transient errors and unrelated to the query being executed
+                ErrorCodes.NETWORK_ERROR,
+                ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
+                ErrorCodes.NOT_ENOUGH_SPACE,
+                ErrorCodes.SOCKET_TIMEOUT,
+                439,  # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
+            )
+        )
+        # queries that exceed memory limits can be retried if they were killed due to total server
+        # memory consumption, but we should avoid retrying queries that were killed due to query limits
+        or (e.code == ErrorCodes.MEMORY_LIMIT_EXCEEDED and "Memory limit (total) exceeded" in e.message)
+    )
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
@@ -39,24 +69,7 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
             retry_policy=RetryPolicy(
                 max_attempts=8,
                 delay=ExponentialBackoff(20),
-                exceptions=lambda e: (
-                    isinstance(e, Error)
-                    and (
-                        (
-                            e.code
-                            in (  # these are typically transient errors and unrelated to the query being executed
-                                ErrorCodes.NETWORK_ERROR,
-                                ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
-                                ErrorCodes.NOT_ENOUGH_SPACE,
-                                ErrorCodes.SOCKET_TIMEOUT,
-                                439,  # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
-                            )
-                        )
-                        # queries that exceed memory limits can be retried if they were killed due to total server
-                        # memory consumption, but we should avoid retrying queries that were killed due to query limits
-                        or (e.code == ErrorCodes.MEMORY_LIMIT_EXCEEDED and "Memory limit (total) exceeded" in e.message)
-                    )
-                ),
+                exceptions=_is_retryable_clickhouse_exception,
             ),
         )
 
@@ -233,7 +246,7 @@ class ClayWebhookResource(dagster.ConfigurableResource):
 
     def send(self, data: list[dict]) -> requests.Response:
         """Send data to Clay webhook."""
-        with requests.Session() as session:
+        with external_requests_session() as session:
             return self._send_with_retry(session, data)
 
     def _get_batch_size(self, batch: list[dict]) -> int:

@@ -77,6 +77,30 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
     ];
     // Blob count per event (2x increments)
     const BLOB_COUNTS: &[f64] = &[1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
+    // Global rate limiter pipeline/tick latency (milliseconds)
+    const GLOBAL_RATE_LIMITER_LATENCY_MS: &[f64] = &[
+        0.1,     // 100 microseconds
+        0.5,     // 500 microseconds
+        1.0,     // 1ms
+        2.0,     // 2ms
+        5.0,     // 5ms
+        10.0,    // 10ms
+        100.0,   // 100ms
+        1000.0,  // 1 second
+        2000.0,  // 2 seconds
+        4000.0,  // 4 seconds
+        10000.0, // 10 seconds
+    ];
+    // Global rate limiter pipeline batch sizes (entity counts)
+    const GLOBAL_RATE_LIMITER_PIPELINE_SIZES: &[f64] =
+        &[1.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0];
+    // Global rate limiter estimate drift (ratio of threshold)
+    const GLOBAL_RATE_LIMITER_DRIFT_RATIOS: &[f64] =
+        &[0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0];
+    // Global rate limiter sync staleness (milliseconds)
+    const GLOBAL_RATE_LIMITER_STALENESS_MS: &[f64] = &[
+        100.0, 500.0, 1000.0, 5000.0, 10000.0, 15000.0, 30000.0, 60000.0,
+    ];
 
     PrometheusBuilder::new()
         .add_global_label("role", role)
@@ -116,6 +140,31 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         .set_buckets_for_metric(
             Matcher::Full("capture_ai_blob_total_bytes_per_event".to_string()),
             S3_BODY_SIZES, // Reuse same buckets as S3 body sizes
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("global_rate_limiter_pipeline_ms".to_string()),
+            GLOBAL_RATE_LIMITER_LATENCY_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("global_rate_limiter_tick_ms".to_string()),
+            GLOBAL_RATE_LIMITER_LATENCY_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("global_rate_limiter_pipeline_size".to_string()),
+            GLOBAL_RATE_LIMITER_PIPELINE_SIZES,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("global_rate_limiter_estimate_drift".to_string()),
+            GLOBAL_RATE_LIMITER_DRIFT_RATIOS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("global_rate_limiter_sync_staleness_ms".to_string()),
+            GLOBAL_RATE_LIMITER_STALENESS_MS,
         )
         .unwrap()
         .install_recorder()

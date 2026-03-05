@@ -4,8 +4,8 @@ import { loaders } from 'kea-loaders'
 import api, { ApiConfig } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -252,12 +252,6 @@ export const teamLogic = kea<teamLogicType>([
                     return false
                 }
                 return true
-            },
-        ],
-        hasIngestedEvent: [
-            (selectors) => [selectors.currentTeam],
-            (currentTeam): boolean => {
-                return currentTeam?.ingested_event ?? false
             },
         ],
         currentTeamId: [

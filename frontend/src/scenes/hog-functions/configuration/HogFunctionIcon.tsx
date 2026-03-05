@@ -164,6 +164,7 @@ export function HogFunctionIcon({
                             loaded ? 'opacity-100' : 'opacity-0'
                         )}
                         src={src}
+                        alt="Hog function icon"
                         onLoad={() => setLoaded(true)}
                     />
                     {!loaded && <LemonSkeleton className="absolute w-full h-full" />}

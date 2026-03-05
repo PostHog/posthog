@@ -36,6 +36,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import ExposedCHQueryError
@@ -569,6 +570,14 @@ class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
         self.assertIsInstance(result, str)
         self.assertFalse(used_fallback)
+
+    async def test_sql_query_default_limit_is_applied(self):
+        query = AssistantHogQLQuery(query="SELECT arrayJoin(range(1, 100001))")
+        result, used_fallback = await self.query_runner.arun_and_format_query(query)
+        self.assertFalse(used_fallback)
+        lines = result.strip().split("\n")
+        data_rows = len(lines) - 1  # subtract header
+        self.assertEqual(data_rows, DEFAULT_POSTHOG_AI_RETURNED_ROWS)
 
 
 class TestExecuteAndFormatQuery(NonAtomicBaseTest):

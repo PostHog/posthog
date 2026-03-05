@@ -75,6 +75,7 @@ def load_traces_from_csv_files(csv_paths: list[str]) -> Generator[LLMTrace, None
                 trace = LLMTrace(
                     aiSessionId=str(uuid.uuid4()),  # Not used in calculations
                     createdAt=row[fields_to_column_mapping["createdAt"]],
+                    distinctId="",
                     errorCount=0,  # Not used in calculations
                     events=[],  # Not used in calculations
                     id=row[fields_to_column_mapping["id"]],

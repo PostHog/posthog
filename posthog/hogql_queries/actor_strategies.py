@@ -67,7 +67,7 @@ class PersonStrategy(ActorStrategy):
         with conn.cursor() as cursor:
             for i in range(0, len(actor_ids_list), self.BATCH_SIZE):
                 batch = actor_ids_list[i : i + self.BATCH_SIZE]
-                persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at
+                persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at, {person_table}.last_seen_at
                     FROM {person_table}
                     WHERE {person_table}.uuid = ANY(%(uuids)s)
                     AND {person_table}.team_id = %(team_id)s"""
@@ -104,6 +104,7 @@ class PersonStrategy(ActorStrategy):
                 "properties": json.loads(person[2]),
                 "is_identified": person[3],
                 "created_at": person[4],
+                "last_seen_at": person[5],
                 "distinct_ids": distinct_ids,
             }
             for person, distinct_ids in person_id_to_raw_person_and_set.values()
@@ -125,28 +126,29 @@ class PersonStrategy(ActorStrategy):
         if self.query.fixedProperties:
             where_exprs.append(property_to_expr(self.query.fixedProperties, self.team, scope="person"))
 
-        if self.query.search is not None and self.query.search != "":
+        search = self.query.search.strip() if self.query.search else None
+        if search:
             where_exprs.append(
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "email"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         parse_expr(
                             "id in (select person_id from person_distinct_ids where ilike(distinct_id, {search}))",
-                            {"search": ast.Constant(value=f"%{self.query.search}%")},
+                            {"search": ast.Constant(value=f"%{search}%")},
                         ),
                     ]
                 )
@@ -201,19 +203,20 @@ class GroupStrategy(ActorStrategy):
     def filter_conditions(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []
 
-        if self.query.search is not None and self.query.search != "":
+        search = self.query.search.strip() if self.query.search else None
+        if search:
             where_exprs.append(
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Field(chain=["properties", "name"]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["key"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                     ]
                 )

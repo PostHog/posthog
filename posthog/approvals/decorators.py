@@ -6,7 +6,6 @@ from typing import Any, Literal, Optional, Union
 from django.conf import settings
 from django.utils import timezone
 
-import posthoganalytics
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -17,6 +16,7 @@ from posthog.approvals.models import ChangeRequest, ChangeRequestState
 from posthog.approvals.notifications import send_approval_requested_notification
 from posthog.approvals.policies import PolicyDecision, PolicyEngine
 from posthog.approvals.serializers import ChangeRequestSerializer
+from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 
 logger = logging.getLogger(__name__)
@@ -53,12 +53,8 @@ def _extract_context(view_or_serializer, request=None) -> tuple[Optional[Any], O
 
 
 def _is_approvals_enabled(organization) -> bool:
-    """Check if the approvals feature flag is enabled for this organization."""
-    return posthoganalytics.feature_enabled(
-        key="approvals",
-        distinct_id=str(organization.id),
-        groups={"organization": str(organization.id)},
-    )
+    """Check if the approvals feature is available for this organization."""
+    return organization.is_feature_available(AvailableFeature.APPROVALS)
 
 
 def _check_policy_for_action(action_class, team, organization) -> Optional[Any]:
@@ -114,6 +110,7 @@ def _create_change_request(
     policy_snapshot: dict[str, Any],
     user,
     expires_at,
+    request=None,
 ) -> ChangeRequest:
     """Create and log a ChangeRequest record."""
     change_request = ChangeRequest.objects.create(
@@ -148,6 +145,8 @@ def _create_change_request(
             "change_request_id": str(change_request.id),
             "resource_type": action_class.resource_type,
         },
+        team=team,
+        request=request,
     )
 
     send_approval_requested_notification(change_request)
@@ -303,6 +302,7 @@ def _evaluate_gate(
             policy_snapshot=decision.policy_snapshot,
             user=request.user,
             expires_at=expires_at,
+            request=request,
         )
 
         return GateResult(

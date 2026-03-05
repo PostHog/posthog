@@ -1,7 +1,6 @@
 // Snippets
 export { JSEventCapture } from './_snippets/js-event-capture'
 export { NodeEventCapture } from './_snippets/node-event-capture'
-export { PersonProfiles } from './_snippets/person-profiles'
 export { PythonEventCapture } from './_snippets/python-event-capture'
 
 // Installations
@@ -35,6 +34,7 @@ export { ReactNativeInstallation } from './react-native'
 export { RemixInstallation } from './remix'
 export { RetoolInstallation } from './retool'
 export { RubyInstallation } from './ruby'
+export { RubyOnRailsInstallation } from './ruby-on-rails'
 export { RudderstackInstallation } from './rudderstack'
 export { SegmentInstallation } from './segment'
 export { SentryInstallation } from './sentry'

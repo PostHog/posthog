@@ -100,6 +100,7 @@ def create_data_warehouse_table_from_csv(
         credential=credential,
         url_pattern=f"http://host.docker.internal:19000/{folder}/*.csv",
         columns=table_columns,
+        options={"csv_allow_double_quotes": True},
     )
 
     # This should, in theory, be called in the test tear down

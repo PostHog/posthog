@@ -6,7 +6,7 @@ from temporalio.common import RetryPolicy
 
 # Clustering parameters
 DEFAULT_LOOKBACK_DAYS = 7
-DEFAULT_MAX_SAMPLES = 2500
+DEFAULT_MAX_SAMPLES = 1500
 DEFAULT_MIN_K = 2
 DEFAULT_MAX_K = 10
 
@@ -14,7 +14,7 @@ DEFAULT_MAX_K = 10
 MIN_TRACES_FOR_CLUSTERING = 20
 
 # Coordinator concurrency settings
-DEFAULT_MAX_CONCURRENT_TEAMS = 3  # Max teams to process in parallel
+DEFAULT_MAX_CONCURRENT_TEAMS = 4  # Max teams to process in parallel
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
@@ -29,17 +29,33 @@ CHILD_WORKFLOW_ID_PREFIX = "llma-trace-clustering-team"
 GENERATION_COORDINATOR_SCHEDULE_ID = "llma-generation-clustering-coordinator-schedule"
 GENERATION_CHILD_WORKFLOW_ID_PREFIX = "llma-generation-clustering-team"
 
-# Activity timeouts (per activity type)
-COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + k-means + distances
-LLM_ACTIVITY_TIMEOUT = timedelta(seconds=300)  # LLM API call (5 minutes)
+# Activity timeouts (per activity type, per single attempt)
+COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + clustering + distances
+LLM_ACTIVITY_TIMEOUT = timedelta(seconds=600)  # 10 minutes for full labeling agent run (LangGraph multi-turn)
 EMIT_ACTIVITY_TIMEOUT = timedelta(seconds=60)  # ClickHouse write
+
+# Heartbeat timeouts - allows Temporal to detect dead workers faster than
+# waiting for the full start_to_close_timeout to expire. Activities must
+# send heartbeats within this interval or Temporal will consider them failed
+# and schedule a retry on another worker.
+COMPUTE_HEARTBEAT_TIMEOUT = timedelta(seconds=60)  # 1 minute - compute is mostly CPU-bound
+LLM_HEARTBEAT_TIMEOUT = timedelta(seconds=120)  # 2 minutes - agent runs can have long pauses between LLM calls
+EMIT_HEARTBEAT_TIMEOUT = timedelta(seconds=30)  # 30 seconds - ClickHouse writes are fast
+
+# Schedule-to-close timeouts - caps total time including all retry attempts,
+# backoff intervals, and queue time. Prevents runaway retries from blocking
+# the workflow indefinitely.
+COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=300)  # 5 min (2 attempts * 120s + backoff)
+LLM_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=900)  # 15 min (2 attempts * 600s + backoff, capped)
+EMIT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=150)  # 2.5 min (2 attempts * 60s + backoff)
 
 # Compute activity - CPU bound, quick retries
 COMPUTE_ACTIVITY_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=3,
+    maximum_attempts=2,
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,
+    non_retryable_error_types=["ValueError", "TypeError"],
 )
 
 # LLM activity - external dependency, longer intervals between retries
@@ -48,18 +64,20 @@ LLM_ACTIVITY_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=5),
     maximum_interval=timedelta(seconds=30),
     backoff_coefficient=2.0,
+    non_retryable_error_types=["ValueError", "TypeError"],
 )
 
 # Event emission - database write, quick retries
 EMIT_ACTIVITY_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=3,
+    maximum_attempts=2,
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,
+    non_retryable_error_types=["ValueError", "TypeError"],
 )
 
 # Coordinator retry policies
-COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
+COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 
 # Event properties
 EVENT_NAME = "$ai_trace_clusters"
@@ -84,8 +102,8 @@ LABELING_AGENT_RECURSION_LIMIT = 150  # LangGraph recursion limit (> 2 * max_ite
 LABELING_AGENT_TIMEOUT = 600.0  # 10 minutes for full agent run
 
 # HDBSCAN clustering parameters
-DEFAULT_MIN_CLUSTER_SIZE_FRACTION = 0.01  # 1% of samples as minimum cluster size
-MIN_CLUSTER_SIZE_FRACTION_MIN = 0.01  # Minimum allowed value for min_cluster_size_fraction
+DEFAULT_MIN_CLUSTER_SIZE_FRACTION = 0.02  # 2% of samples as minimum cluster size
+MIN_CLUSTER_SIZE_FRACTION_MIN = 0.02  # Minimum allowed value for min_cluster_size_fraction
 MIN_CLUSTER_SIZE_FRACTION_MAX = 0.5  # Maximum allowed value for min_cluster_size_fraction
 DEFAULT_HDBSCAN_MIN_SAMPLES = 5  # Minimum samples in neighborhood for core points
 DEFAULT_UMAP_N_COMPONENTS = 100  # Dimensionality for clustering (not visualization)

@@ -139,6 +139,13 @@ def schedule_warming_for_teams_task():
     so even though we might pick all insights for a team to recalculate,
     only the stale ones (determined by `staleness_threshold_map`) get recalculated.
     """
+    from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
+
+    kill_switch_level = get_kill_switch_level()
+    if kill_switch_level != KillSwitchLevel.OFF:
+        logger.info("kill_switch_on_skipping_cache_warming", level=kill_switch_level)
+        return
+
     team_ids = largest_teams(limit=10)
     threshold = datetime.now(UTC) - LAST_VIEWED_THRESHOLD
 
@@ -198,6 +205,7 @@ def schedule_warming_for_teams_task():
 )
 def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
     try:
+        # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
         insight = Insight.objects.get(pk=insight_id)
     except Insight.DoesNotExist:
         logger.info(f"Warming insight cache failed 404 insight not found: {insight_id}")

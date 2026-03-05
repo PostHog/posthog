@@ -1,18 +1,16 @@
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
 import { KAFKA_PERSON_DISTINCT_ID } from '../../../../config/kafka-topics'
 import { TopicMessage } from '../../../../kafka/producer'
 import {
     InternalPerson,
     PersonDistinctId,
-    PersonPropertyFilter,
     PersonUpdateFields,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
-    PropertyOperator,
     RawPerson,
     Team,
     TeamId,
@@ -161,6 +159,7 @@ export class PostgresPersonRepository
             id: String(row.id),
             created_at: DateTime.fromISO(row.created_at).toUTC(),
             version: Number(row.version || 0),
+            last_seen_at: row.last_seen_at ? DateTime.fromISO(row.last_seen_at).toUTC() : null,
         }
     }
 
@@ -234,7 +233,8 @@ export class PostgresPersonRepository
                 posthog_person.properties_last_operation,
                 posthog_person.is_user_id,
                 posthog_person.version,
-                posthog_person.is_identified
+                posthog_person.is_identified,
+                posthog_person.last_seen_at
             FROM posthog_person
             JOIN posthog_persondistinctid ON (
                 posthog_persondistinctid.person_id = posthog_person.id
@@ -298,6 +298,7 @@ export class PostgresPersonRepository
                 posthog_person.is_user_id,
                 posthog_person.version,
                 posthog_person.is_identified,
+                posthog_person.last_seen_at,
                 posthog_persondistinctid.distinct_id
             FROM posthog_person
             JOIN posthog_persondistinctid ON (
@@ -321,170 +322,32 @@ export class PostgresPersonRepository
         }))
     }
 
-    private buildPropertyFilterCondition(
-        filter: PersonPropertyFilter,
-        paramIndex: number
-    ): { condition: string; values: any[] } {
-        const { key, value, operator = PropertyOperator.Exact } = filter
-        const values: any[] = []
-
-        switch (operator) {
-            case PropertyOperator.Exact:
-                // For exact match, use JSONB contains operator
-                values.push(JSON.stringify({ [key]: value }))
-                return { condition: `posthog_person.properties @> $${paramIndex}::jsonb`, values }
-
-            case PropertyOperator.IsNot:
-                // For is_not, check that the property either doesn't exist or has a different value
-                values.push(JSON.stringify({ [key]: value }))
-                return {
-                    condition: `NOT (posthog_person.properties @> $${paramIndex}::jsonb)`,
-                    values,
-                }
-
-            case PropertyOperator.IContains:
-                values.push(`%${value}%`)
-                return {
-                    condition: `posthog_person.properties->>'${sanitizeSqlIdentifier(key)}' ILIKE $${paramIndex}`,
-                    values,
-                }
-
-            case PropertyOperator.NotIContains:
-                values.push(`%${value}%`)
-                return {
-                    condition: `NOT (posthog_person.properties->>'${sanitizeSqlIdentifier(key)}' ILIKE $${paramIndex})`,
-                    values,
-                }
-
-            case PropertyOperator.Regex:
-                values.push(value)
-                return {
-                    condition: `posthog_person.properties->>'${sanitizeSqlIdentifier(key)}' ~ $${paramIndex}`,
-                    values,
-                }
-
-            case PropertyOperator.NotRegex:
-                values.push(value)
-                return {
-                    condition: `NOT (posthog_person.properties->>'${sanitizeSqlIdentifier(key)}' ~ $${paramIndex})`,
-                    values,
-                }
-
-            case PropertyOperator.GreaterThan:
-                values.push(value)
-                return {
-                    condition: `(posthog_person.properties->>'${sanitizeSqlIdentifier(key)}')::numeric > $${paramIndex}::numeric`,
-                    values,
-                }
-
-            case PropertyOperator.LessThan:
-                values.push(value)
-                return {
-                    condition: `(posthog_person.properties->>'${sanitizeSqlIdentifier(key)}')::numeric < $${paramIndex}::numeric`,
-                    values,
-                }
-
-            case PropertyOperator.IsSet:
-                return {
-                    condition: `posthog_person.properties ? '${sanitizeSqlIdentifier(key)}'`,
-                    values: [],
-                }
-
-            case PropertyOperator.IsNotSet:
-                return {
-                    condition: `NOT (posthog_person.properties ? '${sanitizeSqlIdentifier(key)}')`,
-                    values: [],
-                }
-
-            case PropertyOperator.IsDateAfter:
-            case PropertyOperator.IsDateBefore: {
-                const op = operator === PropertyOperator.IsDateAfter ? '>' : '<'
-                values.push(value)
-                return {
-                    condition: `(posthog_person.properties->>'${sanitizeSqlIdentifier(key)}')::timestamp ${op} $${paramIndex}::timestamp`,
-                    values,
-                }
-            }
-
-            default:
-                // Fallback to exact match for unknown operators
-                values.push(JSON.stringify({ [key]: value }))
-                return { condition: `posthog_person.properties @> $${paramIndex}::jsonb`, values }
-        }
-    }
-
-    async countPersonsByProperties(teamPersons: {
-        teamId: TeamId
-        properties: PersonPropertyFilter[]
-    }): Promise<number> {
-        if (teamPersons.properties.length === 0) {
-            return 0
-        }
-
-        const teamId = teamPersons.teamId
-        const propertiesConditions = teamPersons.properties
-
-        const whereConditions: string[] = []
-        const values: any[] = [teamId]
-
-        propertiesConditions.forEach((filter) => {
-            const { condition, values: filterValues } = this.buildPropertyFilterCondition(filter, values.length + 1)
-            whereConditions.push(condition)
-            values.push(...filterValues)
-        })
-
-        const queryString = `
-            SELECT COUNT(*) as count
-            FROM posthog_person
-            WHERE posthog_person.team_id = $1
-              AND (${whereConditions.join(' AND ')})
-        `
-
-        const { rows } = await this.postgres.query<{ count: string }>(
-            PostgresUse.PERSONS_READ,
-            queryString,
-            values,
-            'countPersonsByProperties'
-        )
-
-        return parseInt(rows[0]?.count || '0', 10)
-    }
-
-    async fetchPersonsByProperties(teamPersons: {
-        teamId: TeamId
-        properties: PersonPropertyFilter[]
-        options?: { limit?: number; cursor?: string }
-    }): Promise<InternalPersonWithDistinctId[]> {
-        if (teamPersons.properties.length === 0) {
+    async fetchPersonsByPersonIds(
+        teamPersons: { teamId: TeamId; personId: string }[],
+        useReadReplica: boolean = true
+    ): Promise<InternalPerson[]> {
+        if (teamPersons.length === 0) {
             return []
         }
 
-        const teamId = teamPersons.teamId
-        const propertiesConditions = teamPersons.properties
-        const { limit = 1000, cursor } = teamPersons.options || {}
-
-        const whereConditions: string[] = []
-        const values: any[] = [teamId]
-
-        propertiesConditions.forEach((filter) => {
-            const { condition, values: filterValues } = this.buildPropertyFilterCondition(filter, values.length + 1)
-            whereConditions.push(condition)
-            values.push(...filterValues)
+        // Deduplicate inputs to avoid duplicate rows in results
+        const seen = new Set<string>()
+        const uniqueTeamPersons = teamPersons.filter((p) => {
+            const key = `${p.teamId}:${p.personId}`
+            if (seen.has(key)) {
+                return false
+            }
+            seen.add(key)
+            return true
         })
 
-        // Add cursor condition for cursor-based pagination (more reliable than offset)
-        if (cursor) {
-            const cursorParamIndex = values.length + 1
-            whereConditions.push(`posthog_person.id > $${cursorParamIndex}`)
-            values.push(parseInt(cursor, 10))
-        }
+        // Use UNNEST with paired arrays so each (teamId, personId) is matched as a tuple.
+        // This prevents cross-team leakage where a person ID from one team could match
+        // a row belonging to a different team in the batch.
+        const teamIds = uniqueTeamPersons.map((p) => p.teamId)
+        const personIds = uniqueTeamPersons.map((p) => p.personId)
 
-        // Add limit at the end
-        const limitParamIndex = values.length + 1
-        values.push(limit)
-
-        const queryString = `
-            SELECT DISTINCT ON (posthog_person.id)
+        const queryString = `SELECT
                 posthog_person.id,
                 posthog_person.uuid,
                 posthog_person.created_at,
@@ -493,30 +356,20 @@ export class PostgresPersonRepository
                 posthog_person.properties_last_updated_at,
                 posthog_person.properties_last_operation,
                 posthog_person.is_user_id,
+                posthog_person.version,
                 posthog_person.is_identified,
-                posthog_persondistinctid.distinct_id
+                posthog_person.last_seen_at
             FROM posthog_person
-            JOIN posthog_persondistinctid ON (
-                posthog_persondistinctid.person_id = posthog_person.id
-                AND posthog_persondistinctid.team_id = posthog_person.team_id
-            )
-            WHERE posthog_person.team_id = $1
-              AND (${whereConditions.join(' AND ')})
-            ORDER BY posthog_person.id, posthog_persondistinctid.distinct_id
-            LIMIT $${limitParamIndex}
-        `
+            WHERE (posthog_person.team_id, posthog_person.uuid) IN (SELECT * FROM UNNEST($1::integer[], $2::uuid[]))`
 
-        const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
-            PostgresUse.PERSONS_READ,
+        const { rows } = await this.postgres.query<RawPerson>(
+            useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
-            values,
-            'fetchPersonsByProperties'
+            [teamIds, personIds],
+            'fetchPersonsByPersonIds'
         )
 
-        return rows.map((row) => ({
-            ...this.toPerson(row),
-            distinct_id: row.distinct_id,
-        }))
+        return rows.map(this.toPerson)
     }
 
     async createPerson(
@@ -551,6 +404,7 @@ export class PostgresPersonRepository
                 'is_identified',
                 'uuid',
                 'version',
+                'last_seen_at',
             ]
             const valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
 
@@ -576,6 +430,9 @@ export class PostgresPersonRepository
                     .observe(sanitizedPropertiesLastOperation.length)
             }
 
+            // For new persons, set last_seen_at to the hour-rounded createdAt
+            const lastSeenAt = createdAt.startOf('hour')
+
             const personParams = [
                 createdAt.toISO(),
                 sanitizedProperties,
@@ -586,6 +443,7 @@ export class PostgresPersonRepository
                 isIdentified,
                 uuid,
                 personVersion,
+                lastSeenAt.toISO(),
             ]
 
             // Find the actual index of team_id in the personParams array (1-indexed for SQL)
@@ -1144,8 +1002,9 @@ export class PostgresPersonRepository
                     properties_last_updated_at = $2,
                     properties_last_operation = $3,
                     is_identified = $4,
+                    last_seen_at = $5,
                     version = COALESCE(version, 0)::numeric + 1
-                WHERE team_id = $5 AND uuid = $6 AND version = $7
+                WHERE team_id = $6 AND uuid = $7 AND version = $8
                 RETURNING *
                 `,
                 [
@@ -1153,6 +1012,7 @@ export class PostgresPersonRepository
                     JSON.stringify(personUpdate.properties_last_updated_at),
                     JSON.stringify(personUpdate.properties_last_operation),
                     personUpdate.is_identified,
+                    personUpdate.last_seen_at?.toISO() ?? null,
                     personUpdate.team_id,
                     personUpdate.uuid,
                     personUpdate.version,
@@ -1222,6 +1082,7 @@ export class PostgresPersonRepository
         const propertiesLastOperation: string[] = []
         const isIdentified: boolean[] = []
         const createdAt: string[] = []
+        const lastSeenAt: (string | null)[] = []
 
         for (const update of personUpdates) {
             uuids.push(update.uuid)
@@ -1242,6 +1103,7 @@ export class PostgresPersonRepository
             propertiesLastOperation.push(sanitizeJsonbValue(update.properties_last_operation))
             isIdentified.push(update.is_identified)
             createdAt.push(update.created_at.toISO()!)
+            lastSeenAt.push(update.last_seen_at?.toISO() ?? null)
         }
 
         try {
@@ -1256,6 +1118,7 @@ export class PostgresPersonRepository
                     properties_last_operation = batch.new_properties_last_operation::jsonb,
                     is_identified = batch.new_is_identified,
                     created_at = batch.new_created_at::timestamp with time zone,
+                    last_seen_at = batch.new_last_seen_at::timestamp with time zone,
                     version = COALESCE(p.version, 0)::numeric + 1
                 FROM UNNEST(
                     $1::uuid[],
@@ -1264,12 +1127,22 @@ export class PostgresPersonRepository
                     $4::text[],
                     $5::text[],
                     $6::boolean[],
-                    $7::text[]
-                ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at)
+                    $7::text[],
+                    $8::text[]
+                ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at, new_last_seen_at)
                 WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id
                 RETURNING p.*
                 `,
-                [uuids, teamIds, properties, propertiesLastUpdatedAt, propertiesLastOperation, isIdentified, createdAt],
+                [
+                    uuids,
+                    teamIds,
+                    properties,
+                    propertiesLastUpdatedAt,
+                    propertiesLastOperation,
+                    isIdentified,
+                    createdAt,
+                    lastSeenAt,
+                ],
                 'updatePersonsBatch'
             )
 

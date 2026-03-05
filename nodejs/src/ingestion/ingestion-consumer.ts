@@ -2,70 +2,68 @@ import { Message } from 'node-rdkafka'
 import { Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { MessageSizeTooLarge } from '~/utils/db/error'
-import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
-import { HogTransformerHub, HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import {
     HealthCheckResult,
     HealthCheckResultError,
-    Hub,
     IngestionConsumerConfig,
     PluginServerService,
     PluginsServerConfig,
+    RedisPool,
 } from '../types'
+import { PostgresRouter } from '../utils/db/postgres'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
+import { TeamManager } from '../utils/team-manager'
+import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
-import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
+import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
+import { GroupRepository } from '../worker/ingestion/groups/repositories/group-repository.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { FlushResult, PersonsStore } from '../worker/ingestion/persons/persons-store'
+import { PersonsStore } from '../worker/ingestion/persons/persons-store'
+import { PersonRepository } from '../worker/ingestion/persons/repositories/person-repository'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
+    JoinedIngestionPipelineDeps,
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from './analytics'
+import { CookielessManager } from './cookieless/cookieless-manager'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
+import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createContext } from './pipelines/helpers'
 import { ok } from './pipelines/results'
+import { TopHog } from './tophog'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redis-repository'
 
-/**
- * Narrowed Hub type for IngestionConsumer.
- * This includes all fields needed by IngestionConsumer and its dependencies:
- * - HogTransformerService (via HogTransformerHub)
- * - BatchWritingGroupStore (via GroupHub)
- * - EventIngestionRestrictionManager
- * - KafkaProducerWrapper
- * - BatchWritingPersonsStore
- * - Preprocessing and ingestion pipelines
- */
-export type IngestionConsumerHub = HogTransformerHub &
-    IngestionConsumerConfig &
-    Pick<
-        Hub,
-        // EventIngestionRestrictionManager
-        | 'redisPool'
-        // GroupHub (BatchWritingGroupStore)
-        | 'groupRepository'
-        | 'clickhouseGroupRepository'
-        // KafkaProducerWrapper.create
-        | 'KAFKA_CLIENT_RACK'
-        // PreprocessingHub (additional fields not in HogTransformerHub)
-        | 'cookielessManager'
-        // BatchWritingPersonsStore
-        | 'personRepository'
-        // GroupTypeManager
-        | 'groupTypeManager'
-    >
+export type IngestionConsumerFullConfig = IngestionConsumerConfig &
+    Pick<PluginsServerConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE' | 'INGESTION_PIPELINE'>
+
+export interface IngestionConsumerDeps {
+    postgres: PostgresRouter
+    redisPool: RedisPool
+    kafkaProducer: KafkaProducerWrapper
+    kafkaMetricsProducer: KafkaProducerWrapper
+    teamManager: TeamManager
+    groupTypeManager: GroupTypeManager
+    groupRepository: GroupRepository
+    clickhouseGroupRepository: ClickhouseGroupRepository
+    personRepository: PersonRepository
+    cookielessManager: CookielessManager
+    hogTransformer: HogTransformerService
+}
 
 const latestOffsetTimestampGauge = new Gauge({
     name: 'latest_processed_timestamp_ms',
@@ -93,7 +91,9 @@ export class IngestionConsumer {
     private personsStore: PersonsStore
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
+    private topHog!: TopHog
 
     private joinedPipeline!: BatchPipeline<
         JoinedIngestionPipelineInput,
@@ -103,7 +103,8 @@ export class IngestionConsumer {
     >
 
     constructor(
-        private hub: IngestionConsumerHub,
+        private config: IngestionConsumerFullConfig,
+        private deps: IngestionConsumerDeps,
         overrides: Partial<
             Pick<
                 PluginsServerConfig,
@@ -115,70 +116,86 @@ export class IngestionConsumer {
         > = {}
     ) {
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
-        this.groupId = overrides.INGESTION_CONSUMER_GROUP_ID ?? hub.INGESTION_CONSUMER_GROUP_ID
-        this.topic = overrides.INGESTION_CONSUMER_CONSUME_TOPIC ?? hub.INGESTION_CONSUMER_CONSUME_TOPIC
-        this.overflowTopic = overrides.INGESTION_CONSUMER_OVERFLOW_TOPIC ?? hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
-        this.dlqTopic = overrides.INGESTION_CONSUMER_DLQ_TOPIC ?? hub.INGESTION_CONSUMER_DLQ_TOPIC
-        this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
-        this.tokenDistinctIdsToSkipPersons = hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID.split(',').filter(
+        this.groupId = overrides.INGESTION_CONSUMER_GROUP_ID ?? config.INGESTION_CONSUMER_GROUP_ID
+        this.topic = overrides.INGESTION_CONSUMER_CONSUME_TOPIC ?? config.INGESTION_CONSUMER_CONSUME_TOPIC
+        this.overflowTopic = overrides.INGESTION_CONSUMER_OVERFLOW_TOPIC ?? config.INGESTION_CONSUMER_OVERFLOW_TOPIC
+        this.dlqTopic = overrides.INGESTION_CONSUMER_DLQ_TOPIC ?? config.INGESTION_CONSUMER_DLQ_TOPIC
+        this.tokenDistinctIdsToDrop = config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
+        this.tokenDistinctIdsToSkipPersons = config.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.tokenDistinctIdsToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
+        this.tokenDistinctIdsToForceOverflow = config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(deps.redisPool, {
             pipeline: 'analytics',
             staticDropEventTokens: this.tokenDistinctIdsToDrop,
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
+        this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(deps.postgres)
 
         this.name = `ingestion-consumer-${this.topic}`
 
         // Create shared Redis repository for overflow redirect services
         const overflowRedisRepository = new RedisOverflowRepository({
-            redisPool: this.hub.redisPool,
-            redisTTLSeconds: this.hub.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
+            redisPool: this.deps.redisPool,
+            redisTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
         })
 
         // Create overflow redirect service only when overflow is enabled (main lane)
         if (this.overflowEnabled()) {
             this.overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
-                localCacheTTLSeconds: this.hub.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                bucketCapacity: this.hub.EVENT_OVERFLOW_BUCKET_CAPACITY,
-                replenishRate: this.hub.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
-                statefulEnabled: this.hub.INGESTION_STATEFUL_OVERFLOW_ENABLED,
+                localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
+                replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                statefulEnabled: this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
             })
         }
 
         // Create TTL refresh service when consuming from overflow topic (overflow lane)
-        if (this.hub.INGESTION_LANE === 'overflow' && this.hub.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
+        if (this.config.INGESTION_LANE === 'overflow' && this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
             this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
             })
         }
 
-        this.hogTransformer = new HogTransformerService(hub)
+        this.hogTransformer = deps.hogTransformer
 
-        this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.kafkaProducer, {
-            dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
-            useBatchUpdates: this.hub.PERSON_BATCH_WRITING_USE_BATCH_UPDATES,
-            maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
-            maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-            optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-            updateAllProperties: this.hub.PERSON_PROPERTIES_UPDATE_ALL,
+        this.personsStore = new BatchWritingPersonsStore(this.deps.personRepository, this.deps.kafkaProducer, {
+            dbWriteMode: this.config.PERSON_BATCH_WRITING_DB_WRITE_MODE,
+            useBatchUpdates: this.config.PERSON_BATCH_WRITING_USE_BATCH_UPDATES,
+            maxConcurrentUpdates: this.config.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+            maxOptimisticUpdateRetries: this.config.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+            optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+            updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
         })
 
-        this.groupStore = new BatchWritingGroupStore(this.hub, {
-            maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
-            maxOptimisticUpdateRetries: this.hub.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-            optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-        })
+        this.groupStore = new BatchWritingGroupStore(
+            this.deps.kafkaProducer,
+            this.deps.groupRepository,
+            this.deps.clickhouseGroupRepository,
+            {
+                maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+                maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+                optimisticUpdateRetryInterval: this.config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+            }
+        )
 
         this.kafkaConsumer = new KafkaConsumer({
             groupId: this.groupId,
             topic: this.topic,
+        })
+
+        // Use the kafka producer from deps
+        this.kafkaProducer = this.deps.kafkaProducer
+
+        this.topHog = new TopHog({
+            kafkaProducer: this.deps.kafkaMetricsProducer,
+            topic: KAFKA_CLICKHOUSE_TOPHOG,
+            pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
+            lane: this.config.INGESTION_LANE ?? 'unknown',
         })
     }
 
@@ -193,48 +210,70 @@ export class IngestionConsumer {
     public async start(): Promise<void> {
         await Promise.all([
             this.hogTransformer.start(),
-            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK).then((producer) => {
-                this.kafkaProducer = producer
-            }),
             // TRICKY: When we produce overflow events they are back to the kafka we are consuming from
-            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK, 'CONSUMER').then((producer) => {
+            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CONSUMER').then((producer) => {
                 this.kafkaOverflowProducer = producer
             }),
         ])
 
+        this.topHog.start()
+
         // Initialize pipeline
+        const outputs = new IngestionOutputs({
+            [EVENTS_OUTPUT]: {
+                topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                producer: this.kafkaProducer!,
+            },
+            [AI_EVENTS_OUTPUT]: {
+                topic: this.config.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC,
+                producer: this.kafkaProducer!,
+            },
+        })
+
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
-            hub: this.hub,
-            kafkaProducer: this.kafkaProducer!,
-            personsStore: this.personsStore,
-            hogTransformer: this.hogTransformer,
-            eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             overflowEnabled: this.overflowEnabled(),
             overflowTopic: this.overflowTopic || '',
             dlqTopic: this.dlqTopic,
+            preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+            personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
+            cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
+            groupId: this.groupId,
+            outputs,
+            splitAiEventsConfig: parseSplitAiEventsConfig(
+                this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
+                this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS
+            ),
+            perDistinctIdOptions: {
+                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
+                PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+                PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
+                PERSON_MERGE_ASYNC_TOPIC: this.config.PERSON_MERGE_ASYNC_TOPIC,
+                PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
+                PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+                PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
+            },
+        }
+        const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
+            kafkaProducer: this.kafkaProducer!,
+            personsStore: this.personsStore,
+            groupStore: this.groupStore,
+            hogTransformer: this.hogTransformer,
+            eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            eventSchemaEnforcementManager: this.eventSchemaEnforcementManager,
             promiseScheduler: this.promiseScheduler,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
-            perDistinctIdOptions: {
-                CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
-                TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: this.hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
-                PIPELINE_STEP_STALLED_LOG_TIMEOUT: this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
-                PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
-                PERSON_MERGE_ASYNC_ENABLED: this.hub.PERSON_MERGE_ASYNC_ENABLED,
-                PERSON_MERGE_ASYNC_TOPIC: this.hub.PERSON_MERGE_ASYNC_TOPIC,
-                PERSON_MERGE_SYNC_BATCH_SIZE: this.hub.PERSON_MERGE_SYNC_BATCH_SIZE,
-                PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
-                PERSON_PROPERTIES_UPDATE_ALL: this.hub.PERSON_PROPERTIES_UPDATE_ALL,
-            },
-            teamManager: this.hub.teamManager,
-            groupTypeManager: this.hub.groupTypeManager,
-            groupId: this.groupId,
+            teamManager: this.deps.teamManager,
+            cookielessManager: this.deps.cookielessManager,
+            groupTypeManager: this.deps.groupTypeManager,
+            topHog: this.topHog,
         }
         this.joinedPipeline = createJoinedIngestionPipeline(
             newBatchPipelineBuilder<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>(),
-            joinedPipelineConfig
+            joinedPipelineConfig,
+            joinedPipelineDeps
         ).build()
 
         await this.kafkaConsumer.connect(async (messages) => {
@@ -255,8 +294,9 @@ export class IngestionConsumer {
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         logger.info('🔁', `${this.name} - stopping batch consumer`)
         await this.kafkaConsumer?.disconnect()
-        logger.info('🔁', `${this.name} - stopping kafka producer`)
-        await this.kafkaProducer?.disconnect()
+        logger.info('🔁', `${this.name} - stopping tophog`)
+        await this.topHog.stop()
+        // NOTE: Don't disconnect kafkaProducer here as it's shared from deps and managed by the server
         logger.info('🔁', `${this.name} - stopping kafka overflow producer`)
         await this.kafkaOverflowProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
@@ -304,23 +344,11 @@ export class IngestionConsumer {
     }
 
     public async handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<any> }> {
-        if (this.hub.KAFKA_BATCH_START_LOGGING_ENABLED) {
+        if (this.config.KAFKA_BATCH_START_LOGGING_ENABLED) {
             this.logBatchStart(messages)
         }
 
-        const groupStoreForBatch = this.groupStore.forBatch()
-
-        await this.runIngestionPipeline(messages, groupStoreForBatch)
-
-        const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), this.personsStore.flush()])
-
-        if (this.kafkaProducer) {
-            await this.producePersonsStoreMessages(personsStoreMessages)
-        }
-
-        this.personsStore.reportBatch()
-        this.personsStore.reset()
-        groupStoreForBatch.reportBatch()
+        await this.runIngestionPipeline(messages)
 
         for (const message of messages) {
             if (message.timestamp) {
@@ -337,8 +365,8 @@ export class IngestionConsumer {
         }
     }
 
-    private async runIngestionPipeline(messages: Message[], groupStoreForBatch: GroupStoreForBatch): Promise<void> {
-        const batch = messages.map((message) => createContext(ok({ message, groupStoreForBatch }), { message }))
+    private async runIngestionPipeline(messages: Message[]): Promise<void> {
+        const batch = messages.map((message) => createContext(ok({ message }), { message }))
 
         this.joinedPipeline.feed(batch)
 
@@ -348,46 +376,10 @@ export class IngestionConsumer {
         }
     }
 
-    private async producePersonsStoreMessages(personsStoreMessages: FlushResult[]): Promise<void> {
-        await Promise.all(
-            personsStoreMessages.map((record) => {
-                return Promise.all(
-                    record.topicMessage.messages.map(async (message) => {
-                        try {
-                            return await this.kafkaProducer!.produce({
-                                topic: record.topicMessage.topic,
-                                key: message.key ? Buffer.from(message.key) : null,
-                                value: message.value ? Buffer.from(message.value) : null,
-                                headers: message.headers,
-                            })
-                        } catch (error) {
-                            if (error instanceof MessageSizeTooLarge) {
-                                await captureIngestionWarning(
-                                    this.kafkaProducer!,
-                                    record.teamId,
-                                    'message_size_too_large',
-                                    {
-                                        eventUuid: record.uuid,
-                                        distinctId: record.distinctId,
-                                    }
-                                )
-                                logger.warn('🪣', `Message size too large`, {
-                                    topic: record.topicMessage.topic,
-                                    key: message.key,
-                                    headers: message.headers,
-                                })
-                            } else {
-                                throw error
-                            }
-                        }
-                    })
-                )
-            })
-        )
-        await this.kafkaProducer!.flush()
-    }
-
     private overflowEnabled(): boolean {
-        return !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC && this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
+        return (
+            !!this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
+            this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
+        )
     }
 }

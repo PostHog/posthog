@@ -27,6 +27,7 @@ describe('Feature Flags', { concurrent: false }, () => {
         dashboards: [],
         surveys: [],
         actions: [],
+        cohorts: [],
     }
 
     beforeAll(async () => {
@@ -62,14 +63,14 @@ describe('Feature Flags', { concurrent: false }, () => {
             const result = await createTool.handler(context, params)
 
             const flagData = parseToolResponse(result)
+            createdResources.featureFlags.push(flagData.id)
+
             expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
             expect(flagData.active).toBe(params.active)
             expect(flagData.url).toContain('/feature_flags/')
             expect(flagData.updated_at).toBeTruthy()
-
-            createdResources.featureFlags.push(flagData.id)
         })
 
         it('should create a feature flag with tags', async () => {
@@ -91,12 +92,11 @@ describe('Feature Flags', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params)
             const flagData = parseToolResponse(result)
+            createdResources.featureFlags.push(flagData.id)
 
             expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
-
-            createdResources.featureFlags.push(flagData.id)
         })
 
         it('should create a feature flag with complex filters', async () => {
@@ -125,12 +125,11 @@ describe('Feature Flags', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params)
             const flagData = parseToolResponse(result)
+            createdResources.featureFlags.push(flagData.id)
 
             expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
-
-            createdResources.featureFlags.push(flagData.id)
         })
 
         it('should create a multivariate feature flag', async () => {
@@ -157,6 +156,7 @@ describe('Feature Flags', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params)
             const flagData = parseToolResponse(result)
+            createdResources.featureFlags.push(flagData.id)
 
             expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
@@ -165,8 +165,6 @@ describe('Feature Flags', { concurrent: false }, () => {
             expect(flagData.filters.multivariate.variants).toHaveLength(2)
             expect(flagData.filters.multivariate.variants[0].key).toBe('control')
             expect(flagData.filters.multivariate.variants[1].key).toBe('test')
-
-            createdResources.featureFlags.push(flagData.id)
         })
 
         it('should create a multivariate flag with variant-specific targeting', async () => {
@@ -205,13 +203,12 @@ describe('Feature Flags', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params)
             const flagData = parseToolResponse(result)
+            createdResources.featureFlags.push(flagData.id)
 
             expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
             expect(flagData.filters.multivariate.variants).toHaveLength(2)
             expect(flagData.filters.groups[0].variant).toBe('test')
-
-            createdResources.featureFlags.push(flagData.id)
         })
     })
 

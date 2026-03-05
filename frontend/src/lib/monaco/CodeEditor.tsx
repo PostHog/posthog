@@ -1,7 +1,7 @@
 import './CodeEditor.scss'
 
 import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor, loader } from '@monaco-editor/react'
-import { BuiltLogic, useMountedLogic, useValues } from 'kea'
+import { BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -41,6 +41,8 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     onError?: (error: string | null) => void
     /** The original value to compare against - renders it in diff mode */
     originalValue?: string
+    /** Enable vim keybindings */
+    enableVimMode?: boolean
 }
 let codeEditorIndex = 0
 
@@ -132,6 +134,7 @@ export function CodeEditor({
     onMetadata,
     onMetadataLoading,
     originalValue,
+    enableVimMode,
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -143,6 +146,9 @@ export function CodeEditor({
 
     // Keep a ref to the editor for cleanup - ensures we can dispose it even if state is stale
     const editorRef = useRef<importedEditor.IStandaloneCodeEditor | null>(null)
+
+    const vimModeRef = useRef<{ dispose: () => void } | null>(null)
+    const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
 
     const [realKey] = useState(() => codeEditorIndex++)
     const builtCodeEditorLogic = codeEditorLogic({
@@ -159,6 +165,9 @@ export function CodeEditor({
         metadataFilters: sourceQuery?.kind === NodeKind.HogQLQuery ? sourceQuery.filters : undefined,
     })
     useMountedLogic(builtCodeEditorLogic)
+
+    const { vimCommandHistory } = useValues(builtCodeEditorLogic)
+    const { appendVimCommand } = useActions(builtCodeEditorLogic)
 
     const { isVisible } = usePageVisibility()
 
@@ -235,6 +244,38 @@ export function CodeEditor({
         })
     }, [monaco, schema])
 
+    useEffect(() => {
+        if (!editor) {
+            return
+        }
+
+        let cancelled = false
+
+        if (enableVimMode && vimStatusBarRef.current) {
+            const statusBar = vimStatusBarRef.current
+            void import('lib/monaco/vimMode').then(({ setupVimMode }) => {
+                if (cancelled) {
+                    return
+                }
+                vimModeRef.current = setupVimMode(editor, statusBar, {
+                    initialHistory: vimCommandHistory,
+                    onCommandExecuted: appendVimCommand,
+                })
+            })
+        } else if (vimModeRef.current) {
+            vimModeRef.current.dispose()
+            vimModeRef.current = null
+        }
+
+        return () => {
+            cancelled = true
+            if (vimModeRef.current) {
+                vimModeRef.current.dispose()
+                vimModeRef.current = null
+            }
+        }
+    }, [editor, enableVimMode])
+
     const editorOptions: editor.IStandaloneEditorConstructionOptions = {
         minimap: {
             enabled: false,
@@ -252,7 +293,7 @@ export function CodeEditor({
         overviewRulerLanes: 3,
         overflowWidgetsDomNode: monacoRoot,
         ...options,
-        padding: { bottom: 8, top: 8 },
+        padding: { bottom: enableVimMode ? 28 : 8, top: 8 },
         scrollbar: {
             vertical: scrollbarRendering,
             horizontal: scrollbarRendering,
@@ -383,14 +424,22 @@ export function CodeEditor({
     }
 
     return (
-        <MonacoEditor // eslint-disable-line react/forbid-elements
-            key={queryKey}
-            theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
-            loading={<Spinner />}
-            value={value}
-            options={editorOptions}
-            onMount={editorOnMount}
-            {...editorProps}
-        />
+        <div className="CodeEditor relative h-full w-full">
+            <MonacoEditor // eslint-disable-line react/forbid-elements
+                key={queryKey}
+                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
+                loading={<Spinner />}
+                value={value}
+                options={editorOptions}
+                onMount={editorOnMount}
+                {...editorProps}
+            />
+            {enableVimMode && (
+                <div
+                    ref={vimStatusBarRef}
+                    className="CodeEditor__vim-status-bar absolute bottom-0 left-0 right-0 font-mono text-xs px-2 py-0.5 bg-bg-light border-t z-10"
+                />
+            )}
+        </div>
     )
 }
