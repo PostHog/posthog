@@ -77,10 +77,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
     }
     const openInPlaygroundUrl =
         evaluation.evaluation_type === 'llm_judge' && evaluation.id
-            ? combineUrl(urls.llmAnalyticsPlayground(), {
-                  ...searchParams,
-                  source_evaluation_id: evaluation.id,
-              }).url
+            ? combineUrl(urls.llmAnalyticsPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 
     const isHog = evaluation.evaluation_type === 'hog'

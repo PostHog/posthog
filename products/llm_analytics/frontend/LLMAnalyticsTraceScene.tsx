@@ -1000,8 +1000,8 @@ const EventContent = React.memo(
                                             size="xsmall"
                                             icon={<IconPlay />}
                                             onClick={handleTryInPlayground}
-                                            tooltip="Try this prompt in the playground"
-                                            data-attr="llma-playground-try-in-playground-trace"
+                                            tooltip="Open in Playground"
+                                            data-attr="llma-playground-open-from-trace"
                                         >
                                             Open in Playground
                                         </LemonButton>

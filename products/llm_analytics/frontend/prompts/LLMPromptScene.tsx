@@ -61,8 +61,7 @@ export function LLMPromptScene(): JSX.Element {
         useActions(llmPromptLogic)
     const sourcePromptId = !isNewPrompt && prompt && isPrompt(prompt) ? prompt.id : null
     const openInPlaygroundUrl = sourcePromptId
-        ? combineUrl(urls.llmAnalyticsPlayground(), { source_prompt_id: sourcePromptId,
-          }).url
+        ? combineUrl(urls.llmAnalyticsPlayground(), { source_prompt_id: sourcePromptId }).url
         : undefined
 
     if (isPromptMissing) {
