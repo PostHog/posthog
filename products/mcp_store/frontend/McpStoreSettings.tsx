@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { IconCheck, IconPlus, IconServer, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
@@ -79,10 +79,37 @@ function ConnectOAuthButton({
 export function McpStoreSettings(): JSX.Element {
     const { installations, installationsLoading, installedServerUrls, recommendedServers, serversLoading } =
         useValues(mcpStoreLogic)
-    const { uninstallServer, toggleServerEnabled, openAddCustomServerModal, openAddCustomServerModalWithDefaults } =
-        useActions(mcpStoreLogic)
+    const {
+        uninstallServer,
+        toggleServerEnabled,
+        openAddCustomServerModal,
+        openAddCustomServerModalWithDefaults,
+        loadInstallations,
+        loadServers,
+    } = useActions(mcpStoreLogic)
     const { currentTeamId } = useValues(teamLogic)
     const [searchTerm, setSearchTerm] = useState('')
+
+    const refreshMcpStoreState = useCallback(() => {
+        loadInstallations()
+        loadServers()
+    }, [loadInstallations, loadServers])
+
+    useEffect(() => {
+        const handleVisibilityChange = (): void => {
+            if (document.visibilityState === 'visible') {
+                refreshMcpStoreState()
+            }
+        }
+
+        window.addEventListener('focus', refreshMcpStoreState)
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+
+        return () => {
+            window.removeEventListener('focus', refreshMcpStoreState)
+            document.removeEventListener('visibilitychange', handleVisibilityChange)
+        }
+    }, [refreshMcpStoreState])
 
     return (
         <>
