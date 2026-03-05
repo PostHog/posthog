@@ -11,6 +11,7 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Organization, Team, User
 from posthog.models.hog_flow.hog_flow import HogFlow
+from posthog.models.hog_function_template import HogFunctionTemplate
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -1623,3 +1624,314 @@ class TestHogFlowAPI(APIBaseTest):
         flow = next(f for f in results if f["id"] == flow_id)
         assert flow["draft"] is not None
         assert flow["draft_updated_at"] is not None
+
+
+TEMPLATE_WITH_SECRET_ID = "template-test-secret-dest"
+
+
+def _create_secret_destination_template():
+    return HogFunctionTemplate.objects.create(
+        template_id=TEMPLATE_WITH_SECRET_ID,
+        name="Test Secret Destination",
+        type="destination",
+        status="alpha",
+        code="fetch(inputs.url, {headers: {'Authorization': inputs.api_key}})",
+        code_language="hog",
+        inputs_schema=[
+            {"key": "url", "type": "string", "label": "URL", "secret": False, "required": True},
+            {"key": "api_key", "type": "string", "label": "API Key", "secret": True, "required": True},
+        ],
+        category=["Custom"],
+    )
+
+
+class TestHogFlowEncryptedInputs(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        sync_template_to_db(template_slack)
+        sync_template_to_db(webhook_template)
+        _create_secret_destination_template()
+
+    def _build_flow_with_secret_action(
+        self,
+        api_key_value: str = "sk-12345",
+        flow_status: str = "draft",
+    ) -> dict:
+        return {
+            "name": "Secret Flow",
+            "status": flow_status,
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {
+                        "type": "event",
+                        "filters": {
+                            "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                        },
+                    },
+                },
+                {
+                    "id": "action_1",
+                    "name": "secret_action",
+                    "type": "function",
+                    "config": {
+                        "template_id": TEMPLATE_WITH_SECRET_ID,
+                        "inputs": {
+                            "url": {"value": "https://example.com"},
+                            "api_key": {"value": api_key_value},
+                        },
+                    },
+                },
+            ],
+        }
+
+    def test_create_flow_stores_secret_inputs_encrypted(self):
+        data = self._build_flow_with_secret_action()
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", data)
+        assert response.status_code == 201, response.json()
+
+        flow = HogFlow.objects.get(pk=response.json()["id"])
+        assert flow.encrypted_inputs is not None
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "sk-12345"
+
+        action_inputs = flow.actions[1]["config"]["inputs"]
+        assert "api_key" not in action_inputs
+        assert action_inputs["url"]["value"] == "https://example.com"
+
+    def test_api_response_masks_secret_inputs(self):
+        data = self._build_flow_with_secret_action()
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", data)
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+        assert response.status_code == 200, response.json()
+
+        action_inputs = response.json()["actions"][1]["config"]["inputs"]
+        assert action_inputs["api_key"] == {"secret": True}
+        assert action_inputs["url"]["value"] == "https://example.com"
+
+    def test_update_with_secret_marker_preserves_existing_encrypted(self):
+        data = self._build_flow_with_secret_action(api_key_value="sk-original")
+        create_resp = self.client.post(f"/api/projects/{self.team.id}/hog_flows", data)
+        assert create_resp.status_code == 201, create_resp.json()
+        flow_id = create_resp.json()["id"]
+
+        update_data = self._build_flow_with_secret_action()
+        update_data["actions"][1]["config"]["inputs"]["api_key"] = {"secret": True}
+        update_data["actions"][1]["config"]["inputs"]["url"] = {"value": "https://updated.com"}
+
+        update_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            update_data,
+        )
+        assert update_resp.status_code == 200, update_resp.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "sk-original"
+        assert flow.actions[1]["config"]["inputs"]["url"]["value"] == "https://updated.com"
+
+    def test_update_with_new_secret_value_replaces_encrypted(self):
+        data = self._build_flow_with_secret_action(api_key_value="sk-original")
+        create_resp = self.client.post(f"/api/projects/{self.team.id}/hog_flows", data)
+        assert create_resp.status_code == 201, create_resp.json()
+        flow_id = create_resp.json()["id"]
+
+        update_data = self._build_flow_with_secret_action(api_key_value="sk-new-key")
+        update_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            update_data,
+        )
+        assert update_resp.status_code == 200, update_resp.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "sk-new-key"
+
+    def test_draft_save_extracts_secrets_from_new_draft_action(self):
+        # Create an active flow with a non-secret webhook action
+        data = {
+            "name": "Active Flow",
+            "status": "active",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {
+                        "type": "event",
+                        "filters": {
+                            "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                        },
+                    },
+                },
+                {
+                    "id": "action_1",
+                    "name": "webhook_action",
+                    "type": "function",
+                    "config": {
+                        "template_id": "template-webhook",
+                        "inputs": {"url": {"value": "https://example.com"}},
+                    },
+                },
+            ],
+        }
+        create_resp = self.client.post(f"/api/projects/{self.team.id}/hog_flows", data)
+        assert create_resp.status_code == 201, create_resp.json()
+        flow_id = create_resp.json()["id"]
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.encrypted_inputs is None
+
+        # Draft save adds a NEW action with a secret input
+        draft_actions = [
+            {
+                "id": "trigger_node",
+                "name": "trigger_1",
+                "type": "trigger",
+                "config": {
+                    "type": "event",
+                    "filters": {
+                        "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                    },
+                },
+            },
+            {
+                "id": "action_1",
+                "name": "webhook_action",
+                "type": "function",
+                "config": {
+                    "template_id": "template-webhook",
+                    "inputs": {"url": {"value": "https://example.com"}},
+                },
+            },
+            {
+                "id": "action_2",
+                "name": "secret_action",
+                "type": "function",
+                "config": {
+                    "template_id": TEMPLATE_WITH_SECRET_ID,
+                    "inputs": {
+                        "url": {"value": "https://draft.example.com"},
+                        "api_key": {"value": "sk-draft-secret"},
+                    },
+                },
+            },
+        ]
+
+        draft_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/draft",
+            {"actions": draft_actions},
+        )
+        assert draft_resp.status_code == 200, draft_resp.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.encrypted_inputs is not None
+        assert flow.encrypted_inputs["action_2"]["api_key"]["value"] == "sk-draft-secret"
+
+        draft_action_inputs = flow.draft["actions"][2]["config"]["inputs"]
+        assert "api_key" not in draft_action_inputs
+
+    def test_api_response_masks_secrets_in_draft_actions(self):
+        # Create an active flow without secrets, then add a secret action via draft
+        data = {
+            "name": "Active Flow",
+            "status": "active",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {
+                        "type": "event",
+                        "filters": {
+                            "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                        },
+                    },
+                },
+                {
+                    "id": "action_1",
+                    "name": "webhook_action",
+                    "type": "function",
+                    "config": {
+                        "template_id": "template-webhook",
+                        "inputs": {"url": {"value": "https://example.com"}},
+                    },
+                },
+            ],
+        }
+        create_resp = self.client.post(f"/api/projects/{self.team.id}/hog_flows", data)
+        assert create_resp.status_code == 201, create_resp.json()
+        flow_id = create_resp.json()["id"]
+
+        draft_actions = [
+            {
+                "id": "trigger_node",
+                "name": "trigger_1",
+                "type": "trigger",
+                "config": {
+                    "type": "event",
+                    "filters": {
+                        "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                    },
+                },
+            },
+            {
+                "id": "action_2",
+                "name": "secret_action",
+                "type": "function",
+                "config": {
+                    "template_id": TEMPLATE_WITH_SECRET_ID,
+                    "inputs": {
+                        "url": {"value": "https://draft.example.com"},
+                        "api_key": {"value": "sk-draft-secret"},
+                    },
+                },
+            },
+        ]
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/draft",
+            {"actions": draft_actions},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+        assert response.status_code == 200, response.json()
+
+        draft_action_inputs = response.json()["draft"]["actions"][1]["config"]["inputs"]
+        assert draft_action_inputs["api_key"] == {"secret": True}
+        assert draft_action_inputs["url"]["value"] == "https://draft.example.com"
+
+    def test_flow_without_secret_template_has_no_encrypted_inputs(self):
+        data = {
+            "name": "No Secret Flow",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {
+                        "type": "event",
+                        "filters": {
+                            "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                        },
+                    },
+                },
+                {
+                    "id": "action_1",
+                    "name": "webhook_action",
+                    "type": "function",
+                    "config": {
+                        "template_id": "template-webhook",
+                        "inputs": {"url": {"value": "https://example.com"}},
+                    },
+                },
+            ],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", data)
+        assert response.status_code == 201, response.json()
+
+        flow = HogFlow.objects.get(pk=response.json()["id"])
+        assert flow.encrypted_inputs is None

@@ -1,3 +1,4 @@
+import copy
 import json
 import uuid as uuid_mod
 from typing import Optional, cast
@@ -631,7 +632,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             temp_flow = HogFlow(
                 trigger=draft_trigger,
                 actions=draft_actions,
-                encrypted_inputs=hog_flow.encrypted_inputs,
+                encrypted_inputs=copy.deepcopy(hog_flow.encrypted_inputs),
             )
             temp_flow.move_secret_inputs()
             merged_draft["actions"] = temp_flow.actions
