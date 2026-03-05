@@ -165,6 +165,7 @@ pub enum DataType {
     ClientIngestionWarning,
     HeatmapMain,
     ExceptionMain,
+    ExceptionErrorTracking,
     SnapshotMain,
 }
 
