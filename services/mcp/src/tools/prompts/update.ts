@@ -9,11 +9,13 @@ const schema = PromptUpdateSchema
 
 type Params = z.infer<typeof schema>
 
-export const updateHandler: ToolBase<typeof schema>['handler'] = async (context: Context, { name, prompt }: Params) => {
-    const existing = await promptFetch<{ id: number }>(context, `/name/${name}/`)
-    return promptFetch(context, `/${existing.id}/`, {
+export const updateHandler: ToolBase<typeof schema>['handler'] = async (
+    context: Context,
+    { name, prompt, base_version }: Params
+) => {
+    return promptFetch(context, `/name/${name}/`, {
         method: 'PATCH',
-        body: { prompt },
+        body: { prompt, base_version },
     })
 }
 

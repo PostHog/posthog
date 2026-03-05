@@ -9,8 +9,12 @@ const schema = PromptGetSchema
 
 type Params = z.infer<typeof schema>
 
-export const getHandler: ToolBase<typeof schema>['handler'] = async (context: Context, { name }: Params) => {
-    return promptFetch(context, `/name/${name}/`)
+export const getHandler: ToolBase<typeof schema>['handler'] = async (context: Context, { name, version }: Params) => {
+    const query: Record<string, string> = {}
+    if (version !== undefined) {
+        query.version = version.toString()
+    }
+    return promptFetch(context, `/name/${name}/`, { query })
 }
 
 const tool = (): ToolBase<typeof schema> => ({
