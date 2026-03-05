@@ -9,6 +9,7 @@ import type {
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
+import type { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import type { funnelDataWarehouseStepDefinitionPopoverLogicType } from './funnelDataWarehouseStepDefinitionPopoverLogicType'
@@ -16,6 +17,11 @@ import type { funnelDataWarehouseStepDefinitionPopoverLogicType } from './funnel
 export type FunnelFieldKey = 'id_field' | 'timestamp_field' | 'distinct_id_field'
 
 const EDITABLE_FIELD_ORDER: FunnelFieldKey[] = ['distinct_id_field', 'timestamp_field', 'id_field']
+const ALLOWED_COLUMN_TYPES_BY_FIELD_KEY: Record<FunnelFieldKey, DatabaseSerializedFieldType[]> = {
+    distinct_id_field: ['string'],
+    timestamp_field: ['datetime', 'date', 'string'],
+    id_field: ['string', 'integer', 'decimal', 'float'],
+}
 
 export interface FunnelDataWarehouseStepDefinitionPopoverLogicProps {
     table: DataWarehouseTableForInsight
@@ -76,14 +82,19 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
             (localDefinition, activeFieldKey) => localDefinition[activeFieldKey],
         ],
         activeFieldOptions: [
-            (s) => [s.columnOptions, s.activeField],
-            (columnOptions, activeField) =>
-                activeField
+            (s) => [s.columnOptions, s.activeField, s.activeFieldKey],
+            (columnOptions, activeField, activeFieldKey) => {
+                const filteredColumnOptions = columnOptions.filter((column) =>
+                    ALLOWED_COLUMN_TYPES_BY_FIELD_KEY[activeFieldKey].includes(column.type)
+                )
+
+                return activeField
                     ? [
-                          ...columnOptions.filter((column) => !activeField.type || column.type === activeField.type),
+                          ...filteredColumnOptions,
                           ...(activeField.allowHogQL ? [{ label: 'SQL Expression', value: '' }] : []),
                       ]
-                    : columnOptions,
+                    : filteredColumnOptions
+            },
         ],
         activeFieldIsHogQL: [
             (s, p) => [s.activeFieldValue, p.table],
