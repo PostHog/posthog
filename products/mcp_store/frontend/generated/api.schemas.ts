@@ -66,6 +66,17 @@ export const InstallCustomAuthTypeEnumApi = {
     Oauth: 'oauth',
 } as const
 
+/**
+ * * `posthog` - posthog
+ * `twig` - twig
+ */
+export type InstallSourceEnumApi = (typeof InstallSourceEnumApi)[keyof typeof InstallSourceEnumApi]
+
+export const InstallSourceEnumApi = {
+    Posthog: 'posthog',
+    Twig: 'twig',
+} as const
+
 export interface InstallCustomApi {
     /** @maxLength 200 */
     name: string
@@ -75,16 +86,12 @@ export interface InstallCustomApi {
     api_key?: string
     description?: string
     oauth_provider_kind?: string
+    install_source?: InstallSourceEnumApi
+    twig_callback_url?: string
 }
 
 export interface OAuthRedirectResponseApi {
     redirect_url: string
-}
-
-export interface OAuthCallbackRequestApi {
-    code: string
-    server_id: string
-    state_token: string
 }
 
 /**
@@ -130,8 +137,23 @@ export type McpServerInstallationsListParams = {
 }
 
 export type McpServerInstallationsAuthorizeRetrieveParams = {
+    /**
+     * * `posthog` - posthog
+     * `twig` - twig
+     * @minLength 1
+     */
+    install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource
     server_id: string
+    twig_callback_url?: string
 }
+
+export type McpServerInstallationsAuthorizeRetrieveInstallSource =
+    (typeof McpServerInstallationsAuthorizeRetrieveInstallSource)[keyof typeof McpServerInstallationsAuthorizeRetrieveInstallSource]
+
+export const McpServerInstallationsAuthorizeRetrieveInstallSource = {
+    Posthog: 'posthog',
+    Twig: 'twig',
+} as const
 
 export type McpServersListParams = {
     /**
