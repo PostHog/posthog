@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 from unittest.mock import Mock, patch
@@ -10,6 +10,7 @@ from posthog.temporal.data_imports.sources.sentry.sentry import (
     _extract_rows,
     _normalize_api_base_url,
     _parse_next_link,
+    _start_param_for_sentry,
     get_resource,
     sentry_source,
     validate_credentials,
@@ -55,6 +56,14 @@ class TestSentryTransport:
     def test_normalize_api_base_url(self) -> None:
         assert _normalize_api_base_url(None) == "https://sentry.io"
         assert _normalize_api_base_url("https://us.sentry.io/") == "https://us.sentry.io"
+
+    def test_start_param_for_sentry_formats_datetime(self) -> None:
+        value = datetime(2025, 1, 1, 10, 30, 0, tzinfo=UTC)
+        assert _start_param_for_sentry(value) == "2025-01-01T10:30:00"
+
+    def test_start_param_for_sentry_caps_future_datetime(self) -> None:
+        value = datetime(2999, 1, 1, 0, 0, 0, tzinfo=UTC)
+        assert _start_param_for_sentry(value) != "2999-01-01T00:00:00"
 
     @parameterized.expand(
         [
@@ -109,7 +118,10 @@ class TestSentryTransport:
         assert resource["write_disposition"]["disposition"] == "merge"
         assert resource["endpoint"]["params"]["query"] == ""
         assert resource["endpoint"]["params"]["sort"] == "date"
-        assert "start" in resource["endpoint"]["params"]
+        assert "start" not in resource["endpoint"]["params"]
+        assert resource["endpoint"]["incremental"]["start_param"] == "start"
+        assert resource["endpoint"]["incremental"]["end_param"] == "end"
+        assert resource["endpoint"]["incremental"]["cursor_path"] == "lastSeen"
 
     @parameterized.expand(
         [
@@ -356,6 +368,30 @@ class TestSentryTransport:
         assert child["endpoint"]["params"]["issue_id"]["type"] == "resolve"
         assert child["endpoint"]["params"]["issue_id"]["resource"] == "issues"
         assert child["endpoint"]["params"]["issue_id"]["field"] == "id"
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resources")
+    def test_issue_dependent_source_incremental_window(self, mock_rest_api_resources) -> None:
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource("issues", []),
+            _FakeDltResource("issue_events", []),
+        ]
+
+        sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_events",
+            team_id=123,
+            job_id="job-id",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2025, 1, 1, 10, 30, 0),
+        )
+
+        config = mock_rest_api_resources.call_args[0][0]
+        _parent, child = config["resources"]
+        assert child["endpoint"]["incremental"]["start_param"] == "start"
+        assert child["endpoint"]["incremental"]["end_param"] == "end"
+        assert child["endpoint"]["incremental"]["cursor_path"] == "dateCreated"
 
 
 class TestHelpers:

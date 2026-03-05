@@ -1,7 +1,7 @@
 import re
 import time
 from collections.abc import Callable, Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import quote, urljoin
 
@@ -30,6 +30,33 @@ def _format_incremental_value(value: Any) -> str:
     if isinstance(value, date):
         return datetime.combine(value, datetime.min.time()).isoformat()
     return str(value)
+
+
+def _start_param_for_sentry(value: Any) -> str:
+    """Format/cap datetime-like values for Sentry `start` and `end` params."""
+    if isinstance(value, date) and not isinstance(value, datetime):
+        value = datetime.combine(value, datetime.min.time())
+
+    if not isinstance(value, datetime):
+        return str(value)
+
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+
+    capped = min(value.astimezone(UTC), datetime.now(UTC))
+    # Keep format conservative for API parsing: no timezone suffix, second precision.
+    return capped.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _sentry_incremental_window(cursor_path: str) -> dict[str, Any]:
+    return {
+        "cursor_path": cursor_path,
+        "start_param": "start",
+        "end_param": "end",
+        "initial_value": "1970-01-01T00:00:00",
+        "end_value": _start_param_for_sentry(datetime.now(UTC)),
+        "convert": _start_param_for_sentry,
+    }
 
 
 def _parse_next_link(link_header: str) -> str | None:
@@ -246,11 +273,18 @@ def get_resource(
 
     params: dict[str, Any] = {"limit": config.page_size}
 
+    endpoint_config: dict[str, Any] = {
+        "path": config.path.format(organization_slug=organization_slug),
+        "params": params,
+    }
+
     if endpoint == "issues":
         params["query"] = ""
         params["sort"] = "date" if (incremental_field or config.default_incremental_field) == "lastSeen" else "new"
-        if should_use_incremental_field and db_incremental_field_last_value is not None:
-            params["start"] = _format_incremental_value(db_incremental_field_last_value)
+        if should_use_incremental_field and bool(config.incremental_fields):
+            endpoint_config["incremental"] = _sentry_incremental_window(
+                incremental_field or config.default_incremental_field or "lastSeen"
+            )
 
     return {
         "name": config.name,
@@ -262,10 +296,7 @@ def get_resource(
         }
         if should_use_incremental_field and bool(config.incremental_fields)
         else "replace",
-        "endpoint": {
-            "path": config.path.format(organization_slug=organization_slug),
-            "params": params,
-        },
+        "endpoint": endpoint_config,
         "table_format": "delta",
     }
 
@@ -366,15 +397,16 @@ def _build_dependent_source(
         },
         "limit": child_config.page_size,
     }
-    if should_use_incremental_field and child_config.incremental_fields and db_incremental_field_last_value is not None:
-        child_params["start"] = _format_incremental_value(db_incremental_field_last_value)
-
     child_endpoint_config: dict[str, Any] = {
         "path": child_path,
         "params": child_params,
     }
-
     use_merge = bool(should_use_incremental_field and child_config.incremental_fields)
+    if use_merge:
+        child_endpoint_config["incremental"] = _sentry_incremental_window(
+            incremental_field or child_config.default_incremental_field or "dateCreated"
+        )
+
     child_resource: EndpointResource = {
         "name": child_endpoint,
         "table_name": child_endpoint,
