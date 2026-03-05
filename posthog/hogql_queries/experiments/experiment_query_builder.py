@@ -40,6 +40,7 @@ from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
     build_aggregation_call,
     extract_aggregation_and_inner_expr,
 )
+from posthog.hogql_queries.experiments.metric_source import MetricSourceInfo
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
@@ -390,16 +391,13 @@ class ExperimentQueryBuilder:
         if isinstance(self.metric.source, (ActionsNode, EventsNode)) and is_session_property_metric(self.metric.source):
             return self._get_session_property_ctes()
 
-        is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
+        # Use MetricSourceInfo abstraction for source metadata
+        source_info = MetricSourceInfo.from_source(self.metric.source, self.team)
 
-        if is_dw:
-            assert isinstance(self.metric.source, ExperimentDataWarehouseNode)
-            table = self.metric.source.table_name
-            timestamp_field = self.metric.source.timestamp_field
+        # Determine join condition based on source type
+        if source_info.kind == "datawarehouse":
             join_condition = "{join_condition}"
         else:
-            table = "events"
-            timestamp_field = "timestamp"
             join_condition = "exposures.entity_id = metric_events.entity_id"
 
         return f"""
@@ -410,10 +408,10 @@ class ExperimentQueryBuilder:
             metric_events AS (
                 SELECT
                     {{entity_key}} AS entity_id,
-                    {timestamp_field} AS timestamp,
+                    {source_info.timestamp_field} AS timestamp,
                     {{value_expr}} AS value
                     -- breakdown columns added programmatically below
-                FROM {table}
+                FROM {source_info.table_name}
                 WHERE {{metric_predicate}}
             ),
 
@@ -446,11 +444,12 @@ class ExperimentQueryBuilder:
         if is_session_property:
             return self._get_session_property_placeholders()
 
-        is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
+        # Use MetricSourceInfo abstraction for source metadata
+        source_info = MetricSourceInfo.from_source(self.metric.source, self.team)
 
         # Build exposure query with exposure_identifier for data warehouse
         exposure_query = self._get_exposure_query()
-        if is_dw:
+        if source_info.kind == "datawarehouse":
             assert isinstance(self.metric.source, ExperimentDataWarehouseNode)
             events_join_key_parts = cast(list[str | int], self.metric.source.events_join_key.split("."))
             exposure_query.select.append(
@@ -462,25 +461,17 @@ class ExperimentQueryBuilder:
             if exposure_query.group_by:
                 exposure_query.group_by.append(ast.Field(chain=events_join_key_parts))
 
-        if is_dw:
-            assert isinstance(self.metric.source, ExperimentDataWarehouseNode)
-            table = self.metric.source.table_name
-            entity_field = self.metric.source.data_warehouse_join_key
-        else:
-            table = "events"
-            entity_field = self.entity_key
-
         placeholders: dict = {
             "exposure_select_query": exposure_query,
-            "entity_key": parse_expr(entity_field),
-            "metric_predicate": self._build_metric_predicate(table_alias=table),
+            "entity_key": source_info.entity_key,
+            "metric_predicate": self._build_metric_predicate(table_alias=source_info.table_name),
             "value_expr": self._build_value_expr(),
             "value_agg": self._build_value_aggregation_expr(),
             "conversion_window_predicate": self._build_conversion_window_predicate(),
         }
 
         # Add join condition for data warehouse
-        if is_dw:
+        if source_info.kind == "datawarehouse":
             placeholders["join_condition"] = parse_expr(
                 "toString(exposures.exposure_identifier) = toString(metric_events.entity_id)"
             )
@@ -646,38 +637,26 @@ class ExperimentQueryBuilder:
         """
         assert isinstance(self.metric, ExperimentRatioMetric)
 
-        # Check if we're dealing with data warehouse sources
-        num_is_dw = isinstance(self.metric.numerator, ExperimentDataWarehouseNode)
-        denom_is_dw = isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
+        # Use MetricSourceInfo abstraction for both numerator and denominator
+        num_source_info = MetricSourceInfo.from_source(self.metric.numerator, self.team)
+        denom_source_info = MetricSourceInfo.from_source(self.metric.denominator, self.team)
 
-        # Build numerator events CTE
-        if num_is_dw:
-            assert isinstance(self.metric.numerator, ExperimentDataWarehouseNode)
-            num_table = self.metric.numerator.table_name
-            num_entity_field = f"{self.metric.numerator.data_warehouse_join_key}"
-            num_timestamp_field = self.metric.numerator.timestamp_field
-        else:
-            num_table = "events"
-            num_entity_field = self.entity_key
-            num_timestamp_field = f"{num_table}.timestamp"
+        # Extract field names for numerator
+        num_table = num_source_info.table_name
+        num_entity_field = num_source_info.entity_key
+        num_timestamp_field = num_source_info.timestamp_field
 
-        # Build denominator events CTE
-        if denom_is_dw:
-            assert isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
-            denom_table = self.metric.denominator.table_name
-            denom_entity_field = f"{self.metric.denominator.data_warehouse_join_key}"
-            denom_timestamp_field = self.metric.denominator.timestamp_field
-        else:
-            denom_table = "events"
-            denom_entity_field = self.entity_key
-            denom_timestamp_field = f"{denom_table}.timestamp"
+        # Extract field names for denominator
+        denom_table = denom_source_info.table_name
+        denom_entity_field = denom_source_info.entity_key
+        denom_timestamp_field = denom_source_info.timestamp_field
 
         # Build exposure query with conditional exposure_identifier(s)
         exposure_query = self._get_exposure_query()
-        if num_is_dw or denom_is_dw:
+        if num_source_info.kind == "datawarehouse" or denom_source_info.kind == "datawarehouse":
             # Add exposure_identifier fields for data warehouse joins
             # Support different join keys for numerator and denominator
-            if num_is_dw:
+            if num_source_info.kind == "datawarehouse":
                 num_source = cast(ExperimentDataWarehouseNode, self.metric.numerator)
                 num_join_key_parts = cast(list[str | int], num_source.events_join_key.split("."))
                 exposure_query.select.append(
@@ -689,7 +668,7 @@ class ExperimentQueryBuilder:
                 if exposure_query.group_by:
                     exposure_query.group_by.append(ast.Field(chain=num_join_key_parts))
 
-            if denom_is_dw:
+            if denom_source_info.kind == "datawarehouse":
                 denom_source = cast(ExperimentDataWarehouseNode, self.metric.denominator)
                 denom_join_key_parts = cast(list[str | int], denom_source.events_join_key.split("."))
                 exposure_query.select.append(
@@ -702,12 +681,12 @@ class ExperimentQueryBuilder:
                     exposure_query.group_by.append(ast.Field(chain=denom_join_key_parts))
 
         # Build join conditions for pre-aggregation CTEs based on DW scenario
-        if num_is_dw:
+        if num_source_info.kind == "datawarehouse":
             num_preagg_join = "toString(exposures.exposure_identifier_num) = toString(numerator_events.entity_id)"
         else:
             num_preagg_join = "exposures.entity_id = numerator_events.entity_id"
 
-        if denom_is_dw:
+        if denom_source_info.kind == "datawarehouse":
             denom_preagg_join = "toString(exposures.exposure_identifier_denom) = toString(denominator_events.entity_id)"
         else:
             denom_preagg_join = "exposures.entity_id = denominator_events.entity_id"
@@ -792,8 +771,8 @@ class ExperimentQueryBuilder:
             """,
             placeholders={
                 "exposure_select_query": exposure_query,
-                "num_entity_key": parse_expr(num_entity_field),
-                "denom_entity_key": parse_expr(denom_entity_field),
+                "num_entity_key": num_entity_field,
+                "denom_entity_key": denom_entity_field,
                 "numerator_predicate": self._build_metric_predicate(
                     source=self.metric.numerator, table_alias=num_table
                 ),
