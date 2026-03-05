@@ -1,6 +1,6 @@
 use std::{path::PathBuf, time::Instant};
 
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, Result};
 use serde_json::json;
 use tracing::{info, warn};
 use walkdir::WalkDir;
@@ -94,6 +94,7 @@ pub fn upload(args: &Args) -> Result<()> {
     context().capture_event("error_tracking_cli_sourcemaps_upload_finished", props);
 
     upload_result?;
+    Ok(())
 }
 
 fn read_maps(directory: &PathBuf) -> Vec<SourceMapFile> {
