@@ -518,11 +518,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         activities = activity_response.json()["results"]
         updated_activity = next((a for a in activities if a["activity"] == "updated"), None)
-        self.assertIsNotNone(updated_activity)
+        assert updated_activity is not None
 
         changes = updated_activity["detail"]["changes"]
         favorited_change = next((c for c in changes if c["field"] == "favorited"), None)
-        self.assertIsNotNone(favorited_change)
+        assert favorited_change is not None
         self.assertFalse(favorited_change["before"])
         self.assertTrue(favorited_change["after"])
 
