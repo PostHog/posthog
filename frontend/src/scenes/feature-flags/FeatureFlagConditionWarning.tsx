@@ -27,7 +27,7 @@ export function FeatureFlagConditionWarning({
 
     return (
         <div
-            className={`flex items-center gap-2 text-xs p-2 rounded border border-warning-dark bg-warning-highlight ${className ?? ''}`}
+            className={`flex items-center gap-2 text-xs p-2 rounded border border-warning-dark bg-warning-highlight${className ? ` ${className}` : ''}`}
         >
             <IconInfo className="text-base shrink-0 text-warning-dark" />
             <span>
