@@ -943,7 +943,7 @@ def _match_repo_rule(
     try:
         from posthog.llm.gateway_client import get_llm_client
 
-        client = get_llm_client("twig")
+        client = get_llm_client("slack-twig")
         response = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": prompt}],
