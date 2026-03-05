@@ -472,6 +472,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         {
             27,  # CANNOT_PARSE_INPUT ("expected ',' at end of stream")
             117,  # INCORRECT_DATA ("Expected end of line")
+            636,  # CANNOT_EXTRACT_TABLE_STRUCTURE (wraps inner parse errors like 117)
         }
     )
 
