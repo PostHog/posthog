@@ -36,7 +36,8 @@ import {
     createJoinedIngestionPipeline,
 } from './analytics'
 import { CookielessManager } from './cookieless/cookieless-manager'
-import { EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
+import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createContext } from './pipelines/helpers'
@@ -223,6 +224,10 @@ export class IngestionConsumer {
                 topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 producer: this.kafkaProducer!,
             },
+            [AI_EVENTS_OUTPUT]: {
+                topic: this.config.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC,
+                producer: this.kafkaProducer!,
+            },
         })
 
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
@@ -235,6 +240,10 @@ export class IngestionConsumer {
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
             groupId: this.groupId,
             outputs,
+            splitAiEventsConfig: parseSplitAiEventsConfig(
+                this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
+                this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS
+            ),
             perDistinctIdOptions: {
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
