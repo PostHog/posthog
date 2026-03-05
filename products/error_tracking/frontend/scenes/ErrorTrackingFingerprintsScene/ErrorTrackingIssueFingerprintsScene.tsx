@@ -5,6 +5,9 @@ import { LemonButton, LemonCheckbox, LemonSelect, LemonTable, LemonTableColumns 
 
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { errorTrackingIssueFingerprintsSceneLogic } from './errorTrackingIssueFingerprintsSceneLogic'
 
@@ -53,7 +56,7 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                     }}
                     disabledReason={
                         fingerprintSamples.length === 1
-                            ? 'You cannot split an issue that only has one fingerprint'
+                            ? 'This issue only has one fingerprint and cannot be split'
                             : undefined
                     }
                 />
@@ -64,7 +67,7 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                     checked={fingerprintSamples.length > 0 && selectedFingerprints.length === fingerprintSamples.length}
                     disabledReason={
                         fingerprintSamples.length === 1
-                            ? 'You cannot split an issue that only has one fingerprint'
+                            ? 'This issue only has one fingerprint and cannot be split'
                             : undefined
                     }
                     onChange={(checked) => {
@@ -75,90 +78,103 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
             ),
         },
         {
-            title: 'Example type',
+            title: 'Exception type',
             key: 'type',
             dataIndex: 'samples',
             width: '200px',
             render: (samples: { type: string; value: string }[]) =>
-                samples.length > 0 ? samples[0].type : <span className="text-muted italic">No exception types</span>,
+                samples.length > 0 ? samples[0].type : <span className="text-muted italic">Unknown</span>,
         },
         {
-            title: 'Example message',
+            title: 'Exception message',
             key: 'message',
             dataIndex: 'samples',
             render: (messages: { type: string; value: string }[]) =>
-                messages.length > 0 ? (
-                    messages[0].value
-                ) : (
-                    <span className="text-muted italic">No exception messages</span>
-                ),
+                messages.length > 0 ? messages[0].value : <span className="text-muted italic">No message</span>,
         },
-        { title: 'Count', dataIndex: 'count' },
+        { title: 'Occurrences', dataIndex: 'count' },
     ] as LemonTableColumns<ErrorTrackingFingerprintSamples>
 
     const disabledReason =
         selectedFingerprints.length === fingerprintSamples.length
-            ? 'You must leave at least one fingerprint associated with the issue'
+            ? 'At least one fingerprint must remain with the original issue'
             : selectedFingerprints.length === 0
-              ? 'Select at least one fingerprint'
+              ? 'Select at least one fingerprint to split'
               : fingerprintSamples.length === 1
-                ? 'You cannot split an issue that only has one fingerprint'
+                ? 'This issue only has one fingerprint and cannot be split'
                 : undefined
 
     return (
         <ErrorTrackingSetupPrompt>
-            <div className="space-y-2">
-                <div>
-                    Select the fingerprints that you want to split out from this issue. An individual issue will be
-                    created for each of the fingerprints.
-                </div>
-
-                {selectedFingerprints.length <= 1 ? (
-                    <LemonButton
-                        size="small"
-                        type="primary"
-                        disabledReason={disabledReason}
-                        onClick={() => split(true)}
-                    >
-                        Split
-                    </LemonButton>
-                ) : (
-                    <LemonSelect
-                        size="small"
-                        type="primary"
-                        placeholder="Split"
-                        options={[
-                            { value: false, label: 'Split fingerprints into a single issue' },
-                            { value: true, label: 'Split fingerprints into individual issues' },
-                        ]}
-                        onSelect={(value) => split(value)}
-                        disabledReason={disabledReason}
-                    />
-                )}
-                <LemonTable<ErrorTrackingFingerprintSamples>
-                    className="w-full"
-                    loading={isLoading}
-                    dataSource={fingerprintSamples}
-                    columns={columns}
-                    expandable={{
-                        noIndent: true,
-                        rowExpandable: (record) => record.samples.length > 1,
-                        expandedRowRender: (record) => (
-                            <LemonTable
-                                className="w-full"
-                                loading={false}
-                                embedded={true}
-                                showHeader={true}
-                                dataSource={record.samples}
-                                columns={[
-                                    { title: 'Type', width: '200px', dataIndex: 'type' },
-                                    { title: 'Message', dataIndex: 'value' },
-                                ]}
-                            />
-                        ),
-                    }}
+            <SceneContent>
+                <SceneTitleSection
+                    name="Fingerprints"
+                    description={null}
+                    resourceType={{ type: 'error_tracking' }}
+                    actions={
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            to="https://posthog.com/docs/error-tracking/fingerprints"
+                            targetBlank
+                        >
+                            Documentation
+                        </LemonButton>
+                    }
                 />
-            </div>
+                <div className="space-y-2">
+                    <div className="text-secondary">
+                        Select fingerprints to split into separate issues. Each selected fingerprint becomes its own
+                        issue, or you can group them into one.
+                    </div>
+
+                    {selectedFingerprints.length <= 1 ? (
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            disabledReason={disabledReason}
+                            onClick={() => split(true)}
+                        >
+                            Split
+                        </LemonButton>
+                    ) : (
+                        <LemonSelect
+                            size="small"
+                            type="primary"
+                            placeholder="Split"
+                            options={[
+                                { value: false, label: 'Merge selected into one new issue' },
+                                { value: true, label: 'Split each into its own issue' },
+                            ]}
+                            onSelect={(value) => split(value)}
+                            disabledReason={disabledReason}
+                        />
+                    )}
+                    <LemonTable<ErrorTrackingFingerprintSamples>
+                        className="w-full"
+                        loading={isLoading}
+                        dataSource={fingerprintSamples}
+                        columns={columns}
+                        expandable={{
+                            noIndent: true,
+                            rowExpandable: (record) => record.samples.length > 1,
+                            expandedRowRender: (record) => (
+                                <LemonTable
+                                    className="w-full"
+                                    loading={false}
+                                    embedded={true}
+                                    showHeader={true}
+                                    dataSource={record.samples}
+                                    columns={[
+                                        { title: 'Type', width: '200px', dataIndex: 'type' },
+                                        { title: 'Message', dataIndex: 'value' },
+                                    ]}
+                                />
+                            ),
+                        }}
+                    />
+                </div>
+            </SceneContent>
         </ErrorTrackingSetupPrompt>
     )
 }
