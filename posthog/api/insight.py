@@ -1161,7 +1161,6 @@ class InsightViewSet(
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
-            queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
             queryset = self._filter_request(self.request, queryset)
 

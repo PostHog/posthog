@@ -751,9 +751,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # The first request for a user runs the one-time lazy migration of org-level favorites
         # to per-user InsightFavorite rows (+5 queries: 1 select_for_update, 1 nested insight select, 1 user save, 2 transaction).
-        # All subsequent requests are constant at 15 — adding more insights doesn't change the count.
+        # All subsequent requests are constant at 14 — adding more insights doesn't change the count.
         self.assertEqual(
-            [20, 15, 15, 15, 15],
+            [19, 14, 14, 14, 14],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
