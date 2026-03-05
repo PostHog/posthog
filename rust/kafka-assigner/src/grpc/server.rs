@@ -271,13 +271,19 @@ impl KafkaAssigner for KafkaAssignerService {
                 );
             }
 
-            // Cleanup: unregister from local registry and revoke the etcd lease.
+            // Unregister from the local in-memory registry so the server stops
+            // trying to send commands on the dead channel.
+            //
+            // We intentionally do NOT revoke the etcd lease here. Letting it
+            // expire naturally (after consumer_lease_ttl) gives the consumer a
+            // grace period to reconnect — e.g. during a rolling deployment —
+            // without triggering a rebalance. If the consumer reconnects before
+            // the TTL elapses, it overwrites the key with a fresh lease and no
+            // partition movement occurs. If it doesn't come back, the lease
+            // expires and the assigner reassigns its partitions.
             registry.unregister(&name);
-            if let Err(e) = store.revoke_lease(lease_id).await {
-                tracing::warn!(consumer = %name, error = %e, "failed to revoke lease on cleanup");
-            }
 
-            tracing::info!(consumer = %name, "consumer disconnected, cleaned up");
+            tracing::info!(consumer = %name, lease_id, "consumer disconnected, lease will expire via TTL");
         });
 
         Ok(Response::new(ReceiverStream::new(proto_rx)))

@@ -24,7 +24,7 @@ pub struct Config {
     #[envconfig(default = "1024")]
     pub stream_channel_size: usize,
 
-    #[envconfig(default = "30")]
+    #[envconfig(default = "15")]
     pub consumer_lease_ttl_secs: i64,
 
     #[envconfig(default = "10")]
@@ -121,7 +121,7 @@ mod tests {
     fn default_config_parses() {
         let config = Config::init_with_defaults().expect("default config should parse");
         assert_eq!(config.stream_channel_size, 1024);
-        assert_eq!(config.consumer_lease_ttl_secs, 30);
+        assert_eq!(config.consumer_lease_ttl_secs, 15);
         assert_eq!(config.leader_lease_ttl_secs, 15);
         assert_eq!(config.handoff_timeout_secs, 300);
     }
