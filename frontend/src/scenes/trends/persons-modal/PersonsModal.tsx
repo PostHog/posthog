@@ -116,6 +116,7 @@ export function PersonsModal({
     }, [title, actorLabel.plural])
 
     const hasGroups = actors.some((actor) => isGroupType(actor))
+    const hasSessions = actors.some((actor) => isSessionType(actor))
 
     return (
         <>
@@ -136,16 +137,22 @@ export function PersonsModal({
                     {actorsResponse && !!missingActorsCount && !hasGroups && (
                         <MissingPersonsAlert actorLabel={actorLabel} missingActorsCount={missingActorsCount} />
                     )}
-                    <LemonInput
-                        type="search"
-                        placeholder={
-                            hasGroups ? 'Search for groups by name or ID' : 'Search for persons by email, name, or ID'
-                        }
-                        fullWidth
-                        value={searchTerm}
-                        onChange={setSearchTerm}
-                        className="my-2"
-                    />
+
+                    {/* TODO: Support search for sessions */}
+                    {!hasSessions && (
+                        <LemonInput
+                            type="search"
+                            placeholder={
+                                hasGroups
+                                    ? 'Search for groups by name or ID'
+                                    : 'Search for persons by email, name, or ID'
+                            }
+                            fullWidth
+                            value={searchTerm}
+                            onChange={setSearchTerm}
+                            className="my-2"
+                        />
+                    )}
 
                     {urls ? (
                         <LemonSelect
