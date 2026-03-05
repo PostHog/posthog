@@ -83,6 +83,7 @@ export function ViewsTab(): JSX.Element {
         runHistoryMapLoading,
         materializedViewsCurrentPage,
         viewsCurrentPage,
+        savedQueryIdToNodeId,
     } = useValues(viewsTabLogic)
     const { setSearchTerm, deleteView, runMaterialization, setMaterializedViewsPage, setViewsPage } =
         useActions(viewsTabLogic)
@@ -149,7 +150,11 @@ export function ViewsTab(): JSX.Element {
                                         />
                                     ) : (
                                         <LemonTableLink
-                                            to={urls.sqlEditor({ view_id: view.id })}
+                                            to={
+                                                savedQueryIdToNodeId[view.id]
+                                                    ? urls.nodeDetail(savedQueryIdToNodeId[view.id])
+                                                    : urls.sqlEditor({ view_id: view.id })
+                                            }
                                             title={view.name}
                                             description="Materialized view"
                                         />
@@ -304,7 +309,14 @@ export function ViewsTab(): JSX.Element {
                                             </span>
                                         </>
                                     ) : (
-                                        <LemonTableLink to={urls.sqlEditor({ view_id: view.id })} title={view.name} />
+                                        <LemonTableLink
+                                            to={
+                                                savedQueryIdToNodeId[view.id]
+                                                    ? urls.nodeDetail(savedQueryIdToNodeId[view.id])
+                                                    : urls.sqlEditor({ view_id: view.id })
+                                            }
+                                            title={view.name}
+                                        />
                                     ),
                             },
                             {

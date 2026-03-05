@@ -233,7 +233,6 @@ function NodeMetadata({
 export const NodeInner = React.memo(function NodeInner({
     name,
     type,
-    savedQueryId,
     handles,
     layoutDirection,
     isRunning,
@@ -257,7 +256,6 @@ export const NodeInner = React.memo(function NodeInner({
     const nodeTypeSettings = NODE_TYPE_SETTINGS[type]
 
     const canRun = type === 'matview' || type === 'view' || type === 'endpoint'
-    const canOpenInEditor = type !== 'table' && savedQueryId
     const shouldRenderArrows = canRun && isHovered && !isRunning
 
     const handleMouseEnter = useCallback(() => {
@@ -276,7 +274,7 @@ export const NodeInner = React.memo(function NodeInner({
                 isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
                 !isRunning && (isSearchMatch || isTypeHighlighted) && 'border-link ring-2 ring-link/30',
                 !isRunning && !isSearchMatch && !isTypeHighlighted && 'border-border',
-                canOpenInEditor && 'cursor-pointer'
+                'cursor-pointer'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -369,7 +367,6 @@ const NodeComponent = React.memo(function NodeComponent(props: { id: string; dat
         [id, materializeNode]
     )
 
-    const canOpenInEditor = type !== 'table' && type !== 'endpoint' && savedQueryId
     const handleNodeClick = useCallback((): void => {
         if (type === 'endpoint') {
             const versionMatch = props.data.name.match(/^(.+)_v(\d+)$/)
@@ -378,10 +375,10 @@ const NodeComponent = React.memo(function NodeComponent(props: { id: string; dat
             } else {
                 newTab(urls.endpoint(props.data.name))
             }
-        } else if (canOpenInEditor) {
-            newTab(urls.sqlEditor({ view_id: savedQueryId }))
+        } else {
+            newTab(urls.nodeDetail(id))
         }
-    }, [type, canOpenInEditor, savedQueryId, newTab])
+    }, [type, id, newTab, props.data.name])
 
     const handleMouseEnter = useCallback(() => setHoveredNodeId(id), [id, setHoveredNodeId])
     const handleMouseLeave = useCallback(() => setHoveredNodeId(null), [setHoveredNodeId])
