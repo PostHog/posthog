@@ -11,6 +11,7 @@ from posthog.schema import (
     BreakdownType,
     DataWarehouseNode,
     EventsNode,
+    FunnelAggregateByHogQL,
     FunnelTimeToConvertResults,
     FunnelVizType,
     GroupNode,
@@ -282,7 +283,7 @@ class FunnelBase(ABC):
         return self._extra_event_fields + self._extra_event_properties
 
     def _is_session_aggregation(self) -> bool:
-        return self.context.funnelsFilter.funnelAggregateByHogQL == "properties.$session_id"
+        return self.context.funnelsFilter.funnelAggregateByHogQL == FunnelAggregateByHogQL.PROPERTIES__SESSION_ID
 
     @property
     def _absolute_actors_step(self) -> Optional[int]:
