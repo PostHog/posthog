@@ -20,7 +20,12 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.postgres_table import PostgresTable
 
-from posthog.api.services.query import _source_id_for_connection, process_query_model
+from posthog.api.services.query import (
+    _connection_source_identifiers,
+    _filter_schema_tables_for_connection,
+    _source_id_for_connection,
+    process_query_model,
+)
 
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -312,6 +317,122 @@ class TestQueryService(APIBaseTest):
             database_arg = kwargs["database_arg"]
             self.assertIsNotNone(database_arg)
             self.assertTrue(database_arg.has_table("posthog_dashboard"))
+            self.assertFalse(database_arg.has_table("events"))
+            return HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
+
+        mock_get_hogql_autocomplete.side_effect = _mock_autocomplete
+
+        response = process_query_model(
+            self.team,
+            HogQLAutocomplete(
+                kind="HogQLAutocomplete",
+                query="SELECT * FROM ",
+                language=HogLanguage.HOG_QL,
+                startPosition=14,
+                endPosition=14,
+                connectionId="selected-connection",
+            ),
+        )
+
+        self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
+
+    @patch("posthog.api.services.query.get_hogql_autocomplete")
+    @patch("posthog.api.services.query.Database.create_for")
+    def test_hogql_autocomplete_with_connection_filters_other_source_tables(
+        self,
+        mock_create_for: MagicMock,
+        mock_get_hogql_autocomplete: MagicMock,
+    ):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        other_source = ExternalDataSource.objects.create(
+            source_id="other-upstream-source",
+            connection_id="other-connection",
+            destination_id="destination-2",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.HUBSPOT,
+        )
+
+        database = Database()
+        database.tables.add_child(
+            TableNode(
+                name="selected_table",
+                table=PostgresTable(name="selected_table", fields={}, postgres_table_name="selected_table"),
+            )
+        )
+        database.tables.add_child(
+            TableNode(
+                name="other_table",
+                table=PostgresTable(name="other_table", fields={}, postgres_table_name="other_table"),
+            )
+        )
+        database.serialize = MagicMock(
+            return_value={
+                "selected_table": DatabaseSchemaDataWarehouseTable(
+                    fields={},
+                    format="Parquet",
+                    id="selected_table_id",
+                    name="selected_table",
+                    url_pattern="warehouse://selected",
+                    schema=DatabaseSchemaSchema(
+                        id="schema-selected",
+                        name="selected_table",
+                        should_sync=True,
+                        incremental=False,
+                    ),
+                    source=DatabaseSchemaSource(
+                        id=str(selected_source.id),
+                        status=selected_source.status,
+                        source_type=selected_source.source_type,
+                        access_method=selected_source.access_method,
+                        prefix=selected_source.prefix or "",
+                    ),
+                ),
+                "other_table": DatabaseSchemaDataWarehouseTable(
+                    fields={},
+                    format="Parquet",
+                    id="other_table_id",
+                    name="other_table",
+                    url_pattern="warehouse://other",
+                    schema=DatabaseSchemaSchema(
+                        id="schema-other",
+                        name="other_table",
+                        should_sync=True,
+                        incremental=False,
+                    ),
+                    source=DatabaseSchemaSource(
+                        id=str(other_source.id),
+                        status=other_source.status,
+                        source_type=other_source.source_type,
+                        access_method=other_source.access_method,
+                        prefix=other_source.prefix or "",
+                    ),
+                ),
+            }
+        )
+        self.assertEqual(
+            set(
+                _filter_schema_tables_for_connection(
+                    database.serialize.return_value,
+                    _connection_source_identifiers(selected_source),
+                ).keys()
+            ),
+            {"selected_table"},
+        )
+        mock_create_for.return_value = database
+
+        def _mock_autocomplete(*args, **kwargs):
+            database_arg = kwargs["database_arg"]
+            self.assertIsNotNone(database_arg)
+            self.assertTrue(database_arg.has_table("selected_table"))
+            self.assertFalse(database_arg.has_table("other_table"))
             self.assertFalse(database_arg.has_table("events"))
             return HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
 

@@ -69,6 +69,17 @@ def _source_id_for_connection(team: Team, connection_id: str | None) -> str | No
     return source.source_id if source else None
 
 
+def _connection_source_identifiers(source: ExternalDataSource | None) -> set[str] | None:
+    if source is None:
+        return None
+
+    return {
+        identifier
+        for identifier in [str(source.id), source.source_id, source.connection_id]
+        if identifier is not None and identifier != ""
+    }
+
+
 def _filter_schema_tables_for_connection(tables: dict, source_ids: set[str] | None) -> dict:
     if not source_ids:
         return {
@@ -124,6 +135,11 @@ def _prune_database_for_direct_connection(database: Database, allowed_table_name
         return node.name == "root" or keep_table or len(node.children) > 0
 
     prune_node(database.tables, [])
+    database._warehouse_table_names = [name for name in database._warehouse_table_names if name in allowed_table_names]
+    database._warehouse_self_managed_table_names = [
+        name for name in database._warehouse_self_managed_table_names if name in allowed_table_names
+    ]
+    database._view_table_names = [name for name in database._view_table_names if name in allowed_table_names]
 
 
 def process_query_dict(
@@ -209,9 +225,8 @@ def process_query_model(
 
     if isinstance(query, HogQLAutocomplete):
         source = _source_for_connection(team, query.connectionId)
-        connection_source_id = source.source_id if source else None
         database = None
-        if connection_source_id:
+        if source:
             database = Database.create_for(
                 team=team,
                 modifiers=create_default_modifiers_for_team(team),
@@ -219,8 +234,12 @@ def process_query_model(
                 if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT
                 else None,
             )
-            if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT:
-                _prune_database_for_direct_connection(database, set(database.get_warehouse_table_names()))
+            serialized_tables = database.serialize(
+                HogQLContext(team_id=team.pk, team=team, database=database, user=user)
+            )
+            source_ids = _connection_source_identifiers(source)
+            filtered_tables = _filter_schema_tables_for_connection(serialized_tables, source_ids)
+            _prune_database_for_direct_connection(database, set(filtered_tables.keys()))
         return get_hogql_autocomplete(query=query, team=team, database_arg=database)
 
     if isinstance(query, HogQLMetadata):
@@ -230,7 +249,7 @@ def process_query_model(
     if isinstance(query, DatabaseSchemaQuery):
         joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
         source = _source_for_connection(team, query.connectionId)
-        source_ids = {str(source.source_id), str(source.id)} if source else None
+        source_ids = _connection_source_identifiers(source)
         database = Database.create_for(
             team=team,
             modifiers=create_default_modifiers_for_team(team),
