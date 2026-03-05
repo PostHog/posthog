@@ -8,6 +8,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
+
 import { Intro } from '../Intro'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
@@ -20,38 +22,51 @@ import { ThreadAutoScroller } from './ThreadAutoScroller'
 /* Sits above the chat area */
 export function ChatHeader({ conversationId, tabId }: { conversationId: string | null; tabId?: string }): JSX.Element {
     const { openSidePanelMax } = useActions(maxGlobalLogic)
+    const { chatTitle } = useValues(maxLogic)
     const { closeTabId } = useActions(sceneLogic)
+    const isTitleLoading = chatTitle === 'New chat'
 
     return (
-        <div className="flex w-full gap-2 py-2 border-b border-primary items-center justify-end px-2">
-            {conversationId ? (
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    sideIcon={<IconShare />}
-                    onClick={() => {
-                        copyToClipboard(
-                            urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
-                            'conversation sharing link'
-                        )
-                    }}
-                >
-                    Copy link to chat
-                </LemonButton>
-            ) : undefined}
-            {tabId ? (
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    sideIcon={<IconOpenSidebar />}
-                    onClick={() => {
-                        openSidePanelMax(conversationId ?? undefined)
-                        closeTabId(tabId, { source: 'open_in_side_panel' })
-                    }}
-                >
-                    Open in context panel
-                </LemonButton>
-            ) : undefined}
+        <div className="flex w-full gap-2 py-2 border-b border-primary items-center justify-between px-2">
+            <div className="flex items-center gap-2 pl-2 text-sm font-medium truncate min-w-0 flex-1">
+                {chatTitle === null ? null : isTitleLoading ? (
+                    <div className="w-100">
+                        <SceneName name="New chat" isLoading />
+                    </div>
+                ) : (
+                    <SceneName name={chatTitle} />
+                )}
+            </div>
+            <div className="flex items-center gap-2">
+                {conversationId ? (
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        sideIcon={<IconShare />}
+                        onClick={() => {
+                            copyToClipboard(
+                                urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
+                                'conversation sharing link'
+                            )
+                        }}
+                    >
+                        Copy link
+                    </LemonButton>
+                ) : undefined}
+                {tabId ? (
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        sideIcon={<IconOpenSidebar />}
+                        onClick={() => {
+                            openSidePanelMax(conversationId ?? undefined)
+                            closeTabId(tabId, { source: 'open_in_side_panel' })
+                        }}
+                    >
+                        Open in context panel
+                    </LemonButton>
+                ) : undefined}
+            </div>
         </div>
     )
 }

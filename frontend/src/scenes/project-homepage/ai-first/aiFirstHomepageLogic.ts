@@ -20,7 +20,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     connect(() => ({
         values: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['threadLogicKey']],
-        actions: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['openConversation', 'askMax', 'setQuestion']],
+        actions: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['openConversation', 'startNewConversation']],
     })),
 
     actions({
@@ -76,17 +76,13 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     listeners(({ actions, values }) => ({
         submitQuery: async ({ mode }, breakpoint) => {
+            if (mode === 'ai') {
+                actions.startNewConversation()
+            }
+
             // Reducer kept phase as 'content' for same-mode re-submits — nothing to animate
             if (values.animationPhase === 'content') {
                 return
-            }
-
-            if (mode === 'ai' && values.query.trim()) {
-                const prompt = values.query.trim()
-                actions.setQuestion(prompt)
-                // Wait for maxThreadLogic to mount after mode transition renders HomepageAiInput
-                await breakpoint(150)
-                actions.askMax(prompt)
             }
 
             await breakpoint(300)
