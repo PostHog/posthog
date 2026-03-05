@@ -3700,7 +3700,7 @@
 # name: test_create_table_query[session_event_summaries]
   '''
   
-  CREATE TABLE IF NOT EXISTS session_event_summaries 
+  CREATE TABLE IF NOT EXISTS session_event_summaries
   (
       team_id Int64,
       session_id String,
@@ -3718,7 +3718,7 @@
 # name: test_create_table_query[session_event_summaries_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS session_event_summaries_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS session_event_summaries_mv
   TO posthog_test.writable_session_event_summaries
   AS SELECT
       team_id,
@@ -4736,7 +4736,7 @@
 # name: test_create_table_query[sharded_session_event_summaries]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_session_event_summaries ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_session_event_summaries
   (
       team_id Int64,
       session_id String,
@@ -5807,7 +5807,7 @@
 # name: test_create_table_query[writable_session_event_summaries]
   '''
   
-  CREATE TABLE IF NOT EXISTS writable_session_event_summaries 
+  CREATE TABLE IF NOT EXISTS writable_session_event_summaries
   (
       team_id Int64,
       session_id String,
@@ -7483,7 +7483,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_session_event_summaries]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_session_event_summaries ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_session_event_summaries
   (
       team_id Int64,
       session_id String,

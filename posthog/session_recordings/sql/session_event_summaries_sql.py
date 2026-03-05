@@ -1,6 +1,5 @@
 from django.conf import settings
 
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import ttl_period
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
@@ -17,7 +16,7 @@ def SESSION_EVENT_SUMMARIES_DATA_TABLE_ENGINE():
 
 
 SESSION_EVENT_SUMMARIES_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
     session_id String,
@@ -32,7 +31,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 """
 
 
-def SESSION_EVENT_SUMMARIES_DATA_TABLE_SQL(on_cluster=True):
+def SESSION_EVENT_SUMMARIES_DATA_TABLE_SQL():
     return (
         SESSION_EVENT_SUMMARIES_TABLE_BASE_SQL
         + """
@@ -43,16 +42,14 @@ SETTINGS index_granularity=512
 """
     ).format(
         table_name=DATA_TABLE_NAME,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=SESSION_EVENT_SUMMARIES_DATA_TABLE_ENGINE(),
         ttl=ttl_period("min_timestamp", TTL_DAYS, "DAY"),
     )
 
 
-def WRITABLE_SESSION_EVENT_SUMMARIES_TABLE_SQL(on_cluster=False):
+def WRITABLE_SESSION_EVENT_SUMMARIES_TABLE_SQL():
     return SESSION_EVENT_SUMMARIES_TABLE_BASE_SQL.format(
         table_name=WRITABLE_TABLE_NAME,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=DATA_TABLE_NAME,
             sharding_key="sipHash64(session_id)",
@@ -60,10 +57,9 @@ def WRITABLE_SESSION_EVENT_SUMMARIES_TABLE_SQL(on_cluster=False):
     )
 
 
-def DISTRIBUTED_SESSION_EVENT_SUMMARIES_TABLE_SQL(on_cluster=False):
+def DISTRIBUTED_SESSION_EVENT_SUMMARIES_TABLE_SQL():
     return SESSION_EVENT_SUMMARIES_TABLE_BASE_SQL.format(
         table_name=TABLE_BASE_NAME,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=DATA_TABLE_NAME,
             sharding_key="sipHash64(session_id)",
@@ -71,9 +67,9 @@ def DISTRIBUTED_SESSION_EVENT_SUMMARIES_TABLE_SQL(on_cluster=False):
     )
 
 
-def SESSION_EVENT_SUMMARIES_MV_SQL(on_cluster=True):
+def SESSION_EVENT_SUMMARIES_MV_SQL():
     return """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
 TO {database}.{target_table}
 AS SELECT
     team_id,
@@ -90,7 +86,6 @@ WHERE length(JSONExtractString(properties, '$session_id')) > 0
 GROUP BY team_id, session_id, event
 """.format(
         mv_name=MV_NAME,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         target_table=WRITABLE_TABLE_NAME,
         database=settings.CLICKHOUSE_DATABASE,
     )
