@@ -127,10 +127,11 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
     """
     Daily workflow to cluster LLM traces based on their embeddings.
 
-    This workflow orchestrates 3 activities:
+    This workflow orchestrates 4 activities:
     1. Compute: Fetch embeddings, perform k-means clustering, compute distances
     2. Label: Generate LLM-based cluster labels (long timeout for API call)
-    3. Emit: Write clustering results to ClickHouse
+    3. Aggregates: Compute per-cluster metrics and sentiment (best-effort, non-blocking)
+    4. Emit: Write clustering results to ClickHouse
 
     The workflow calculates window_start/window_end from lookback_days and
     passes them to activities. Embeddings (~30+ MB) stay within Activity 1,
