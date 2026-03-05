@@ -1,4 +1,4 @@
-import { afterMount, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -35,6 +35,20 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             },
         ],
     })),
+    actions({
+        openQueryModal: true,
+        closeQueryModal: true,
+        updateNodeDescription: (description: string) => ({ description }),
+    }),
+    reducers({
+        queryModalOpen: [
+            false,
+            {
+                openQueryModal: () => true,
+                closeQueryModal: () => false,
+            },
+        ],
+    }),
     selectors({
         nodeType: [(s) => [s.node], (node: DataModelingNode | null) => node?.type ?? null],
         breadcrumbs: [
