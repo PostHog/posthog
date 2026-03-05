@@ -503,11 +503,11 @@
             },
             "required": ["dashboardId", "data"]
         },
-        "DemoMcpUiAppsSchema": {
+        "DebugMcpUiAppsSchema": {
             "type": "object",
             "properties": {
                 "message": {
-                    "description": "Optional message to include in the demo data",
+                    "description": "Optional message to include in the debug data",
                     "type": "string"
                 }
             }

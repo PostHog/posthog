@@ -476,9 +476,9 @@ export const EntitySearchSchema = z.object({
         ),
 })
 
-// Demo MCP UI Apps
-export const DemoMcpUiAppsSchema = z.object({
-    message: z.string().optional().describe('Optional message to include in the demo data'),
+// Debug MCP UI Apps
+export const DebugMcpUiAppsSchema = z.object({
+    message: z.string().optional().describe('Optional message to include in the debug data'),
 })
 
 // PostHog AI tools
