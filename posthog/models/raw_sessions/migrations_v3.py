@@ -1,3 +1,5 @@
+from posthog.models.raw_sessions.sessions_v3 import SESSION_V3_MAX_EMAILS_PER_SESSION, SESSION_V3_MAX_HOSTS_PER_SESSION
+
 DROP_PERSON_ID = """
 ALTER TABLE {table_name}
 DROP COLUMN IF EXISTS person_id
@@ -44,9 +46,9 @@ ADD INDEX IF NOT EXISTS flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRA
 
 
 ADD_HOSTS = """
-ALTER TABLE {table_name}
-ADD COLUMN IF NOT EXISTS hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)) AFTER event_names
-"""
+ALTER TABLE {{table_name}}
+ADD COLUMN IF NOT EXISTS hosts SimpleAggregateFunction(groupUniqArrayArray({max_hosts}), Array(String)) AFTER event_names
+""".format(max_hosts=SESSION_V3_MAX_HOSTS_PER_SESSION)
 
 
 ADD_HOSTS_BLOOM_FILTER = """
@@ -56,9 +58,9 @@ ADD INDEX IF NOT EXISTS hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY
 
 
 ADD_EMAILS = """
-ALTER TABLE {table_name}
-ADD COLUMN IF NOT EXISTS emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)) AFTER hosts
-"""
+ALTER TABLE {{table_name}}
+ADD COLUMN IF NOT EXISTS emails SimpleAggregateFunction(groupUniqArrayArray({max_emails}), Array(String)) AFTER hosts
+""".format(max_emails=SESSION_V3_MAX_EMAILS_PER_SESSION)
 
 
 ADD_EMAILS_BLOOM_FILTER = """
