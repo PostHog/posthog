@@ -331,7 +331,7 @@ class InsightBasicSerializer(
             representation["favorited"] = instance.is_favorited
         elif "request" in self.context and not self.context["request"].user.is_anonymous:
             representation["favorited"] = InsightFavorite.objects.filter(
-                user=self.context["request"].user, insight=instance
+                user=self.context["request"].user, insight=instance, team=instance.team
             ).exists()
 
         if hogql_insights_replace_filters(instance.team) and (
@@ -559,17 +559,19 @@ class InsightSerializer(InsightBasicSerializer):
         favorited_change: tuple[bool, bool] | None = None
         request_user = self.context["request"].user
         if favorited_value is not None and not request_user.is_anonymous:
-            was_favorited = InsightFavorite.objects.filter(user=request_user, insight=instance).exists()
+            was_favorited = InsightFavorite.objects.filter(
+                user=request_user, insight=instance, team=instance.team
+            ).exists()
             is_favorited = bool(favorited_value)
             if is_favorited != was_favorited:
                 if is_favorited:
                     InsightFavorite.objects.get_or_create(
                         user=request_user,
                         insight=instance,
-                        defaults={"team": instance.team},
+                        team=instance.team,
                     )
                 else:
-                    InsightFavorite.objects.filter(user=request_user, insight=instance).delete()
+                    InsightFavorite.objects.filter(user=request_user, insight=instance, team=instance.team).delete()
                 favorited_change = (was_favorited, is_favorited)
 
         self.context["favorited_change"] = favorited_change
@@ -1115,6 +1117,7 @@ class InsightViewSet(
                     InsightFavorite.objects.filter(
                         insight=OuterRef("pk"),
                         user=self.request.user,
+                        team=self.team,
                     )
                 )
             )
@@ -1286,7 +1289,9 @@ class InsightViewSet(
             elif key == "favorited":
                 if not request.user.is_anonymous:
                     queryset = queryset.filter(
-                        id__in=InsightFavorite.objects.filter(user=request.user).values_list("insight_id", flat=True)
+                        id__in=InsightFavorite.objects.filter(user=request.user, team=self.team).values_list(
+                            "insight_id", flat=True
+                        )
                     )
                 else:
                     # Anonymous users (e.g. shared access tokens) fall back to the legacy field
