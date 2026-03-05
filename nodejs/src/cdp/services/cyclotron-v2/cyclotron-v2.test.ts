@@ -314,7 +314,9 @@ describe('Cyclotron V2', () => {
             await job.heartbeat()
 
             const rowAfter = await queryJob(id)
-            expect(rowAfter.last_heartbeat!.getTime()).toBeGreaterThanOrEqual(rowBefore.last_heartbeat!.getTime())
+            expect(new Date(rowAfter.last_heartbeat!).getTime()).toBeGreaterThanOrEqual(
+                new Date(rowBefore.last_heartbeat!).getTime()
+            )
             expect(rowAfter.status).toBe('running')
         })
 
