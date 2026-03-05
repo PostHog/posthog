@@ -169,10 +169,10 @@ CREATE TABLE IF NOT EXISTS {table_name}
     event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
 
     -- Hosts - store unique hostnames seen in this session (extracted from $host property)
-    hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
+    hosts SimpleAggregateFunction(groupUniqArrayArray({max_hosts}), Array(String)),
 
     -- Emails - store unique emails seen in this session (extracted from person_properties.email)
-    emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
+    emails SimpleAggregateFunction(groupUniqArrayArray({max_emails}), Array(String)),
 
     -- Replay
     has_replay_events SimpleAggregateFunction(max, Boolean)
@@ -220,7 +220,13 @@ SETTINGS {settings}
         engine=SHARDED_RAW_SESSIONS_DATA_TABLE_ENGINE_V3(),
         settings=SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3(),
         session_timestamp_modifier="DEFAULT",
+        max_hosts=SESSION_V3_MAX_HOSTS_PER_SESSION,
+        max_emails=SESSION_V3_MAX_EMAILS_PER_SESSION,
     )
+
+
+SESSION_V3_MAX_HOSTS_PER_SESSION = 100
+SESSION_V3_MAX_EMAILS_PER_SESSION = 10
 
 
 def ALTER_SHARDED_RAW_SESSIONS_TABLE_SETTINGS_V3():
@@ -397,7 +403,7 @@ SELECT
     if(_host IS NOT NULL AND _host != '', [_host], []) AS hosts,
 
     -- emails
-    if(_person_email != '', [_person_email], []) AS emails,
+    if(_person_email IS NOT NULL AND _person_email != '', [_person_email], []) AS emails,
 
     false as has_replay_events
 FROM {source_table} AS source_table
@@ -653,6 +659,8 @@ def WRITABLE_RAW_SESSIONS_TABLE_SQL_V3():
             sharding_key="cityHash64(session_id_v7)",
         ),
         session_timestamp_modifier="DEFAULT",
+        max_hosts=SESSION_V3_MAX_HOSTS_PER_SESSION,
+        max_emails=SESSION_V3_MAX_EMAILS_PER_SESSION,
     )
 
 
@@ -667,6 +675,8 @@ def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3():
             sharding_key="cityHash64(session_id_v7)",
         ),
         session_timestamp_modifier="MATERIALIZED",
+        max_hosts=SESSION_V3_MAX_HOSTS_PER_SESSION,
+        max_emails=SESSION_V3_MAX_EMAILS_PER_SESSION,
     )
 
 
@@ -746,10 +756,10 @@ SELECT
     groupUniqArrayArray(2000)(event_names) as event_names,
 
     -- hosts
-    groupUniqArrayArray(100)(hosts) as hosts,
+    groupUniqArrayArray({SESSION_V3_MAX_HOSTS_PER_SESSION})(hosts) as hosts,
 
     -- emails
-    groupUniqArrayArray(10)(emails) as emails,
+    groupUniqArrayArray({SESSION_V3_MAX_EMAILS_PER_SESSION})(emails) as emails,
 
     -- replay
     max(has_replay_events) as has_replay_events
