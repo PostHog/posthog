@@ -222,7 +222,8 @@ function ClusterMetricsChips({
         (metrics.avg_cost !== null ||
             metrics.avg_latency !== null ||
             metrics.avg_tokens !== null ||
-            metrics.error_rate !== null)
+            metrics.error_rate !== null ||
+            metrics.sentiment !== null)
 
     if (!hasMetrics) {
         return null
@@ -232,7 +233,15 @@ function ClusterMetricsChips({
 
     return (
         <div className="flex flex-row flex-wrap items-center gap-2 mt-2">
-            {metrics.sentiment && <SentimentBar label={metrics.sentiment.label} score={metrics.sentiment.score} />}
+            {metrics.sentiment && (
+                <Tooltip
+                    title={`Sentiment: ${metrics.sentiment.label} (${metrics.sentiment.total} ${itemLabel} classified)`}
+                >
+                    <span>
+                        <SentimentBar label={metrics.sentiment.label} score={metrics.sentiment.score} />
+                    </span>
+                </Tooltip>
+            )}
             {metrics.avg_cost !== null && (
                 <Tooltip title={`Average cost per ${clusteringLevel}`}>
                     <LemonTag type="muted" size="small">

@@ -44,7 +44,8 @@ export function ClusterCard({
         (metrics.avg_cost !== null ||
             metrics.avg_latency !== null ||
             metrics.avg_tokens !== null ||
-            metrics.error_rate !== null)
+            metrics.error_rate !== null ||
+            metrics.sentiment !== null)
 
     return (
         <div
