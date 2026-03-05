@@ -5,8 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
         ("event_definitions", "0002_schemapropertygroupproperty_is_optional_in_types"),
         ("conversations", "0023_ticket_sla_due_at_index"),
@@ -165,25 +163,6 @@ class Migration(migrations.Migration):
                 ),
                 migrations.RunSQL(
                     sql="""
-                        CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_ticket_id_idx"
-                        ON "posthog_taggeditem" ("ticket_id");
-                    """,
-                    reverse_sql="""
-                        DROP INDEX IF EXISTS "posthog_taggeditem_ticket_id_idx";
-                    """,
-                ),
-                migrations.RunSQL(
-                    sql="""
-                        CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "unique_ticket_tagged_item"
-                        ON "posthog_taggeditem" ("tag_id", "ticket_id")
-                        WHERE "ticket_id" IS NOT NULL; -- not-null-ignore
-                    """,
-                    reverse_sql="""
-                        DROP INDEX IF EXISTS "unique_ticket_tagged_item";
-                    """,
-                ),
-                migrations.RunSQL(
-                    sql="""
                         ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "exactly_one_related_object";
                         ALTER TABLE "posthog_taggeditem" ADD CONSTRAINT "exactly_one_related_object" CHECK ( /* -- existing-table-constraint-ignore */
                             (
@@ -219,44 +198,6 @@ class Migration(migrations.Migration):
                         ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_a13e3a20_uniq";
                     """,
                     reverse_sql=migrations.RunSQL.noop,
-                ),
-                migrations.RunSQL(
-                    sql="""
-                        CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_d90686d0_uniq"
-                        ON "posthog_taggeditem" (
-                            "tag_id",
-                            "dashboard_id",
-                            "insight_id",
-                            "event_definition_id",
-                            "property_definition_id",
-                            "action_id",
-                            "feature_flag_id",
-                            "experiment_saved_metric_id",
-                            "ticket_id"
-                        );
-                    """,
-                    reverse_sql="""
-                        CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq"
-                        ON "posthog_taggeditem" (
-                            "tag_id",
-                            "dashboard_id",
-                            "insight_id",
-                            "event_definition_id",
-                            "property_definition_id",
-                            "action_id",
-                            "feature_flag_id",
-                            "experiment_saved_metric_id"
-                        );
-                    """,
-                ),
-                migrations.RunSQL(
-                    sql="""
-                        ALTER TABLE "posthog_taggeditem" ADD CONSTRAINT "posthog_taggeditem_tag_id_dashboard_id_insi_d90686d0_uniq"
-                        UNIQUE USING INDEX "posthog_taggeditem_tag_id_dashboard_id_insi_d90686d0_uniq"; -- existing-table-constraint-ignore
-                    """,
-                    reverse_sql="""
-                        ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_d90686d0_uniq";
-                    """,
                 ),
             ],
         )
