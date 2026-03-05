@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconFlag, IconStar } from '@posthog/icons'
+import { IconFlag, IconHeart, IconStar } from '@posthog/icons'
 import { LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TagSelect } from 'lib/components/TagSelect'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -31,6 +32,7 @@ export function SavedInsightsFilters({
     /** When true, inactive filters appear borderless. */
     borderless?: boolean
 }): JSX.Element {
+    const isAIFirst = useFeatureFlag('AI_FIRST')
     const { search, hideFeatureFlagInsights, favorited, tags, insightType, createdBy } = filters
     const { meFirstMembers, filteredMembers, membersLoading, search: memberSearch } = useValues(membersLogic)
     const { setSearch: setMemberSearch, ensureAllMembersLoaded } = useActions(membersLogic)
@@ -203,7 +205,7 @@ export function SavedInsightsFilters({
                             active={favorited || false}
                             onClick={() => setFilters({ favorited: !favorited })}
                             size="small"
-                            icon={<IconStar />}
+                            icon={isAIFirst ? <IconHeart /> : <IconStar />}
                         >
                             Favorites
                         </LemonButton>
