@@ -119,7 +119,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                     productName="Alerts"
                     productKey={ProductKey.ALERTS}
                     thingName="alert"
-                    description="Alerts enable you to monitor your insight and notify you when certain conditions are met. Please note that alerts are in alpha and may not be fully reliable."
+                    description="Alerts enable you to monitor your insight and notify you when certain conditions are met."
                     // TODO: update docs link when ready
                     // docsURL="https://posthog.com/docs/data/annotations"
                     isEmpty={alertsSortedByState.length === 0 && !alertsLoading}
