@@ -1,10 +1,11 @@
+import { env } from 'cloudflare:workers'
 import { PostHog } from 'posthog-node'
 
 const POSTHOG_API_KEY = 'sTMFPsFhdP1Ssg'
 const POSTHOG_HOST = 'https://us.i.posthog.com'
 
-const DEV_POSTHOG_API_KEY = 'phc_C6h5hqm0bvKtlL5npVRSB62g5QWW3jtN31RQTQ8nBmE'
-const DEV_POSTHOG_HOST = 'http://localhost:8010'
+const DEV_POSTHOG_API_KEY = env.POSTHOG_ANALYTICS_API_KEY ?? POSTHOG_API_KEY
+const DEV_POSTHOG_HOST = env.POSTHOG_ANALYTICS_HOST ?? POSTHOG_HOST
 
 let _client: PostHog | undefined
 
