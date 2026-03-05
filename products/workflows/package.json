@@ -17,6 +17,7 @@
     },
     "peerDependencies": {
         "@posthog/icons": "*",
+        "@storybook/react": "*",
         "@types/react": "*",
         "@xyflow/react": "*",
         "clsx": "*",
