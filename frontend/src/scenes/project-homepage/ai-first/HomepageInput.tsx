@@ -144,7 +144,7 @@ export function HomepageInput(): JSX.Element {
     const { mode } = useValues(aiFirstHomepageLogic)
 
     return (
-        <div className="w-full max-w-180 mx-auto px-4 py-2">
+        <div className="w-full max-w-180 mx-auto py-2">
             {mode === 'idle' && (
                 <div className="flex flex-col items-center gap-3">
                     <Intro />

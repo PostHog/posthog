@@ -17,6 +17,45 @@ import { ChatHistoryPanel } from './ChatHistoryPanel'
 import { SidebarQuestionInputWithSuggestions } from './SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './ThreadAutoScroller'
 
+/* Sits above the chat area */
+export function ChatHeader({ conversationId, tabId }: { conversationId: string | null; tabId?: string }): JSX.Element {
+    const { openSidePanelMax } = useActions(maxGlobalLogic)
+    const { closeTabId } = useActions(sceneLogic)
+
+    return (
+        <div className="flex w-full gap-2 py-2 border-b border-primary items-center justify-end px-2">
+            {conversationId ? (
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    sideIcon={<IconShare />}
+                    onClick={() => {
+                        copyToClipboard(
+                            urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
+                            'conversation sharing link'
+                        )
+                    }}
+                >
+                    Copy link to chat
+                </LemonButton>
+            ) : undefined}
+            {tabId ? (
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    sideIcon={<IconOpenSidebar />}
+                    onClick={() => {
+                        openSidePanelMax(conversationId ?? undefined)
+                        closeTabId(tabId, { source: 'open_in_side_panel' })
+                    }}
+                >
+                    Open in context panel
+                </LemonButton>
+            ) : undefined}
+        </div>
+    )
+}
+
 interface AiFirstMaxInstanceProps {
     tabId: string
 }
@@ -24,8 +63,6 @@ interface AiFirstMaxInstanceProps {
 export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Element {
     const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ tabId }))
     const { startNewConversation } = useActions(maxLogic({ tabId }))
-    const { openSidePanelMax } = useActions(maxGlobalLogic)
-    const { closeTabId } = useActions(sceneLogic)
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -39,36 +76,7 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
             <BindLogic logic={maxLogic} props={{ tabId }}>
                 <BindLogic logic={maxThreadLogic} props={threadProps}>
                     <div className="flex flex-col grow overflow-hidden">
-                        <div className="flex w-full gap-2 py-2 border-b border-primary items-center justify-end px-2">
-                            {tabId && conversationId ? (
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    sideIcon={<IconShare />}
-                                    onClick={() => {
-                                        copyToClipboard(
-                                            urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
-                                            'conversation sharing link'
-                                        )
-                                    }}
-                                >
-                                    Copy link to chat
-                                </LemonButton>
-                            ) : undefined}
-                            {tabId ? (
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    sideIcon={<IconOpenSidebar />}
-                                    onClick={() => {
-                                        openSidePanelMax(conversationId ?? undefined)
-                                        closeTabId(tabId, { source: 'open_in_side_panel' })
-                                    }}
-                                >
-                                    Open in context panel
-                                </LemonButton>
-                            ) : undefined}
-                        </div>
+                        <ChatHeader conversationId={conversationId} tabId={tabId} />
                         <ChatArea
                             threadVisible={threadVisible}
                             conversationId={conversationId}

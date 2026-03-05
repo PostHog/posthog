@@ -39,8 +39,8 @@ export function AiFirstHomepage(): JSX.Element {
             {/* Thread container — always present, fades in when AI content phase */}
             <div
                 className={cn(
-                    'basis-0 transition-opacity duration-300 ease-out motion-reduce:duration-0',
-                    isAi && isContent ? 'grow overflow-y-auto opacity-100' : 'grow-0 overflow-hidden opacity-0'
+                    'basis-0 min-h-0 flex flex-col transition-opacity duration-300 ease-out motion-reduce:duration-0',
+                    isAi && isContent ? 'grow opacity-100' : 'grow-0 opacity-0'
                 )}
             >
                 {isAi && <HomepageThread />}
