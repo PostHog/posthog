@@ -98,7 +98,7 @@ pub struct Config {
     pub global_rate_limit_token_distinctid_overrides_csv: Option<String>,
 
     /// Max local cache entries for the per-(token, distinct_id) limiter
-    #[envconfig(default = "10000000")]
+    #[envconfig(default = "5000000")]
     pub global_rate_limit_token_distinctid_local_cache_max_entries: u64,
 
     // --- Token-only limiter config ---
