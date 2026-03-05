@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { ACTION_LIST_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { ActionGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -20,16 +21,24 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
 
     const actionsWithUrls = result.data.map((action: { id: number; [key: string]: unknown }) => ({
         ...action,
-        url: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${action.id}`,
+        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${action.id}`,
     }))
 
-    return actionsWithUrls
+    return {
+        results: actionsWithUrls,
+        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions`,
+    }
 }
 
 const tool = (): ToolBase<typeof schema> => ({
     name: 'actions-get-all',
     schema,
     handler: getAllHandler,
+    _meta: {
+        ui: {
+            resourceUri: ACTION_LIST_RESOURCE_URI,
+        },
+    },
 })
 
 export default tool

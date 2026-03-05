@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { ACTION_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { ActionGetSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -20,7 +21,7 @@ export const getHandler: ToolBase<typeof schema>['handler'] = async (context: Co
 
     return {
         ...result.data,
-        url: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${result.data.id}`,
+        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${result.data.id}`,
     }
 }
 
@@ -28,6 +29,11 @@ const tool = (): ToolBase<typeof schema> => ({
     name: 'action-get',
     schema,
     handler: getHandler,
+    _meta: {
+        ui: {
+            resourceUri: ACTION_RESOURCE_URI,
+        },
+    },
 })
 
 export default tool
