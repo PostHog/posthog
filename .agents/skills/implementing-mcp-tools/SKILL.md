@@ -10,7 +10,11 @@ Read the full guide at [docs/published/handbook/engineering/ai/implementing-mcp-
 ## Quick workflow
 
 ```sh
-# 1. Scaffold a starter YAML with all operations disabled
+# 1. Scaffold a starter YAML with all operations disabled.
+#    --product is a substring match on URL paths: it selects every endpoint
+#    whose path contains /<name>/ (hyphens normalized to underscores).
+#    The value can be a product name or any path-segment needle
+#    (e.g. --product actions matches /api/projects/{project_id}/actions/).
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 

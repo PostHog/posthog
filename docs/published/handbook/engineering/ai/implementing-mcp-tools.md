@@ -167,8 +167,12 @@ Product teams own their definitions and control which operations are exposed as 
 **Workflow: scaffold, configure, generate.**
 
 1. **Scaffold** a starter YAML with all operations disabled.
-   Operations are discovered by matching URL paths against product names
-   (e.g., `error_tracking` matches all paths containing `/error_tracking/`).
+   `--product` is a **substring match** on URL paths —
+   it selects every endpoint whose path contains `/<name>/`
+   (hyphens are normalized to underscores before matching).
+   The value doesn't have to be an exact product name;
+   any string that appears as a path segment will work
+   (e.g., `--product actions` matches `/api/projects/{project_id}/actions/`).
 
    ```sh
    pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product
