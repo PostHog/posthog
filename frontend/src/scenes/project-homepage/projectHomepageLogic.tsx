@@ -55,6 +55,20 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
         ],
     }),
 
+    loaders(({ values }) => ({
+        recentInsights: [
+            [] as QueryBasedInsightModel[],
+            {
+                loadRecentInsights: async () => {
+                    const insights = await api.get<InsightModel[]>(
+                        `api/environments/${values.currentProjectId}/insights/my_last_viewed`
+                    )
+                    return insights.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
+                },
+            },
+        ],
+    })),
+
     selectors({
         primaryDashboardId: [() => [teamLogic.selectors.currentTeam], (currentTeam) => currentTeam?.primary_dashboard],
         dashboardLogicProps: [
@@ -123,20 +137,6 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             ],
         ],
     }),
-
-    loaders(({ values }) => ({
-        recentInsights: [
-            [] as QueryBasedInsightModel[],
-            {
-                loadRecentInsights: async () => {
-                    const insights = await api.get<InsightModel[]>(
-                        `api/environments/${values.currentProjectId}/insights/my_last_viewed`
-                    )
-                    return insights.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
-                },
-            },
-        ],
-    })),
 
     subscriptions(({ cache }) => ({
         dashboardLogicProps: (dashboardLogicProps) => {
