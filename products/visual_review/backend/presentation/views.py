@@ -175,7 +175,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
         """Get run status and summary."""
         try:
-            run = api.get_run(UUID(pk))
+            run = api.get_run(UUID(pk), team_id=self.team_id)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RunSerializer(instance=run).data)
@@ -185,7 +185,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def snapshots(self, request: Request, pk: str, **kwargs) -> Response:
         """Get all snapshots for a run with diff results."""
         try:
-            snapshots = api.get_run_snapshots(UUID(pk))
+            snapshots = api.get_run_snapshots(UUID(pk), team_id=self.team_id)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         page = self.paginate_queryset(snapshots)
@@ -206,7 +206,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            run = api.get_run(UUID(pk))
+            run = api.get_run(UUID(pk), team_id=self.team_id)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -218,7 +218,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def complete(self, request: Request, pk: str, **kwargs) -> Response:
         """Signal that all artifacts have been uploaded. Triggers diff processing."""
         try:
-            run = api.complete_run(UUID(pk))
+            run = api.complete_run(UUID(pk), team_id=self.team_id)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RunSerializer(instance=run).data)
@@ -239,7 +239,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
         try:
-            run = api.approve_run(input_dto)
+            run = api.approve_run(input_dto, team_id=self.team_id)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         except api.StaleRunError as e:
@@ -280,6 +280,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             result = api.auto_approve_run(
                 run_id=UUID(pk),
                 user_id=cast(int, request.user.id),
+                team_id=self.team_id,
             )
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)

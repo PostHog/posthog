@@ -213,20 +213,26 @@ def get_review_state_counts(team_id: int) -> dict[str, int]:
     )
 
 
-def get_run(run_id: UUID) -> Run:
+def get_run(run_id: UUID, team_id: int | None = None) -> Run:
     try:
-        return Run.objects.select_related("repo").get(id=run_id)
+        qs = Run.objects.select_related("repo")
+        if team_id is not None:
+            qs = qs.filter(repo__team_id=team_id)
+        return qs.get(id=run_id)
     except Run.DoesNotExist as e:
         raise RunNotFoundError(f"Run {run_id} not found") from e
 
 
-def get_run_with_snapshots(run_id: UUID) -> Run:
+def get_run_with_snapshots(run_id: UUID, team_id: int | None = None) -> Run:
     try:
-        return Run.objects.prefetch_related(
+        qs = Run.objects.prefetch_related(
             "snapshots__current_artifact",
             "snapshots__baseline_artifact",
             "snapshots__diff_artifact",
-        ).get(id=run_id)
+        )
+        if team_id is not None:
+            qs = qs.filter(repo__team_id=team_id)
+        return qs.get(id=run_id)
     except Run.DoesNotExist as e:
         raise RunNotFoundError(f"Run {run_id} not found") from e
 
@@ -972,8 +978,8 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
 # --- Snapshot Operations ---
 
 
-def get_run_snapshots(run_id: UUID) -> list[RunSnapshot]:
-    run = get_run(run_id)
+def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[RunSnapshot]:
+    run = get_run(run_id, team_id=team_id)
     return list(
         run.snapshots.select_related("current_artifact", "baseline_artifact", "diff_artifact").order_by(
             db_models.Case(

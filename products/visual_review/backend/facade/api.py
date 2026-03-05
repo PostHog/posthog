@@ -178,13 +178,13 @@ def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.Creat
     return contracts.CreateRunResult(run_id=run.id, uploads=upload_targets)
 
 
-def get_run(run_id: UUID) -> contracts.Run:
-    run = logic.get_run(run_id)
+def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
+    run = logic.get_run(run_id, team_id=team_id)
     return _to_run(run)
 
 
-def get_run_snapshots(run_id: UUID) -> list[contracts.Snapshot]:
-    snapshots = logic.get_run_snapshots(run_id)
+def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[contracts.Snapshot]:
+    snapshots = logic.get_run_snapshots(run_id, team_id=team_id)
     if not snapshots:
         return []
     repo_id = snapshots[0].run.repo_id
@@ -205,15 +205,19 @@ def get_snapshot_history(repo_id: UUID, identifier: str) -> list[contracts.Snaps
     ]
 
 
-def complete_run(run_id: UUID) -> contracts.Run:
+def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     """
     Complete a run: verify uploads, create artifacts, trigger diff processing.
     """
+    if team_id is not None:
+        logic.get_run(run_id, team_id=team_id)  # validates ownership
     run = logic.complete_run(run_id)
     return _to_run(run)
 
 
-def auto_approve_run(run_id: UUID, user_id: int) -> contracts.AutoApproveResult:
+def auto_approve_run(run_id: UUID, user_id: int, team_id: int | None = None) -> contracts.AutoApproveResult:
+    if team_id is not None:
+        logic.get_run(run_id, team_id=team_id)  # validates ownership
     run, baseline_content = logic.auto_approve_run(run_id=run_id, user_id=user_id)
     return contracts.AutoApproveResult(
         run=_to_run(run),
@@ -221,7 +225,9 @@ def auto_approve_run(run_id: UUID, user_id: int) -> contracts.AutoApproveResult:
     )
 
 
-def approve_run(input: contracts.ApproveRunInput) -> contracts.Run:
+def approve_run(input: contracts.ApproveRunInput, team_id: int | None = None) -> contracts.Run:
+    if team_id is not None:
+        logic.get_run(input.run_id, team_id=team_id)  # validates ownership
     approved_snapshots = [{"identifier": s.identifier, "new_hash": s.new_hash} for s in input.snapshots]
 
     run = logic.approve_run(
