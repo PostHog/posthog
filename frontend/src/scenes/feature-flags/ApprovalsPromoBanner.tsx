@@ -41,7 +41,7 @@ export function ApprovalsPromoBanner(): JSX.Element | null {
                     <JudgeHog className="w-full h-full" />
                 </div>
                 <div className="flex-shrink max-w-140">
-                    <h2>Stop yolo-shipping flag changes</h2>
+                    <h2>Stop YOLO-shipping flag changes</h2>
                     <p>
                         Require a second pair of eyes before feature flags go live. Because "I swear I only changed one
                         condition" is not a rollback strategy.
