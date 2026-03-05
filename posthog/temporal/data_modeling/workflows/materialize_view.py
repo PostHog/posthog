@@ -57,6 +57,7 @@ class MaterializeViewWorkflowInputs:
     team_id: int
     dag_id: str
     node_id: str
+    v2_only: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -134,148 +135,156 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             ),
         )
 
-        try:
-            materialize_result = await temporalio.workflow.execute_activity(
-                materialize_view_activity,
-                MaterializeViewInputs(
-                    team_id=inputs.team_id,
-                    node_id=inputs.node_id,
-                    dag_id=inputs.dag_id,
-                    job_id=job_id,
-                ),
-                # clickhouse timeout is 10mins so start to close is that plus a bit of margin
-                start_to_close_timeout=dt.timedelta(minutes=15),
-                heartbeat_timeout=dt.timedelta(minutes=2),
-                retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3,
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(minutes=5),
-                    non_retryable_error_types=NON_RETRYABLE_ERRORS,
-                ),
-                cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
-            )
-
-            # prepare files for querying and create DataWarehouseTable
-            await temporalio.workflow.execute_activity(
-                prepare_queryable_table_activity,
-                PrepareQueryableTableInputs(
-                    team_id=inputs.team_id,
-                    job_id=job_id,
-                    saved_query_id=materialize_result.saved_query_id,
-                    table_uri=materialize_result.table_uri,
-                    file_uris=materialize_result.file_uris,
-                    row_count=materialize_result.row_count,
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3,
-                ),
-            )
+        if not inputs.v2_only:
             try:
-                model = DuckLakeCopyModelInput(
-                    model_label=materialize_result.node_name,
-                    saved_query_id=materialize_result.saved_query_id,
-                    table_uri=materialize_result.table_uri,
-                )
-                await temporalio.workflow.start_child_workflow(
-                    workflow="ducklake-copy.data-modeling",
-                    arg=dataclasses.asdict(
-                        DataModelingDuckLakeCopyInputs(team_id=inputs.team_id, job_id=job_id, models=[model])
-                    ),
-                    id=f"ducklake-copy-data-modeling-{job_id}",
-                    task_queue=settings.DUCKLAKE_TASK_QUEUE,
-                    parent_close_policy=ParentClosePolicy.ABANDON,
-                    retry_policy=temporalio.common.RetryPolicy(
-                        maximum_attempts=1,
-                        non_retryable_error_types=["NondeterminismError"],
-                    ),
-                )
-            except Exception as ducklake_err:
-                # ducklake failure shouldn't fail the materialization
-                temporalio.workflow.logger.warning(
-                    f"DuckLake copy workflow failed: {str(ducklake_err)}",
-                    extra=inputs.properties_to_log,
-                )
-                capture_exception(ducklake_err)
-            # handle success
-            end_time = temporalio.workflow.now()
-            duration_seconds = (end_time - start_time).total_seconds()
-            await temporalio.workflow.execute_activity(
-                succeed_materialization_activity,
-                SucceedMaterializationInputs(
-                    team_id=inputs.team_id,
-                    node_id=inputs.node_id,
-                    dag_id=inputs.dag_id,
-                    job_id=job_id,
-                    row_count=materialize_result.row_count,
-                    duration_seconds=duration_seconds,
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3,
-                ),
-            )
-
-            # after the main workflow succeeds, collect shadow stats for comparison
-            await self._collect_shadow_comparison(
-                duckgres_shadow_handle,
-                materialize_result.row_count,
-                duration_seconds,
-                inputs,
-            )
-
-            temporalio.workflow.logger.info(
-                "MaterializeViewWorkflow completed successfully",
-                extra={
-                    "rows_materialized": materialize_result.row_count,
-                    "duration_seconds": duration_seconds,
-                    **inputs.properties_to_log,
-                },
-            )
-            return MaterializeViewWorkflowResult(
-                job_id=job_id,
-                node_id=inputs.node_id,
-                rows_materialized=materialize_result.row_count,
-                duration_seconds=duration_seconds,
-            )
-        except Exception as e:
-            # handle failure
-            cancelled = isinstance(e, temporalio.exceptions.ActivityError) and isinstance(
-                e.cause, temporalio.exceptions.CancelledError
-            )
-            if cancelled:
-                error_message = "Workflow was cancelled"
-            elif isinstance(e, temporalio.exceptions.ActivityError):
-                error_message = str(e.cause) if e.cause else str(e)
-            else:
-                capture_exception(e)
-                error_message = str(e)
-            temporalio.workflow.logger.error(
-                f"MaterializeViewWorkflow failed: {error_message}",
-                extra=inputs.properties_to_log,
-            )
-            try:
-                await temporalio.workflow.execute_activity(
-                    fail_materialization_activity,
-                    FailMaterializationInputs(
+                materialize_result = await temporalio.workflow.execute_activity(
+                    materialize_view_activity,
+                    MaterializeViewInputs(
                         team_id=inputs.team_id,
                         node_id=inputs.node_id,
                         dag_id=inputs.dag_id,
                         job_id=job_id,
-                        error=error_message,
-                        cancelled=cancelled,
+                    ),
+                    # clickhouse timeout is 10mins so start to close is that plus a bit of margin
+                    start_to_close_timeout=dt.timedelta(minutes=15),
+                    heartbeat_timeout=dt.timedelta(minutes=2),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        maximum_attempts=3,
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_interval=dt.timedelta(minutes=5),
+                        non_retryable_error_types=NON_RETRYABLE_ERRORS,
+                    ),
+                    cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
+                )
+
+                # prepare files for querying and create DataWarehouseTable
+                await temporalio.workflow.execute_activity(
+                    prepare_queryable_table_activity,
+                    PrepareQueryableTableInputs(
+                        team_id=inputs.team_id,
+                        job_id=job_id,
+                        saved_query_id=materialize_result.saved_query_id,
+                        table_uri=materialize_result.table_uri,
+                        file_uris=materialize_result.file_uris,
+                        row_count=materialize_result.row_count,
                     ),
                     start_to_close_timeout=dt.timedelta(minutes=5),
                     retry_policy=temporalio.common.RetryPolicy(
                         maximum_attempts=3,
                     ),
                 )
-            except Exception as fail_err:
+                try:
+                    model = DuckLakeCopyModelInput(
+                        model_label=materialize_result.node_name,
+                        saved_query_id=materialize_result.saved_query_id,
+                        table_uri=materialize_result.table_uri,
+                    )
+                    await temporalio.workflow.start_child_workflow(
+                        workflow="ducklake-copy.data-modeling",
+                        arg=dataclasses.asdict(
+                            DataModelingDuckLakeCopyInputs(team_id=inputs.team_id, job_id=job_id, models=[model])
+                        ),
+                        id=f"ducklake-copy-data-modeling-{job_id}",
+                        task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                        parent_close_policy=ParentClosePolicy.ABANDON,
+                        retry_policy=temporalio.common.RetryPolicy(
+                            maximum_attempts=1,
+                            non_retryable_error_types=["NondeterminismError"],
+                        ),
+                    )
+                except Exception as ducklake_err:
+                    # ducklake failure shouldn't fail the materialization
+                    temporalio.workflow.logger.warning(
+                        f"DuckLake copy workflow failed: {str(ducklake_err)}",
+                        extra=inputs.properties_to_log,
+                    )
+                    capture_exception(ducklake_err)
+                # handle success
+                end_time = temporalio.workflow.now()
+                duration_seconds = (end_time - start_time).total_seconds()
+                await temporalio.workflow.execute_activity(
+                    succeed_materialization_activity,
+                    SucceedMaterializationInputs(
+                        team_id=inputs.team_id,
+                        node_id=inputs.node_id,
+                        dag_id=inputs.dag_id,
+                        job_id=job_id,
+                        row_count=materialize_result.row_count,
+                        duration_seconds=duration_seconds,
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=5),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        maximum_attempts=3,
+                    ),
+                )
+
+                # after the main workflow succeeds, collect shadow stats for comparison
+                await self._collect_shadow_comparison(
+                    duckgres_shadow_handle,
+                    materialize_result.row_count,
+                    duration_seconds,
+                    inputs,
+                )
+
+                temporalio.workflow.logger.info(
+                    "MaterializeViewWorkflow completed successfully",
+                    extra={
+                        "rows_materialized": materialize_result.row_count,
+                        "duration_seconds": duration_seconds,
+                        **inputs.properties_to_log,
+                    },
+                )
+                return MaterializeViewWorkflowResult(
+                    job_id=job_id,
+                    node_id=inputs.node_id,
+                    rows_materialized=materialize_result.row_count,
+                    duration_seconds=duration_seconds,
+                )
+            except Exception as e:
+                # handle failure
+                cancelled = isinstance(e, temporalio.exceptions.ActivityError) and isinstance(
+                    e.cause, temporalio.exceptions.CancelledError
+                )
+                if cancelled:
+                    error_message = "Workflow was cancelled"
+                elif isinstance(e, temporalio.exceptions.ActivityError):
+                    error_message = str(e.cause) if e.cause else str(e)
+                else:
+                    capture_exception(e)
+                    error_message = str(e)
                 temporalio.workflow.logger.error(
-                    f"Failed to mark job as failed: {str(fail_err)}",
+                    f"MaterializeViewWorkflow failed: {error_message}",
                     extra=inputs.properties_to_log,
                 )
-            raise
+                try:
+                    await temporalio.workflow.execute_activity(
+                        fail_materialization_activity,
+                        FailMaterializationInputs(
+                            team_id=inputs.team_id,
+                            node_id=inputs.node_id,
+                            dag_id=inputs.dag_id,
+                            job_id=job_id,
+                            error=error_message,
+                            cancelled=cancelled,
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=5),
+                        retry_policy=temporalio.common.RetryPolicy(
+                            maximum_attempts=3,
+                        ),
+                    )
+                except Exception as fail_err:
+                    temporalio.workflow.logger.error(
+                        f"Failed to mark job as failed: {str(fail_err)}",
+                        extra=inputs.properties_to_log,
+                    )
+                raise
+
+        return MaterializeViewWorkflowResult(
+            job_id=job_id,
+            node_id=inputs.node_id,
+            rows_materialized=-1,
+            duration_seconds=-1,
+        )
 
     async def _collect_shadow_comparison(
         self,
