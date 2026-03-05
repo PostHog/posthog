@@ -240,23 +240,72 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
 
     send_test_messages(&test_topic, test_messages).await?;
 
-    let (consumer, mut batch_rx, shutdown_tx) =
-        create_batch_kafka_consumer(&test_topic, &group_id, batch_size, batch_timeout)?;
+    // Build consumer manually so we can use CaptureCommandSenderHandler for
+    // deterministic readiness signalling (wait for partition assignment instead
+    // of a fixed sleep).
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let handler = Arc::new(CaptureCommandSenderHandler::new(ready_tx));
+
+    let mut config = ClientConfig::new();
+    config
+        .set("bootstrap.servers", KAFKA_BROKERS)
+        .set("group.id", &group_id)
+        .set("enable.auto.commit", "false")
+        .set("auto.offset.reset", "earliest")
+        .set("session.timeout.ms", "6000")
+        .set("heartbeat.interval.ms", "2000");
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let (chan_tx, mut batch_rx) = unbounded_channel();
+
+    struct TestProcessor {
+        sender: UnboundedSender<Batch<CapturedEvent>>,
+    }
+    #[async_trait]
+    impl BatchConsumerProcessor<CapturedEvent> for TestProcessor {
+        async fn process_batch(&self, messages: Vec<KafkaMessage<CapturedEvent>>) -> Result<()> {
+            let mut batch = Batch::new();
+            for msg in messages {
+                batch.push_message(msg);
+            }
+            self.sender
+                .send(batch)
+                .map_err(|e| anyhow::anyhow!("Failed to send batch: {e}"))
+        }
+    }
+
+    let coordinator = create_test_tracker();
+    let processor = Arc::new(TestProcessor { sender: chan_tx });
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
+
+    let consumer = BatchConsumer::<CapturedEvent>::new(
+        &config,
+        handler,
+        processor,
+        offset_tracker,
+        shutdown_rx,
+        &test_topic,
+        batch_size,
+        batch_timeout,
+        Duration::from_secs(1),
+        Duration::from_secs(5),
+    )?;
 
     // Start consumption in background task
     let consumer_handle = tokio::spawn(async move { consumer.start_consumption().await });
 
-    // this will cause the consumer.recv() loop below to exit
-    //when the consumer's start_consumption loop breaks and
-    // closes the batch submission channel
+    // Wait until partitions are assigned before scheduling shutdown —
+    // this replaces the previous fixed sleep and eliminates the race.
+    tokio::time::timeout(Duration::from_secs(10), ready_rx)
+        .await
+        .expect("Timeout waiting for partition assignment")
+        .expect("ready_tx was dropped without sending");
+
+    // Schedule shutdown after a short delay to allow the consumer to poll messages
     let _shutdown_handle = tokio::spawn(async move {
-        // Allow enough time for consumer group initialization (join group,
-        // partition assignment, rebalance) before triggering shutdown
-        tokio::time::sleep(Duration::from_millis(2000)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
         let _ = shutdown_tx.send(());
     });
-
-    tokio::time::sleep(Duration::from_millis(1)).await;
 
     // Retry loop to wait for messages with timeout
     let mut msgs_recv = 0;
