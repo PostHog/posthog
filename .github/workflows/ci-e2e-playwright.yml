@@ -40,6 +40,10 @@ env:
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
     CLICKHOUSE_DATABASE: posthog_test
+    # Database names passed to the plugins Docker service via env var substitution
+    POSTHOG_DB_NAME: posthog_e2e_test
+    POSTHOG_PERSONS_DB_NAME: posthog_persons_e2e_test
+    PLUGIN_SERVER_MODE: ingestion-v2
     PGHOST: localhost
     PGUSER: posthog
     PGPASSWORD: posthog
@@ -321,9 +325,13 @@ jobs:
 
             - name: Start Docker services
               run: docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
+              env:
+                  COMPOSE_PROFILES: capture
 
             - name: Wait for Docker services
-              run: bin/wait-for-docker
+              run: bin/wait-for-docker capture
+              env:
+                  COMPOSE_PROFILES: capture
 
             - name: Build frontend
               run: |
@@ -372,11 +380,13 @@ jobs:
                   source ./bin/celery-queues.env
                   echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
 
-            - name: Start PostHog web & Celery worker
+            - name: Start PostHog web, Celery worker & ingestion
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
                   # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
+                  # Start the Node.js ingestion container now that the database exists and migrations have run.
+                  docker compose -f docker-compose.dev.yml --profile capture --profile ingestion up -d plugins
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -389,6 +399,11 @@ jobs:
                   timeout: 180000
                   interval: 2000
                   verbose: true
+
+            - name: Wait for ingestion service to be ready
+              run: bin/wait-for-docker plugins
+              env:
+                  COMPOSE_PROFILES: capture,ingestion
 
             - name: Run Playwright tests
               id: playwright-tests
@@ -480,7 +495,11 @@ jobs:
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Capture docker logs
               if: always()
-              run: docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
+              run: |
+                  mkdir -p playwright/test-results
+                  docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
+                  docker logs posthog-capture-1 > playwright/test-results/docker-capture.log 2>&1 || echo "No capture container" > playwright/test-results/docker-capture.log
+                  docker logs posthog-plugins-1 > playwright/test-results/docker-plugins.log 2>&1 || echo "No plugins container" > playwright/test-results/docker-plugins.log
 
             - name: Archive test artifacts
               if: always()
