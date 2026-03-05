@@ -244,7 +244,10 @@ def _verify_baseline_hashes(repo: Repo, raw_hashes: dict[str, str]) -> dict[str,
 
     keys = repo.signing_keys or {}
     if not keys:
-        return {}
+        # No signing keys configured yet — pass through as unsigned baselines.
+        # Once the repo's signing keys are generated (on first baseline fetch),
+        # all subsequent baselines must be signed.
+        return dict(raw_hashes)
 
     repo_id = str(repo.id)
     verified: dict[str, str] = {}
@@ -287,14 +290,11 @@ def create_run(
     # Unsigned or invalid hashes are silently dropped (treated as no baseline → NEW).
     verified_baselines = _verify_baseline_hashes(repo, baseline_hashes)
 
-    # Supersede ALL old runs before inserting the new one. The unique constraint
-    # on (repo, branch, run_type) WHERE superseded_by IS NULL requires the slot
-    # to be free before the insert — regardless of the old run's approval or
-    # completion status. A new CI push always replaces the previous run.
-    #
-    # We don't have the new run's ID yet, so we use a self-referencing
-    # sentinel: each superseded run points to itself temporarily.
-    # After the new run is inserted, we fix up the pointers.
+    # Supersede ALL old runs before inserting the new one. The unique
+    # partial index on (repo, branch, run_type) WHERE superseded_by IS NULL
+    # requires the slot to be free before the insert. A new CI push always
+    # replaces the previous run — approved and clean runs still show up in
+    # their respective UI filters via REVIEW_STATE_FILTERS.
     supersede_filter = Run.objects.filter(
         repo_id=repo_id,
         branch=branch,

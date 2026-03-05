@@ -26,7 +26,7 @@ class TestRepoViewSet(APIBaseTest):
         self.assertIn("id", data)
 
     def test_list_repos(self):
-        existing_count = len(self.client.get(f"/api/projects/{self.team.id}/visual_review/repos/").json())
+        existing_count = self.client.get(f"/api/projects/{self.team.id}/visual_review/repos/").json()["count"]
         api.create_repo(team_id=self.team.id, repo_external_id=111, repo_full_name="org/first")
         api.create_repo(team_id=self.team.id, repo_external_id=222, repo_full_name="org/second")
 
@@ -34,7 +34,7 @@ class TestRepoViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(len(data) - existing_count, 2)
+        self.assertEqual(data["count"] - existing_count, 2)
 
     def test_retrieve_project(self):
         repo = api.create_repo(team_id=self.team.id, repo_external_id=333, repo_full_name="org/test")

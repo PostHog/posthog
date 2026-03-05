@@ -631,7 +631,7 @@ class TestRunSupersession:
 
         assert run.approved is True
 
-    def test_approved_run_not_superseded(self, repo, user):
+    def test_approved_run_superseded_but_stays_clean(self, repo, user, team):
         first = self._create_run(repo, commit_sha="1st")
         logic.get_or_create_artifact(repo_id=repo.id, content_hash="1st", storage_path="p/1st")
         logic.approve_run(
@@ -644,9 +644,12 @@ class TestRunSupersession:
         self._create_run(repo, commit_sha="2nd")
 
         first.refresh_from_db()
-        assert first.superseded_by is None
+        assert first.superseded_by is not None
+        # Approved runs still show in clean filter, not stale
+        clean = list(logic.list_runs_for_team(team.id, review_state="clean"))
+        assert any(r.id == first.id for r in clean)
 
-    def test_clean_run_not_superseded(self, repo):
+    def test_clean_run_superseded_but_stays_clean(self, repo, team):
         clean_run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -662,7 +665,10 @@ class TestRunSupersession:
         self._create_run(repo, commit_sha="next")
 
         clean_run.refresh_from_db()
-        assert clean_run.superseded_by is None
+        assert clean_run.superseded_by is not None
+        # Clean runs still show in clean filter, not stale
+        clean = list(logic.list_runs_for_team(team.id, review_state="clean"))
+        assert any(r.id == clean_run.id for r in clean)
 
     def test_approved_run_shows_in_clean_not_stale(self, repo, team, user):
         first = self._create_run(repo, commit_sha="1st")

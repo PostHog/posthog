@@ -386,8 +386,11 @@ class TestGitHubCommitOnApprove:
         parsed = yaml.safe_load(content)
 
         assert parsed["version"] == 1
-        assert parsed["snapshots"]["button--primary"] == "abc123hash"
-        assert parsed["snapshots"]["card--default"] == "def456hash"
+        # Snapshots are stored as {hash: signed_string} dicts
+        assert "hash" in parsed["snapshots"]["button--primary"]
+        assert "abc123hash" in parsed["snapshots"]["button--primary"]["hash"]
+        assert "hash" in parsed["snapshots"]["card--default"]
+        assert "def456hash" in parsed["snapshots"]["card--default"]["hash"]
 
         # Verify a commit was made
         log_result = subprocess.run(
@@ -408,13 +411,13 @@ class TestGitHubCommitOnApprove:
         user,
     ):
         """Approve should merge with existing baselines, not replace them."""
-        # First, add some existing baselines to the repo
+        # First, add some existing baselines to the repo (in signed format)
         snapshots_file = local_git_repo / ".snapshots.yml"
         existing = {
             "version": 1,
             "snapshots": {
-                "existing--snapshot": "existinghash",
-                "button--primary": "oldhash",  # Will be updated
+                "existing--snapshot": {"hash": "v1.kfake.existinghash.fakemac12345678901234567890123456789012"},
+                "button--primary": {"hash": "v1.kfake.oldhash00000.fakemac12345678901234567890123456789012"},
             },
         }
         snapshots_file.write_text(yaml.dump(existing))
@@ -440,8 +443,9 @@ class TestGitHubCommitOnApprove:
         content = snapshots_file.read_text()
         parsed = yaml.safe_load(content)
 
-        assert parsed["snapshots"]["existing--snapshot"] == "existinghash"  # Preserved
-        assert parsed["snapshots"]["button--primary"] == "abc123hash"  # Updated
+        # existing--snapshot should be preserved as-is from the YAML
+        assert parsed["snapshots"]["existing--snapshot"]["hash"].startswith("v1.kfake.")  # Preserved
+        assert "abc123hash" in parsed["snapshots"]["button--primary"]["hash"]  # Updated with signed hash
 
     def test_approve_fails_on_sha_mismatch(
         self,

@@ -51,8 +51,8 @@ class TestRun:
         assert run.status == RunStatus.PENDING
 
     def test_ordering_by_created_at_desc(self, repo):
-        run1 = Run.objects.create(repo=repo, commit_sha="first", branch="main")
-        run2 = Run.objects.create(repo=repo, commit_sha="second", branch="main")
+        run1 = Run.objects.create(repo=repo, commit_sha="first", branch="main", run_type="storybook")
+        run2 = Run.objects.create(repo=repo, commit_sha="second", branch="main", run_type="playwright")
 
         runs = list(Run.objects.filter(repo=repo))
         assert runs[0].id == run2.id  # Most recent first
