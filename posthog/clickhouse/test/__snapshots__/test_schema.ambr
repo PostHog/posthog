@@ -3697,6 +3697,45 @@
   
   '''
 # ---
+# name: test_create_table_query[session_event_summaries]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS session_event_summaries 
+  (
+      team_id Int64,
+      session_id String,
+      event LowCardinality(String),
+      event_count SimpleAggregateFunction(sum, Int64),
+      distinct_hosts SimpleAggregateFunction(groupUniqArrayArray, Array(LowCardinality(String))),
+      distinct_emails SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      _timestamp SimpleAggregateFunction(max, DateTime)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_event_summaries', sipHash64(session_id))
+  
+  '''
+# ---
+# name: test_create_table_query[session_event_summaries_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS session_event_summaries_mv ON CLUSTER 'posthog'
+  TO posthog_test.writable_session_event_summaries
+  AS SELECT
+      team_id,
+      JSONExtractString(properties, '$session_id') as session_id,
+      event,
+      toInt64(count()) as event_count,
+      groupUniqArray(JSONExtractString(properties, '$host')) as distinct_hosts,
+      groupUniqArray(JSONExtractString(person_properties, 'email')) as distinct_emails,
+      min(timestamp) as min_timestamp,
+      max(timestamp) as max_timestamp,
+      max(_timestamp) as _timestamp
+  FROM posthog_test.kafka_events_json
+  WHERE length(JSONExtractString(properties, '$session_id')) > 0
+  GROUP BY team_id, session_id, event
+  
+  '''
+# ---
 # name: test_create_table_query[session_replay_events]
   '''
   
@@ -4691,6 +4730,29 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_session_event_summaries]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_session_event_summaries ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      session_id String,
+      event LowCardinality(String),
+      event_count SimpleAggregateFunction(sum, Int64),
+      distinct_hosts SimpleAggregateFunction(groupUniqArrayArray, Array(LowCardinality(String))),
+      distinct_emails SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      _timestamp SimpleAggregateFunction(max, DateTime)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_event_summaries', '{replica}')
+  
+  PARTITION BY toYYYYMM(min_timestamp)
+  ORDER BY (toDate(min_timestamp), team_id, event, session_id)
+  
+  SETTINGS index_granularity=512
   
   '''
 # ---
@@ -5739,6 +5801,24 @@
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions_v3', cityHash64(session_id_v7))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_session_event_summaries]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_session_event_summaries 
+  (
+      team_id Int64,
+      session_id String,
+      event LowCardinality(String),
+      event_count SimpleAggregateFunction(sum, Int64),
+      distinct_hosts SimpleAggregateFunction(groupUniqArrayArray, Array(LowCardinality(String))),
+      distinct_emails SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      _timestamp SimpleAggregateFunction(max, DateTime)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_event_summaries', sipHash64(session_id))
   
   '''
 # ---
@@ -7397,6 +7477,29 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_session_event_summaries]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_session_event_summaries ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      session_id String,
+      event LowCardinality(String),
+      event_count SimpleAggregateFunction(sum, Int64),
+      distinct_hosts SimpleAggregateFunction(groupUniqArrayArray, Array(LowCardinality(String))),
+      distinct_emails SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      _timestamp SimpleAggregateFunction(max, DateTime)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_event_summaries', '{replica}')
+  
+  PARTITION BY toYYYYMM(min_timestamp)
+  ORDER BY (toDate(min_timestamp), team_id, event, session_id)
+  
+  SETTINGS index_granularity=512
   
   '''
 # ---
