@@ -1,4 +1,6 @@
 # ruff: noqa: F401
+# common_pb2 must be imported before any proto that depends on common.proto
+# (cohort, group, person all reference it in their serialized descriptors)
 from posthog.personhog_client.proto.generated.personhog.service.v1.service_pb2_grpc import PersonHogServiceStub
 from posthog.personhog_client.proto.generated.personhog.types.v1.cohort_pb2 import (
     CheckCohortMembershipRequest,
