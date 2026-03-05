@@ -1,4 +1,52 @@
-import { UrlChangeTracker } from './urlChangeTracker'
+import { getUrlChangeTracker, resetAllTrackers, UrlChangeTracker } from './urlChangeTracker'
+
+describe('getUrlChangeTracker', () => {
+    beforeEach(() => {
+        jest.useFakeTimers()
+        resetAllTrackers()
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
+    it('returns same tracker instance for same logic path', () => {
+        const tracker1 = getUrlChangeTracker('webAnalyticsLogic')
+        const tracker2 = getUrlChangeTracker('webAnalyticsLogic')
+
+        expect(tracker1).toBe(tracker2)
+    })
+
+    it('returns different tracker instances for different logic paths', () => {
+        const tracker1 = getUrlChangeTracker('webAnalyticsLogic')
+        const tracker2 = getUrlChangeTracker('insightsLogic')
+
+        expect(tracker1).not.toBe(tracker2)
+    })
+
+    it('isolates change counts per logic path', () => {
+        const webTracker = getUrlChangeTracker('webAnalyticsLogic')
+        const insightsTracker = getUrlChangeTracker('insightsLogic')
+
+        for (let i = 0; i < 6; i++) {
+            webTracker.recordChange(`/web?v=${i}`, 'webAnalyticsLogic', 'setFilters')
+        }
+
+        expect(webTracker.isRapidlyChanging()).toBe(true)
+        expect(insightsTracker.isRapidlyChanging()).toBe(false)
+    })
+
+    it('resets all trackers with resetAllTrackers', () => {
+        const tracker1 = getUrlChangeTracker('webAnalyticsLogic')
+        tracker1.recordChange('/web?v=1', 'webAnalyticsLogic', 'setFilters')
+
+        resetAllTrackers()
+
+        const tracker2 = getUrlChangeTracker('webAnalyticsLogic')
+        expect(tracker1).not.toBe(tracker2)
+        expect(tracker2.getRecentChanges()).toHaveLength(0)
+    })
+})
 
 describe('UrlChangeTracker', () => {
     let tracker: UrlChangeTracker
@@ -59,32 +107,39 @@ describe('UrlChangeTracker', () => {
 
     describe('warning throttle', () => {
         it('allows first warning', () => {
-            expect(tracker.shouldWarn()).toBe(true)
+            expect(tracker.canWarn()).toBe(true)
         })
 
         it('throttles subsequent warnings within the throttle window', () => {
-            tracker.shouldWarn()
-            expect(tracker.shouldWarn()).toBe(false)
+            tracker.recordWarn()
+            expect(tracker.canWarn()).toBe(false)
         })
 
         it('allows warning after throttle period expires', () => {
-            tracker.shouldWarn()
+            tracker.recordWarn()
 
             jest.advanceTimersByTime(61000) // Beyond default 60000ms throttle
 
-            expect(tracker.shouldWarn()).toBe(true)
+            expect(tracker.canWarn()).toBe(true)
         })
 
         it('throttles multiple rapid warning attempts', () => {
-            expect(tracker.shouldWarn()).toBe(true)
-            expect(tracker.shouldWarn()).toBe(false)
-            expect(tracker.shouldWarn()).toBe(false)
+            expect(tracker.canWarn()).toBe(true)
+            tracker.recordWarn()
+            expect(tracker.canWarn()).toBe(false)
+            expect(tracker.canWarn()).toBe(false)
 
             jest.advanceTimersByTime(30000) // Half the throttle period
-            expect(tracker.shouldWarn()).toBe(false)
+            expect(tracker.canWarn()).toBe(false)
 
             jest.advanceTimersByTime(31000) // Beyond the throttle period
-            expect(tracker.shouldWarn()).toBe(true)
+            expect(tracker.canWarn()).toBe(true)
+        })
+
+        it('canWarn is a pure predicate without side effects', () => {
+            expect(tracker.canWarn()).toBe(true)
+            expect(tracker.canWarn()).toBe(true)
+            expect(tracker.canWarn()).toBe(true)
         })
     })
 
@@ -129,12 +184,12 @@ describe('UrlChangeTracker', () => {
             for (let i = 0; i < 10; i++) {
                 tracker.recordChange(`/web?v=${i}`, 'webAnalyticsLogic', 'setFilters')
             }
-            tracker.shouldWarn()
+            tracker.recordWarn()
 
             tracker.reset()
 
             expect(tracker.getRecentChanges()).toHaveLength(0)
-            expect(tracker.shouldWarn()).toBe(true)
+            expect(tracker.canWarn()).toBe(true)
         })
     })
 
@@ -171,12 +226,13 @@ describe('UrlChangeTracker', () => {
                 throttleWarningMs: 5000,
             })
 
-            expect(customTracker.shouldWarn()).toBe(true)
-            expect(customTracker.shouldWarn()).toBe(false)
+            expect(customTracker.canWarn()).toBe(true)
+            customTracker.recordWarn()
+            expect(customTracker.canWarn()).toBe(false)
 
             jest.advanceTimersByTime(5001)
 
-            expect(customTracker.shouldWarn()).toBe(true)
+            expect(customTracker.canWarn()).toBe(true)
         })
     })
 })

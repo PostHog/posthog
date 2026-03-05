@@ -42,13 +42,12 @@ class UrlChangeTracker {
         return this.changes.length > this.config.maxChangesPerSecond
     }
 
-    shouldWarn(): boolean {
-        const now = Date.now()
-        if (now - this.lastWarningTime < this.config.throttleWarningMs) {
-            return false
-        }
-        this.lastWarningTime = now
-        return true
+    canWarn(): boolean {
+        return Date.now() - this.lastWarningTime >= this.config.throttleWarningMs
+    }
+
+    recordWarn(): void {
+        this.lastWarningTime = Date.now()
     }
 
     getRecentChanges(): UrlChangeRecord[] {
@@ -73,7 +72,18 @@ class UrlChangeTracker {
     }
 }
 
-export const urlChangeTracker = new UrlChangeTracker()
+const trackersByLogicPath = new Map<string, UrlChangeTracker>()
+
+export function getUrlChangeTracker(logicPath: string): UrlChangeTracker {
+    if (!trackersByLogicPath.has(logicPath)) {
+        trackersByLogicPath.set(logicPath, new UrlChangeTracker())
+    }
+    return trackersByLogicPath.get(logicPath)!
+}
+
+export function resetAllTrackers(): void {
+    trackersByLogicPath.clear()
+}
 
 export function captureRapidUrlChangeWarning(
     tracker: UrlChangeTracker,
@@ -81,9 +91,10 @@ export function captureRapidUrlChangeWarning(
     logicPath: string,
     actionName: string
 ): void {
-    if (!tracker.shouldWarn()) {
+    if (!tracker.canWarn()) {
         return
     }
+    tracker.recordWarn()
 
     const debugInfo = tracker.getDebugInfo()
     const sessionReplayUrl = posthog.get_session_replay_url?.({ withTimestamp: true })
