@@ -3,13 +3,11 @@ import { useMemo } from 'react'
 
 import { LemonButton, LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
-import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DefinitionPopoverRendererProps, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { urls } from 'scenes/urls'
 
 import { insightLogic } from '../insightLogic'
@@ -59,17 +57,16 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
 }: Omit<DefinitionPopoverRendererProps, 'defaultView'>): JSX.Element {
     const table = item as DataWarehouseTableForInsight
 
-    const { activeFieldKey } = useValues(funnelDataWarehouseStepDefinitionPopoverLogic({ tableName: table.name }))
-    const { setActiveFieldKey } = useActions(funnelDataWarehouseStepDefinitionPopoverLogic({ tableName: table.name }))
-
-    const { dataWarehousePopoverFields } = useValues(taxonomicFilterLogic)
-    const { selectItem } = useActions(taxonomicFilterLogic)
-
-    const { localDefinition } = useValues(definitionPopoverLogic)
-    const { setLocalDefinition } = useActions(definitionPopoverLogic)
-
+    const { taxonomicFilterLogicKey } = useValues(taxonomicFilterLogic)
     const { insightProps } = useValues(insightLogic)
-    const { querySource } = useValues(funnelDataLogic(insightProps))
+
+    const logic = funnelDataWarehouseStepDefinitionPopoverLogic({
+        tableName: table.name,
+        taxonomicFilterLogicKey,
+        insightProps,
+    })
+    const { activeFieldKey, dataWarehousePopoverFields, localDefinition, querySource } = useValues(logic)
+    const { setActiveFieldKey, selectItem, setLocalDefinition } = useActions(logic)
 
     const dataWarehouseLocalDefinition = localDefinition as Partial<DataWarehouseTableForInsight>
 
