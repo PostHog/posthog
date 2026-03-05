@@ -19,7 +19,7 @@ class ClassifySentimentWorkflow(PostHogWorkflow):
     def parse_inputs(inputs: list[str]) -> ClassifySentimentInput:
         return ClassifySentimentInput(
             team_id=int(inputs[0]),
-            trace_ids=inputs[1:],
+            ids=inputs[1:],
         )
 
     @temporalio.workflow.run

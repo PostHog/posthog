@@ -67,7 +67,7 @@ export const getOnboardingCompleteRedirectUri = (productKey: ProductKey): string
         case ProductKey.FEATURE_FLAGS:
             return urls.featureFlags()
         case ProductKey.SURVEYS:
-            return urls.surveyTemplates()
+            return urls.surveyWizard()
         case ProductKey.ERROR_TRACKING:
             return urls.errorTracking()
         case ProductKey.LLM_ANALYTICS:

@@ -338,6 +338,9 @@ class SelectSetQueryType(Type):
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
         return self.types[0].resolve_column_constant_type(name, context)
 
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        return self.types[0].resolve_constant_type(context)
+
 
 @dataclass(kw_only=True)
 class SelectViewType(BaseTableType):
