@@ -1356,3 +1356,31 @@ class TestSavedQuery(APIBaseTest):
         self.assertIn("Failed", returned_statuses)
         self.assertIn("Running", returned_statuses)
         self.assertIn("Cancelled", returned_statuses)
+
+    def test_hogql_definition_preserves_nullable_for_computed_columns(self):
+        """
+        Regression test: IS NOT NULL behaved differently than isNotNull() on
+        computed columns because hogql_definition() stripped Nullable() from
+        the ClickHouse type but didn't pass nullable=True to the field constructor.
+        See: https://github.com/PostHog/posthog/issues/42181
+        """
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="test_nullable_view",
+            query={"query": "SELECT 1"},
+            columns={
+                "target_timestamp": {
+                    "clickhouse": "Nullable(DateTime)",
+                    "hogql": "DateTimeDatabaseField",
+                },
+                "person_id": {
+                    "clickhouse": "UInt8",
+                    "hogql": "IntegerDatabaseField",
+                },
+            },
+        )
+
+        definition = saved_query.hogql_definition()
+
+        assert definition.fields["target_timestamp"].is_nullable() is True
+        assert definition.fields["person_id"].is_nullable() is False
