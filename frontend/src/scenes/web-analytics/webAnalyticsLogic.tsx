@@ -2195,6 +2195,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             // spreading from their individual dropdowns to the global filters list
             if (rawWebAnalyticsFilters.length > 0) {
                 urlParams.set('filters', JSON.stringify(rawWebAnalyticsFilters))
+            } else {
+                urlParams.delete('filters')
             }
             if (conversionGoal) {
                 if ('actionId' in conversionGoal) {

@@ -129,6 +129,8 @@ class HogQLPrinter(Visitor[str]):
             if self.pretty:
                 query = query.strip()
             if expr.set_operator is not None:
+                if expr.set_operator in ("INTERSECT ALL", "EXCEPT ALL") and self.dialect != "postgres":
+                    raise ImpossibleASTError(f"{expr.set_operator} is not supported in the '{self.dialect}' dialect")
                 if self.pretty:
                     ret += f"\n{self.indent(1)}{expr.set_operator}\n{self.indent(1)}"
                 else:

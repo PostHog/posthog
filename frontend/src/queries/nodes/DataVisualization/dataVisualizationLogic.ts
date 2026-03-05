@@ -16,7 +16,7 @@ import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
 
 import { dayjs } from 'lib/dayjs'
-import { RGBToHex, lightenDarkenColor, objectsEqual, uuid } from 'lib/utils'
+import { RGBToHex, compactNumber, lightenDarkenColor, objectsEqual, uuid } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -138,6 +138,10 @@ export const formatDataWithSettings = (
 
         if (settings?.formatting?.style === 'number') {
             dataAsString = data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })
+        }
+
+        if (settings?.formatting?.style === 'short') {
+            dataAsString = compactNumber(data)
         }
 
         if (settings?.formatting?.style === 'percent') {

@@ -23,7 +23,7 @@ common-types = { path = "../common/types" }
 common-metrics = { path = "../common/metrics" }
 common-dns = { path = "../common/dns" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
-health = { path = "../common/health" }
+lifecycle = { path = "../common/lifecycle" }
 anyhow = { workspace = true }
 envconfig = { workspace = true }
 fernet = { workspace = true }
@@ -52,3 +52,4 @@ posthog-rs = { version = "0.4.2", features = ["async-client"] }
 httpmock = { workspace = true }
 flate2 = { workspace = true }
 mockito = { workspace = true }
+tokio-util = { workspace = true }
