@@ -26,6 +26,7 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     name = models.TextField(max_length=2048, db_index=True)
     # type of the node (source table, view, or mat view)
     type = models.TextField(max_length=16, choices=NodeType.choices, default=NodeType.TABLE)
+    description = models.TextField(max_length=1024, default="", blank=True)
     properties = models.JSONField(default=dict)
 
     def save(self, *args, **kwargs):
