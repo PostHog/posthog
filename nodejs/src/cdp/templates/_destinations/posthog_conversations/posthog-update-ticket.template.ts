@@ -38,6 +38,10 @@ if (inputs.sla_amount == 'clear') {
   updates.sla_due_at := formatDateTime(deadline, '%Y-%m-%dT%H:%i:%SZ')
 }
 
+if (not empty(inputs.assignee)) {
+  updates.assignee := inputs.assignee
+}
+
 let response := postHogUpdateTicket({
   'ticket_id': inputs.ticket_id,
   'updates': updates
@@ -108,6 +112,14 @@ return response.body
                 { label: 'Day(s)', value: 'day' },
             ],
             description: 'Time unit for the SLA deadline.',
+        },
+        {
+            key: 'assignee',
+            type: 'posthog_assignee',
+            label: 'Assignee',
+            secret: false,
+            required: false,
+            description: 'Assign ticket to a user or role. Leave empty to keep current assignment.',
         },
     ],
 }

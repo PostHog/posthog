@@ -30,6 +30,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
+import { CyclotronJobInputAssignee } from './CyclotronJobInputAssignee'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
 import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
@@ -475,6 +476,8 @@ function CyclotronJobInputRenderer({
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
+        case 'posthog_assignee':
+            return <CyclotronJobInputAssignee value={input.value} onChange={onValueChange} />
         default:
             return (
                 <strong className="text-danger">
