@@ -945,6 +945,7 @@ jobs:
         if: |
             always() &&
             needs.changes.outputs.backend == 'true' &&
+            needs.build_django_matrix.result == 'success' &&
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
@@ -1143,7 +1144,7 @@ jobs:
               # UPDATE mode: human commits - update snapshots
               # CHECK mode: bot commits (after snapshot update) - verify snapshots match exactly
               # persons-on-events: always update (we ignore snapshot divergence there)
-              if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events || matrix.compat) }}
+              if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
               shell: bash
               run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV
 
