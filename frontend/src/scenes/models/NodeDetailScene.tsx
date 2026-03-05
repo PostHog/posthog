@@ -9,13 +9,17 @@ import { SceneContent } from "~/layout/scenes/components/SceneContent";
 import { SceneTitleSection } from "~/layout/scenes/components/SceneTitleSection";
 import { ProductKey } from "~/queries/schema/schema-general";
 
-import { NODE_TYPE_SETTINGS } from './constants'
-import { NodeDetailColumns } from './NodeDetailColumns'
-import { NodeDetailLineage } from './NodeDetailLineage'
-import { NodeDetailLineageModal } from './NodeDetailLineageModal'
-import { NodeDetailQuery } from './NodeDetailQuery'
-import { NodeDetailQueryModal } from './NodeDetailQueryModal'
-import { nodeDetailSceneLogic, NodeDetailSceneLogicProps } from './nodeDetailSceneLogic'
+import { NODE_TYPE_SETTINGS } from "./constants";
+import { NodeDetailColumns } from "./NodeDetailColumns";
+import { NodeDetailLineage } from "./NodeDetailLineage";
+import { NodeDetailLineageModal } from "./NodeDetailLineageModal";
+import { NodeDetailMaterialization } from "./NodeDetailMaterialization";
+import { NodeDetailQuery } from "./NodeDetailQuery";
+import { NodeDetailQueryModal } from "./NodeDetailQueryModal";
+import {
+  nodeDetailSceneLogic,
+  NodeDetailSceneLogicProps,
+} from "./nodeDetailSceneLogic";
 
 export const scene: SceneExport<NodeDetailSceneLogicProps> = {
   component: NodeDetailScene,
@@ -89,7 +93,12 @@ export function NodeDetailScene({ id }: { id?: string } = {}): JSX.Element {
 
         {/* Lineage */}
         <NodeDetailLineage id={logicProps.id} />
-            </div>
+
+        {/* Materialization history */}
+        {savedQuery?.is_materialized && (
+          <NodeDetailMaterialization id={logicProps.id} />
+        )}
+      </div>
 
       {hasQuery && <NodeDetailQueryModal id={logicProps.id} />}
       <NodeDetailLineageModal id={logicProps.id} />

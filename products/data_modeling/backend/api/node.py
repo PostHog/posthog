@@ -103,20 +103,23 @@ def _is_v2_backend_enabled(user: User, team: Team) -> bool:
     )
 
 
-def _get_upstream_nodes(node: Node) -> set[str]:
-    """Get all upstream (ancestor) node IDs recursively, excluding TABLE nodes."""
+def _get_upstream_nodes(node: Node, include_tables: bool = False) -> set[str]:
+    """Get all upstream (ancestor) node IDs recursively.
+
+    By default excludes TABLE nodes (used for run action where tables can't be executed).
+    Set include_tables=True for lineage traversal where tables are needed as root sources.
+    """
     nodes: set[str] = set()
     current = [node.id]
     while current:
-        current = list(
-            Edge.objects.exclude(source__type=NodeType.TABLE)
-            .filter(
-                team_id=node.team_id,
-                dag_id_text=node.dag_id_text,
-                target_id__in=current,
-            )
-            .values_list("source_id", flat=True)
+        qs = Edge.objects.filter(
+            team_id=node.team_id,
+            dag_id_text=node.dag_id_text,
+            target_id__in=current,
         )
+        if not include_tables:
+            qs = qs.exclude(source__type=NodeType.TABLE)
+        current = list(qs.values_list("source_id", flat=True))
         nodes.update(str(i) for i in current)
     return nodes
 
@@ -287,3 +290,34 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return response.Response(status=status.HTTP_200_OK)
+
+    @action(methods=["GET"], detail=True)
+    def lineage(self, req: request.Request, *args, **kwargs) -> response.Response:
+        """Return the subgraph (nodes + edges) for a given node's lineage."""
+        node = self.get_object()
+
+        upstream_ids = _get_upstream_nodes(node, include_tables=True)
+        downstream_ids = _get_downstream_nodes(node)
+        all_node_ids = upstream_ids | downstream_ids | {str(node.id)}
+
+        nodes = Node.objects.select_related("saved_query").filter(
+            team_id=node.team_id,
+            dag_id_text=node.dag_id_text,
+            id__in=all_node_ids,
+        )
+        edges = Edge.objects.filter(
+            team_id=node.team_id,
+            dag_id_text=node.dag_id_text,
+            source_id__in=all_node_ids,
+            target_id__in=all_node_ids,
+        )
+
+        from products.data_modeling.backend.api.edge import EdgeSerializer
+
+        return response.Response(
+            {
+                "nodes": NodeSerializer(nodes, many=True).data,
+                "edges": EdgeSerializer(edges, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
