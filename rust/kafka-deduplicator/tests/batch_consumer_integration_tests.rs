@@ -250,7 +250,9 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
     //when the consumer's start_consumption loop breaks and
     // closes the batch submission channel
     let _shutdown_handle = tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        // Allow enough time for consumer group initialization (join group,
+        // partition assignment, rebalance) before triggering shutdown
+        tokio::time::sleep(Duration::from_millis(2000)).await;
         let _ = shutdown_tx.send(());
     });
 
