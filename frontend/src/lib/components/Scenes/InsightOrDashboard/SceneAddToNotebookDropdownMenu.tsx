@@ -24,7 +24,11 @@ export function SceneAddToNotebookDropdownMenu({
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild disabled={isDisabled}>
-                <ButtonPrimitive menuItem data-attr={`${dataAttrKey}-add-to-dropdown-menu`}>
+                <ButtonPrimitive
+                    menuItem
+                    data-attr={`${dataAttrKey}-add-to-dropdown-menu`}
+                    disabledReasons={disabledReasons}
+                >
                     <IconPlusSmall />
                     Add to notebook
                     <MenuOpenIndicator className="ml-auto" />

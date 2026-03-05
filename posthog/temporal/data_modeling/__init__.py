@@ -3,6 +3,7 @@ from posthog.temporal.data_modeling.activities import (
     fail_materialization_activity,
     get_dag_structure_activity,
     materialize_view_activity,
+    materialize_view_duckgres_activity,
     prepare_queryable_table_activity,
     succeed_materialization_activity,
 )
@@ -25,6 +26,7 @@ ACTIVITIES = [
     get_dag_structure_activity,
     fail_materialization_activity,
     materialize_view_activity,
+    materialize_view_duckgres_activity,
     prepare_queryable_table_activity,
     succeed_materialization_activity,
     finish_run_activity,

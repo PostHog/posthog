@@ -205,7 +205,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 disabledReason={
                                     workflowHasErrors
                                         ? 'Some fields still need work'
-                                        : isCreatedFromTemplate
+                                        : isCreatedFromTemplate || !isSavedWorkflow
                                           ? undefined
                                           : workflowContentChanged
                                             ? undefined
