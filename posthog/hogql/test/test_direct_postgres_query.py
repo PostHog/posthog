@@ -121,9 +121,13 @@ class TestDirectPostgresQuery(APIBaseTest):
             columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
         )
 
-        executor = HogQLQueryExecutor(query="SELECT * FROM postgres.ph3.ph3_postgres_without_team_id", team=self.team)
+        executor = HogQLQueryExecutor(
+            query="SELECT * FROM postgres.ph3.without_team_id",
+            team=self.team,
+        )
 
         executor._parse_query()
+        executor._generate_hogql()
 
         self.assertIsNone(executor.select_query.type)
         self.assertEqual(executor._should_use_direct_postgres(), True)
@@ -156,12 +160,16 @@ class TestDirectPostgresQuery(APIBaseTest):
             columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
         )
 
-        executor = HogQLQueryExecutor(query="SELECT * FROM postgres.ph3.ph3_postgres_without_team_id", team=self.team)
+        executor = HogQLQueryExecutor(
+            query="SELECT * FROM without_team_id",
+            team=self.team,
+            selected_direct_source_id=str(source.id),
+        )
 
         sql, _context = executor.generate_clickhouse_sql()
 
-        self.assertIn('FROM "ph3"."ph3_postgres_without_team_id"', sql)
-        self.assertNotIn("team_id", sql)
+        self.assertIn("ph3.without_team_id", sql)
+        self.assertNotIn(".team_id", sql)
         self.assertEqual(executor.direct_postgres_source_id, str(source.id))
 
     def test_direct_query_requires_selected_connection(self):

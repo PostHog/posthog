@@ -19,7 +19,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_defau
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -216,8 +216,8 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_hogql")
     def _generate_hogql(self):
-        database = None
-        if self.selected_direct_source_id is not None:
+        database = self.context.database
+        if database is None or self.selected_direct_source_id is not None:
             database = Database.create_for(
                 team=self.team,
                 user=self.user,
@@ -364,7 +364,10 @@ class HogQLQueryExecutor:
         self.direct_postgres_source_id = next(iter(direct_source_ids))
 
     def _should_use_direct_postgres(self) -> bool:
-        query_type = self._get_select_query_type()
+        try:
+            query_type = self._get_select_query_type()
+        except (QueryError, ResolutionError, AttributeError):
+            return False
         if query_type is None:
             return False
 
