@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { SURVEY_LIST_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { SurveyGetAllSchema } from '@/schema/tool-inputs'
 import { formatSurveys } from '@/tools/surveys/utils/survey-utils'
 import type { Context, ToolBase } from '@/tools/types'
@@ -18,17 +19,21 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
 
     const formattedSurveys = formatSurveys(surveysResult.data, context, projectId)
 
-    const response = {
+    return {
         results: formattedSurveys,
+        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/surveys`,
     }
-
-    return response
 }
 
 const tool = (): ToolBase<typeof schema> => ({
     name: 'surveys-get-all',
     schema,
     handler: getAllHandler,
+    _meta: {
+        ui: {
+            resourceUri: SURVEY_LIST_RESOURCE_URI,
+        },
+    },
 })
 
 export default tool

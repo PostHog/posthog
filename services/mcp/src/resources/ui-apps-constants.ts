@@ -13,13 +13,6 @@
  */
 
 /**
- * Query results visualization.
- * Used by: query-run, insight-query
- * Shows trends, funnels, tables, and other query result types.
- */
-export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
-
-/**
 
  * Action detail visualization.
  * Used by: action-get, action-create, action-update
@@ -103,3 +96,34 @@ export const FEATURE_FLAG_LIST_RESOURCE_URI = 'ui://posthog/feature-flag-list.ht
  * Used by: get-llm-total-costs-for-project
  */
 export const LLM_COSTS_RESOURCE_URI = 'ui://posthog/llm-costs.html'
+
+/**
+ * Query results visualization.
+ * Used by: query-run, insight-query
+ * Shows trends, funnels, tables, and other query result types.
+ */
+export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
+
+/**
+ * Survey detail visualization.
+ * Used by: survey-get, survey-create, survey-update
+ */
+export const SURVEY_RESOURCE_URI = 'ui://posthog/survey.html'
+
+/**
+ * Survey list visualization.
+ * Used by: surveys-get-all
+ */
+export const SURVEY_LIST_RESOURCE_URI = 'ui://posthog/survey-list.html'
+
+/**
+ * Survey stats visualization.
+ * Used by: survey-stats
+ */
+export const SURVEY_STATS_RESOURCE_URI = 'ui://posthog/survey-stats.html'
+
+/**
+ * Survey global stats visualization.
+ * Used by: surveys-global-stats
+ */
+export const SURVEY_GLOBAL_STATS_RESOURCE_URI = 'ui://posthog/survey-global-stats.html'

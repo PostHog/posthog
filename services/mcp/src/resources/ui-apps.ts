@@ -20,6 +20,10 @@ import {
     FEATURE_FLAG_RESOURCE_URI,
     LLM_COSTS_RESOURCE_URI,
     QUERY_RESULTS_RESOURCE_URI,
+    SURVEY_GLOBAL_STATS_RESOURCE_URI,
+    SURVEY_LIST_RESOURCE_URI,
+    SURVEY_RESOURCE_URI,
+    SURVEY_STATS_RESOURCE_URI,
 } from './ui-apps-constants'
 
 // Import bundled HTML at build time (wrangler Text rule)
@@ -39,6 +43,10 @@ import featureFlagListHtml from '../../ui-apps-dist/src/ui-apps/apps/feature-fla
 import featureFlagHtml from '../../ui-apps-dist/src/ui-apps/apps/feature-flag/index.html'
 import llmCostsHtml from '../../ui-apps-dist/src/ui-apps/apps/llm-costs/index.html'
 import queryResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/query-results/index.html'
+import surveyGlobalStatsHtml from '../../ui-apps-dist/src/ui-apps/apps/survey-global-stats/index.html'
+import surveyListHtml from '../../ui-apps-dist/src/ui-apps/apps/survey-list/index.html'
+import surveyStatsHtml from '../../ui-apps-dist/src/ui-apps/apps/survey-stats/index.html'
+import surveyHtml from '../../ui-apps-dist/src/ui-apps/apps/survey/index.html'
 
 const UI_APPS: Array<{ name: string; uri: string; description: string; html: string }> = [
     // Core
@@ -117,6 +125,21 @@ const UI_APPS: Array<{ name: string; uri: string; description: string; html: str
         uri: LLM_COSTS_RESOURCE_URI,
         description: 'LLM costs breakdown by model',
         html: llmCostsHtml,
+    },
+    // Surveys
+    { name: 'Survey', uri: SURVEY_RESOURCE_URI, description: 'Survey detail view', html: surveyHtml },
+    { name: 'Survey list', uri: SURVEY_LIST_RESOURCE_URI, description: 'Survey list view', html: surveyListHtml },
+    {
+        name: 'Survey stats',
+        uri: SURVEY_STATS_RESOURCE_URI,
+        description: 'Survey statistics view',
+        html: surveyStatsHtml,
+    },
+    {
+        name: 'Survey global stats',
+        uri: SURVEY_GLOBAL_STATS_RESOURCE_URI,
+        description: 'Survey global statistics view',
+        html: surveyGlobalStatsHtml,
     },
 ]
 

@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { SURVEY_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { SurveyCreateSchema } from '@/schema/tool-inputs'
 import { formatSurvey } from '@/tools/surveys/utils/survey-utils'
 import type { Context, ToolBase } from '@/tools/types'
@@ -46,6 +47,11 @@ const tool = (): ToolBase<typeof schema> => ({
     name: 'survey-create',
     schema,
     handler: createHandler,
+    _meta: {
+        ui: {
+            resourceUri: SURVEY_RESOURCE_URI,
+        },
+    },
 })
 
 export default tool
