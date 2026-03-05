@@ -28,7 +28,14 @@ import type { projectHomepageLogicType } from './projectHomepageLogicType'
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
     path(['scenes', 'project-homepage', 'projectHomepageLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam'], projectLogic, ['currentProjectId'], dashboardsModel, ['rawDashboards']],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            projectLogic,
+            ['currentProjectId'],
+            dashboardsModel,
+            ['rawDashboards', 'dashboardsLoading'],
+        ],
     })),
 
     actions({
@@ -103,7 +110,6 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                     .sort((a, b) => {
                         return new Date(b.last_viewed_at!).getTime() - new Date(a.last_viewed_at!).getTime()
                     })
-                    .slice(0, 5)
             },
         ],
         breadcrumbs: [

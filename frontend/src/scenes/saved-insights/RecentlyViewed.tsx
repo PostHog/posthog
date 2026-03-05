@@ -14,7 +14,8 @@ import { RecentItem, projectHomepageLogic } from '../project-homepage/projectHom
 import { InsightRow } from './InsightRow'
 
 export function RecentlyViewed(): JSX.Element {
-    const { recentInsightsLoading, expandedInsightIds, recentItems } = useValues(projectHomepageLogic)
+    const { recentInsightsLoading, expandedInsightIds, recentItems, dashboardsLoading } =
+        useValues(projectHomepageLogic)
     const { loadRecentInsights, toggleInsightExpanded } = useActions(projectHomepageLogic)
     useOnMountEffect(loadRecentInsights)
 
@@ -23,7 +24,7 @@ export function RecentlyViewed(): JSX.Element {
             title="Recently viewed"
             viewAllURL={urls.savedInsights(SavedInsightsTabs.All)}
             viewAllDataAttr="insights-home-tab-recently-viewed-view-all"
-            loading={recentInsightsLoading}
+            loading={recentInsightsLoading || dashboardsLoading}
             emptyMessage={{
                 title: 'You have no recently viewed insights',
                 description: "Explore this project's insights by clicking below.",
