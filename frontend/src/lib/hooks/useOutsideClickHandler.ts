@@ -18,8 +18,11 @@ export function useOutsideClickHandler(
     const refsRef = useRef(refs)
     refsRef.current = refs
 
-    const callbackRef = useRef(handleClickOutside)
-    callbackRef.current = handleClickOutside
+    const handleClickOutsideRef = useRef(handleClickOutside)
+    handleClickOutsideRef.current = handleClickOutside
+
+    const exceptTagNamesRef = useRef(exceptTagNames)
+    exceptTagNamesRef.current = exceptTagNames
 
     useEffect(() => {
         function handleClick(event: Event): void {
@@ -52,10 +55,10 @@ export function useOutsideClickHandler(
                 return
             }
             const target = (event.composedPath?.()?.[0] || event.target) as HTMLElement
-            if (exceptTagNames && exceptTagNames.includes(target.tagName)) {
+            if (exceptTagNamesRef.current && exceptTagNamesRef.current.includes(target.tagName)) {
                 return
             }
-            callbackRef.current?.(event)
+            handleClickOutsideRef.current?.(event)
         }
 
         // Only attach event listeners if there's something to track
@@ -67,5 +70,5 @@ export function useOutsideClickHandler(
                 document.removeEventListener('touchend', handleClick)
             }
         }
-    }, extraDeps) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, extraDeps) // eslint-disable-line react-hooks/exhaustive-deps
 }

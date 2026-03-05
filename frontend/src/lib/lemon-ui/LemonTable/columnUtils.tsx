@@ -26,6 +26,7 @@ export function atColumn<T extends Record<string, any>>(
             )
         },
         align: 'right',
+        defaultSortOrder: -1,
         sorter: (a, b) => {
             const aValue = getValue ? getValue(a) : a[key]
             const bValue = getValue ? getValue(b) : b[key]

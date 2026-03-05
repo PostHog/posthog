@@ -824,6 +824,8 @@ export interface SimpleExternalDataSourceSerializersApi {
     readonly source_type: SourceTypeE09EnumApi
 }
 
+export type TableApiOptions = { [key: string]: unknown }
+
 export interface TableApi {
     readonly id: string
     /** @nullable */
@@ -839,6 +841,7 @@ export interface TableApi {
     readonly columns: string
     readonly external_data_source: SimpleExternalDataSourceSerializersApi
     readonly external_schema: string
+    options?: TableApiOptions
 }
 
 export interface PaginatedTableListApi {

@@ -43,6 +43,8 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
         deletePlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         checkForSavedFilterRedirect: true,
         setAppliedSavedFilter: (appliedSavedFilter: SessionRecordingPlaylistType | null) => ({ appliedSavedFilter }),
+        requestApplySavedFilter: (filter: SessionRecordingPlaylistType) => ({ filter }),
+        clearPendingFilterApplication: true,
     })),
     reducers(() => ({
         filters: [
@@ -60,6 +62,13 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
             null as SessionRecordingPlaylistType | null,
             {
                 setAppliedSavedFilter: (_, { appliedSavedFilter }) => appliedSavedFilter,
+            },
+        ],
+        pendingFilterApplication: [
+            null as SessionRecordingPlaylistType | null,
+            {
+                requestApplySavedFilter: (_, { filter }) => filter,
+                clearPendingFilterApplication: () => null,
             },
         ],
         loadSavedFiltersFailed: [

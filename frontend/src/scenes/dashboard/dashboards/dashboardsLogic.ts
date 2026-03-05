@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
@@ -11,6 +11,7 @@ import { objectClean } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActivityScope, Breadcrumb, DashboardBasicType } from '~/types'
@@ -52,6 +53,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     })),
     actions({
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
+        setSearch: (search: string) => ({ search }),
         setFilters: (filters: Partial<DashboardsFilters>) => ({
             filters,
         }),
@@ -184,11 +186,45 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
 
             router.actions.push(router.values.location.pathname, { ...router.values.searchParams, tab })
         },
+        setSearch: ({ search }) => {
+            const nextSearch = search ?? ''
+            const currentSearch = (router.values.searchParams['search'] as string | undefined) ?? ''
+
+            if (nextSearch === currentSearch) {
+                return
+            }
+
+            const searchParams: Record<string, any> = { ...router.values.searchParams }
+
+            if (nextSearch) {
+                searchParams['search'] = nextSearch
+            } else {
+                delete searchParams['search']
+            }
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
     })),
     tabAwareUrlToAction(({ actions }) => ({
         '/dashboard': (_, searchParams) => {
-            const tab = searchParams['tab'] || DashboardsTab.All
+            const tab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
             actions.setCurrentTab(tab)
+
+            const search = typeof searchParams['search'] === 'string' ? searchParams['search'] : ''
+            actions.setFilters({ search })
+        },
+    })),
+    listeners(() => ({
+        [dashboardsModel.actionTypes.loadDashboardsSuccess]: ({
+            pagedDashboards,
+        }: {
+            pagedDashboards: { results?: Pick<DashboardBasicType, 'id'>[] } | null
+        }) => {
+            pagedDashboards?.results?.forEach((dashboard) => {
+                if (dashboard.id != null) {
+                    refreshTreeItem('dashboard', String(dashboard.id))
+                }
+            })
         },
     })),
 ])

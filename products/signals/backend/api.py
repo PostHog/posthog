@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from django.conf import settings
 
-from posthog.schema import EmbeddingModelName
+from posthog.schema import EmbeddingModelName, SignalInput
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -106,14 +106,26 @@ async def emit_signal(
     Example:
         await emit_signal(
             team=team,
-            source_product="experiments",
-            source_type="significance_reached",
-            source_id=str(experiment.id),
-            description="Experiment 'Homepage CTA' reached statistical significance...",
+            source_product="github",
+            source_type="issue",
+            source_id="posthog/posthog#12345",
+            description="GitHub Issue #12345: Button doesn't work on Safari\nLabels: bug\n...",
             weight=0.8,
-            extra={"variant": "B", "p_value": 0.003},
+            extra={"html_url": "https://github.com/posthog/posthog/issues/12345", "number": 12345, ...},
         )
     """
+    # Raise if signal doesn't match any known schema
+    SignalInput.model_validate(
+        {
+            "source_product": source_product,
+            "source_type": source_type,
+            "source_id": source_id,
+            "description": description,
+            "weight": weight,
+            "extra": extra or {},
+        }
+    )
+
     organization = await database_sync_to_async(lambda: team.organization)()
     if not organization.is_ai_data_processing_approved:
         return

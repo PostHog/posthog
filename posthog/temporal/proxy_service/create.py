@@ -344,6 +344,8 @@ async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
     except ApplicationError:
         raise
+    except (ConnectionError, TimeoutError, OSError):
+        raise
     except Exception as e:
         raise NonRetriableException(f"Unknown exception in wait_for_cloudflare_certificate: {e}") from e
 
@@ -530,7 +532,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 await temporalio.workflow.execute_activity(
                     wait_for_cloudflare_certificate,
                     cloudflare_inputs,
-                    schedule_to_close_timeout=dt.timedelta(minutes=15),
+                    schedule_to_close_timeout=dt.timedelta(minutes=60),
                     start_to_close_timeout=dt.timedelta(seconds=10),
                     retry_policy=temporalio.common.RetryPolicy(
                         backoff_coefficient=1.1,
@@ -611,6 +613,19 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 and hasattr(e.cause, "type")
                 and e.cause.type != "RecordDeletedException"
             ):
+                await temporalio.workflow.execute_activity(
+                    activity_update_proxy_record,
+                    UpdateProxyRecordInputs(
+                        organization_id=inputs.organization_id,
+                        proxy_record_id=inputs.proxy_record_id,
+                        status=ProxyRecord.Status.ERRORING.value,
+                    ),
+                    start_to_close_timeout=dt.timedelta(seconds=60),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        maximum_attempts=10,
+                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                    ),
+                )
                 raise
 
             logger.info(
