@@ -3,6 +3,30 @@ from typing import Literal, Optional
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
+# Reusable incremental field definitions (typed as list[IncrementalField])
+ISSUES_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "lastSeen",
+        "type": IncrementalFieldType.DateTime,
+        "field": "lastSeen",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+    {
+        "label": "firstSeen",
+        "type": IncrementalFieldType.DateTime,
+        "field": "firstSeen",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+DATE_CREATED_INCREMENTAL_FIELD: list[IncrementalField] = [
+    {
+        "label": "dateCreated",
+        "type": IncrementalFieldType.DateTime,
+        "field": "dateCreated",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
 
 @dataclass
 class SentryEndpointConfig:
@@ -63,20 +87,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
     "issues": SentryEndpointConfig(
         name="issues",
         path="/organizations/{organization_slug}/issues/",
-        incremental_fields=[
-            {
-                "label": "lastSeen",
-                "type": IncrementalFieldType.DateTime,
-                "field": "lastSeen",
-                "field_type": IncrementalFieldType.DateTime,
-            },
-            {
-                "label": "firstSeen",
-                "type": IncrementalFieldType.DateTime,
-                "field": "firstSeen",
-                "field_type": IncrementalFieldType.DateTime,
-            },
-        ],
+        incremental_fields=ISSUES_INCREMENTAL_FIELDS,
         default_incremental_field="lastSeen",
         partition_key="lastSeen",
         sort_mode="desc",
@@ -91,14 +102,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
     "project_events": SentryEndpointConfig(
         name="project_events",
         path="/projects/{organization_slug}/{project_slug}/events/",
-        incremental_fields=[
-            {
-                "label": "dateCreated",
-                "type": IncrementalFieldType.DateTime,
-                "field": "dateCreated",
-                "field_type": IncrementalFieldType.DateTime,
-            },
-        ],
+        incremental_fields=DATE_CREATED_INCREMENTAL_FIELD,
         default_incremental_field="dateCreated",
         partition_key="dateCreated",
         primary_key=["project_id", "eventID"],
@@ -128,14 +132,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
     "issue_events": SentryEndpointConfig(
         name="issue_events",
         path="/organizations/{organization_slug}/issues/{issue_id}/events/",
-        incremental_fields=[
-            {
-                "label": "dateCreated",
-                "type": IncrementalFieldType.DateTime,
-                "field": "dateCreated",
-                "field_type": IncrementalFieldType.DateTime,
-            },
-        ],
+        incremental_fields=DATE_CREATED_INCREMENTAL_FIELD,
         default_incremental_field="dateCreated",
         partition_key="dateCreated",
         primary_key=["issue_id", "eventID"],
