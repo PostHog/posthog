@@ -64,6 +64,10 @@ GoogleAdsSourceConfigUnion = GoogleAdsServiceAccountSourceConfig | GoogleAdsSour
 
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
     """Initialize a `GoogleAdsClient` with provided config."""
+    from posthog.security.outbound_proxy import get_proxy_url
+
+    proxy_url = get_proxy_url()
+
     if isinstance(config, GoogleAdsSourceConfig):
         integration = Integration.objects.get(id=config.google_ads_integration_id, team_id=team_id)
 
@@ -80,6 +84,8 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
         }
         if login_customer_id is not None:
             config_dict["login_customer_id"] = login_customer_id
+        if proxy_url:
+            config_dict["http_proxy"] = proxy_url
 
         client = GoogleAdsClient.load_from_dict(config_dict)
     else:
@@ -92,7 +98,8 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
             },
             scopes=["https://www.googleapis.com/auth/adwords"],
         )
-        client = GoogleAdsClient(credentials=credentials, developer_token=config.developer_token)
+        proxy_kwargs = {"http_proxy": proxy_url} if proxy_url else {}
+        client = GoogleAdsClient(credentials=credentials, developer_token=config.developer_token, **proxy_kwargs)
     return client
 
 

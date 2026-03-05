@@ -88,11 +88,18 @@ def bigquery_client(
         },
         scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"],
     )
-    client = bigquery.Client(
-        project=project_id,
-        location=location,
-        credentials=credentials,
-    )
+    from posthog.security.outbound_proxy import get_proxy_config
+
+    proxy_cfg = get_proxy_config()
+    if proxy_cfg:
+        from google.auth.transport.requests import AuthorizedSession
+
+        authed_session = AuthorizedSession(credentials)
+        authed_session.proxies = proxy_cfg
+        # _http is the only injection point for proxy config; bigquery.Client has no public proxy parameter
+        client = bigquery.Client(project=project_id, location=location, credentials=credentials, _http=authed_session)
+    else:
+        client = bigquery.Client(project=project_id, location=location, credentials=credentials)
 
     try:
         yield client

@@ -39,6 +39,10 @@ class BingAdsClient:
             refresh_token=refresh_token,
         )
 
+        from posthog.security.outbound_proxy import get_proxy_config
+
+        self._proxy_cfg = get_proxy_config()
+
         self.authorization_data = AuthorizationData(
             account_id=None,
             customer_id=None,
@@ -51,11 +55,13 @@ class BingAdsClient:
             return self._customer_id
 
         try:
+            proxy_kwargs = {"proxy": self._proxy_cfg} if self._proxy_cfg else {}
             service_client = ServiceClient(
                 service="CustomerManagementService",
                 version=13,
                 authorization_data=self.authorization_data,
                 environment=ENVIRONMENT,
+                **proxy_kwargs,
             )
 
             user = service_client.GetUser(UserId=None).User
@@ -69,11 +75,13 @@ class BingAdsClient:
         self.authorization_data.account_id = account_id
         self.authorization_data.customer_id = customer_id
 
+        proxy_kwargs = {"proxy": self._proxy_cfg} if self._proxy_cfg else {}
         service_client = ServiceClient(
             service="CampaignManagementService",
             version=13,
             authorization_data=self.authorization_data,
             environment=ENVIRONMENT,
+            **proxy_kwargs,
         )
 
         campaigns = service_client.GetCampaignsByAccountId(AccountId=account_id)
@@ -113,10 +121,12 @@ class BingAdsClient:
         self.authorization_data.account_id = account_id
         self.authorization_data.customer_id = customer_id
 
+        proxy_kwargs = {"proxy": self._proxy_cfg} if self._proxy_cfg else {}
         reporting_service_manager = reporting.ReportingServiceManager(
             authorization_data=self.authorization_data,
             poll_interval_in_milliseconds=REPORT_POLL_INTERVAL_MS,
             environment=ENVIRONMENT,
+            **proxy_kwargs,
         )
 
         # Build report request using SDK's factory pattern

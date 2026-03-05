@@ -59,6 +59,10 @@ def get_schemas(config: SnowflakeSourceConfig) -> dict[str, list[tuple[str, str,
             "user": config.auth_type.user,
         }
 
+    from posthog.security.outbound_proxy import get_proxy_host_port_dict
+
+    proxy_kwargs = get_proxy_host_port_dict()
+
     with snowflake.connector.connect(
         account=config.account_id,
         warehouse=config.warehouse,
@@ -66,6 +70,7 @@ def get_schemas(config: SnowflakeSourceConfig) -> dict[str, list[tuple[str, str,
         schema="information_schema",
         role=config.role,
         **auth_connect_args,
+        **proxy_kwargs,
     ) as connection:
         with connection.cursor() as cursor:
             if cursor is None:
@@ -99,6 +104,10 @@ def _get_connection(
     schema: str,
     role: Optional[str] = None,
 ) -> snowflake.connector.SnowflakeConnection:
+    from posthog.security.outbound_proxy import get_proxy_host_port_dict
+
+    proxy_kwargs = get_proxy_host_port_dict()
+
     if auth_type == "password" and user is not None and password is not None:
         return snowflake.connector.connect(
             account=account_id,
@@ -108,6 +117,7 @@ def _get_connection(
             database=database,
             schema=schema,
             role=role if role else None,
+            **proxy_kwargs,
         )
 
     if private_key is None:
@@ -133,6 +143,7 @@ def _get_connection(
         schema=schema,
         role=role if role else None,
         private_key=pkb,
+        **proxy_kwargs,
     )
 
 

@@ -63,7 +63,15 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
     should_use_incremental_field: bool = False,
 ):
-    client = StripeClient(api_key, stripe_account=account_id, stripe_version="2024-09-30.acacia", max_network_retries=2)
+    from posthog.security.outbound_proxy import get_proxy_url
+
+    client = StripeClient(
+        api_key,
+        stripe_account=account_id,
+        stripe_version="2024-09-30.acacia",
+        max_network_retries=2,
+        proxy=get_proxy_url(),
+    )
     default_params = {"limit": DEFAULT_LIMIT}
     resources: dict[str, Union[StripeResource, StripeNestedResource]] = {
         ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
@@ -259,7 +267,9 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     - Raise StripePermissionError if the API key is valid but lacks permissions for specific resources
     - Raise Exception if the API key is invalid or there's any other error
     """
-    client = StripeClient(api_key)
+    from posthog.security.outbound_proxy import get_proxy_url
+
+    client = StripeClient(api_key, proxy=get_proxy_url())
 
     # Test access to all resources we're pulling
     resources_to_check = [

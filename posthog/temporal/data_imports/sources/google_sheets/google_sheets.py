@@ -26,7 +26,9 @@ def google_sheets_client() -> gspread.Client:
         },
         scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"],
     )
-    return gspread.authorize(credentials)
+    from posthog.security.outbound_proxy import external_requests_session
+
+    return gspread.Client(auth=credentials, session=external_requests_session())
 
 
 cache: Cache[Any, Any] = TTLCache(maxsize=500, ttl=120)  # 120 seconds

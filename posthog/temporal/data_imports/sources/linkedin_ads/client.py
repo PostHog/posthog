@@ -27,6 +27,12 @@ class LinkedinAdsClient:
         self.client = RestliClient()
         self.api_version = API_VERSION
 
+        from posthog.security.outbound_proxy import get_proxy_config
+
+        proxy_cfg = get_proxy_config()
+        if proxy_cfg:
+            self.client.session.proxies.update(proxy_cfg)
+
     def get_accounts(self) -> list[dict[str, Any]]:
         """Get ad accounts."""
         return self._make_request(endpoint=LinkedinAdsResource.Accounts, finder="search")
