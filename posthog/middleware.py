@@ -32,7 +32,7 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
-from posthog.event_usage import get_event_source, sanitize_header_value
+from posthog.event_usage import get_event_source, get_mcp_properties
 from posthog.geoip import get_geoip_properties
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
@@ -341,10 +341,7 @@ class CHQueries:
             http_referer=request.headers.get("referer"),
             http_user_agent=request.headers.get("user-agent"),
             source=get_event_source(request),
-            mcp_user_agent=sanitize_header_value(request.headers.get("X-Posthog-Mcp-User-Agent")),
-            mcp_client_name=sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Name")),
-            mcp_client_version=sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Version")),
-            mcp_protocol_version=sanitize_header_value(request.headers.get("X-Posthog-Mcp-Protocol-Version")),
+            **get_mcp_properties(request),
         )
 
         try:

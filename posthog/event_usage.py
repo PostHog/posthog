@@ -301,6 +301,16 @@ def sanitize_header_value(value: str | None) -> str | None:
     return re.sub(r"[\x00-\x1f\x7f]", "", value).strip()[:MAX_HEADER_VALUE_LENGTH] or None
 
 
+def get_mcp_properties(request) -> dict[str, str | None]:
+    """Extract MCP client metadata from request headers."""
+    return {
+        "mcp_user_agent": sanitize_header_value(request.headers.get("X-Posthog-Mcp-User-Agent")),
+        "mcp_client_name": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Name")),
+        "mcp_client_version": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Version")),
+        "mcp_protocol_version": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Protocol-Version")),
+    }
+
+
 def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
     """Extract standard analytics properties from a request."""
     return {
@@ -308,10 +318,7 @@ def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
         "$current_url": request.headers.get("Referer"),
         "$session_id": request.headers.get("X-Posthog-Session-Id"),
         "was_impersonated": is_impersonated_session(request),
-        "mcp_user_agent": sanitize_header_value(request.headers.get("X-Posthog-Mcp-User-Agent")),
-        "mcp_client_name": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Name")),
-        "mcp_client_version": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Version")),
-        "mcp_protocol_version": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Protocol-Version")),
+        **get_mcp_properties(request),
     }
 
 
