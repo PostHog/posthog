@@ -55,7 +55,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import INSIGHT, INSIGHT_FUNNELS, INSIGHT_STICKINESS, TRENDS_STICKINESS, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import get_request_analytics_properties, groups
+from posthog.event_usage import report_user_action
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
@@ -140,6 +140,7 @@ def log_and_report_insight_activity(
     team_id: int,
     user: User,
     was_impersonated: bool,
+    request: Request | None = None,
     changes: list[Change] | None = None,
     properties: dict[str, Any] | None = None,
 ) -> None:
@@ -164,12 +165,14 @@ def log_and_report_insight_activity(
             properties = {}
         organization = Organization.objects.get(id=organization_id)
         team = Team.objects.get(id=team_id)
-        if not was_impersonated and user.distinct_id:
-            posthoganalytics.capture(
+        if not was_impersonated:
+            report_user_action(
+                user,
                 f"insight {activity}",
-                distinct_id=user.distinct_id,
-                properties={"insight_id": insight_short_id, **properties},
-                groups=(groups(organization, team) if team_id else groups(organization)),
+                {"insight_id": insight_short_id, **properties},
+                team=team,
+                organization=organization,
+                request=request,
             )
 
 
@@ -198,8 +201,6 @@ def capture_legacy_api_call(request: request.Request, team: Team) -> None:
         raise PermissionDenied("Legacy insight endpoints are not available for this user.")
 
     try:
-        event = "legacy insight endpoint called"
-        distinct_id: str = request.user.distinct_id  # type: ignore
         properties = {
             "path": request._request.path,
             "method": request._request.method,
@@ -209,8 +210,13 @@ def capture_legacy_api_call(request: request.Request, team: Team) -> None:
             "user_agent": request.headers.get("user-agent"),
         }
 
-        posthoganalytics.capture(
-            event, distinct_id=distinct_id, properties=properties, groups=(groups(team.organization, team))
+        report_user_action(
+            request.user,
+            "legacy insight endpoint called",
+            properties,
+            team=team,
+            organization=team.organization,
+            request=request,
         )
     except Exception as e:
         logging.exception(f"Error in capture_legacy_api_call: {e}")
@@ -489,7 +495,7 @@ class InsightSerializer(InsightBasicSerializer):
             team_id=team_id,
             user=self.context["request"].user,
             was_impersonated=is_impersonated_session(self.context["request"]),
-            properties=get_request_analytics_properties(request),
+            request=self.context["request"],
         )
 
         return insight
@@ -573,8 +579,8 @@ class InsightSerializer(InsightBasicSerializer):
             team_id=self.context["team_id"],
             user=self.context["request"].user,
             was_impersonated=is_impersonated_session(self.context["request"]),
+            request=self.context["request"],
             changes=changes,
-            properties=get_request_analytics_properties(self.context["request"]),
         )
 
     def _synthetic_dashboard_changes(self, dashboards_before_change: list[dict]) -> list[Change]:
