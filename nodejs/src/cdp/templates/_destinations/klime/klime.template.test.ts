@@ -172,6 +172,29 @@ describe('klime template', () => {
         expect(parseBatchEvent(response).traits).toEqual({ name: 'Acme Inc', plan: 'enterprise' })
     })
 
+    it('uses $group_key over inputs.groupId for $groupidentify events', async () => {
+        const response = await tester.invoke(
+            { ...defaultInputs, action: 'automatic', groupId: 'wrong-group' },
+            {
+                event: {
+                    uuid: 'uuid-1',
+                    event: '$groupidentify',
+                    properties: {
+                        $group_type: 'workspace',
+                        $group_key: 'workspace-789',
+                        $group_set: { name: 'My Workspace' },
+                    },
+                    timestamp: '2024-01-01T00:00:00Z',
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        const batchEvent = parseBatchEvent(response)
+        expect(batchEvent.type).toBe('group')
+        expect(batchEvent.groupId).toBe('workspace-789')
+    })
+
     it('sends custom property mapping as properties on track events', async () => {
         const response = await tester.invoke({
             ...defaultInputs,
