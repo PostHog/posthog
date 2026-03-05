@@ -29,18 +29,7 @@ import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMulti
 import { ShowPieTotalFilter } from 'scenes/insights/EditorFilters/ShowPieTotalFilter'
 import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
-<<<<<<< HEAD
-<<<<<<< HEAD
 import { YAxisStartAtMinFilter } from 'scenes/insights/EditorFilters/YAxisStartAtMinFilter'
-import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
-import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
-=======
->>>>>>> 63779cb7286ba50323edea3d19036f5dd5e728af
-=======
-import { YAxisStartAtMinFilter } from 'scenes/insights/EditorFilters/YAxisStartAtMinFilter'
-import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
-import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
->>>>>>> ccb5ad9db36cbc4a715fa222d3f38af044528c80
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
@@ -294,16 +283,7 @@ export function InsightDisplayConfig(): JSX.Element {
         (hasLegend && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
-<<<<<<< HEAD
-<<<<<<< HEAD
-        (trendsFilter?.yAxisStartAtMin ? 1 : 0)
-=======
-        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
->>>>>>> 63779cb7286ba50323edea3d19036f5dd5e728af
-=======
-        (trendsFilter?.yAxisStartAtMin ? 1 : 0)
-        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
->>>>>>> ccb5ad9db36cbc4a715fa222d3f38af044528c80
+        (trendsFilter?.yAxisStartAtMin ? 1 : 0)(trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
 
     return (
         <div
