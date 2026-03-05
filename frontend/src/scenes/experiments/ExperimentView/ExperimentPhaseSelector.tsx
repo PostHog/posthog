@@ -10,20 +10,6 @@ import { Label } from 'lib/ui/Label/Label'
 
 import { experimentLogic } from '../experimentLogic'
 
-function getPhaseName(phase: { name?: string }, index: number): string {
-    return phase.name || `Phase ${index + 1}`
-}
-
-function formatPhaseOption(
-    phase: { start_date: string; end_date: string | null; name?: string },
-    index: number
-): string {
-    const name = getPhaseName(phase, index)
-    const start = dayjs(phase.start_date).format('MMM D')
-    const end = phase.end_date ? dayjs(phase.end_date).format('MMM D') : 'now'
-    return `${name}: ${start} - ${end}`
-}
-
 export function ExperimentPhaseSelector(): JSX.Element | null {
     const isEnabled = useFeatureFlag('EXPERIMENT_PHASES')
     const { experiment, selectedPhaseIndex } = useValues(experimentLogic)
@@ -53,7 +39,22 @@ export function ExperimentPhaseSelector(): JSX.Element | null {
                         phases.length > 1 ? (
                             <LemonMenuOverlay
                                 items={phases.map((phase, i) => ({
-                                    label: formatPhaseOption(phase, i),
+                                    label: (
+                                        <div className="flex flex-col">
+                                            <span>
+                                                <span className="font-medium">{i + 1}:</span>{' '}
+                                                {phase.name || `Phase ${i + 1}`}
+                                            </span>
+                                            <span className="text-xs text-secondary">
+                                                {dayjs(phase.start_date).format('MMM D')}
+                                                {' - '}
+                                                {phase.end_date ? dayjs(phase.end_date).format('MMM D') : 'now'}
+                                            </span>
+                                            {phase.reason ? (
+                                                <span className="text-xs text-secondary italic">{phase.reason}</span>
+                                            ) : null}
+                                        </div>
+                                    ),
                                     active:
                                         selectedPhaseIndex === i ||
                                         (selectedPhaseIndex === null && i === phases.length - 1),
