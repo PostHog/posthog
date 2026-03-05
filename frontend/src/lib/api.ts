@@ -3624,7 +3624,7 @@ const api = {
                     .errorTrackingIssueFingerprints()
                     .withQueryString(toParams({ issue_id: issueId }))
                     .assembleFullUrl()
-                return await api.loadPaginatedResults(url)
+                return await api.loadPaginatedResults<ErrorTrackingFingerprint>(url)
             },
         },
 
