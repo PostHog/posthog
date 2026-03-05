@@ -1385,11 +1385,15 @@ export class ApiClient {
                         },
                         severityLevels: params.severityLevels ?? [],
                         serviceNames: params.serviceNames ?? [],
-                        searchTerm: params.searchTerm ?? null,
                         orderBy: params.orderBy ?? 'latest',
                         limit: params.limit ?? 100,
                         after: params.after ?? null,
-                        filterGroup: { type: 'AND', values: [] },
+                        filterGroup: params.filters?.length
+                            ? {
+                                  type: 'AND' as const,
+                                  values: [{ type: params.filtersType ?? ('AND' as const), values: params.filters }],
+                              }
+                            : { type: 'AND' as const, values: [] },
                     },
                 }
 
