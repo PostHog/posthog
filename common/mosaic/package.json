@@ -1,0 +1,14 @@
+{
+    "name": "@posthog/mosaic",
+    "version": "0.0.1",
+    "private": true,
+    "main": "src/index.ts",
+    "dependencies": {
+        "clsx": "^2.1.1",
+        "react": "catalog:"
+    },
+    "devDependencies": {
+        "@storybook/react": "catalog:",
+        "@types/react": "catalog:"
+    }
+}
