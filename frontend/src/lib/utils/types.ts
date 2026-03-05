@@ -9,4 +9,4 @@ export type RequiredExcept<T, K extends keyof T> = {
 }
 
 /** Extract the value type from an array or object type. */
-export type ValueOf<a> = a extends any[] ? a[number] : a[keyof a]
+export type ValueOf<T> = T extends any[] ? T[number] : T[keyof T]
