@@ -1698,6 +1698,7 @@ export const AggregationAxisFormatApi = {
     Percentage: 'percentage',
     PercentageScaled: 'percentage_scaled',
     Currency: 'currency',
+    Short: 'short',
 } as const
 
 export type DetailedResultsAggregationTypeApi =
