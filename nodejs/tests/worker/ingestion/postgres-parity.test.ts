@@ -25,7 +25,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 }
 
 describe('postgres parity', () => {
-    jest.retryTimes(5) // Flakey due to reliance on kafka/clickhouse
+    jest.retryTimes(1) // Reduced from 5 to limit timeout amplification when kafka/clickhouse is degraded
     let postgres: PostgresRouter
     let kafkaProducer: KafkaProducerWrapper
     let server: PluginServer
@@ -33,8 +33,13 @@ describe('postgres parity', () => {
     let clickhouse: Clickhouse
     let teamId: number
 
-    beforeAll(() => {
+    beforeAll(async () => {
         clickhouse = Clickhouse.create()
+        // Reset Kafka topics once before all tests. Doing this in beforeEach
+        // causes ClickHouse StorageKafka consumers to lose their partition
+        // assignments every time topics are deleted/recreated, leading to
+        // "Can't get assignment" errors and 100s+ polling hangs.
+        await resetKafka(extraServerConfig)
     })
 
     beforeEach(async () => {
@@ -43,8 +48,6 @@ describe('postgres parity', () => {
         // Generate unique teamId to avoid collisions across test files
         teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
 
-        // Reset Kafka and ClickHouse for each test to ensure isolation
-        await resetKafka(extraServerConfig)
         await clickhouse.resetTestDatabase()
 
         await resetTestDatabase()
