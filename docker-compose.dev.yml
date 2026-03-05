@@ -120,6 +120,10 @@ services:
             PERSONS_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
             CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-posthog}
             PLUGIN_SERVER_MODE: ${PLUGIN_SERVER_MODE:-}
+            # CDP Redis defaults to 127.0.0.1 — must point to the Docker service
+            CDP_REDIS_HOST: redis7
+            # Encryption keys default is only set when NODE_ENV=dev, but the image uses production
+            ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
         depends_on:
             kafka:
                 condition: service_started
