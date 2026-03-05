@@ -162,7 +162,7 @@ const Header = (): JSX.Element => {
                             size="small"
                             type="secondary"
                             icon={<IconFeedback />}
-                            onClick={() => posthog.showSurvey('019cbd35-c91c-0000-9997-9259dc4cc2ef')}
+                            onClick={() => posthog.displaySurvey('019cbd35-c91c-0000-9997-9259dc4cc2ef')}
                         >
                             Feedback
                         </LemonButton>
