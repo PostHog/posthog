@@ -87,7 +87,8 @@
                         "$session_duration": 45
                     },
                     "matched_recordings": [],
-                    "value_at_data_point": null
+                    "value_at_data_point": null,
+                    "person": {}
                 },
                 {
                     "type": "session",
