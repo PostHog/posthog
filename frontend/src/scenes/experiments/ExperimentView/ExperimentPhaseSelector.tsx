@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowRight } from '@posthog/icons'
+import { IconArrowRight, IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -35,67 +35,66 @@ export function ExperimentPhaseSelector(): JSX.Element | null {
 
     const phases = experiment.phases || []
     const selectedPhase = selectedPhaseIndex != null ? phases[selectedPhaseIndex] : null
-    const selectedPhaseLabel = selectedPhase
-        ? getPhaseName(selectedPhase, selectedPhaseIndex ?? 0)
-        : phases.length > 0
-          ? getPhaseName(phases[phases.length - 1], phases.length - 1)
-          : 'No phases'
     const effectivePhase = selectedPhase ?? phases[phases.length - 1]
+    const effectiveIndex = selectedPhaseIndex ?? phases.length - 1
+    const selectedPhaseLabel = effectivePhase ? getPhaseName(effectivePhase, effectiveIndex) : 'No phases'
     const displayStartDate = effectivePhase?.start_date ?? experiment.start_date
     const displayEndDate = effectivePhase?.end_date ?? experiment.end_date
 
     return (
         <div>
             <Label intent="menu">Phase</Label>
-            <div className="flex items-center gap-2">
-                <LemonDropdown
-                    matchWidth={false}
-                    overlay={
-                        <div className="min-w-56">
-                            {phases.map((phase, i) => (
-                                <LemonButton
-                                    key={i}
-                                    fullWidth
-                                    size="small"
-                                    active={selectedPhaseIndex === i}
-                                    onClick={() => setSelectedPhaseIndex(i)}
-                                >
-                                    {formatPhaseOption(phase, i)}
-                                </LemonButton>
-                            ))}
-                        </div>
-                    }
-                >
-                    <LemonButton type="secondary" size="xsmall">
-                        <span className="flex items-center gap-1.5">
-                            <span className="font-medium">{selectedPhaseLabel}</span>
-                            <span className="text-secondary">-</span>
-                            {displayStartDate ? (
-                                <TZLabel
-                                    time={displayStartDate}
-                                    formatDate="MMM DD, YYYY"
-                                    formatTime="hh:mm A"
-                                    showPopover={true}
-                                    noStyles={true}
-                                />
-                            ) : (
-                                'No date'
-                            )}
-                            <IconArrowRight className="text-xs" />
-                            {displayEndDate ? (
-                                <TZLabel
-                                    time={displayEndDate}
-                                    formatDate="MMM DD, YYYY"
-                                    formatTime="hh:mm A"
-                                    showPopover={true}
-                                    noStyles={true}
-                                />
-                            ) : (
-                                <span>now</span>
-                            )}
-                        </span>
-                    </LemonButton>
-                </LemonDropdown>
+            <div className="flex items-center gap-1.5">
+                <span className="flex items-center gap-1.5 text-sm">
+                    <span className="font-medium">{selectedPhaseLabel}</span>
+                    <span className="text-secondary">-</span>
+                    {displayStartDate ? (
+                        <TZLabel
+                            time={displayStartDate}
+                            formatDate="MMM DD, YYYY"
+                            formatTime="hh:mm A"
+                            showPopover={true}
+                        />
+                    ) : (
+                        <span className="text-secondary">No date</span>
+                    )}
+                    <IconArrowRight className="text-xs text-secondary" />
+                    {displayEndDate ? (
+                        <TZLabel
+                            time={displayEndDate}
+                            formatDate="MMM DD, YYYY"
+                            formatTime="hh:mm A"
+                            showPopover={true}
+                        />
+                    ) : (
+                        <span className="text-secondary">–</span>
+                    )}
+                </span>
+                {phases.length > 1 ? (
+                    <LemonDropdown
+                        matchWidth={false}
+                        overlay={
+                            <div className="min-w-56">
+                                {phases.map((phase, i) => (
+                                    <LemonButton
+                                        key={i}
+                                        fullWidth
+                                        size="small"
+                                        active={
+                                            selectedPhaseIndex === i ||
+                                            (selectedPhaseIndex === null && i === phases.length - 1)
+                                        }
+                                        onClick={() => setSelectedPhaseIndex(i)}
+                                    >
+                                        {formatPhaseOption(phase, i)}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="xsmall" icon={<IconChevronDown />} />
+                    </LemonDropdown>
+                ) : null}
                 <LemonButton type="secondary" size="xsmall" onClick={openEditPhasesModal}>
                     Manage phases
                 </LemonButton>
