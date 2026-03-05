@@ -4618,3 +4618,66 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
 
         self.assertEqual(len(result2.results), 2)
         self.assertTrue(result2.has_more_recording)
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_session_property_filter_does_not_trigger_unexpected_query_properties(self):
+        user = "test_session_prop_filter-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_one = f"test_session_prop-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.pk,
+        )
+        create_event(
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            team=self.team,
+            event_name="$pageview",
+            properties={
+                "$session_id": session_id_one,
+                "$window_id": "1",
+                "$current_url": "https://example.com/pricing",
+            },
+        )
+
+        session_id_two = f"test_session_prop-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_two,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.pk,
+        )
+        create_event(
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            team=self.team,
+            event_name="$pageview",
+            properties={
+                "$session_id": session_id_two,
+                "$window_id": "1",
+                "$current_url": "https://other.com/home",
+            },
+        )
+
+        from unittest.mock import patch
+
+        from posthog.session_recordings.queries.utils import UnexpectedQueryProperties
+
+        with patch(
+            "posthog.session_recordings.queries.session_recording_list_from_query.capture_exception"
+        ) as mock_capture:
+            self._filter_recordings_by(
+                {
+                    "properties": '[{"key": "$entry_current_url", "value": ["https://example.com/pricing"], "operator": "exact", "type": "session"}]',
+                },
+            )
+            unexpected_calls = [
+                call for call in mock_capture.call_args_list if isinstance(call[0][0], UnexpectedQueryProperties)
+            ]
+            assert unexpected_calls == [], (
+                f"UnexpectedQueryProperties should not be raised for session properties, but got: {unexpected_calls}"
+            )
