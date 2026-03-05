@@ -17,7 +17,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.filters.utils import get_filter
-from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
+from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDModel, sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
 logger = structlog.get_logger(__name__)
@@ -346,7 +346,7 @@ class InsightViewed(models.Model):
         indexes = [models.Index(fields=["team_id", "user_id", "-last_viewed_at"])]
 
 
-class InsightFavorite(models.Model):
+class InsightFavorite(UUIDModel):
     """Per-user insight favorites. Replaces the team-wide Insight.favorited boolean field."""
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
