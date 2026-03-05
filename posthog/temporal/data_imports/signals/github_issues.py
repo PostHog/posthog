@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from structlog import get_logger
@@ -75,8 +76,22 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         source_id=str(issue_id),
         description=f"{title}\n{body}",
         weight=1.0,
-        extra={k: v for k, v in record.items() if k in EXTRA_FIELDS},
+        extra=_build_extra(record),
     )
+
+
+def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
+    extra = {k: v for k, v in record.items() if k in EXTRA_FIELDS}
+    raw_labels = extra.get("labels")
+    if isinstance(raw_labels, str):
+        try:
+            parsed = json.loads(raw_labels)
+            extra["labels"] = [label["name"] for label in parsed if isinstance(label, dict) and "name" in label]
+        except (json.JSONDecodeError, TypeError):
+            extra["labels"] = []
+    elif not isinstance(raw_labels, list):
+        extra["labels"] = []
+    return extra
 
 
 GITHUB_ISSUES_CONFIG = SignalSourceTableConfig(
