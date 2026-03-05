@@ -235,7 +235,7 @@ describe('DWH source webhooks', () => {
                 body: webhookReq.body,
             })
 
-            expect(res.status).toEqual(200)
+            expect(res.status).toEqual(201)
             expect(res.body).toEqual({ status: 'ok' })
 
             await waitForBackgroundTasks()
@@ -292,7 +292,7 @@ describe('DWH source webhooks', () => {
                 body: { type: 'charge.succeeded', data: { object: { id: 'ch_1' } } },
             })
 
-            expect(res.status).toEqual(200)
+            expect(res.status).toEqual(201)
             expect(res.body).toEqual({ status: 'ok' })
 
             await waitForBackgroundTasks()
@@ -345,7 +345,7 @@ describe('DWH source webhooks', () => {
                 body: webhookReq.body,
             })
 
-            expect(res.status).toEqual(200)
+            expect(res.status).toEqual(201)
             await waitForBackgroundTasks()
 
             const kafkaMessages = getDwhKafkaMessages()
