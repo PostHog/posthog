@@ -190,7 +190,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         // Deduplicate by ID and exclude current ticket
                         const uniqueTickets = Array.from(
                             new Map(allTickets.map((ticket) => [ticket.id, ticket])).values()
-                        ).filter((ticket) => ticket.id !== currentTicketId)
+                        ).filter((ticket) => ticket.ticket_number !== currentTicketId)
 
                         // Sort by created_at descending (most recent first)
                         return uniqueTickets.sort(

@@ -25,7 +25,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 }
 
 describe('postgres parity', () => {
-    jest.retryTimes(5) // Flakey due to reliance on kafka/clickhouse
+    jest.retryTimes(1) // Reduced from 5 to limit timeout amplification when kafka/clickhouse is degraded
     let postgres: PostgresRouter
     let kafkaProducer: KafkaProducerWrapper
     let server: PluginServer
