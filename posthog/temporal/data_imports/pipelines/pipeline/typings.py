@@ -55,6 +55,7 @@ class SourceInputs:
     job_id: str
     logger: FilteringBoundLogger
     reset_pipeline: bool
+    sync_type_config: dict = dataclasses.field(default_factory=dict)
 
 
 class PipelineResult(TypedDict):

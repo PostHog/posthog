@@ -395,16 +395,17 @@ def _update_labels(
 def sync_old_schemas_with_new_schemas(
     new_schemas: dict[str, str | None], source_id: str, team_id: int
 ) -> tuple[list[str], list[str]]:
+    new_schema_names = list(new_schemas.keys())
+
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
 
     # Update display labels on existing schemas
     _update_labels(old_schemas, new_schemas)
 
-    new_schema_names = list(new_schemas.keys())
     schemas_to_create = [name for name in new_schema_names if name not in old_schemas_names]
 
-    schemas_to_possibly_delete = [schema for schema in old_schemas_names if schema not in new_schema_names]
+    schemas_to_possibly_delete = [name for name in old_schemas_names if name not in new_schema_names]
     deleted_schemas: list[str] = []
     actually_created: list[str] = []
 
@@ -441,6 +442,21 @@ def sync_old_schemas_with_new_schemas(
         )
         if created:
             actually_created.append(schema_name)
+
+    # Update metadata on existing schemas that already exist
+    for old_schema in old_schemas:
+        raw_meta = new_schemas.get(old_schema.name, {})
+        filtered_meta = {
+            k: v for k, v in raw_meta.items() if k not in RESERVED_SYNC_TYPE_CONFIG_KEYS and k != "label"
+        }
+        if filtered_meta:
+            updated = False
+            for key, value in filtered_meta.items():
+                if old_schema.sync_type_config.get(key) != value:
+                    old_schema.sync_type_config[key] = value
+                    updated = True
+            if updated:
+                old_schema.save(update_fields=["sync_type_config"])
 
     for schema in schemas_to_possibly_delete:
         # There _could_ exist multiple schemas with the same name, there shouldn't be, but it's not impossible

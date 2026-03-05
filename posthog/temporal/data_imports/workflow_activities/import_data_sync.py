@@ -151,6 +151,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
+                sync_type_config=schema.sync_type_config or {},
             )
 
             new_source = SourceRegistry.get_source(source_type)
