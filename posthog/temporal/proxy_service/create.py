@@ -280,6 +280,7 @@ async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs)
             logger.info("Cloudflare Custom Hostname already exists for domain %s", inputs.domain)
             return
         if e.is_rate_limited():
+            # Rate limited by Cloudflare — re-raise to let Temporal retry with backoff
             raise
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
 
