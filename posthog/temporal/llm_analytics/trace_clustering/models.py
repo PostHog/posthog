@@ -117,6 +117,30 @@ class TraceClusterMetadata:
 
 
 @dataclass
+class ClusterSentiment:
+    """Aggregate sentiment for a cluster."""
+
+    label: str  # "positive", "neutral", "negative"
+    score: float  # 0-1
+    counts: dict[str, int]  # {"positive": N, "neutral": N, "negative": N}
+    total: int  # number of items with sentiment data
+
+
+@dataclass
+class ClusterAggregateMetrics:
+    """Pre-computed aggregate metrics for a cluster, baked into the event."""
+
+    avg_cost: float | None = None
+    avg_latency: float | None = None
+    avg_tokens: float | None = None
+    total_cost: float | None = None
+    error_rate: float | None = None
+    error_count: int = 0
+    item_count: int = 0
+    sentiment: ClusterSentiment | None = None
+
+
+@dataclass
 class ClusterData:
     """Data structure for a cluster to be emitted in events."""
 
@@ -128,6 +152,7 @@ class ClusterData:
     centroid: list[float]
     centroid_x: float  # UMAP 2D x coordinate for scatter plot visualization
     centroid_y: float  # UMAP 2D y coordinate for scatter plot visualization
+    metrics: ClusterAggregateMetrics | None = None
 
 
 @dataclass
@@ -289,6 +314,23 @@ class EmitEventsActivityInputs:
     clustering_params: ClusteringParams | None = None  # Params used for this run
     job_id: str = ""  # empty = no job (legacy/manual run without a job)
     job_name: str = ""
+    cluster_metrics: dict[int, ClusterAggregateMetrics] = field(default_factory=dict)
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}
+
+
+@dataclass
+class ComputeAggregatesActivityInputs:
+    """Input for the aggregate metrics activity."""
+
+    team_id: int
+    window_start: str
+    window_end: str
+    items: list[ClusterItem]
+    labels: list[int]
+    analysis_level: AnalysisLevel = "trace"
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
