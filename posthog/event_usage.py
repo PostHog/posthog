@@ -292,7 +292,7 @@ def get_event_source(request) -> EventSource:
     # which is available after Django's AuthenticationMiddleware runs.
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
         return EventSource.WEB
-    if hasattr(request, "session") and request.session.session_key is not None:
+    if getattr(getattr(request, "session", None), "session_key", None) is not None:
         return EventSource.WEB
     return EventSource.API
 
