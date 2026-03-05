@@ -1,5 +1,50 @@
 import posthog from 'posthog-js'
 
+/**
+ * URL Change Tracking for Web Analytics Bug Investigation
+ *
+ * This module tracks URL changes in kea router to detect and diagnose rapid URL update cycles
+ * that cause browser tab freezes. We've observed `[object Object]` appearing in URLs temporarily,
+ * suggesting serialization issues that create infinite loops in the URL sync cycle.
+ *
+ * Owner: team-web-analytics
+ * Context: https://github.com/PostHog/posthog/pull/49891
+ *
+ * This is observability-only code - it does not suppress or modify URL updates,
+ * only logs warnings and captures events when thresholds are exceeded.
+ */
+
+type ActionToUrlResponse = string | [string, Record<string, any>?, Record<string, any>?] | unknown
+
+export function extractUrlString(response: ActionToUrlResponse): string | null {
+    if (response === undefined || response === null) {
+        return null
+    }
+    if (typeof response === 'string') {
+        return response
+    }
+    if (Array.isArray(response)) {
+        if (response.length === 0) {
+            return null
+        }
+        // actionToUrl returns [pathname, searchParams?, hashParams?]
+        // Serialize all parts to catch [object Object] in any component
+        const parts: string[] = [String(response[0])]
+        if (response[1] != null) {
+            parts.push(`?${JSON.stringify(response[1])}`)
+        }
+        if (response[2] != null) {
+            parts.push(`#${JSON.stringify(response[2])}`)
+        }
+        return parts.join('')
+    }
+    return String(response)
+}
+
+export function containsSerializationBug(url: string): boolean {
+    return url.includes('[object Object]')
+}
+
 interface UrlChangeRecord {
     timestamp: number
     url: string
@@ -131,9 +176,33 @@ export function captureRapidUrlChangeWarning(
         logic_path: logicPath,
         action_name: actionName,
         change_count: debugInfo.changeCount,
-        has_object_object: currentUrl.includes('[object Object]'),
+        has_object_object: containsSerializationBug(currentUrl),
         session_replay_url: sessionReplayUrl,
     })
+}
+
+export function trackUrlChange(response: ActionToUrlResponse, logicPath: string, actionName: string): void {
+    const urlString = extractUrlString(response)
+    if (urlString === null) {
+        return
+    }
+
+    const tracker = getUrlChangeTracker(logicPath)
+
+    if (containsSerializationBug(urlString)) {
+        // eslint-disable-next-line no-console
+        console.error('[PostHog] Invalid URL detected - contains [object Object]', {
+            url: urlString,
+            action: actionName,
+            logic: logicPath,
+        })
+    }
+
+    tracker.recordChange(urlString, logicPath, actionName)
+
+    if (tracker.isRapidlyChanging()) {
+        captureRapidUrlChangeWarning(tracker, urlString, logicPath, actionName)
+    }
 }
 
 export { UrlChangeTracker }

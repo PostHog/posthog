@@ -1,4 +1,46 @@
-import { getUrlChangeTracker, resetAllTrackers, UrlChangeTracker } from './urlChangeTracker'
+import {
+    containsSerializationBug,
+    extractUrlString,
+    getUrlChangeTracker,
+    resetAllTrackers,
+    UrlChangeTracker,
+} from './urlChangeTracker'
+
+describe('extractUrlString', () => {
+    it.each([
+        { input: null, expected: null },
+        { input: undefined, expected: null },
+        { input: '/web', expected: '/web' },
+        { input: '/web?foo=bar', expected: '/web?foo=bar' },
+        { input: ['/web'], expected: '/web' },
+        { input: ['/web', { foo: 'bar' }], expected: '/web?{"foo":"bar"}' },
+        { input: ['/web', { foo: 'bar' }, { section: 'top' }], expected: '/web?{"foo":"bar"}#{"section":"top"}' },
+        { input: ['/web', null, { section: 'top' }], expected: '/web#{"section":"top"}' },
+        { input: ['/web', undefined, { section: 'top' }], expected: '/web#{"section":"top"}' },
+        { input: [], expected: null },
+        { input: 123, expected: '123' },
+    ])('extracts $expected from $input', ({ input, expected }) => {
+        expect(extractUrlString(input)).toBe(expected)
+    })
+
+    it('detects [object Object] in searchParams', () => {
+        const badObject = {}
+        badObject.toString = () => '[object Object]'
+        const result = extractUrlString(['/web', { filter: badObject }])
+        expect(result).toContain('[object Object]')
+    })
+})
+
+describe('containsSerializationBug', () => {
+    it.each([
+        { url: '/web?foo=bar', expected: false },
+        { url: '/web?foo=[object Object]', expected: true },
+        { url: '/web#[object Object]', expected: true },
+        { url: '/web/[object Object]/path', expected: true },
+    ])('returns $expected for $url', ({ url, expected }) => {
+        expect(containsSerializationBug(url)).toBe(expected)
+    })
+})
 
 describe('getUrlChangeTracker', () => {
     beforeEach(() => {

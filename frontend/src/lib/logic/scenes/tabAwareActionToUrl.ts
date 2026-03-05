@@ -4,30 +4,7 @@ import { ActionToUrlPayload } from 'kea-router/lib/types'
 
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { captureRapidUrlChangeWarning, getUrlChangeTracker } from './urlChangeTracker'
-
-function extractUrlString(response: unknown): string | null {
-    if (response === undefined || response === null) {
-        return null
-    }
-    if (typeof response === 'string') {
-        return response
-    }
-    if (Array.isArray(response) && response.length > 0) {
-        // actionToUrl returns [pathname, searchParams?, hashParams?]
-        // Serialize all parts to catch [object Object] in any component
-        const parts: string[] = []
-        parts.push(String(response[0]))
-        if (response[1] !== undefined && response[1] !== null) {
-            parts.push(`?${JSON.stringify(response[1])}`)
-        }
-        if (response[2] !== undefined && response[2] !== null) {
-            parts.push(`#${JSON.stringify(response[2])}`)
-        }
-        return parts.join('')
-    }
-    return String(response)
-}
+import { trackUrlChange } from './urlChangeTracker'
 
 export const tabAwareActionToUrl = <L extends Logic = Logic>(
     input: ActionToUrlPayload<L> | ((logic: BuiltLogic<L>) => ActionToUrlPayload<L>)
@@ -47,31 +24,7 @@ export const tabAwareActionToUrl = <L extends Logic = Logic>(
 
                         if (sceneLogic.values.activeTabId === logic.props.tabId) {
                             const response = v(payload)
-
-                            // Track URL changes for rapid change detection
-                            const urlString = extractUrlString(response)
-                            if (urlString !== null) {
-                                const logicPath = logic.pathString
-                                const tracker = getUrlChangeTracker(logicPath)
-
-                                // Detect [object Object] in URL - strong indicator of serialization bug
-                                if (urlString.includes('[object Object]')) {
-                                    // eslint-disable-next-line no-console
-                                    console.error('[PostHog] Invalid URL detected - contains [object Object]', {
-                                        url: urlString,
-                                        action: actionName,
-                                        logic: logicPath,
-                                    })
-                                }
-
-                                tracker.recordChange(urlString, logicPath, actionName)
-
-                                // Check for rapid changes and warn (no suppression)
-                                if (tracker.isRapidlyChanging()) {
-                                    captureRapidUrlChangeWarning(tracker, urlString, logicPath, actionName)
-                                }
-                            }
-
+                            trackUrlChange(response, logic.pathString, actionName)
                             return response
                         }
                         // If we want to change the URL, but we're inactive, just update the tab value
