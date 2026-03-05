@@ -129,6 +129,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    personhog:
+        description: 'PersonHog gRPC service (router + replica) for person data access'
+        requires: [core_infra]
+        docker_profiles: []
+
     observability:
         description: 'OpenTelemetry tracing with Jaeger'
         requires: [core_infra]
@@ -244,6 +249,11 @@ intents:
     stripe:
         description: 'Stripe app for PostHog integration'
         capabilities: [stripe_app]
+
+    personhog:
+        description: 'PersonHog gRPC service for person data access (replaces direct DB queries)'
+        capabilities: [personhog]
+
     endpoints:
         description: 'Endpoints (the product)'
         capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, duckgres]
