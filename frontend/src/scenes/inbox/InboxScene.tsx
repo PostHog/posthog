@@ -47,6 +47,7 @@ import type { SignalNode } from 'scenes/debug/signals/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -445,7 +446,8 @@ function ReportDetailPane(): JSX.Element {
         selectedReportSignals,
         reportSignalsLoading,
     } = useValues(inboxSceneLogic)
-    const { deleteReport, setActiveDetailTab } = useActions(inboxSceneLogic)
+    const { deleteReport, reingestReport, setActiveDetailTab } = useActions(inboxSceneLogic)
+    const { user } = useValues(userLogic)
     const { hasNoSources } = useValues(signalSourcesLogic)
     const { openSourcesModal } = useActions(signalSourcesLogic)
 
@@ -544,6 +546,27 @@ function ReportDetailPane(): JSX.Element {
                                 overlay={
                                     <LemonMenuOverlay
                                         items={[
+                                            ...(user?.is_staff
+                                                ? [
+                                                      {
+                                                          label: 'Re-ingest signals',
+                                                          onClick: () =>
+                                                              LemonDialog.open({
+                                                                  title: `Re-ingest signals from "${selectedReport.title}"?`,
+                                                                  className: 'max-w-120',
+                                                                  description:
+                                                                      'This will delete the report, then re-run all its signals through the grouping pipeline. Signals may end up in different reports.',
+                                                                  primaryButton: {
+                                                                      children: 'Re-ingest signals',
+                                                                      onClick: () => reingestReport(selectedReport.id),
+                                                                  },
+                                                                  secondaryButton: {
+                                                                      children: 'Cancel',
+                                                                  },
+                                                              }),
+                                                      },
+                                                  ]
+                                                : []),
                                             {
                                                 label: 'Delete report & signals',
                                                 status: 'danger',
