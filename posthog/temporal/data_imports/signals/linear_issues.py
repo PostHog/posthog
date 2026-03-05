@@ -103,8 +103,7 @@ def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
     raw = {k: v for k, v in record.items() if k in EXTRA_FIELDS}
     extra: dict[str, Any] = {}
     for k in ("url", "identifier", "number", "priority", "priority_label", "created_at", "updated_at"):
-        if k in raw:
-            extra[k] = raw[k]
+        extra[k] = raw[k]
     parsed_labels = _parse_json_field("labels", raw.get("labels"), record)
     if parsed_labels is None:
         extra["labels"] = []
