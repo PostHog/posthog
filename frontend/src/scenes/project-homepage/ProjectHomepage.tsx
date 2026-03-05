@@ -107,7 +107,7 @@ export function ProjectHomepage(): JSX.Element {
 
     if (isAIFirst) {
         return (
-            <div className="-m-4 grow h-full">
+            <div className="grow h-full">
                 <AiFirstHomepage />
             </div>
         )

@@ -16,7 +16,7 @@ function phaseAtLeast(current: string, target: string): boolean {
 }
 
 export function AiFirstHomepage(): JSX.Element {
-    const { mode, animationPhase } = useValues(aiFirstHomepageLogic)
+    const { mode, animationPhase, query } = useValues(aiFirstHomepageLogic)
 
     const isIdle = mode === 'idle'
     const isAi = mode === 'ai'
@@ -25,19 +25,22 @@ export function AiFirstHomepage(): JSX.Element {
 
     const content = (
         <div className="flex flex-col grow overflow-hidden h-full">
-            {/* Top spacer — grows in idle (centering) and AI pre-content (pushes input to bottom) */}
+            {/* Top spacer — grows in idle (centering), shrinks for AI (fade) and search (grow transition) */}
             <div
                 className={cn(
-                    'basis-0 transition-[flex-grow] duration-300 ease-out motion-reduce:duration-0',
+                    'basis-0 motion-reduce:duration-0',
+                    isSearch
+                        ? 'transition-[flex-grow] duration-300 ease-out'
+                        : 'transition-opacity duration-300 ease-out',
                     isIdle || (isAi && !isContent) ? 'grow' : 'grow-0'
                 )}
             />
 
-            {/* Thread container — always present, grows via flex when AI content phase */}
+            {/* Thread container — always present, fades in when AI content phase */}
             <div
                 className={cn(
-                    'basis-0 transition-[flex-grow] duration-300 ease-out motion-reduce:duration-0',
-                    isAi && isContent ? 'grow overflow-y-auto' : 'grow-0 overflow-hidden'
+                    'basis-0 transition-opacity duration-300 ease-out motion-reduce:duration-0',
+                    isAi && isContent ? 'grow overflow-y-auto opacity-100' : 'grow-0 overflow-hidden opacity-0'
                 )}
             >
                 {isAi && <HomepageThread />}
@@ -62,11 +65,11 @@ export function AiFirstHomepage(): JSX.Element {
                 )}
             />
 
-            {/* Results container — always present, grows via flex when search content phase */}
+            {/* Results container — always present, fades in when search content phase */}
             <div
                 className={cn(
-                    'basis-0 transition-[flex-grow] duration-300 ease-out motion-reduce:duration-0',
-                    isSearch && isContent ? 'grow overflow-y-auto' : 'grow-0 overflow-hidden'
+                    'basis-0 min-h-0 flex flex-col transition-opacity duration-300 ease-out motion-reduce:duration-0',
+                    isSearch && isContent ? 'grow opacity-100' : 'grow-0 opacity-0'
                 )}
             >
                 {isSearch && <HomepageSearchResults />}
@@ -85,7 +88,12 @@ export function AiFirstHomepage(): JSX.Element {
     return (
         <BindLogic logic={maxLogic} props={{ tabId: HOMEPAGE_TAB_ID }}>
             {isSearch ? (
-                <Search.Root logicKey="homepage" showAskAiLink={false} className="grow overflow-hidden h-full">
+                <Search.Root
+                    logicKey="homepage"
+                    showAskAiLink={false}
+                    defaultSearchValue={query}
+                    className="grow overflow-hidden h-full"
+                >
                     {content}
                 </Search.Root>
             ) : (
