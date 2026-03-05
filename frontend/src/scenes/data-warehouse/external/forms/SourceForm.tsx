@@ -314,9 +314,8 @@ export function SourceFormComponent({
                                         <div>
                                             <div>Query directly</div>
                                             <div className="text-xs text-secondary">
-                                                Run queries live against this Postgres connection. No warehouse sync
-                                                jobs are created. Data from this source can&apos;t be joined with
-                                                PostHog data. Synced warehouse sources can.
+                                                Run queries live against this Postgres connection. Data from this source
+                                                can&apos;t be joined with PostHog data.
                                             </div>
                                         </div>
                                     ),
