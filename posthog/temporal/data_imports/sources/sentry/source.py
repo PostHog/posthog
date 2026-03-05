@@ -40,7 +40,7 @@ Create a token in Sentry and make sure it includes:
 - `event:read`
 - `project:read`
 """,
-            docsUrl="https://docs.sentry.io/api/",
+            docsUrl="https://posthog.com/docs/cdp/sources/sentry",
             fields=cast(
                 list[FieldType],
                 [
