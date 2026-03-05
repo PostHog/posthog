@@ -123,8 +123,14 @@ impl KafkaAssignerService {
                     )
                 })
                 .await
-                .map_err(|e| Status::internal(format!("metadata fetch task panicked: {e}")))?
-                .map_err(|e| Status::internal(format!("failed to fetch partition count: {e}")))?;
+                .map_err(|e| {
+                    tracing::error!(topic, error = %e, "metadata fetch task panicked");
+                    Status::internal(format!("metadata fetch task panicked: {e}"))
+                })?
+                .map_err(|e| {
+                    tracing::error!(topic, error = %e, "failed to fetch partition count");
+                    Status::internal(format!("failed to fetch partition count: {e}"))
+                })?;
 
                 let config = TopicConfig {
                     topic: topic.to_string(),
