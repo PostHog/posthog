@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import timedelta
 from functools import lru_cache
-from typing import Any, Union
+from typing import Any, Union, cast
 
 from django.db import transaction
 from django.db.models import Count, F, Max, Prefetch, QuerySet
@@ -1082,7 +1082,7 @@ class InsightViewSet(
         Returns basic details about the last 5 insights viewed by this user. Most recently viewed first.
         """
         insight_queryset = (
-            InsightViewed.objects.filter(team=self.team, user=request.user)
+            InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
             .select_related("insight")
             .exclude(insight__deleted=True)
             .only("insight", "last_viewed_at")

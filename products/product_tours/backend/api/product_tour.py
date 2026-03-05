@@ -1,7 +1,7 @@
 import uuid
 import logging
 import itertools
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -28,6 +28,7 @@ from posthog.exceptions import generate_exception_response
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.utils_cors import cors_response
 
@@ -286,7 +287,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         log_activity(
             organization_id=team.organization_id,
             team_id=team.id,
-            user=request.user,
+            user=cast(User, request.user),
             was_impersonated=is_impersonated_session(request),
             item_id=str(instance.id),
             scope="ProductTour",
@@ -308,7 +309,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         request = self.context["request"]
         team = self.context["get_team"]()
-        user = request.user
+        user = cast(User, request.user)
 
         before_update = ProductTour.objects.get(pk=instance.pk)
 
@@ -791,7 +792,7 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
-            user=self.request.user,
+            user=cast(User, self.request.user),
             was_impersonated=is_impersonated_session(self.request),
             item_id=instance_id,
             scope="ProductTour",
@@ -838,7 +839,7 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
         if not tour:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        user = self.request.user
+        user = cast(User, self.request.user)
 
         title = request.data.get("title", "")
         existing_steps = request.data.get("steps", [])
