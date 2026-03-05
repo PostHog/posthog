@@ -358,28 +358,21 @@ def _build_dependent_source(
 
     child_path = child_config.path.replace("{organization_slug}", organization_slug)
 
+    child_params: dict[str, Any] = {
+        resolve_param: {
+            "type": "resolve",
+            "resource": parent_name,
+            "field": resolve_field,
+        },
+        "limit": child_config.page_size,
+    }
+    if should_use_incremental_field and child_config.incremental_fields and db_incremental_field_last_value is not None:
+        child_params["start"] = _format_incremental_value(db_incremental_field_last_value)
+
     child_endpoint_config: dict[str, Any] = {
         "path": child_path,
-        "params": {
-            resolve_param: {
-                "type": "resolve",
-                "resource": parent_name,
-                "field": resolve_field,
-            },
-            "limit": child_config.page_size,
-        },
+        "params": child_params,
     }
-    if (
-        should_use_incremental_field
-        and child_config.incremental_fields
-        and (incremental_field or child_config.default_incremental_field)
-    ):
-        cursor = incremental_field or child_config.default_incremental_field
-        child_endpoint_config["incremental"] = {
-            "cursor_path": cursor,
-            "start_param": "start",
-            "initial_value": "1970-01-01T00:00:00Z",
-        }
 
     use_merge = bool(should_use_incremental_field and child_config.incremental_fields)
     child_resource: EndpointResource = {
