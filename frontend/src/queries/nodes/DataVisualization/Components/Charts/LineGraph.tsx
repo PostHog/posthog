@@ -612,6 +612,7 @@ export const LineGraph = ({
                     x: {
                         display: true,
                         beginAtZero: true,
+                        offset: true,
                         stacked: isStackedBarChart,
                         ticks: {
                             ...tickOptions,

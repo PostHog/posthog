@@ -677,6 +677,7 @@ export function LineGraph_({
                         borderWidth: 2,
                         borderRadius: 4,
                         borderColor: 'white',
+                        clamp: true,
                     },
                     legend: legend,
                     annotation: {
@@ -948,14 +949,11 @@ export function LineGraph_({
                 if (hideXAxis || hideYAxis) {
                     options.layout = { padding: 20 }
                 }
-                const allDatasetsHaveSingleDataPoint =
-                    processedDatasets.length > 0 &&
-                    processedDatasets.every((d) => Array.isArray(d.data) && d.data.length === 1)
                 options.scales = {
                     x: {
                         display: !hideXAxis,
                         beginAtZero: true,
-                        offset: allDatasetsHaveSingleDataPoint,
+                        offset: true,
                         ticks: {
                             ...tickOptions,
                             ...(xAxisTickCallback
