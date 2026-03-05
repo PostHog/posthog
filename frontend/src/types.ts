@@ -5315,6 +5315,7 @@ export interface DataModelingNode {
     /** UUID */
     id: string
     name: string
+    description?: string
     type: DataModelingNodeType
     dag_id: string
     saved_query_id?: string

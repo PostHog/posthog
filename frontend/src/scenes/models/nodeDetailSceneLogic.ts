@@ -1,13 +1,18 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
+import { Breadcrumb, DataModelingJob, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
 import type { nodeDetailSceneLogicType } from './nodeDetailSceneLogicType'
+
+export interface LineageGraphPair {
+    compact: { nodes: any[]; edges: any[] }
+    full: { nodes: any[]; edges: any[] }
+}
 
 export interface NodeDetailSceneLogicProps {
     id: string
@@ -31,6 +36,17 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             {
                 loadSavedQuery: async (savedQueryId: string) => {
                     return await api.dataWarehouseSavedQueries.get(savedQueryId)
+                },
+            },
+        ],
+        materializationJobs: [
+            null as PaginatedResponse<DataModelingJob> | null,
+            {
+                loadMaterializationJobs: async (savedQueryId: string) => {
+                    return await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(savedQueryId, 10, 0)
+                },
+                loadMaterializationJobsFromUrl: async (url: string) => {
+                    return await api.get(url)
                 },
             },
         ],
