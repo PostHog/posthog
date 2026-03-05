@@ -163,5 +163,5 @@ class TestSanitizeHeaderValue(BaseTest):
             ("none_returns_none", None, None),
         ]
     )
-    def testsanitize_header_value(self, _name, input_value, expected):
+    def test_sanitize_header_value(self, _name, input_value, expected):
         assert sanitize_header_value(input_value) == expected
