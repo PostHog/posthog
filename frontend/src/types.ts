@@ -4689,6 +4689,7 @@ export enum PropertyMathType {
     P90 = 'p90',
     P95 = 'p95',
     P99 = 'p99',
+    CountDistinct = 'count_distinct',
 }
 
 export enum CountPerActorMathType {

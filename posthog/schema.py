@@ -3259,6 +3259,7 @@ class PropertyMathType(StrEnum):
     P90 = "p90"
     P95 = "p95"
     P99 = "p99"
+    COUNT_DISTINCT = "count_distinct"
 
 
 class PropertyOperator(StrEnum):

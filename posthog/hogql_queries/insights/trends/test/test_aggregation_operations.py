@@ -38,6 +38,7 @@ from posthog.models.team.team import Team
         [PropertyMathType.P90, "$browser"],
         [PropertyMathType.P95, "$browser"],
         [PropertyMathType.P99, "$browser"],
+        [PropertyMathType.COUNT_DISTINCT, "$ai_trace_id"],
         [CountPerActorMathType.AVG_COUNT_PER_ACTOR, None],
         [CountPerActorMathType.MIN_COUNT_PER_ACTOR, None],
         [CountPerActorMathType.MAX_COUNT_PER_ACTOR, None],
@@ -87,6 +88,7 @@ def test_all_cases_return(
         [PropertyMathType.P90, False],
         [PropertyMathType.P95, False],
         [PropertyMathType.P99, False],
+        [PropertyMathType.COUNT_DISTINCT, False],
         [CountPerActorMathType.AVG_COUNT_PER_ACTOR, True],
         [CountPerActorMathType.MIN_COUNT_PER_ACTOR, True],
         [CountPerActorMathType.MAX_COUNT_PER_ACTOR, True],
@@ -115,6 +117,35 @@ def test_requiring_query_orchestration(
     agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
     res = agg_ops.requires_query_orchestration()
     assert res == result
+
+
+@pytest.mark.django_db
+def test_count_distinct_aggregation():
+    team = Team()
+    series = EventsNode(event="$ai_generation", math=PropertyMathType.COUNT_DISTINCT, math_property="$ai_trace_id")
+    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
+
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
+    result = agg_ops.select_aggregation()
+
+    assert isinstance(result, ast.Call)
+    assert result.name == "ifNull"
+    assert len(result.args) == 2
+
+    to_float_call = result.args[0]
+    assert isinstance(to_float_call, ast.Call)
+    assert to_float_call.name == "toFloat"
+    assert len(to_float_call.args) == 1
+
+    count_call = to_float_call.args[0]
+    assert isinstance(count_call, ast.Call)
+    assert count_call.name == "count"
+    assert count_call.distinct is True
+    assert len(count_call.args) == 1
+
+    field_arg = count_call.args[0]
+    assert isinstance(field_arg, ast.Field)
+    assert field_arg.chain == ["properties", "$ai_trace_id"]
 
 
 @pytest.mark.django_db
@@ -251,6 +282,7 @@ def test_actor_id_returns_correct_field(
         [PropertyMathType.P90, True, True],
         [PropertyMathType.P95, True, True],
         [PropertyMathType.P99, True, True],
+        [PropertyMathType.COUNT_DISTINCT, True, True],
         [PropertyMathType.SUM, True, False],
         [PropertyMathType.AVG, True, False],
         [PropertyMathType.MIN, True, False],
@@ -286,6 +318,7 @@ def test_get_outer_aggregation_histogram_validation(
         [PropertyMathType.MIN, "min"],
         [PropertyMathType.AVG, "avg"],
         [PropertyMathType.SUM, "sum"],
+        [PropertyMathType.COUNT_DISTINCT, "sum"],
         [BaseMathType.TOTAL, "sum"],
     ],
 )

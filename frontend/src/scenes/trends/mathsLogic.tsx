@@ -344,6 +344,20 @@ export const PROPERTY_MATH_DEFINITIONS: Record<PropertyMathType, MathDefinition>
         ),
         category: MathCategory.PropertyValue,
     },
+    [PropertyMathType.CountDistinct]: {
+        name: 'Count of distinct values',
+        shortName: 'distinct values',
+        description: (
+            <>
+                Number of distinct values of a property across matching events.
+                <br />
+                <br />
+                For example 5 events captured with property <code>trace_id</code> equal to "a", "a", "b", "b", "c",
+                result in 3.
+            </>
+        ),
+        category: MathCategory.PropertyValue,
+    },
 }
 export const HOGQL_MATH_DEFINITIONS: Record<HogQLMathType, MathDefinition> = {
     [HogQLMathType.HogQL]: {

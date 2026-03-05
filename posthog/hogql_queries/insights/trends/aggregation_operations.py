@@ -116,6 +116,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 return self._math_quantile(0.95)
             elif self.series.math == "p99":
                 return self._math_quantile(0.99)
+            elif self.series.math == "count_distinct":
+                return self._math_count_distinct()
 
         return parse_expr("count()")  # All "count per actor" get replaced during query orchestration
 
@@ -401,6 +403,27 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     name="quantile",
                     params=[ast.Constant(value=percentile)],
                     args=[ast.Call(name="toFloat", args=[field_expr])],
+                ),
+                ast.Constant(value=0),
+            ],
+        )
+
+    def _math_count_distinct(self) -> ast.Call:
+        chain = self._get_math_chain()
+        field_expr: ast.Expr = ast.Field(chain=chain)
+
+        return ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(
+                    name="toFloat",
+                    args=[
+                        ast.Call(
+                            name="count",
+                            distinct=True,
+                            args=[field_expr],
+                        )
+                    ],
                 ),
                 ast.Constant(value=0),
             ],
