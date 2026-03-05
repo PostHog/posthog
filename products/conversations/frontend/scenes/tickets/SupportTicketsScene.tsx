@@ -79,7 +79,6 @@ export function SupportTicketsScene(): JSX.Element {
                 resourceType={{
                     type: 'conversation',
                 }}
-                className="mb-4"
             />
             <ScenesTabs />
             <div className="flex flex-wrap gap-3 items-center justify-between">
