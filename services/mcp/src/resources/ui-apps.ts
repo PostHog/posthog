@@ -18,6 +18,7 @@ import {
     EXPERIMENT_RESULTS_RESOURCE_URI,
     FEATURE_FLAG_LIST_RESOURCE_URI,
     FEATURE_FLAG_RESOURCE_URI,
+    LLM_COSTS_RESOURCE_URI,
     QUERY_RESULTS_RESOURCE_URI,
 } from './ui-apps-constants'
 
@@ -36,6 +37,7 @@ import experimentResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/experimen
 import experimentHtml from '../../ui-apps-dist/src/ui-apps/apps/experiment/index.html'
 import featureFlagListHtml from '../../ui-apps-dist/src/ui-apps/apps/feature-flag-list/index.html'
 import featureFlagHtml from '../../ui-apps-dist/src/ui-apps/apps/feature-flag/index.html'
+import llmCostsHtml from '../../ui-apps-dist/src/ui-apps/apps/llm-costs/index.html'
 import queryResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/query-results/index.html'
 
 const UI_APPS: Array<{ name: string; uri: string; description: string; html: string }> = [
@@ -108,6 +110,13 @@ const UI_APPS: Array<{ name: string; uri: string; description: string; html: str
         uri: FEATURE_FLAG_LIST_RESOURCE_URI,
         description: 'Feature flag list view',
         html: featureFlagListHtml,
+    },
+    // LLM analytics
+    {
+        name: 'LLM costs',
+        uri: LLM_COSTS_RESOURCE_URI,
+        description: 'LLM costs breakdown by model',
+        html: llmCostsHtml,
     },
 ]
 
