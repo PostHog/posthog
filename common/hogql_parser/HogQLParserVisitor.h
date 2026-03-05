@@ -87,6 +87,10 @@ public:
 
     virtual std::any visitGroupByClause(HogQLParser::GroupByClauseContext *context) = 0;
 
+    virtual std::any visitGroupingSetList(HogQLParser::GroupingSetListContext *context) = 0;
+
+    virtual std::any visitGroupingSet(HogQLParser::GroupingSetContext *context) = 0;
+
     virtual std::any visitHavingClause(HogQLParser::HavingClauseContext *context) = 0;
 
     virtual std::any visitQualifyClause(HogQLParser::QualifyClauseContext *context) = 0;

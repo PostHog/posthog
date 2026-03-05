@@ -159,6 +159,10 @@ class TraversingVisitor(Visitor[None]):
         for expr5 in (node.window_exprs or {}).values():
             self.visit(expr5)
 
+    def visit_grouping_set(self, node: ast.GroupingSet):
+        for expr in node.exprs:
+            self.visit(expr)
+
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self.visit(node.initial_select_query)
         for expr in node.subsequent_select_queries:
@@ -648,6 +652,7 @@ class CloningVisitor(Visitor[Any]):
             having=self.visit(node.having),
             qualify=self.visit(node.qualify),
             group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
+            group_by_mode=node.group_by_mode,
             order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
             limit_by=self.visit(node.limit_by),
             limit=self.visit(node.limit),
@@ -659,6 +664,14 @@ class CloningVisitor(Visitor[Any]):
             ),
             settings=node.settings.model_copy() if node.settings is not None else None,
             view_name=node.view_name,
+        )
+
+    def visit_grouping_set(self, node: ast.GroupingSet):
+        return ast.GroupingSet(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            exprs=[self.visit(expr) for expr in node.exprs],
         )
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
