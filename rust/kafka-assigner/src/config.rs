@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn default_config_parses() {
         let config = Config::init_with_defaults().expect("default config should parse");
-        assert_eq!(config.stream_channel_size, 64);
+        assert_eq!(config.stream_channel_size, 1024);
         assert_eq!(config.consumer_lease_ttl_secs, 30);
         assert_eq!(config.leader_lease_ttl_secs, 15);
         assert_eq!(config.handoff_timeout_secs, 300);
