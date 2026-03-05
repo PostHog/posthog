@@ -1233,6 +1233,11 @@ class InsightViewSet(
                     | Q(tagged_items__tag__name__icontains=request.GET["search"])
                     | Q(description__icontains=request.GET["search"])
                 )
+            elif key == "not_on_dashboard":
+                if str_to_bool(request.GET["not_on_dashboard"]):
+                    queryset = queryset.exclude(
+                        id__in=DashboardTile.objects.filter(insight__isnull=False).values_list("insight__id", flat=True)
+                    )
             elif key == "dashboards":
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:

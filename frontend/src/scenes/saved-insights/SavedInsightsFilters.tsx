@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconFlag, IconStar } from '@posthog/icons'
+import { IconCircleDashed, IconFlag, IconStar } from '@posthog/icons'
 import { LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TagSelect } from 'lib/components/TagSelect'
@@ -16,8 +16,15 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
-export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags'
-const ALL_QUICK_FILTERS: QuickFilterKind[] = ['insightType', 'tags', 'createdBy', 'favorites', 'featureFlags']
+export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags' | 'notOnDashboard'
+const ALL_QUICK_FILTERS: QuickFilterKind[] = [
+    'insightType',
+    'tags',
+    'createdBy',
+    'favorites',
+    'featureFlags',
+    'notOnDashboard',
+]
 
 export function SavedInsightsFilters({
     filters,
@@ -31,7 +38,7 @@ export function SavedInsightsFilters({
     /** When true, inactive filters appear borderless. */
     borderless?: boolean
 }): JSX.Element {
-    const { search, hideFeatureFlagInsights, favorited, tags, insightType, createdBy } = filters
+    const { search, hideFeatureFlagInsights, favorited, notOnDashboard, tags, insightType, createdBy } = filters
     const { meFirstMembers, filteredMembers, membersLoading, search: memberSearch } = useValues(membersLogic)
     const { setSearch: setMemberSearch, ensureAllMembersLoaded } = useActions(membersLogic)
     const quickFilterSet = new Set(quickFilters)
@@ -206,6 +213,18 @@ export function SavedInsightsFilters({
                             icon={<IconStar />}
                         >
                             Favorites
+                        </LemonButton>
+                    )}
+                    {quickFilterSet.has('notOnDashboard') && (
+                        <LemonButton
+                            type="secondary"
+                            status={borderless && !notOnDashboard ? 'alt' : 'default'}
+                            active={notOnDashboard || false}
+                            onClick={() => setFilters({ notOnDashboard: !notOnDashboard })}
+                            size="small"
+                            icon={<IconCircleDashed />}
+                        >
+                            Unused
                         </LemonButton>
                     )}
                     {quickFilterSet.has('featureFlags') && (
