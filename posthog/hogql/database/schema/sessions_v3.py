@@ -192,6 +192,17 @@ def select_from_sessions_table_v3(
     def arg_max_merge_field(field_name: str) -> ast.Call:
         return ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, field_name])])
 
+    def collect_array_field(field_name: str) -> ast.Call:
+        return ast.Call(
+            name="arrayDistinct",
+            args=[
+                ast.Call(
+                    name="arrayFlatten",
+                    args=[ast.Call(name="groupArray", args=[ast.Field(chain=[table_name, field_name])])],
+                )
+            ],
+        )
+
     aggregate_fields: dict[str, ast.Expr] = {
         "session_id": ast.Call(
             name="toString",
@@ -220,33 +231,9 @@ def select_from_sessions_table_v3(
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
         "$end_timestamp": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
         "max_inserted_at": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_inserted_at"])]),
-        "$urls": ast.Call(
-            name="arrayDistinct",
-            args=[
-                ast.Call(
-                    name="arrayFlatten",
-                    args=[ast.Call(name="groupArray", args=[ast.Field(chain=[table_name, "urls"])])],
-                )
-            ],
-        ),
-        "$hosts": ast.Call(
-            name="arrayDistinct",
-            args=[
-                ast.Call(
-                    name="arrayFlatten",
-                    args=[ast.Call(name="groupArray", args=[ast.Field(chain=[table_name, "hosts"])])],
-                )
-            ],
-        ),
-        "$emails": ast.Call(
-            name="arrayDistinct",
-            args=[
-                ast.Call(
-                    name="arrayFlatten",
-                    args=[ast.Call(name="groupArray", args=[ast.Field(chain=[table_name, "emails"])])],
-                )
-            ],
-        ),
+        "$urls": collect_array_field("urls"),
+        "$hosts": collect_array_field("hosts"),
+        "$emails": collect_array_field("emails"),
         "$entry_current_url": (arg_min_merge_field("entry_url")),
         "$end_current_url": (arg_max_merge_field("end_url")),
         "$last_external_click_url": arg_max_merge_field("last_external_click_url"),
