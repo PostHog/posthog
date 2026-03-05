@@ -1341,10 +1341,14 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'yAxisScaleType',
     'hiddenLegendIndexes',
 <<<<<<< HEAD
+<<<<<<< HEAD
     'yAxisStartAtMin',
 =======
     'hideWeekends',
 >>>>>>> 63779cb7286ba50323edea3d19036f5dd5e728af
+=======
+    'hideWeekends',
+>>>>>>> ccb5ad9db36cbc4a715fa222d3f38af044528c80
 ])
 
 export interface BoxPlotDatum {

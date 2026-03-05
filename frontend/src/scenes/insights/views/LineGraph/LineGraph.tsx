@@ -240,10 +240,15 @@ export interface LineGraphProps {
     showTrendLines?: boolean
     ignoreActionsInSeriesLabels?: boolean
 <<<<<<< HEAD
+<<<<<<< HEAD
     yAxisStartAtMin?: boolean | null
 =======
     datalabelFormatter?: (value: number, datasetIndex: number) => string
 >>>>>>> 63779cb7286ba50323edea3d19036f5dd5e728af
+=======
+    yAxisStartAtMin?: boolean | null
+    datalabelFormatter?: (value: number, datasetIndex: number) => string
+>>>>>>> ccb5ad9db36cbc4a715fa222d3f38af044528c80
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -291,10 +296,15 @@ export function LineGraph_({
     showTrendLines = false,
     ignoreActionsInSeriesLabels = false,
 <<<<<<< HEAD
+<<<<<<< HEAD
     yAxisStartAtMin,
 =======
     datalabelFormatter,
 >>>>>>> 63779cb7286ba50323edea3d19036f5dd5e728af
+=======
+    yAxisStartAtMin,
+    datalabelFormatter,
+>>>>>>> ccb5ad9db36cbc4a715fa222d3f38af044528c80
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -1108,11 +1118,17 @@ export function LineGraph_({
             setHoveredDatasetIndex,
             isHighlightBarMode,
 <<<<<<< HEAD
+<<<<<<< HEAD
             yAxisStartAtMin,
 =======
             interval,
             timezone,
 >>>>>>> 63779cb7286ba50323edea3d19036f5dd5e728af
+=======
+            yAxisStartAtMin,
+            interval,
+            timezone,
+>>>>>>> ccb5ad9db36cbc4a715fa222d3f38af044528c80
         ],
     })
 
