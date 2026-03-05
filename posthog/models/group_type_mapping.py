@@ -7,6 +7,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.models.utils import RootTeamMixin
+from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL
 from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
 
 logger = structlog.get_logger(__name__)
@@ -94,13 +95,25 @@ def invalidate_group_types_cache(project_id: int) -> None:
     safe_cache_delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}")
 
 
-def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
-    """Fetch group types from cache, falling back to DB, then stale cache, then empty list.
+def _fetch_group_types_via_personhog(project_id: int) -> list[dict[str, Any]]:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
+    from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
 
-    Group types live in the persons DB. If that DB is unreachable, we return the
-    last known good data from a long-lived stale cache key (24h TTL), falling back
-    to an empty list only if no stale data exists.
-    """
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.get_group_type_mappings_by_project_id(GetGroupTypeMappingsByProjectIdRequest(project_id=project_id))
+    result = [proto_group_type_mapping_to_dict(m) for m in resp.mappings]
+    result.sort(key=lambda d: d["group_type_index"])
+    return result
+
+
+def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
+    """Fetch group types from cache, falling back to personhog/ORM, then stale cache, then empty list."""
+    from posthog.personhog_client.gate import use_personhog
+
     cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}"
     stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}"
 
@@ -108,12 +121,26 @@ def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
     if cached is not None:
         return cached
 
+    if use_personhog():
+        try:
+            result = _fetch_group_types_via_personhog(project_id)
+            PERSONHOG_ROUTING_TOTAL.labels(operation="get_group_types_for_project", source="personhog").inc()
+            safe_cache_set(cache_key, result, GROUP_TYPES_CACHE_TTL)
+            safe_cache_set(stale_cache_key, result, GROUP_TYPES_STALE_CACHE_TTL)
+            return result
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_group_types_for_project", source="personhog", error_type="grpc_error"
+            ).inc()
+            logger.warning("personhog_group_types_failure", project_id=project_id, exc_info=True)
+
     try:
         result = list(
             GroupTypeMapping.objects.filter(project_id=project_id)
             .order_by("group_type_index")
             .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
         )
+        PERSONHOG_ROUTING_TOTAL.labels(operation="get_group_types_for_project", source="django_orm").inc()
         safe_cache_set(cache_key, result, GROUP_TYPES_CACHE_TTL)
         safe_cache_set(stale_cache_key, result, GROUP_TYPES_STALE_CACHE_TTL)
         return result
@@ -121,7 +148,6 @@ def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
         logger.warning("persons_db_group_types_failure", project_id=project_id, exc_info=True)
         stale = get_safe_cache(stale_cache_key)
         if stale is not None:
-            # Re-serve last known good data while the DB is down
             safe_cache_set(cache_key, stale, GROUP_TYPES_NEGATIVE_CACHE_TTL)
             return stale
         safe_cache_set(cache_key, [], GROUP_TYPES_NEGATIVE_CACHE_TTL)
