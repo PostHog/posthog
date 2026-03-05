@@ -1191,7 +1191,7 @@ class InsightViewSet(
 
         recently_viewed = [rv.insight for rv in (insight_queryset.order_by("-last_viewed_at")[:5])]
 
-        response = InsightBasicSerializer(recently_viewed, many=True)
+        response = InsightBasicSerializer(recently_viewed, many=True, context=self.get_serializer_context())
         return Response(data=response.data, status=status.HTTP_200_OK)
 
     @action(methods=["GET"], detail=False)
@@ -1224,7 +1224,7 @@ class InsightViewSet(
         queryset = queryset[:limit]
         queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
 
-        response = InsightBasicSerializer(queryset, many=True)
+        response = InsightBasicSerializer(queryset, many=True, context=self.get_serializer_context())
         data = response.data
 
         # Batch fetch all viewers to avoid N+1 queries
