@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import type { SimpleDashboard } from '@/schema/dashboards'
+import type { Schemas } from '@/api/generated'
 import { DashboardGetSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -8,7 +8,7 @@ const schema = DashboardGetSchema
 
 type Params = z.infer<typeof schema>
 
-type Result = SimpleDashboard
+type Result = Schemas.Dashboard
 
 export const getHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const { dashboardId } = params

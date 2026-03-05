@@ -43,45 +43,6 @@ export type CreateInsightInput = z.infer<typeof CreateInsightInputSchema>
 export type UpdateInsightInput = z.infer<typeof UpdateInsightInputSchema>
 export type ListInsightsData = z.infer<typeof ListInsightsSchema>
 
-export interface PostHogInsight {
-    id: number
-    short_id: string
-    name?: string | null
-    description?: string | null
-    filters: Record<string, unknown>
-    query?: unknown
-    result?: unknown
-    created_at: string
-    updated_at: string
-    created_by?: {
-        id: number
-        uuid: string
-        distinct_id: string
-        first_name: string
-        email: string
-    } | null
-    favorited?: boolean | null
-    deleted: boolean
-    dashboard?: number | null
-    layouts?: Record<string, unknown> | null
-    color?: string | null
-    last_refresh?: string | null
-    refreshing?: boolean | null
-    tags?: string[] | null
-}
-
-export interface SimpleInsight {
-    id: number
-    name?: string | null
-    short_id: string
-    description?: string | null
-    filters: Record<string, unknown>
-    query?: unknown
-    created_at: string
-    updated_at: string
-    favorited?: boolean | null
-}
-
 export type SQLInsightResponse = Array<{
     type: string
     data: Record<string, unknown>

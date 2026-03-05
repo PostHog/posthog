@@ -1,9 +1,10 @@
 import type { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import { FeatureFlagGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
-type TResult = Array<{ id: number; key: string; name: string; active: boolean; updated_at?: string | null }>
+type TResult = Array<Pick<Schemas.FeatureFlag, 'id' | 'key' | 'name' | 'active' | 'updated_at'>>
 
 const schema = FeatureFlagGetAllSchema
 

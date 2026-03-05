@@ -15,7 +15,6 @@ import {
     CreateDashboardInputSchema,
     type ListDashboardsData,
     ListDashboardsSchema,
-    type SimpleDashboard,
 } from '@/schema/dashboards'
 import type {
     Experiment,
@@ -34,12 +33,7 @@ import {
     type UpdateFeatureFlagInput,
     UpdateFeatureFlagInputSchema,
 } from '@/schema/flags'
-import {
-    type CreateInsightInput,
-    CreateInsightInputSchema,
-    type ListInsightsData,
-    type SimpleInsight,
-} from '@/schema/insights'
+import { type CreateInsightInput, CreateInsightInputSchema, type ListInsightsData } from '@/schema/insights'
 import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
 import { isShortId } from '@/tools/insights/utils'
 
@@ -57,8 +51,6 @@ import type {
     GetSurveySpecificStatsInput,
     GetSurveyStatsInput,
     ListSurveysInput,
-    SurveyListItemOutput,
-    SurveyOutput,
     SurveyResponseStatsOutput,
     UpdateSurveyInput,
 } from '../schema/surveys.js'
@@ -790,7 +782,7 @@ export class ApiClient {
     featureFlags({ projectId }: { projectId: string }): Endpoint {
         return {
             list: async ({ params }: { params?: { limit?: number; offset?: number } } = {}): Promise<
-                Result<Array<{ id: number; key: string; name: string; active: boolean; updated_at?: string | null }>>
+                Result<Array<Pick<Schemas.FeatureFlag, 'id' | 'key' | 'name' | 'active' | 'updated_at'>>>
             > => {
                 try {
                     const limit = params?.limit ?? 50
@@ -949,23 +941,23 @@ export class ApiClient {
                 }
             },
 
-            create: async ({ data }: { data: CreateInsightInput }): Promise<Result<SimpleInsight>> => {
+            create: async ({ data }: { data: CreateInsightInput }): Promise<Result<Schemas.Insight>> => {
                 const validatedInput = CreateInsightInputSchema.parse(data)
 
-                return this.fetchJson<SimpleInsight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
+                return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
                     method: 'POST',
                     body: JSON.stringify(validatedInput),
                 })
             },
 
-            get: async ({ insightId }: { insightId: string }): Promise<Result<SimpleInsight>> => {
+            get: async ({ insightId }: { insightId: string }): Promise<Result<Schemas.Insight>> => {
                 // Check if insightId is a short_id (8 character alphanumeric string)
                 // Note: This won't work when we start creating insight id's with 8 digits. (We're at 7 currently)
                 if (isShortId(insightId)) {
                     const searchParams = new URLSearchParams({ short_id: insightId })
                     const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${searchParams}`
 
-                    const result = await this.fetchJson<{ results: SimpleInsight[] }>(url)
+                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(url)
 
                     if (!result.success) {
                         return result
@@ -984,11 +976,11 @@ export class ApiClient {
                     return { success: true, data: insight }
                 }
 
-                return this.fetchJson<SimpleInsight>(`${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`)
+                return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`)
             },
 
-            update: async ({ insightId, data }: { insightId: number; data: any }): Promise<Result<SimpleInsight>> => {
-                return this.fetchJson<SimpleInsight>(
+            update: async ({ insightId, data }: { insightId: number; data: any }): Promise<Result<Schemas.Insight>> => {
+                return this.fetchJson<Schemas.Insight>(
                     `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`,
                     {
                         method: 'PATCH',
@@ -1070,13 +1062,7 @@ export class ApiClient {
     dashboards({ projectId }: { projectId: string }): Endpoint {
         return {
             list: async ({ params }: { params?: ListDashboardsData } = {}): Promise<
-                Result<
-                    Array<{
-                        id: number
-                        name: string
-                        description?: string | null | undefined
-                    }>
-                >
+                Result<Schemas.Dashboard[]>
             > => {
                 const validatedParams = params ? ListDashboardsSchema.parse(params) : undefined
                 const searchParams = new URLSearchParams()
@@ -1094,7 +1080,7 @@ export class ApiClient {
                 const url = `${this.baseUrl}/api/projects/${projectId}/dashboards/${searchParams.toString() ? `?${searchParams}` : ''}`
 
                 const result = await this.fetchJson<{
-                    results: Array<{ id: number; name: string; description?: string | null }>
+                    results: Schemas.Dashboard[]
                 }>(url)
 
                 if (result.success) {
@@ -1104,16 +1090,16 @@ export class ApiClient {
                 return result
             },
 
-            get: async ({ dashboardId }: { dashboardId: number }): Promise<Result<SimpleDashboard>> => {
-                return this.fetchJson<SimpleDashboard>(
+            get: async ({ dashboardId }: { dashboardId: number }): Promise<Result<Schemas.Dashboard>> => {
+                return this.fetchJson<Schemas.Dashboard>(
                     `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`
                 )
             },
 
-            create: async ({ data }: { data: CreateDashboardInput }): Promise<Result<{ id: number; name: string }>> => {
+            create: async ({ data }: { data: CreateDashboardInput }): Promise<Result<Schemas.Dashboard>> => {
                 const validatedInput = CreateDashboardInputSchema.parse(data)
 
-                return this.fetchJson<{ id: number; name: string }>(
+                return this.fetchJson<Schemas.Dashboard>(
                     `${this.baseUrl}/api/projects/${projectId}/dashboards/`,
                     {
                         method: 'POST',
@@ -1128,8 +1114,8 @@ export class ApiClient {
             }: {
                 dashboardId: number
                 data: any
-            }): Promise<Result<{ id: number; name: string }>> => {
-                return this.fetchJson<{ id: number; name: string }>(
+            }): Promise<Result<Schemas.Dashboard>> => {
+                return this.fetchJson<Schemas.Dashboard>(
                     `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
                     {
                         method: 'PATCH',
@@ -1273,7 +1259,7 @@ export class ApiClient {
     surveys({ projectId }: { projectId: string }): Endpoint {
         return {
             list: async ({ params }: { params?: ListSurveysInput } = {}): Promise<
-                Result<Array<SurveyListItemOutput>>
+                Result<Array<Schemas.Survey>>
             > => {
                 const validatedParams = params ? ListSurveysInputSchema.parse(params) : undefined
                 const searchParams = new URLSearchParams()
@@ -1290,7 +1276,7 @@ export class ApiClient {
 
                 const url = `${this.baseUrl}/api/projects/${projectId}/surveys/${searchParams.toString() ? `?${searchParams}` : ''}`
 
-                const result = await this.fetchJson<{ results: SurveyListItemOutput[] }>(url)
+                const result = await this.fetchJson<{ results: Schemas.Survey[] }>(url)
 
                 if (result.success) {
                     return { success: true, data: result.data.results }
@@ -1299,14 +1285,14 @@ export class ApiClient {
                 return result
             },
 
-            get: async ({ surveyId }: { surveyId: string }): Promise<Result<SurveyOutput>> => {
-                return this.fetchJson<SurveyOutput>(`${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`)
+            get: async ({ surveyId }: { surveyId: string }): Promise<Result<Schemas.Survey>> => {
+                return this.fetchJson<Schemas.Survey>(`${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`)
             },
 
-            create: async ({ data }: { data: CreateSurveyInput }): Promise<Result<SurveyOutput>> => {
+            create: async ({ data }: { data: CreateSurveyInput }): Promise<Result<Schemas.Survey>> => {
                 const validatedInput = CreateSurveyInputSchema.parse(data)
 
-                return this.fetchJson<SurveyOutput>(`${this.baseUrl}/api/projects/${projectId}/surveys/`, {
+                return this.fetchJson<Schemas.Survey>(`${this.baseUrl}/api/projects/${projectId}/surveys/`, {
                     method: 'POST',
                     body: JSON.stringify(validatedInput),
                 })
@@ -1318,10 +1304,10 @@ export class ApiClient {
             }: {
                 surveyId: string
                 data: UpdateSurveyInput
-            }): Promise<Result<SurveyOutput>> => {
+            }): Promise<Result<Schemas.Survey>> => {
                 const validatedInput = UpdateSurveyInputSchema.parse(data)
 
-                return this.fetchJson<SurveyOutput>(`${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`, {
+                return this.fetchJson<Schemas.Survey>(`${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`, {
                     method: 'PATCH',
                     body: JSON.stringify(validatedInput),
                 })

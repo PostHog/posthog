@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import type { SimpleInsight } from '@/schema/insights'
+import type { Schemas } from '@/api/generated'
 import { InsightGetSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -8,7 +8,7 @@ const schema = InsightGetSchema
 
 type Params = z.infer<typeof schema>
 
-type Result = SimpleInsight & { url: string }
+type Result = Schemas.Insight & { url: string }
 
 export const getHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const { insightId } = params
