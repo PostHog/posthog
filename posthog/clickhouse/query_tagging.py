@@ -175,6 +175,13 @@ class QueryTags(BaseModel):
 
     is_impersonated: Optional[bool] = None
 
+    # request source and MCP metadata
+    source: Optional[str] = None
+    mcp_user_agent: Optional[str] = None
+    mcp_client_name: Optional[str] = None
+    mcp_client_version: Optional[str] = None
+    mcp_protocol_version: Optional[str] = None
+
     # constant query tags
     git_commit: Optional[str] = None
     container_hostname: Optional[str] = None

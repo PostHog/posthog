@@ -4,7 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
-from posthog.event_usage import EventSource, _sanitize_header_value, get_event_source, report_user_action
+from posthog.event_usage import EventSource, get_event_source, report_user_action, sanitize_header_value
 
 
 class TestReportUserAction(BaseTest):
@@ -163,5 +163,5 @@ class TestSanitizeHeaderValue(BaseTest):
             ("none_returns_none", None, None),
         ]
     )
-    def test_sanitize_header_value(self, _name, input_value, expected):
-        assert _sanitize_header_value(input_value) == expected
+    def testsanitize_header_value(self, _name, input_value, expected):
+        assert sanitize_header_value(input_value) == expected
