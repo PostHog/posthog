@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import React, { useCallback, useState } from 'react'
 
 import { IconActivity, IconClockRewind, IconPlay, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -15,14 +15,6 @@ import { DataModelingJobStatus, DataModelingNodeType, DataWarehouseSyncInterval 
 import { NODE_TYPE_SETTINGS } from '../../../models/constants'
 import { dataModelingLogic } from '../dataModelingLogic'
 import type { ElkDirection, NodeData, NodeHandle } from './types'
-
-function parseEndpointVersion(name: string): { displayName: string; version: string | null } {
-    const match = name.match(/^(.+)_v(\d+)$/)
-    if (match) {
-        return { displayName: match[1], version: `v${match[2]}` }
-    }
-    return { displayName: name, version: null }
-}
 
 function NodeHandles({ handles }: { handles: NodeHandle[] }): JSX.Element {
     return (
@@ -229,6 +221,78 @@ function NodeMetadata({
             return null
     }
 }
+
+export function NodeStatusDot({
+    lastJobStatus,
+    className,
+}: {
+    lastJobStatus?: DataModelingJobStatus | null
+    className?: string
+}): JSX.Element {
+    return (
+        <Tooltip title={lastJobStatus ?? 'This node has not been run yet'}>
+            <div
+                className={clsx(
+                    'rounded-full',
+                    className ?? 'w-4 h-4',
+                    lastJobStatus === 'Completed' && 'bg-success border-primary border-1',
+                    lastJobStatus === 'Failed' && 'bg-danger border-primary border-1',
+                    lastJobStatus === 'Cancelled' && 'bg-warning border-primary border-1',
+                    !lastJobStatus && 'bg-surface-primary border-primary border-1'
+                )}
+            />
+        </Tooltip>
+    )
+}
+
+interface NodeCompactProps {
+    name: string
+    type: DataModelingNodeType
+    handles?: NodeHandle[]
+    lastJobStatus?: DataModelingJobStatus | null
+    isSearchMatch?: boolean
+    onNodeClick: () => void
+}
+
+export const NodeCompact = React.memo(function NodeCompact({
+    name,
+    type,
+    handles,
+    lastJobStatus,
+    isSearchMatch,
+    onNodeClick,
+}: NodeCompactProps): JSX.Element {
+    const nodeTypeSettings = NODE_TYPE_SETTINGS[type]
+    const showStatusDot = type === 'matview' || type === 'endpoint'
+    const { displayName, version } =
+        type === 'endpoint' ? parseEndpointVersion(name) : { displayName: name, version: null }
+
+    return (
+        <div
+            className={clsx(
+                'flex items-center gap-1.5 rounded-lg border px-3 py-2 cursor-pointer',
+                isSearchMatch && 'ring-2 ring-link/30'
+            )}
+            style={{
+                borderColor: nodeTypeSettings.color,
+                backgroundColor: `color-mix(in srgb, ${nodeTypeSettings.color} 25%, white)`,
+                opacity: isSearchMatch === undefined || isSearchMatch ? 1 : 0.5,
+            }}
+            onClick={onNodeClick}
+        >
+            {handles && <NodeHandles handles={handles} />}
+            <Tooltip title={name}>
+                <span className="font-medium text-sm truncate flex-1">{displayName}</span>
+            </Tooltip>
+            {version && (
+                <LemonTag size="small" className="shrink-0">
+                    {version}
+                </LemonTag>
+            )}
+            {showStatusDot && <NodeStatusDot lastJobStatus={lastJobStatus} className="w-3 h-3 shrink-0" />}
+        </div>
+    )
+})
 
 export const NodeInner = React.memo(function NodeInner({
     name,

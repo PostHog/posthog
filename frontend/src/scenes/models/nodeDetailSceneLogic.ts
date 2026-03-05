@@ -21,6 +21,14 @@ export interface LineageGraph {
     edges: Edge[]
 }
 
+export interface LineageGraphPair {
+    compact: LineageGraph
+    full: LineageGraph
+}
+
+const COMPACT_NODE_WIDTH = 180
+const COMPACT_NODE_HEIGHT = 44
+
 function buildSubgraph(
     currentNodeId: string,
     allNodes: DataModelingNode[],
@@ -200,34 +208,6 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 {
                     key: Scene.Models,
                     name: 'Models',
-                    path: urls.models(),
-                },
-                {
-                    key: [Scene.NodeDetail, node?.id || 'loading'],
-                    name: node?.name || 'Loading...',
-                },
-            ],
-        ],
-        latestRowCount: [
-            (s) => [s.materializationJobs],
-            (jobs: PaginatedResponse<DataModelingJob> | null): number | null => {
-                const completed = jobs?.results?.find((j) => j.status === 'Completed')
-                return completed?.rows_materialized ?? null
-            },
-        ],
-        latestJobStatus: [
-            (s) => [s.materializationJobs],
-            (jobs: PaginatedResponse<DataModelingJob> | null): string | null => {
-                const latest = jobs?.results?.[0]
-                return latest?.status ?? null
-            },
-        ],
-    }),
-    listeners(({ actions }) => ({
-        loadNodeSuccess: ({ node }) => {
-            if (node?.saved_query_id) {
-                actions.loadSavedQuery(node.saved_query_id)
-            }
             actions.loadLineageGraph()
         },
     })),
