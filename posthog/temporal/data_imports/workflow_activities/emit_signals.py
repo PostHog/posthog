@@ -101,14 +101,15 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
             log.warning(f"No new records found for {inputs.source_type}/{inputs.schema_name}")
             return {"status": "success", "reason": "no_new_records", "signals_emitted": 0}
         # Build emitter outputs, filtering out records with missing data
-        outputs = _build_emitter_outputs(
+        outputs, error_count = _build_emitter_outputs(
             team_id=inputs.team_id,
             records=records,
             emitter=config.emitter,
         )
-        if not outputs and records:
+        if not outputs and error_count > 0:
             raise RuntimeError(
-                f"All {len(records)} records failed emitter for {inputs.source_type}/{inputs.schema_name}"
+                f"All {len(records)} records failed emitter for {inputs.source_type}/{inputs.schema_name} "
+                f"({error_count} errors)"
             )
         log.info(
             f"Built {len(outputs)} signal outputs from {len(records)} records for {inputs.source_type}/{inputs.schema_name}",
@@ -209,8 +210,9 @@ def _build_emitter_outputs(
     team_id: int,
     records: list[dict[str, Any]],
     emitter: SignalEmitter,
-) -> list[SignalEmitterOutput]:
+) -> tuple[list[SignalEmitterOutput], int]:
     outputs = []
+    error_count = 0
     for record in records:
         try:
             output = emitter(team_id, record)
@@ -221,6 +223,7 @@ def _build_emitter_outputs(
                 record=record,
                 signals_type="data-import-signals",
             )
+            error_count += 1
             continue
         if output is not None:
             # Avoid serializing datetime objects
@@ -230,7 +233,7 @@ def _build_emitter_outputs(
                     extra={k: v.isoformat() if isinstance(v, datetime) else v for k, v in output.extra.items()},
                 )
             outputs.append(output)
-    return outputs
+    return outputs, error_count
 
 
 async def _summarize_description(
