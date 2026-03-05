@@ -421,7 +421,40 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
 
+        # Log all field changes to activity log
+        changes: list[Change] = []
+        if status_changed:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="status",
+                    before=old_status,
+                    after=new_status,
+                    action="changed",
+                )
+            )
+        if priority_changed:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="priority",
+                    before=old_priority,
+                    after=new_priority,
+                    action="changed",
+                )
+            )
         if sla_changed:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="sla_due_at",
+                    before=old_sla_due_at.isoformat() if old_sla_due_at else None,
+                    after=new_sla_due_at.isoformat() if new_sla_due_at else None,
+                    action="changed",
+                )
+            )
+
+        if changes:
             try:
                 log_activity(
                     organization_id=self.organization.id,
@@ -433,15 +466,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     activity="updated",
                     detail=Detail(
                         name=f"Ticket #{instance.ticket_number}",
-                        changes=[
-                            Change(
-                                type="Ticket",
-                                field="sla_due_at",
-                                before=old_sla_due_at.isoformat() if old_sla_due_at else None,
-                                after=new_sla_due_at.isoformat() if new_sla_due_at else None,
-                                action="changed",
-                            )
-                        ],
+                        changes=changes,
                     ),
                 )
             except Exception as e:
