@@ -157,7 +157,7 @@ describe('klime template', () => {
             {
                 event: {
                     uuid: 'uuid-1',
-                    event: '$group_identify',
+                    event: '$groupidentify',
                     properties: {
                         $group_type: 'account',
                         $group_key: 'org-456',
