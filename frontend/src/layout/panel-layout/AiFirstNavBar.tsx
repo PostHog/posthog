@@ -300,7 +300,12 @@ export function AiFirstNavBar({ children }: { children?: React.ReactNode }): JSX
                                                     <>
                                                         <span className="truncate">{item.label}</span>
                                                         <span className="ml-auto pr-1">
-                                                            <IconChevronRight className="size-3 text-tertiary" />
+                                                            <IconChevronRight
+                                                                className={cn(
+                                                                    'size-3 text-tertiary opacity-50 group-hover:opacity-100 transition-all duration-50',
+                                                                    isActive && 'opacity-100'
+                                                                )}
+                                                            />
                                                         </span>
                                                     </>
                                                 )}
