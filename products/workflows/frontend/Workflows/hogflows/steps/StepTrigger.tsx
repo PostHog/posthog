@@ -104,17 +104,21 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 </div>
             ),
         },
-        {
-            label: 'Manual',
-            value: 'manual',
-            icon: <IconButton />,
-            labelInMenu: (
-                <div className="flex flex-col my-1">
-                    <div className="font-semibold">Manual</div>
-                    <p className="text-xs text-muted">Trigger your workflow manually... with a button!</p>
-                </div>
-            ),
-        },
+        ...(type === 'manual'
+            ? [
+                  {
+                      label: 'Manual',
+                      value: 'manual' as const,
+                      icon: <IconButton />,
+                      labelInMenu: (
+                          <div className="flex flex-col my-1">
+                              <div className="font-semibold">Manual</div>
+                              <p className="text-xs text-muted">Trigger your workflow manually... with a button!</p>
+                          </div>
+                      ),
+                  },
+              ]
+            : []),
         {
             label: 'Schedule',
             value: 'schedule',

@@ -7,7 +7,7 @@ import { objectsEqual } from 'lib/utils'
 import { HogFlowAction } from '../types'
 import type { batchTriggerLogicType } from './batchTriggerLogicType'
 
-export const BLAST_RADIUS_LIMIT = 2000
+export const BLAST_RADIUS_LIMIT = 5000
 
 export interface BatchTriggerLogicProps {
     id?: string | 'new'

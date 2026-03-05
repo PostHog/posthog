@@ -108,7 +108,7 @@ const TriggerPopover = ({
                     loading={blastRadiusLoading}
                     disabledReason={
                         blastRadiusExceeded
-                            ? `Batch size exceeds the limit of ${humanFriendlyNumber(BLAST_RADIUS_LIMIT)} users. Add filters to narrow your audience.`
+                            ? `Batch size exceeds the limit of ${humanFriendlyNumber(BLAST_RADIUS_LIMIT)} users. Add filters to narrow your audience. This limit will be loosened in the future.`
                             : undefined
                     }
                     onClick={() => {
