@@ -37,6 +37,7 @@ import {
     IntervalType,
     PersonActorType,
     PropertiesTimelineFilterType,
+    SessionActorType,
     PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,

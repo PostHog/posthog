@@ -211,7 +211,7 @@ export function RetentionModal(): JSX.Element | null {
                                                                 personAppearances.person.properties
                                                             )}
                                                         </LemonButton>
-                                                    ) : (
+                                                    ) : 'distinct_ids' in personAppearances.person ? (
                                                         <LemonButton
                                                             size="small"
                                                             to={urls.personByDistinctId(
@@ -221,7 +221,7 @@ export function RetentionModal(): JSX.Element | null {
                                                         >
                                                             {asDisplay(personAppearances.person)}
                                                         </LemonButton>
-                                                    )}
+                                                    ) : null}
                                                 </td>
 
                                                 {personAppearances.appearances
