@@ -32,7 +32,7 @@ export class CdpCyclotronWorker<
             throw new Error(`Invalid cyclotron job queue kind: ${this.queue}`)
         }
 
-        this.cyclotronJobQueue = new CyclotronJobQueue(config, this.queue, (batch) => this.processBatch(batch))
+        this.cyclotronJobQueue = new CyclotronJobQueue(config)
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
@@ -141,7 +141,7 @@ export class CdpCyclotronWorker<
 
     public async start() {
         await super.start()
-        await this.cyclotronJobQueue.start()
+        await this.cyclotronJobQueue.start(this.queue, (batch) => this.processBatch(batch))
     }
 
     public async stop() {

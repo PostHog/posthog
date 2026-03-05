@@ -868,8 +868,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             <SceneTitleSection
                                 name={featureFlag.key}
                                 description={featureFlag.name}
-                                noSticky
-                                descriptionClassName="max-w-prose"
                                 resourceType={{
                                     type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                                 }}

@@ -77,7 +77,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         window_end=window_end,
         max_samples=inputs.max_samples,
         analysis_level=inputs.analysis_level,
-        event_filters=inputs.event_filters if inputs.event_filters else None,
+        job_id=inputs.job_id if inputs.job_id else None,
     )
 
     logger.info(
