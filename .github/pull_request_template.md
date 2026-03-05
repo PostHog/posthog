@@ -28,4 +28,4 @@
 
 <!-- ## 🤖 LLM context -->
 
-<!-- If an LLM agent authored or co-authored this PR, uncomment this section and leave any relevant context about the session, tools used, link to the session, or anything else that may help reviewers. -->
+<!-- If an LLM agent co-authored or authored this PR, uncomment this section and leave any relevant context about the session, tools used, link to the session, or anything else that may help reviewers. -->
