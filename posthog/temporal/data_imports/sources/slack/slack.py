@@ -240,6 +240,7 @@ def slack_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
+    channel_id: str | None = None,
 ) -> SourceResponse:
     items: Callable[[], Iterable[Any]]
 
@@ -264,14 +265,8 @@ def slack_source(
         resource = resources[0]
         items = lambda: resource
     else:
-        # Per-channel message endpoint — channel name is the endpoint
+        # Per-channel message endpoint
         endpoint_config = messages_endpoint_config()
-        channels = get_channels(access_token)
-        channel_id: str | None = None
-        for ch in channels:
-            if ch["name"] == endpoint:
-                channel_id = ch["id"]
-                break
 
         if channel_id is None:
             raise Exception(f"channel_not_found: {endpoint}")
