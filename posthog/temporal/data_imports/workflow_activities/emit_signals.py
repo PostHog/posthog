@@ -106,6 +106,10 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
             records=records,
             emitter=config.emitter,
         )
+        if not outputs and records:
+            raise RuntimeError(
+                f"All {len(records)} records failed emitter for {inputs.source_type}/{inputs.schema_name}"
+            )
         log.info(
             f"Built {len(outputs)} signal outputs from {len(records)} records for {inputs.source_type}/{inputs.schema_name}",
         )
@@ -208,7 +212,16 @@ def _build_emitter_outputs(
 ) -> list[SignalEmitterOutput]:
     outputs = []
     for record in records:
-        output = emitter(team_id, record)
+        try:
+            output = emitter(team_id, record)
+        except Exception:
+            logger.exception(
+                "Emitter failed for record, skipping",
+                team_id=team_id,
+                record=record,
+                signals_type="data-import-signals",
+            )
+            continue
         if output is not None:
             # Avoid serializing datetime objects
             if output.extra:
