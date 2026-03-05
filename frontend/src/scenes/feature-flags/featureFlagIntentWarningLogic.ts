@@ -107,6 +107,7 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                     for (const group of groups) {
                         for (const property of group.properties || []) {
                             if (property.type === PropertyFilterType.Cohort) {
+                                // cohortId may be numeric or stringified depending on filter source
                                 const cohortId = property.value
                                 const cohort = cohortsById[cohortId] ?? cohortsById[String(cohortId)]
                                 if (cohort?.is_static) {
@@ -126,47 +127,33 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                 }
 
                 if (flagIntent === 'first-page-load') {
-                    for (const group of groups) {
-                        let cohortCount = 0
-                        const slowPropertyKeys: string[] = []
+                    const allSlowKeys = new Set<string>()
+                    let hasCohort = false
 
+                    for (const group of groups) {
                         for (const property of group.properties || []) {
                             if (property.type === PropertyFilterType.Cohort) {
-                                cohortCount++
+                                hasCohort = true
                             } else if (property.key && !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key)) {
-                                slowPropertyKeys.push(property.key)
+                                allSlowKeys.add(property.key)
                             }
                         }
+                    }
 
-                        if (slowPropertyKeys.length === 1) {
-                            issues.add(
-                                `The property "${slowPropertyKeys[0]}" won't be available on first page load and can cause flicker`
-                            )
-                        } else if (slowPropertyKeys.length > 1) {
-                            issues.add(
-                                `${slowPropertyKeys.length} properties won't be available on first page load and can cause flicker`
-                            )
-                        }
-                        if (cohortCount > 0) {
-                            issues.add('Cohort membership is not available on first page load and can cause flicker')
-                        }
+                    if (allSlowKeys.size === 1) {
+                        const key = [...allSlowKeys][0]
+                        issues.add(`The property "${key}" won't be available on first page load and can cause flicker`)
+                    } else if (allSlowKeys.size > 1) {
+                        issues.add(
+                            `${allSlowKeys.size} properties won't be available on first page load and can cause flicker`
+                        )
+                    }
+                    if (hasCohort) {
+                        issues.add('Cohort membership is not available on first page load and can cause flicker')
                     }
                 }
 
                 return [...issues]
-            },
-        ],
-
-        intentDocUrl: [
-            (s) => [s.flagIntent],
-            (flagIntent: FlagIntent | null): string | null => {
-                if (flagIntent === 'local-eval') {
-                    return 'https://posthog.com/docs/feature-flags/local-evaluation#restriction-on-local-evaluation'
-                }
-                if (flagIntent === 'first-page-load') {
-                    return 'https://posthog.com/docs/feature-flags/bootstrapping'
-                }
-                return null
             },
         ],
     }),

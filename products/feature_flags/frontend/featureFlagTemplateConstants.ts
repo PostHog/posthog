@@ -15,6 +15,8 @@ export interface IntentMetadata {
     name: string
     description: string
     icon: React.ComponentType<{ className?: string }>
+    consequence: string
+    docUrl: string
 }
 
 export const INTENT_METADATA: Record<FlagIntent, IntentMetadata> = {
@@ -22,11 +24,17 @@ export const INTENT_METADATA: Record<FlagIntent, IntentMetadata> = {
         name: 'Local evaluation',
         description: 'Evaluate flags server-side without network requests',
         icon: IconServer,
+        consequence:
+            'These will force a server request to evaluate this flag, removing the speed and cost benefits of local evaluation.',
+        docUrl: 'https://posthog.com/docs/feature-flags/local-evaluation#restriction-on-local-evaluation',
     },
     'first-page-load': {
         name: 'Prevent flicker',
         description: 'Avoid flags evaluating to false on first load',
         icon: IconRocket,
+        consequence:
+            'These may cause the flag to briefly return the wrong value on first page load, resulting in a visible flicker.',
+        docUrl: 'https://posthog.com/docs/feature-flags/bootstrapping',
     },
 }
 

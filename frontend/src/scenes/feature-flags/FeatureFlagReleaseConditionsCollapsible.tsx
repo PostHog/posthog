@@ -33,6 +33,8 @@ import {
     PropertyFilterType,
 } from '~/types'
 
+import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
+
 import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
 import { FeatureFlagLogicProps } from './featureFlagLogic'
 import {
@@ -183,28 +185,14 @@ function ConditionHeader({
     )
 }
 
-const INTENT_CONSEQUENCE: Record<FlagIntent, string> = {
-    'local-eval':
-        'These will force a server request to evaluate this flag, removing the speed and cost benefits of local evaluation.',
-    'first-page-load':
-        'These may cause the flag to briefly return the wrong value on first page load, resulting in a visible flicker.',
-}
-
-function IntentIssuesSummary({
-    issues,
-    docUrl,
-    intent,
-}: {
-    issues: string[]
-    docUrl: string | null
-    intent: FlagIntent | null
-}): JSX.Element | null {
+function IntentIssuesSummary({ issues, intent }: { issues: string[]; intent: FlagIntent | null }): JSX.Element | null {
     const [expanded, setExpanded] = useState(false)
 
     if (issues.length === 0 || !intent) {
         return null
     }
 
+    const metadata = INTENT_METADATA[intent]
     const label = issues.length === 1 ? '1 issue detected' : `${issues.length} issues detected`
 
     return (
@@ -219,7 +207,7 @@ function IntentIssuesSummary({
                 </div>
                 {expanded && (
                     <div className="mt-1.5">
-                        <p className="text-xs text-secondary mb-1.5">{INTENT_CONSEQUENCE[intent]}</p>
+                        <p className="text-xs text-secondary mb-1.5">{metadata.consequence}</p>
                         <ul className="list-disc pl-4 mb-0 space-y-0.5">
                             {issues.map((issue, i) => (
                                 <li key={i} className="text-xs">
@@ -227,11 +215,9 @@ function IntentIssuesSummary({
                                 </li>
                             ))}
                         </ul>
-                        {docUrl && (
-                            <Link to={docUrl} target="_blank" className="text-xs mt-1.5 block">
-                                Learn more
-                            </Link>
-                        )}
+                        <Link to={metadata.docUrl} target="_blank" className="text-xs mt-1.5 block">
+                            Learn more
+                        </Link>
                     </div>
                 )}
             </div>
@@ -269,7 +255,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         openConditions,
     } = useValues(releaseConditionsLogic)
 
-    const { unreachableGroups, intentIssues, intentDocUrl, flagIntent } = useValues(
+    const { unreachableGroups, intentIssues, flagIntent } = useValues(
         featureFlagIntentWarningLogic({ id: flagId ?? 'new' })
     )
     const {
@@ -457,7 +443,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 </div>
             )}
 
-            <IntentIssuesSummary issues={intentIssues} docUrl={intentDocUrl} intent={flagIntent} />
+            <IntentIssuesSummary issues={intentIssues} intent={flagIntent} />
 
             <div ref={collapseRef}>
                 {filterGroups.map((group, index) => (
