@@ -1,0 +1,31 @@
+{
+  "pr": {
+    "number": 51906,
+    "title": "feat(inbox): Error tracking signal sources UI",
+    "author": "Twixes",
+    "description": "Adds a PostHog Error Tracking toggle to the inbox signal sources UI that controls three signal types (issue_created, issue_reopened, issue_spiking), plus dedicated error tracking signal cards and improved labeling for session replay and data warehouse sources."
+  },
+  "affected_routes": [
+    {
+      "route_key": "inbox",
+      "description": "Actionable reports automatically generated from user session analysis and other signals",
+      "url_patterns": [
+        "/inbox",
+        "/inbox/:reportId"
+      ]
+    },
+    {
+      "route_key": "debugQuery",
+      "description": "Debug query interface including signal graph and detail panel for inspecting signals",
+      "url_patterns": [
+        "/debug"
+      ]
+    }
+  ],
+  "posthog_events": [
+    "signals source interest"
+  ],
+  "feature_flag_keys": [
+    "PRODUCT_AUTONOMY"
+  ]
+}

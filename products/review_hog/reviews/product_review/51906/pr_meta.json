@@ -1,0 +1,21 @@
+{
+  "number": 51906,
+  "title": "feat(inbox): Error tracking signal sources UI",
+  "body": "## Problem\r\n\r\nInbox signal sources had no way to turn on the new Error Tracking signals of #51645 from the UI, and when those signals showed up they looked generic (raw `error_tracking / issue_created` etc.) compared to the other integrations.\r\n\r\n## Changes\r\n\r\n![CleanShot 2026-03-23 at 11 02 17](https://github.com/user-attachments/assets/06374742-e9e9-41fa-a92a-61b2b20a2a48)\r\n\r\nAdding a \"PostHog Error Tracking\" toggle that toggles all three `SignalSourceConfig` types (`issue_created`, `issue_reopened`, `issue_spiking`) so it matches what Cymbal actually checks on emit.\r\n\r\nDedicated error tracking card - fingerprint, spike baseline/current when relevant, link to the issue. Debug graph + detail panel use the same labeling. Nicer header lines for session replay / DW sources too while I was there.\r\n\r\n## How did you test this code?\r\n\r\nShould have Storybook \u2026 but not yet. Tested locally with actual error tracking \r\n\r\n## Publish to changelog?\r\n\r\nNo, not rolled out yet\r\n\r\n## Docs update\r\n\r\nskip-inkeep-docs (n/a)\r\n",
+  "state": "open",
+  "draft": false,
+  "created_at": "2026-03-23T10:28:29+00:00",
+  "updated_at": "2026-03-25T21:17:38+00:00",
+  "author": "Twixes",
+  "author_association": "MEMBER",
+  "base_branch": "master",
+  "head_branch": "03-23-feat_inbox_error_tracking_signal_sources_and_ui",
+  "mergeable_state": "blocked",
+  "requested_reviewers": [],
+  "assignee": null,
+  "labels": [],
+  "commits": 19,
+  "additions": 291,
+  "deletions": 33,
+  "changed_files": 12
+}

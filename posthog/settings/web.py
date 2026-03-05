@@ -65,6 +65,7 @@ PRODUCTS_APPS = [
     "products.notifications.backend.apps.NotificationsConfig",
     "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
+    "products.review_hog.backend.apps.ReviewHogConfig",
 ]
 
 INSTALLED_APPS = [
