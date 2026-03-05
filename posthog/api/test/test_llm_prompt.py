@@ -251,7 +251,7 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["version_count"] == 2
 
     def test_update_prompt_by_name_falls_back_when_post_publish_refresh_misses_row(self, mock_feature_enabled):
-        self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
+        first_version = self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
 
         with patch("posthog.api.services.llm_prompt.get_active_prompt_queryset", return_value=LLMPrompt.objects.none()):
             response = self.client.patch(
@@ -262,6 +262,10 @@ class TestLLMPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["version"] == 2
+        assert response.json()["version_count"] == 2
+        assert response.json()["first_version_created_at"] == first_version.created_at.isoformat().replace(
+            "+00:00", "Z"
+        )
         assert LLMPrompt.objects.filter(team=self.team, name="publish-prompt", version=2, deleted=False).exists()
 
     def test_update_prompt_by_name_returns_conflict_for_stale_base_version(self, mock_feature_enabled):

@@ -120,7 +120,18 @@ def publish_prompt_version(
         refreshed_prompt = (
             get_active_prompt_queryset(team).filter(pk=published_prompt.pk).order_by("-created_at", "-id").first()
         )
-        return refreshed_prompt if refreshed_prompt is not None else published_prompt
+        if refreshed_prompt is not None:
+            return refreshed_prompt
+
+        fallback_prompt = (
+            annotate_llm_prompt_version_history_metadata(
+                LLMPrompt.objects.filter(team=team, deleted=False).select_related("created_by")
+            )
+            .filter(pk=published_prompt.pk)
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        return fallback_prompt if fallback_prompt is not None else published_prompt
 
 
 def archive_prompt(team: Team, prompt_name: str) -> list[int]:
