@@ -146,12 +146,15 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
     ) -> list:
         person_id_col_index = input_columns.index("person_id")
 
-        person_uuids = {str(row[person_id_col_index]) for row in self.paginator.results if row[person_id_col_index]}
+        # Materialise so we can iterate twice (results may be an iterator)
+        results_list = list(results)
+
+        person_uuids = {str(row[person_id_col_index]) for row in results_list if row[person_id_col_index]}
         person_strategy = PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
         persons_lookup = person_strategy.get_actors(iter(person_uuids)) if person_uuids else {}
 
         enriched = []
-        for row in results:
+        for row in results_list:
             result_row = list(row)
             person_uuid = str(result_row[person_id_col_index]) if result_row[person_id_col_index] else None
             person = persons_lookup.get(person_uuid) if person_uuid else None
