@@ -43,6 +43,30 @@ ADD INDEX IF NOT EXISTS flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRA
 """
 
 
+ADD_HOSTS = """
+ALTER TABLE {table_name}
+ADD COLUMN IF NOT EXISTS hosts SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)) AFTER event_names
+"""
+
+
+ADD_HOSTS_BLOOM_FILTER = """
+ALTER TABLE {table_name}
+ADD INDEX IF NOT EXISTS hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1
+"""
+
+
+ADD_EMAILS = """
+ALTER TABLE {table_name}
+ADD COLUMN IF NOT EXISTS emails SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)) AFTER hosts
+"""
+
+
+ADD_EMAILS_BLOOM_FILTER = """
+ALTER TABLE {table_name}
+ADD INDEX IF NOT EXISTS emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
+"""
+
+
 DROP_URLS = """
 ALTER TABLE {table_name}
 DROP COLUMN IF EXISTS urls

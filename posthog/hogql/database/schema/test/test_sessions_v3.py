@@ -739,6 +739,8 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                 "$screen_count",
                 "$session_duration",
                 "$start_timestamp",
+                "$hosts",
+                "$emails",
                 "$has_replay_events",
             },
         )

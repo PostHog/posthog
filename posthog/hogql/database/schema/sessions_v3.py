@@ -84,6 +84,8 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "screen_uniq": DatabaseField(name="screen_uniq", nullable=False),
     "page_screen_uniq_up_to": DatabaseField(name="page_screen_uniq_up_to", nullable=False),
     "has_autocapture": BooleanDatabaseField(name="has_autocapture", nullable=False),
+    "hosts": StringArrayDatabaseField(name="hosts", nullable=False),
+    "emails": StringArrayDatabaseField(name="emails", nullable=False),
     "has_replay_events": BooleanDatabaseField(name="has_replay_events", nullable=False),
 }
 
@@ -140,6 +142,8 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
     "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
+    "$hosts": StringArrayDatabaseField(name="$hosts"),
+    "$emails": StringArrayDatabaseField(name="$emails"),
     "$has_replay_events": BooleanDatabaseField(name="$has_replay_events", nullable=False),
 }
 
@@ -222,6 +226,24 @@ def select_from_sessions_table_v3(
                 ast.Call(
                     name="arrayFlatten",
                     args=[ast.Call(name="groupArray", args=[ast.Field(chain=[table_name, "urls"])])],
+                )
+            ],
+        ),
+        "$hosts": ast.Call(
+            name="arrayDistinct",
+            args=[
+                ast.Call(
+                    name="arrayFlatten",
+                    args=[ast.Call(name="groupArray", args=[ast.Field(chain=[table_name, "hosts"])])],
+                )
+            ],
+        ),
+        "$emails": ast.Call(
+            name="arrayDistinct",
+            args=[
+                ast.Call(
+                    name="arrayFlatten",
+                    args=[ast.Call(name="groupArray", args=[ast.Field(chain=[table_name, "emails"])])],
                 )
             ],
         ),
