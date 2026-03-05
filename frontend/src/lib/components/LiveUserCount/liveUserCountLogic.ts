@@ -80,7 +80,12 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
                     return
                 }
 
-                const response = await fetch(`${liveEventsHostOrigin()}/stats`, {
+                const host = liveEventsHostOrigin()
+                if (!host) {
+                    return
+                }
+
+                const response = await fetch(`${host}/stats`, {
                     headers: {
                         Authorization: `Bearer ${values.currentTeam.live_events_token}`,
                     },

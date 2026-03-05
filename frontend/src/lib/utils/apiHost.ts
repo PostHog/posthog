@@ -24,7 +24,7 @@ export function liveEventsHostOrigin(): string | null {
         return 'http://localhost:6006'
     }
 
-    return appContext?.livestream_host || 'http://localhost:8666'
+    return appContext?.livestream_host || null
 }
 
 export function publicWebhooksHostOrigin(): string | null {

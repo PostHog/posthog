@@ -128,8 +128,13 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                 return
             }
 
+            const host = liveEventsHostOrigin()
+            if (!host) {
+                return
+            }
+
             const { eventType } = values.filters
-            const url = new URL(`${liveEventsHostOrigin()}/events`)
+            const url = new URL(`${host}/events`)
             if (eventType) {
                 url.searchParams.append('eventType', eventType)
             }

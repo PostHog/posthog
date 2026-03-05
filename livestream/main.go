@@ -170,6 +170,11 @@ func main() {
 	e.Use(middleware.Recover())
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{
 		Level: 9, // Set the compression level to maximum
+		Skipper: func(c echo.Context) bool {
+			// Skip gzip for SSE endpoints — compression buffers data and
+			// prevents events from being flushed to the client in real time.
+			return c.Path() == "/events" || c.Path() == "/debug/sse"
+		},
 	}))
 	e.Use(echoprometheus.NewMiddlewareWithConfig(
 		echoprometheus.MiddlewareConfig{DoNotUseRequestPathFor404: true, Subsystem: "livestream"}))
@@ -212,6 +217,7 @@ func main() {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
+			w.Header().Set("X-Accel-Buffering", "no")
 
 			ticker := time.NewTicker(1 * time.Second)
 			defer ticker.Stop()
