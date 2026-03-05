@@ -20,7 +20,7 @@ permissions:
 jobs:
     assign-reviewers:
         runs-on: 'ubuntu-22.04'
-        if: github.event.pull_request.draft == false
+        if: github.event.pull_request.draft == false && github.event.pull_request.user.login != 'posthog[bot]'
 
         steps:
             # GitHub app token is required because GITHUB_TOKEN can't assign team members as reviewers (requires org-level permission)
