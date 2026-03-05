@@ -15,18 +15,10 @@ import {
     funnelDataWarehouseStepDefinitionPopoverLogic,
 } from './funnelDataWarehouseStepDefinitionPopoverLogic'
 
-type EditableFieldProps = { shortExplanation: string }
-
-const EDITABLE_FIELD_MAP: Record<FunnelFieldKey, EditableFieldProps> = {
-    distinct_id_field: {
-        shortExplanation: 'Used to match people or groups across funnel steps.',
-    },
-    timestamp_field: {
-        shortExplanation: 'Used to order step timing and apply the funnel date range.',
-    },
-    id_field: {
-        shortExplanation: 'Used as the unique row ID to detect missing or duplicate records.',
-    },
+const EDITABLE_FIELD_EXPLANATIONS: Record<FunnelFieldKey, string> = {
+    distinct_id_field: 'Used to match people or groups across funnel steps.',
+    timestamp_field: 'Used to order step timing and apply the funnel date range.',
+    id_field: 'Used as the unique row ID to detect missing or duplicate records.',
 }
 
 export function FunnelDataWarehouseStepDefinitionPopover({
@@ -90,7 +82,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
             />
 
             <span className="label-text font-semibold mt-3 mb-1">{activeField?.label}</span>
-            <div className="text-secondary text-xs mb-3">{EDITABLE_FIELD_MAP[activeFieldKey].shortExplanation}</div>
+            <div className="text-secondary text-xs mb-3">{EDITABLE_FIELD_EXPLANATIONS[activeFieldKey]}</div>
 
             <LemonSelect
                 fullWidth
