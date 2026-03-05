@@ -18,6 +18,11 @@ from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
 from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
+from posthog.tasks.calculate_cohort import (
+    COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM,
+    COHORT_DURATION_UPDATE_HISTOGRAM,
+    COHORT_QUERY_EXECUTION_DURATION_HISTOGRAM,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -64,6 +69,10 @@ class RealtimeCohortCalculationWorkflowInputs:
 
     # Keep cohort_id for backward compatibility with single cohort processing
     cohort_id: Optional[int] = None
+
+    # Percentile bucket information for metrics
+    duration_percentile_min: Optional[float] = None
+    duration_percentile_max: Optional[float] = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -139,6 +148,21 @@ async def flush_kafka_batch(
         raise Exception(f"Failed to send {failed_count}/{batch_size} Kafka messages")
 
     return batch_size
+
+
+def _get_percentile_bucket_label(inputs: RealtimeCohortCalculationWorkflowInputs) -> str:
+    """Generate percentile bucket label for metrics."""
+    min_p = inputs.duration_percentile_min
+    max_p = inputs.duration_percentile_max
+
+    if min_p is None and max_p is None:
+        return "manual"
+    elif min_p is None:
+        return f"p0-p{int(max_p) if max_p is not None else 100}"
+    elif max_p is None:
+        return f"p{int(min_p) if min_p is not None else 0}-p100"
+    else:
+        return f"p{int(min_p) if min_p is not None else 0}-p{int(max_p) if max_p is not None else 100}"
 
 
 @database_sync_to_async
@@ -271,11 +295,23 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
                     logger.info("Executing query for cohort", cohort_id=cohort.pk)
 
+                    # Time the ClickHouse query execution
+                    query_start_time = time.monotonic()
+                    query_execution_complete = False
+
                     async with get_client(team_id=cohort.team_id) as client:
                         async for row in client.stream_query_as_jsonl(
                             final_query,
                             query_parameters=query_params,
                         ):
+                            # Record query execution time on first result (when streaming starts)
+                            if not query_execution_complete:
+                                query_duration = time.monotonic() - query_start_time
+                                percentile_bucket = _get_percentile_bucket_label(inputs)
+                                COHORT_QUERY_EXECUTION_DURATION_HISTOGRAM.labels(
+                                    percentile_bucket=percentile_bucket, team_id=str(cohort.team_id)
+                                ).observe(query_duration)
+                                query_execution_complete = True
                             person_id = row["person_id"]
                             status = row["status"]
                             status_counts[status] += 1
@@ -351,7 +387,21 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 cohort_end_time = time.monotonic()
                 duration_ms = int((cohort_end_time - cohort_start_time) * 1000)
 
+                # Record total cohort calculation duration
+                percentile_bucket = _get_percentile_bucket_label(inputs)
+                COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM.labels(
+                    percentile_bucket=percentile_bucket, team_id=str(cohort.team_id)
+                ).observe(cohort_end_time - cohort_start_time)
+
+                # Time the duration update operation
+                duration_update_start = time.monotonic()
                 await _update_cohort_duration(cohort.pk, duration_ms)
+                duration_update_end = time.monotonic()
+
+                # Record duration update time
+                COHORT_DURATION_UPDATE_HISTOGRAM.labels(
+                    percentile_bucket=percentile_bucket, team_id=str(cohort.team_id)
+                ).observe(duration_update_end - duration_update_start)
 
                 logger.info(
                     f"Cohort {cohort.pk} processing completed",
