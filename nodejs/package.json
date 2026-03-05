@@ -9,7 +9,7 @@
     "types": "dist/index.d.ts",
     "scripts": {
         "test": "SHARD_IDX=${SHARD_INDEX:-1}; SHARD_TOTAL=${SHARD_COUNT:-1}; echo $SHARD_IDX/$SHARD_TOTAL; jest --runInBand --forceExit --shard=$SHARD_IDX/$SHARD_TOTAL --testPathIgnorePatterns='postgres-parity'",
-        "test:postgres-parity": "jest --runInBand --forceExit --testPathPattern='postgres-parity'",
+        "test:postgres-parity": "jest --runInBand --forceExit --testPathPatterns='postgres-parity'",
         "start": "pnpm start:dev",
         "start:dist": "node dist/index.js",
         "start:dev": "NODE_ENV=dev tsx watch src/index.ts",
