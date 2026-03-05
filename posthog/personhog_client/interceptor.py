@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from typing import Any
 
 import grpc
@@ -24,6 +25,36 @@ def _method_name(client_call_details: grpc.ClientCallDetails) -> str:
     # client_call_details.method is like "/personhog.service.v1.PersonHogService/GetPerson"
     method: str = client_call_details.method or "unknown"
     return method.rsplit("/", 1)[-1]
+
+
+def _with_metadata(
+    client_call_details: grpc.ClientCallDetails,
+    extra: Sequence[tuple[str, str]],
+) -> grpc.ClientCallDetails:
+    existing = list(client_call_details.metadata) if client_call_details.metadata else []
+    existing.extend(extra)
+    return grpc.ClientCallDetails(
+        method=client_call_details.method,
+        timeout=client_call_details.timeout,
+        metadata=existing,
+        credentials=client_call_details.credentials,
+        wait_for_ready=client_call_details.wait_for_ready,
+        compression=client_call_details.compression,
+    )
+
+
+class ClientNameInterceptor(grpc.UnaryUnaryClientInterceptor):
+    def __init__(self, client_name: str) -> None:
+        self._client_name = client_name
+
+    def intercept_unary_unary(
+        self,
+        continuation: Any,
+        client_call_details: grpc.ClientCallDetails,
+        request: Any,
+    ) -> Any:
+        new_details = _with_metadata(client_call_details, [("x-client-name", self._client_name)])
+        return continuation(new_details, request)
 
 
 class MetricsInterceptor(grpc.UnaryUnaryClientInterceptor):
