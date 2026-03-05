@@ -169,10 +169,10 @@ CREATE TABLE IF NOT EXISTS {table_name}
     event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
 
     -- Hosts - store unique hostnames seen in this session (extracted from $host property)
-    hosts SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+    hosts SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
 
     -- Emails - store unique emails seen in this session (extracted from person_properties.email)
-    emails SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+    emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
 
     -- Replay
     has_replay_events SimpleAggregateFunction(max, Boolean)
@@ -746,10 +746,10 @@ SELECT
     groupUniqArrayArray(2000)(event_names) as event_names,
 
     -- hosts
-    groupUniqArrayArray(2000)(hosts) as hosts,
+    groupUniqArrayArray(10)(hosts) as hosts,
 
     -- emails
-    groupUniqArrayArray(2000)(emails) as emails,
+    groupUniqArrayArray(10)(emails) as emails,
 
     -- replay
     max(has_replay_events) as has_replay_events
