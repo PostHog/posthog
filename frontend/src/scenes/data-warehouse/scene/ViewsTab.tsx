@@ -1,25 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { STATUS_TAG_SETTINGS } from 'scenes/models/constants'
 import { urls } from 'scenes/urls'
 
 import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
 
 import { PAGE_SIZE, viewsTabLogic } from './viewsTabLogic'
-
-const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {
-    Running: 'primary',
-    Completed: 'success',
-    Failed: 'danger',
-    Cancelled: 'muted',
-    Modified: 'warning',
-}
 
 const getDisabledReason = (view: DataWarehouseSavedQuery): string | undefined => {
     if (view.managed_viewset_kind !== null) {

@@ -12,14 +12,16 @@ import { urls } from 'scenes/urls'
 
 import { DataModelingJobStatus, DataModelingNodeType, DataWarehouseSyncInterval } from '~/types'
 
+import { NODE_TYPE_SETTINGS } from '../../../models/constants'
 import { dataModelingLogic } from '../dataModelingLogic'
 import type { ElkDirection, NodeData, NodeHandle } from './types'
 
-const NODE_TYPE_SETTINGS: Record<DataModelingNodeType, { label: string; color: string }> = {
-    table: { label: 'table', color: 'var(--muted)' },
-    view: { label: 'view', color: 'var(--primary-3000)' },
-    matview: { label: 'matview', color: 'var(--success)' },
-    endpoint: { label: 'endpoint', color: 'var(--purple)' },
+function parseEndpointVersion(name: string): { displayName: string; version: string | null } {
+    const match = name.match(/^(.+)_v(\d+)$/)
+    if (match) {
+        return { displayName: match[1], version: `v${match[2]}` }
+    }
+    return { displayName: name, version: null }
 }
 
 function NodeHandles({ handles }: { handles: NodeHandle[] }): JSX.Element {
@@ -228,7 +230,7 @@ function NodeMetadata({
     }
 }
 
-const NodeInner = React.memo(function NodeInner({
+export const NodeInner = React.memo(function NodeInner({
     name,
     type,
     savedQueryId,
