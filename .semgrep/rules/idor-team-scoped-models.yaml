@@ -145,6 +145,7 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |Repo
+                              |RepoRoutingRule
                               |SandboxEnvironment
                               |SavedHeatmap
                               |ScheduledChange
@@ -312,6 +313,7 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |Repo
+                        |RepoRoutingRule
                         |SandboxEnvironment
                         |SavedHeatmap
                         |ScheduledChange
