@@ -67,6 +67,21 @@ function FunnelFlowGraphContent(): JSX.Element {
         [fitViewOptions]
     )
 
+    const layoutCountRef = useRef(0)
+    useEffect(() => {
+        if (laidOutNodes.length === 0) {
+            return
+        }
+        layoutCountRef.current++
+        if (layoutCountRef.current <= 1) {
+            return
+        }
+        const rafId = requestAnimationFrame(() => {
+            fitViewImperative({ ...fitViewOptions, duration: 200 })
+        })
+        return () => cancelAnimationFrame(rafId)
+    }, [laidOutNodes, fitViewImperative, fitViewOptions])
+
     const closeOpenPopovers = useCallback(() => {
         document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
     }, [])
