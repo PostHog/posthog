@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Optional
+from typing import Literal, Optional
 
 from django.db.models import Prefetch, Q, QuerySet
 
@@ -8,7 +8,13 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Tag, TaggedItem
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    Change,
+    Detail,
+    changes_between,
+    log_activity,
+)
 from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tag import tagify
@@ -171,3 +177,32 @@ def handle_tagged_item_change(
                 context=context,
             ),
         )
+
+        # Also log to the related object's activity stream for Ticket
+        if related_object_type == "ticket" and related_object_id:
+            ticket = tagged_item.ticket
+            ticket_name = f"Ticket #{ticket.ticket_number}" if ticket else related_object_name
+            tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
+            log_activity(
+                organization_id=tagged_item.tag.team.organization_id
+                if tagged_item.tag and tagged_item.tag.team
+                else None,
+                team_id=tagged_item.tag.team_id if tagged_item.tag else None,
+                user=user,
+                was_impersonated=was_impersonated,
+                item_id=related_object_id,
+                scope="Ticket",
+                activity="updated",
+                detail=Detail(
+                    name=ticket_name,
+                    changes=[
+                        Change(
+                            type="Ticket",
+                            field="tag",
+                            action=tag_action,
+                            after=tagged_item.tag.name if activity == "created" else None,
+                            before=tagged_item.tag.name if activity == "deleted" else None,
+                        )
+                    ],
+                ),
+            )
