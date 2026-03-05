@@ -305,17 +305,26 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         defaults.update(kwargs)
         return MCPServer.objects.create(**defaults)
 
-    def _callback_url(self):
-        return f"/api/environments/{self.team.id}/mcp_server_installations/oauth_callback/"
+    def _create_oauth_state(self, installation, server, state_token, pkce_verifier=""):
+        from datetime import timedelta
 
-    @ALLOW_URL
+        from django.utils import timezone
+
+        token_hash = hashlib.sha256(state_token.encode("utf-8")).hexdigest()
+        return MCPOAuthState.objects.create(
+            token_hash=token_hash,
+            installation=installation,
+            team=self.team,
+            server=server,
+            pkce_verifier=pkce_verifier,
+            expires_at=timezone.now() + timedelta(seconds=600),
+        )
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.post")
-    def test_dcr_path_used_when_pkce_cookie_present_even_with_known_provider(self, mock_post, _allow):
-        """When a server has oauth_provider_kind set but the authorization went through
-        DCR (indicated by the ph_pkce_verifier cookie), the token exchange must use the
-        DCR token endpoint, not the known provider's endpoint."""
+    def test_dcr_path_used_when_pkce_verifier_present_even_with_known_provider(self, mock_post, _allow):
         server = self._create_server(oauth_provider_kind="linear")
-        MCPServerInstallation.objects.create(
+        installation = MCPServerInstallation.objects.create(
             team=self.team,
             user=self.user,
             server=server,
@@ -327,32 +336,27 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"access_token": "tok_dcr", "token_type": "bearer"}
 
-        state_token = "test-state-token"
-        self.client.cookies["ph_oauth_state"] = state_token
-        self.client.cookies["ph_pkce_verifier"] = "test-pkce-verifier"
+        state_token = "test-state-token-dcr"
+        self._create_oauth_state(installation, server, state_token, pkce_verifier="test-pkce-verifier")
 
-        response = self.client.post(
-            self._callback_url(),
-            data={"code": "auth-code", "server_id": str(server.id), "state_token": state_token},
-            format="json",
+        client = APIClient()
+        response = client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "code": "auth-code"},
         )
 
-        assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED)
-        # The token exchange should have been sent to the DCR token endpoint
+        assert response.status_code == 302
         mock_post.assert_called_once()
         assert mock_post.call_args[0][0] == "https://auth.example.com/token"
         assert mock_post.call_args[1]["data"]["code_verifier"] == "test-pkce-verifier"
 
-    @ALLOW_URL
     @patch("products.mcp_store.backend.oauth.requests.post")
     @patch("products.mcp_store.backend.oauth.OauthIntegration.oauth_config_for_kind")
-    def test_known_provider_path_used_when_no_pkce_cookie(self, mock_config, mock_post, _allow):
-        """When there is no ph_pkce_verifier cookie and the server has oauth_provider_kind,
-        the known provider token exchange should be used."""
+    def test_known_provider_path_used_when_no_pkce_verifier(self, mock_config, mock_post):
         from posthog.models.integration import OauthConfig
 
         server = self._create_server(oauth_provider_kind="linear")
-        MCPServerInstallation.objects.create(
+        installation = MCPServerInstallation.objects.create(
             team=self.team,
             user=self.user,
             server=server,
@@ -373,17 +377,16 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"access_token": "tok_known", "token_type": "bearer"}
 
-        state_token = "test-state-token"
-        self.client.cookies["ph_oauth_state"] = state_token
-        # No ph_pkce_verifier cookie — known provider path should be used
+        state_token = "test-state-token-known"
+        self._create_oauth_state(installation, server, state_token, pkce_verifier="")
 
-        response = self.client.post(
-            self._callback_url(),
-            data={"code": "auth-code", "server_id": str(server.id), "state_token": state_token},
-            format="json",
+        client = APIClient()
+        response = client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "code": "auth-code"},
         )
 
-        assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED)
+        assert response.status_code == 302
         mock_post.assert_called_once()
         assert mock_post.call_args[0][0] == "https://api.linear.app/oauth/token"
         assert "code_verifier" not in mock_post.call_args[1].get("data", {})

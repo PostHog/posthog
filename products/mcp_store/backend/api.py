@@ -381,14 +381,21 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 install_source=install_source,
                 twig_callback_url=twig_callback_url,
             )
-        elif auth_type == "api_key" and api_key:
+        elif auth_type == "api_key":
             sensitive_config: SensitiveConfig = {}
-            sensitive_config["api_key"] = api_key
+            if api_key:
+                sensitive_config["api_key"] = api_key
 
             installation, created = MCPServerInstallation.objects.get_or_create(
                 team_id=self.team_id,
                 user=request.user,
                 url=url,
+                defaults={
+                    "display_name": name,
+                    "description": description,
+                    "auth_type": "api_key",
+                    "sensitive_configuration": sensitive_config,
+                },
             )
 
             if not created:
