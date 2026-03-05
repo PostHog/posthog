@@ -26,17 +26,15 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
-import { INTENT_KEYS, INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
+import { INTENT_KEYS, INTENT_METADATA, TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
-type FeatureFlagTemplate = 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
-
-interface TemplateMetadata {
+interface DropdownTemplateMetadata {
     name: string
     description: string
     icon: React.ComponentType
 }
 
-const TEMPLATE_METADATA: Record<FeatureFlagTemplate, TemplateMetadata> = {
+const TEMPLATE_METADATA: Record<TemplateKey, DropdownTemplateMetadata> = {
     simple: {
         name: 'Simple flag',
         description: 'On/off for all users',
@@ -59,7 +57,7 @@ const TEMPLATE_METADATA: Record<FeatureFlagTemplate, TemplateMetadata> = {
     },
 }
 
-const TEMPLATES: FeatureFlagTemplate[] = ['simple', 'targeted', 'multivariate', 'targeted-multivariate']
+const TEMPLATES: TemplateKey[] = ['simple', 'targeted', 'multivariate', 'targeted-multivariate']
 
 const AI_TOOL_DEFINITION = getToolDefinition('create_feature_flag')!
 const AI_SUGGESTIONS = [
@@ -69,7 +67,7 @@ const AI_SUGGESTIONS = [
     'Create a beta testing flag for…',
 ]
 
-function IntentSubmenu({ template, onBack }: { template: FeatureFlagTemplate; onBack: () => void }): JSX.Element {
+function IntentSubmenu({ template, onBack }: { template: TemplateKey; onBack: () => void }): JSX.Element {
     const metadata = TEMPLATE_METADATA[template]
 
     return (
@@ -115,7 +113,8 @@ export function OverlayForNewFeatureFlagMenu(): JSX.Element {
     const { openSidePanel } = useActions(sidePanelLogic)
 
     const intentsEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS]
-    const [selectedTemplate, setSelectedTemplate] = useState<FeatureFlagTemplate | null>(null)
+    // useState is intentional — this is an ephemeral popover overlay that unmounts on close
+    const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey | null>(null)
 
     if (intentsEnabled && selectedTemplate) {
         return <IntentSubmenu template={selectedTemplate} onBack={() => setSelectedTemplate(null)} />
