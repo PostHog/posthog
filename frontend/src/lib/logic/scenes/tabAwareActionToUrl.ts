@@ -12,8 +12,8 @@ export const tabAwareActionToUrl = <L extends Logic = Logic>(
     return (logic: BuiltLogic<L>) => {
         const finalInput = typeof input === 'function' ? input(logic) : input
         const newPayload = Object.fromEntries(
-            Object.entries(finalInput).map(([actionName, v]) => [
-                actionName,
+            Object.entries(finalInput).map(([k, v]) => [
+                k,
                 (payload: Record<string, any>): any => {
                     if (v) {
                         // Check if sceneLogic is mounted before accessing values
@@ -24,7 +24,7 @@ export const tabAwareActionToUrl = <L extends Logic = Logic>(
 
                         if (sceneLogic.values.activeTabId === logic.props.tabId) {
                             const response = v(payload)
-                            trackUrlChange(response, logic.pathString, actionName)
+                            trackUrlChange(response, logic.pathString, k)
                             return response
                         }
                         // If we want to change the URL, but we're inactive, just update the tab value
