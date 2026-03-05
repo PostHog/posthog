@@ -42,6 +42,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+import type { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { statusBadgeColor } from 'scenes/debug/signals/helpers'
 import type { SignalNode } from 'scenes/debug/signals/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -51,12 +52,33 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { inboxSceneLogic } from './inboxSceneLogic'
+import { getReportPriorityLabel, inboxSceneLogic } from './inboxSceneLogic'
 import { SignalCard } from './SignalCard'
 import { SignalGraphTab } from './SignalGraphTab'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SourcesModal } from './SourcesModal'
 import { SignalReport, SignalReportArtefact, SignalReportStatus } from './types'
+
+function priorityTagType(priority: string): LemonTagType {
+    switch (priority) {
+        case 'P0':
+            return 'danger'
+        case 'P1':
+            return 'warning'
+        case 'P2':
+            return 'caution'
+        default:
+            return 'muted'
+    }
+}
+
+const PRIORITY_DESCRIPTIONS: Record<string, string> = {
+    P0: 'P0: Critical, needs immediate attention',
+    P1: 'P1: High priority, should be addressed soon',
+    P2: 'P2: Medium priority, normal course of work',
+    P3: 'P3: Low priority, address when convenient',
+    P4: 'P4: Minimal priority, nice-to-have',
+}
 
 export const scene: SceneExport = {
     component: InboxScene,
@@ -68,6 +90,7 @@ function ReportListItem({ report }: { report: SignalReport }): JSX.Element {
     const { setSelectedReportId } = useActions(inboxSceneLogic)
 
     const isSelected = selectedReportId === report.id
+    const priority = getReportPriorityLabel(report)
 
     return (
         <Link
@@ -100,6 +123,13 @@ function ReportListItem({ report }: { report: SignalReport }): JSX.Element {
                 )}
 
                 <div className="flex items-center gap-2 mt-1.5 text-xs text-tertiary whitespace-nowrap">
+                    {priority && (
+                        <Tooltip title={PRIORITY_DESCRIPTIONS[priority] ?? priority} delayMs={0}>
+                            <LemonTag size="small" type={priorityTagType(priority)}>
+                                {priority}
+                            </LemonTag>
+                        </Tooltip>
+                    )}
                     {report.relevant_user_count !== null && report.relevant_user_count > 0 && (
                         <span>
                             {report.relevant_user_count} {report.relevant_user_count === 1 ? 'user' : 'users'}
@@ -110,7 +140,6 @@ function ReportListItem({ report }: { report: SignalReport }): JSX.Element {
                             {report.signal_count} {report.signal_count === 1 ? 'signal' : 'signals'}
                         </span>
                     )}
-                    <LemonTag size="small">Weight: {report.total_weight.toFixed(1)}</LemonTag>
 
                     <span className="grow shrink-0 flex justify-end">
                         <TZLabel title="Report last updated at" time={report.updated_at} />
@@ -353,6 +382,134 @@ function ReportListPane(): JSX.Element {
     )
 }
 
+function ImpactAssessmentBadge({ artefacts }: { artefacts: SignalReportArtefact[] }): JSX.Element | null {
+    const [expanded, setExpanded] = useState(false)
+
+    const impactArtefact = artefacts.find((a) => a.type === 'impact_assessment')
+    if (!impactArtefact) {
+        return null
+    }
+
+    const content = impactArtefact.content as Record<string, unknown>
+    const usersAffected = content.users_affected as number | null
+    const activeUsers = content.active_users_in_period as number | null
+    const userImpactRatio = content.user_impact_ratio as number | null
+    const totalOccurrences = content.total_occurrences as number | undefined
+    const externalReportCount = content.external_report_count as number | undefined
+    const sourceProducts = content.source_products as string[] | undefined
+    const crossProductCorroboration = content.cross_product_corroboration as boolean | undefined
+    const strongestSeverity = content.strongest_external_severity as string | null
+    const severityDetails = content.severity_details as string[] | undefined
+    const signalsPerDay = content.signals_per_day as number | undefined
+
+    const hasUserData = usersAffected != null
+    const impactTagType: LemonTagType =
+        userImpactRatio != null && userImpactRatio > 0.05
+            ? 'danger'
+            : userImpactRatio != null && userImpactRatio > 0.01
+              ? 'warning'
+              : 'muted'
+
+    return (
+        <div className="border rounded bg-surface-primary mb-3">
+            <button
+                type="button"
+                className="w-full flex items-center gap-2 px-3 py-2 text-left cursor-pointer hover:bg-surface-tertiary rounded"
+                onClick={() => setExpanded(!expanded)}
+            >
+                <span className="text-xs font-medium text-tertiary shrink-0">Impact:</span>
+                <div className="flex items-center gap-1.5 flex-wrap flex-1">
+                    {hasUserData ? (
+                        <LemonTag size="small" type={impactTagType}>
+                            {usersAffected.toLocaleString()} user{usersAffected !== 1 ? 's' : ''} affected
+                            {userImpactRatio != null ? ` (${(userImpactRatio * 100).toFixed(1)}%)` : ''}
+                        </LemonTag>
+                    ) : null}
+                    {totalOccurrences != null && totalOccurrences > 0 ? (
+                        <LemonTag size="small" type="muted">
+                            {totalOccurrences.toLocaleString()} occurrence{totalOccurrences !== 1 ? 's' : ''}
+                        </LemonTag>
+                    ) : null}
+                    {externalReportCount != null && externalReportCount > 0 ? (
+                        <LemonTag size="small" type="muted">
+                            {externalReportCount} external report{externalReportCount !== 1 ? 's' : ''}
+                        </LemonTag>
+                    ) : null}
+                    {crossProductCorroboration ? (
+                        <LemonTag size="small" type="highlight">
+                            Cross-product corroboration
+                        </LemonTag>
+                    ) : null}
+                    {strongestSeverity ? (
+                        <LemonTag
+                            size="small"
+                            type={
+                                strongestSeverity === 'urgent'
+                                    ? 'danger'
+                                    : strongestSeverity === 'high'
+                                      ? 'warning'
+                                      : 'muted'
+                            }
+                        >
+                            Severity: {strongestSeverity}
+                        </LemonTag>
+                    ) : null}
+                </div>
+                <IconChevronRight
+                    className={clsx('size-4 text-tertiary transition-transform shrink-0', expanded && 'rotate-90')}
+                />
+            </button>
+            {expanded && (
+                <div className="px-3 pb-3 space-y-1 text-xs text-secondary">
+                    {hasUserData && activeUsers != null ? (
+                        <div>
+                            <span className="font-medium text-tertiary">Users affected:</span>{' '}
+                            {usersAffected.toLocaleString()} of {activeUsers.toLocaleString()} active users
+                            {userImpactRatio != null ? ` (${(userImpactRatio * 100).toFixed(1)}%)` : ''}
+                        </div>
+                    ) : (
+                        <div>
+                            <span className="font-medium text-tertiary">Users affected:</span> unknown (no session
+                            replay data)
+                        </div>
+                    )}
+                    {totalOccurrences != null ? (
+                        <div>
+                            <span className="font-medium text-tertiary">Total occurrences:</span>{' '}
+                            {totalOccurrences.toLocaleString()}
+                        </div>
+                    ) : null}
+                    {sourceProducts && sourceProducts.length > 0 ? (
+                        <div>
+                            <span className="font-medium text-tertiary">Sources:</span> {sourceProducts.join(', ')}
+                            {crossProductCorroboration ? ' (cross-product corroboration)' : ''}
+                        </div>
+                    ) : null}
+                    {severityDetails && severityDetails.length > 0 ? (
+                        <div>
+                            <span className="font-medium text-tertiary">Severity details:</span>{' '}
+                            {severityDetails.join('; ')}
+                        </div>
+                    ) : null}
+                    {signalsPerDay != null && signalsPerDay > 0 ? (
+                        <div>
+                            <span className="font-medium text-tertiary">Trend:</span> {signalsPerDay.toFixed(1)}{' '}
+                            signals/day
+                            {signalsPerDay > 10
+                                ? ' (active incident)'
+                                : signalsPerDay > 3
+                                  ? ' (elevated frequency)'
+                                  : signalsPerDay < 0.5
+                                    ? ' (chronic/slow accumulation)'
+                                    : ''}
+                        </div>
+                    ) : null}
+                </div>
+            )}
+        </div>
+    )
+}
+
 function JudgmentBadges({ artefacts }: { artefacts: SignalReportArtefact[] }): JSX.Element | null {
     const [expanded, setExpanded] = useState(false)
 
@@ -367,7 +524,9 @@ function JudgmentBadges({ artefacts }: { artefacts: SignalReportArtefact[] }): J
     const actionabilityContent = actionabilityArtefact?.content as Record<string, unknown> | undefined
 
     const isSafe = safetyContent?.safe === true || safetyContent?.judgment === 'safe'
-    const actionabilityJudgment = (actionabilityContent?.judgment as string) ?? ''
+    const actionabilityChoice =
+        (actionabilityContent?.choice as string) ?? (actionabilityContent?.judgment as string) ?? ''
+    const actionabilityPriority = (actionabilityContent?.priority as string) ?? null
 
     return (
         <div className="border rounded bg-surface-primary mb-3">
@@ -388,28 +547,38 @@ function JudgmentBadges({ artefacts }: { artefacts: SignalReportArtefact[] }): J
                         <LemonTag
                             size="small"
                             type={
-                                actionabilityJudgment === 'immediately_actionable'
+                                actionabilityChoice === 'immediately_actionable'
                                     ? 'success'
-                                    : actionabilityJudgment === 'requires_human_input'
+                                    : actionabilityChoice === 'requires_human_input'
                                       ? 'caution'
                                       : 'muted'
                             }
                         >
-                            {actionabilityJudgment === 'immediately_actionable' ? (
+                            {actionabilityChoice === 'immediately_actionable' ? (
                                 <IconCheck className="size-3" />
-                            ) : actionabilityJudgment === 'requires_human_input' ? (
+                            ) : actionabilityChoice === 'requires_human_input' ? (
                                 <IconWarning className="size-3" />
                             ) : (
                                 <IconX className="size-3" />
                             )}
                             <span className="ml-0.5">
-                                {actionabilityJudgment === 'immediately_actionable'
+                                {actionabilityChoice === 'immediately_actionable'
                                     ? 'Immediately actionable'
-                                    : actionabilityJudgment === 'requires_human_input'
+                                    : actionabilityChoice === 'requires_human_input'
                                       ? 'Requires human input'
                                       : 'Not actionable'}
                             </span>
                         </LemonTag>
+                    )}
+                    {actionabilityPriority && (
+                        <Tooltip
+                            title={PRIORITY_DESCRIPTIONS[actionabilityPriority] ?? actionabilityPriority}
+                            delayMs={0}
+                        >
+                            <LemonTag size="small" type={priorityTagType(actionabilityPriority)}>
+                                {actionabilityPriority}
+                            </LemonTag>
+                        </Tooltip>
                     )}
                 </div>
                 <IconChevronRight
@@ -440,7 +609,6 @@ function ReportDetailPane(): JSX.Element {
     const {
         selectedReport,
         shouldShowEnablingCtaOnMobile,
-        artefacts,
         activeDetailTab,
         selectedReportSignals,
         reportSignalsLoading,
@@ -491,8 +659,6 @@ function ReportDetailPane(): JSX.Element {
             </div>
         )
     }
-
-    const reportArtefacts = artefacts[selectedReport.id]
 
     return (
         <div className={baseClasses} key={selectedReport.id}>
@@ -581,9 +747,12 @@ function ReportDetailPane(): JSX.Element {
                             label: 'Overview',
                             content: (
                                 <div className="p-6 max-w-200 w-full">
-                                    {/* Judgment badges from artefacts */}
-                                    {reportArtefacts && reportArtefacts.length > 0 && (
-                                        <JudgmentBadges artefacts={reportArtefacts} />
+                                    {/* Impact assessment and judgment badges from artefacts */}
+                                    {selectedReport.artefacts.length > 0 && (
+                                        <>
+                                            <ImpactAssessmentBadge artefacts={selectedReport.artefacts} />
+                                            <JudgmentBadges artefacts={selectedReport.artefacts} />
+                                        </>
                                     )}
 
                                     {/* Signal cards as primary content */}

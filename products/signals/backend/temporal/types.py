@@ -130,6 +130,49 @@ def render_signal_to_text(
     lines.append(f"- Weight: {signal.weight}")
     lines.append(f"- Timestamp: {signal.timestamp}")
     lines.append(f"- Description: {signal.content}")
+
+    # Source-specific impact lines from extra
+    extra = signal.extra
+    match signal.source_product:
+        case "session_replay":
+            metrics = extra.get("metrics", {})
+            user_count = metrics.get("relevant_user_count")
+            active_users = metrics.get("active_users_in_period")
+            occurrence_count = metrics.get("occurrence_count")
+            parts = []
+            if user_count is not None and active_users:
+                parts.append(f"{user_count} users affected (of {active_users:,} active)")
+            elif user_count is not None:
+                parts.append(f"{user_count} users affected")
+            if occurrence_count is not None:
+                parts.append(f"{occurrence_count} occurrences")
+            if parts:
+                lines.append(f"- Impact: {', '.join(parts)}")
+        case "zendesk":
+            prio = extra.get("priority")
+            ticket_type = extra.get("type")
+            parts = []
+            if prio:
+                parts.append(f"Zendesk priority: {prio}")
+            if ticket_type:
+                parts.append(f"type: {ticket_type}")
+            if parts:
+                lines.append(f"- Severity: {', '.join(parts)}")
+        case "linear":
+            priority_label = extra.get("priority_label")
+            identifier = extra.get("identifier")
+            parts = []
+            if identifier:
+                parts.append(identifier)
+            if priority_label:
+                parts.append(f"priority: {priority_label}")
+            if parts:
+                lines.append(f"- Severity: {', '.join(parts)}")
+        case "github":
+            labels = extra.get("labels", [])
+            if labels:
+                lines.append(f"- Labels: {', '.join(str(item) for item in labels)}")
+
     return "\n".join(lines)
 
 

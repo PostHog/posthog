@@ -34,7 +34,7 @@ Given a list of signals, produce a JSON object with two fields:
 1. "title": A short, declarative headline (max 75 chars). Lead with the most newsworthy takeaway, not a label.
 
 2. "summary": An Axios-style brief using these sections, each on its own line:
-   - **Why it matters:** One sentence on the business or user impact. This is the most important part — lead with it.
+   - **Why it matters:** One sentence on the business or user impact. Use concrete numbers from the REPORT IMPACT ASSESSMENT when available (e.g. "47 users (0.94% of active users)" instead of "several users"). This is the most important part — lead with it.
    - **What's happening:** 1-2 sentences on the concrete facts. Reference specific signals, error types, metrics, or patterns.
    - **The bottom line:** One sentence with the specific, actionable next step — a code change, investigation, or decision.
 
@@ -47,22 +47,27 @@ Style rules:
 Respond with ONLY valid JSON, no other text. The first token of output must be {"""
 
 
-def _build_summarize_prompt(signals: list[SignalData]) -> str:
-    return f"""SIGNALS TO SUMMARIZE:
+def _build_summarize_prompt(signals: list[SignalData], impact_text: str | None = None) -> str:
+    prompt = f"""SIGNALS TO SUMMARIZE:
 
 <signal_data>
 {render_signals_to_text(signals)}
 </signal_data>"""
 
+    if impact_text:
+        prompt += f"\n\n{impact_text}"
 
-async def summarize_signals(signals: list[SignalData]) -> tuple[str, str]:
+    return prompt
+
+
+async def summarize_signals(signals: list[SignalData], impact_text: str | None = None) -> tuple[str, str]:
     """
     Summarize a list of signals into a title and summary.
 
     Returns:
         Tuple of (title, summary)
     """
-    user_prompt = _build_summarize_prompt(signals)
+    user_prompt = _build_summarize_prompt(signals, impact_text)
 
     def validate(text: str) -> tuple[str, str]:
         data = json.loads(text)
@@ -81,6 +86,7 @@ async def summarize_signals(signals: list[SignalData]) -> tuple[str, str]:
 class SummarizeSignalsInput:
     report_id: str
     signals: list[SignalData]
+    impact_text: str | None = None
 
 
 @dataclass
@@ -93,7 +99,7 @@ class SummarizeSignalsOutput:
 async def summarize_signals_activity(input: SummarizeSignalsInput) -> SummarizeSignalsOutput:
     """Summarize signals into a title and summary for the report."""
     try:
-        title, summary = await summarize_signals(input.signals)
+        title, summary = await summarize_signals(input.signals, input.impact_text)
         logger.debug(
             f"Summarized {len(input.signals)} signals for report {input.report_id}",
             report_id=input.report_id,

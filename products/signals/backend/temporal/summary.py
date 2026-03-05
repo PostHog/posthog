@@ -19,11 +19,16 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.temporal.actionability_judge import (
     ActionabilityChoice,
     ActionabilityJudgeInput,
     actionability_judge_activity,
+)
+from products.signals.backend.temporal.impact import (
+    ReportImpactAssessment,
+    compute_impact_assessment,
+    render_impact_assessment_to_text,
 )
 from products.signals.backend.temporal.safety_judge import SafetyJudgeInput, safety_judge_activity
 from products.signals.backend.temporal.summarize_signals import (
@@ -92,9 +97,23 @@ class SignalReportSummaryWorkflow:
         )
 
         try:
+            impact_result: ComputeImpactAssessmentOutput = await workflow.execute_activity(
+                compute_impact_assessment_activity,
+                ComputeImpactAssessmentInput(
+                    team_id=inputs.team_id, report_id=inputs.report_id, signals=fetch_result.signals
+                ),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            impact_text = render_impact_assessment_to_text(impact_result.assessment)
+
             summarize_result: SummarizeSignalsOutput = await workflow.execute_activity(
                 summarize_signals_activity,
-                SummarizeSignalsInput(report_id=inputs.report_id, signals=fetch_result.signals),
+                SummarizeSignalsInput(
+                    report_id=inputs.report_id,
+                    signals=fetch_result.signals,
+                    impact_text=impact_text,
+                ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
@@ -120,6 +139,7 @@ class SignalReportSummaryWorkflow:
                         title=summarize_result.title,
                         summary=summarize_result.summary,
                         signals=fetch_result.signals,
+                        impact_text=impact_text,
                     ),
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -415,6 +435,61 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             f"Failed to mark report {input.report_id} as pending_input: {e}",
             report_id=input.report_id,
         )
+        raise
+
+
+@dataclass
+class ComputeImpactAssessmentInput:
+    team_id: int
+    report_id: str
+    signals: list[SignalData]
+
+
+@dataclass
+class ComputeImpactAssessmentOutput:
+    assessment: ReportImpactAssessment
+
+
+@temporalio.activity.defn
+async def compute_impact_assessment_activity(input: ComputeImpactAssessmentInput) -> ComputeImpactAssessmentOutput:
+    """Compute quantitative impact assessment from signal extra fields and store as artefact."""
+    try:
+        team = await Team.objects.aget(pk=input.team_id)
+        assessment = await sync_to_async(compute_impact_assessment, thread_sensitive=False)(team, input.signals)
+
+        await SignalReportArtefact.objects.acreate(
+            team_id=input.team_id,
+            report_id=input.report_id,
+            type=SignalReportArtefact.ArtefactType.IMPACT_ASSESSMENT,
+            content=json.dumps(
+                {
+                    "users_affected": assessment.users_affected,
+                    "active_users_in_period": assessment.active_users_in_period,
+                    "user_impact_ratio": assessment.user_impact_ratio,
+                    "total_occurrences": assessment.total_occurrences,
+                    "external_report_count": assessment.external_report_count,
+                    "source_products": assessment.source_products,
+                    "cross_product_corroboration": assessment.cross_product_corroboration,
+                    "strongest_external_severity": assessment.strongest_external_severity,
+                    "severity_details": assessment.severity_details,
+                    "most_recent_signal": assessment.most_recent_signal,
+                    "earliest_signal": assessment.earliest_signal,
+                    "signals_per_day": assessment.signals_per_day,
+                }
+            ),
+        )
+
+        logger.debug(
+            "Computed impact assessment",
+            team_id=input.team_id,
+            report_id=input.report_id,
+            users_affected=assessment.users_affected,
+            total_occurrences=assessment.total_occurrences,
+            external_report_count=assessment.external_report_count,
+        )
+        return ComputeImpactAssessmentOutput(assessment=assessment)
+    except Exception as e:
+        logger.exception(f"Failed to compute impact assessment: {e}", team_id=input.team_id, report_id=input.report_id)
         raise
 
 
