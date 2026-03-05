@@ -13,11 +13,7 @@ Before coding, read:
 
 - `posthog/temporal/data_imports/sources/source.template`
 - `posthog/temporal/data_imports/sources/README.md`
-- 1 API source with `settings.py` + transport logic, for example:
-  - `posthog/temporal/data_imports/sources/klaviyo/settings.py`
-  - `posthog/temporal/data_imports/sources/klaviyo/klaviyo.py`
-  - `posthog/temporal/data_imports/sources/github/settings.py`
-  - `posthog/temporal/data_imports/sources/github/github.py`
+- 1 API source with `settings.py` + transport logic (e.g. klaviyo, github). For dependent-resource fan-out (parent→child with `type: "resolve"`), also read `posthog/temporal/data_imports/sources/common/rest_source/__init__.py` and `config_setup.py` (e.g. `process_parent_data_item`, `make_parent_key_name`).
 
 ## Source architecture contract
 
@@ -47,6 +43,7 @@ Source implementation:
 - [ ] Add icon in `frontend/public/services/`
 - [ ] Run `pnpm run generate:source-configs`
 - [ ] Run `pnpm run schema:build`
+- [ ] For Beta: set `betaSource=True` in `SourceConfig`; omit `unreleasedSource` (or set `False`) when releasing.
 ```
 
 ## Required coding conventions
@@ -55,7 +52,7 @@ Source implementation:
 - Source class should inherit `SimpleSource[GeneratedConfig]` unless resumable/webhook behavior is required.
 - Prefer explicit endpoint metadata in `settings.py` rather than hard-coded branches in transport logic.
 - API sources should usually return `table_format="delta"` in endpoint resources.
-- Use `primary_keys` for incremental merge safety.
+- Use `primary_keys` for incremental merge safety; they are endpoint-specific (declare in `settings.py`, not always `id`).
 - Add partitioning for new sources where possible:
   - API sources: `partition_mode="datetime"` with stable datetime field when available.
 - Add `get_non_retryable_errors()` for known permanent failures (401/403/invalid credentials).
@@ -85,18 +82,18 @@ Source implementation:
 
 ## Pagination tips
 
-- Some APIs use cursor pagination in `Link` headers — check both `rel="next"` and any results flag (for example `results="true"` in Sentry).
+- Some APIs use cursor pagination in `Link` headers — check both `rel="next"` and any results flag the API may use.
 - When following a full cursor URL from response headers, clear request params in paginator `update_request` to avoid duplicate query params.
-- Primary keys are endpoint-specific and may not be `id` (for example Sentry releases key by `version`); declare per-endpoint in `settings.py`.
 
 ## Fan-out endpoints
 
 Fan-out means iterating a parent resource (for example projects) and then querying child endpoints per parent (for example project issues).
 
-- Add parent identifiers (`project_id`, `issue_id`) to each emitted row so tables join cleanly.
-- Bound fan-out with caps on parent count and pages-per-parent to keep large syncs safe.
-- Fan-out endpoints bypass `rest_api_resources` and use a direct iterator — make sure to handle pagination, retries, and error mapping yourself.
-- Do not expose internal fan-out tuning knobs (retry counts, page caps) in the user-facing source form; keep them as internal defaults.
+**Prefer dependent resources when you have a single parent→child.** Use `rest_api_resources` with a parent resource and a child that declares `type: "resolve"` for the parent field (e.g. parent slug or id). The shared infra (`rest_source/__init__.py`, `config_setup.process_parent_data_item`) paginates the parent and calls the child per parent row. Add `include_from_parent` so child rows get parent fields; they are injected as `_<parent>_<field>` via `make_parent_key_name`. Add a row mapper to rename those to the final column names (e.g. `project_id`, `project_slug`). Do not expose internal fan-out tuning knobs in the user-facing form; use internal defaults.
+
+**Path pre-formatting:** Child paths often have multiple placeholders (e.g. org and resource slug). `process_parent_data_item` only does `str.format()` with the _resolved_ param. Pre-format any static placeholders with `.replace()` on the child path before passing to the resource config, so only the resolved placeholder remains and DLT does not raise `KeyError`.
+
+**When to keep a custom iterator:** If fan-out requires two or more levels (e.g. parent → mid-level list → detail per mid-level), where an intermediate API call discovers values that become part of the URL, that cannot be expressed as a single parent→child in `rest_api_resources`. Implement a custom HTTP iterator for that endpoint only; reuse the same pagination/retry helpers as elsewhere.
 
 ## Testing expectations
 
@@ -115,20 +112,14 @@ Add at least two test modules:
   - credential validation status mapping
   - mapper/filter helpers if present
   - fan-out endpoint row format assertions (dict shape + parent identifiers)
+  - for dependent-resource fan-out: mock `rest_api_resources`, pass rows with `_<parent>_<field>` keys to exercise the row mapper; optionally assert config shape
   - expected return schema checks for each declared endpoint in `settings.py`
 
 Use parameterized tests for status codes and edge cases.
 
 ## Validation and generation workflow
 
-After changing source fields:
-
-```bash
-pnpm run generate:source-configs
-pnpm run schema:build
-```
-
-Then run targeted tests for the new source.
+After changing source fields, run the generation commands from the checklist and targeted tests for the new source.
 
 ## Common pitfalls
 
@@ -136,3 +127,4 @@ Then run targeted tests for the new source.
 - Generated config class still empty: forgot `generate:source-configs` after updating fields.
 - Incremental sync misbehaving: wrong field name/type or wrong sort assumptions.
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
+- Dependent resource path `KeyError`: pre-format static path placeholders (see Fan-out).
