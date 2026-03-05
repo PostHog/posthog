@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, StringDatabaseField
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
@@ -369,7 +371,7 @@ class TestTable(BaseTest):
         )
         assert table.csv_allow_double_quotes is None
 
-    @pytest.mark.parametrize("code", [27, 117, 636])
+    @parameterized.expand([27, 117, 636])
     def test_validate_csv_double_quotes_raises_on_parse_failure(self, code):
         from clickhouse_driver.errors import ServerException
 
