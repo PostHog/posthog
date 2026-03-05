@@ -1,4 +1,3 @@
-import time
 import datetime
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any, Optional
@@ -8,6 +7,7 @@ import structlog
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
@@ -16,23 +16,23 @@ from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, mess
 
 logger = structlog.get_logger(__name__)
 
-_SLACK_MAX_RETRIES = 5
-_SLACK_DEFAULT_RETRY_AFTER = 1
+
+class SlackRateLimitError(Exception):
+    pass
 
 
+@retry(
+    retry=retry_if_exception_type(SlackRateLimitError),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
 def _slack_get(url: str, **kwargs: Any) -> requests.Response:
-    for attempt in range(_SLACK_MAX_RETRIES):
-        response = requests.get(url, **kwargs)
-        if response.status_code != 429:
-            return response
-        retry_after = int(response.headers.get("Retry-After", _SLACK_DEFAULT_RETRY_AFTER))
-        logger.warning(
-            "Slack API rate limited",
-            url=url,
-            attempt=attempt + 1,
-            retry_after=retry_after,
-        )
-        time.sleep(retry_after)
+    response = requests.get(url, **kwargs)
+    if response.status_code == 429:
+        retry_after = int(response.headers.get("Retry-After", 1))
+        logger.warning("Slack API rate limited", url=url, retry_after=retry_after)
+        raise SlackRateLimitError(f"Rate limited, retry after {retry_after}s")
     return response
 
 
