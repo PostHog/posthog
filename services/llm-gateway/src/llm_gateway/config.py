@@ -47,6 +47,16 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
 }
 
 
+_COST_LIMIT_KEY_ALIASES: dict[str, str] = {
+    "array": "posthog_code",
+    "twig": "posthog_code",
+}
+
+
+def _normalize_cost_key(key: str) -> str:
+    return _COST_LIMIT_KEY_ALIASES.get(key, key)
+
+
 def _parse_model_dict(
     v: str | dict | None,
     model_cls: type[BaseModel],
@@ -58,10 +68,11 @@ def _parse_model_dict(
     if isinstance(v, dict):
         result = {}
         for key, config in v.items():
+            normalized = _normalize_cost_key(key)
             if isinstance(config, model_cls):
-                result[key] = config
+                result[normalized] = config
             elif isinstance(config, dict):
-                result[key] = model_cls(**config)
+                result[normalized] = model_cls(**config)
             else:
                 raise ValueError(f"Invalid config for {key}")
         return result
@@ -71,7 +82,7 @@ def _parse_model_dict(
         raise ValueError(f"Invalid JSON in {field_name}: {e}") from e
     if not isinstance(parsed, dict):
         raise ValueError(f"{field_name} must be a JSON object")
-    return {key: model_cls(**config) for key, config in parsed.items()}
+    return {_normalize_cost_key(key): model_cls(**config) for key, config in parsed.items()}
 
 
 class Settings(BaseSettings):

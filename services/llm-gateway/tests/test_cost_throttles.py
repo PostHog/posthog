@@ -51,6 +51,18 @@ class TestProductCostLimitConfig:
         assert settings.product_cost_limits["posthog_code"].window_seconds == 14400
         get_settings.cache_clear()
 
+    def test_legacy_twig_key_normalizes_to_posthog_code(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(
+            "LLM_GATEWAY_PRODUCT_COST_LIMITS",
+            '{"twig": {"limit_usd": 42, "window_seconds": 7200}}',
+        )
+        get_settings.cache_clear()
+        settings = get_settings()
+        assert "twig" not in settings.product_cost_limits
+        assert settings.product_cost_limits["posthog_code"].limit_usd == 42.0
+        assert settings.product_cost_limits["posthog_code"].window_seconds == 7200
+        get_settings.cache_clear()
+
 
 class TestUserCostLimitConfig:
     def test_default_user_cost_limits(self) -> None:
@@ -80,6 +92,18 @@ class TestUserCostLimitConfig:
         get_settings.cache_clear()
         settings = get_settings()
         assert "posthog_code" in settings.user_cost_limits
+        get_settings.cache_clear()
+
+    def test_legacy_twig_key_normalizes_to_posthog_code(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(
+            "LLM_GATEWAY_USER_COST_LIMITS",
+            '{"twig": {"burst_limit_usd": 77, "burst_window_seconds": 3600, "sustained_limit_usd": 777, "sustained_window_seconds": 86400}}',
+        )
+        get_settings.cache_clear()
+        settings = get_settings()
+        assert "twig" not in settings.user_cost_limits
+        assert settings.user_cost_limits["posthog_code"].burst_limit_usd == 77.0
+        assert settings.user_cost_limits["posthog_code"].sustained_limit_usd == 777.0
         get_settings.cache_clear()
 
 
