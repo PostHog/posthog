@@ -35,6 +35,16 @@
     // .CardMeta is the draggable handle of insight cards. Text cards are draggable as a whole
     cursor: move;
     user-select: none; // Prevent accidental text selection while dragging
+
+    // In edit mode, links and tables in drag handle areas are in `draggableCancel` which
+    // prevents drag initiation when clicked. Since the title link covers most of the header,
+    // this makes it very hard to find a spot to grab. Disable their pointer events so the
+    // underlying drag handle receives the mousedown instead. Buttons (More, Details toggle)
+    // are intentionally left interactive for tile management during editing.
+    a,
+    table {
+        pointer-events: none;
+    }
 }
 
 .react-grid-item.react-draggable-dragging {
