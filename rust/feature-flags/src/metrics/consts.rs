@@ -24,6 +24,7 @@ pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
 pub const DB_CONNECTION_POOL_ACTIVE_COUNTER: &str = "flags_db_connection_pool_active_total";
 pub const DB_CONNECTION_POOL_IDLE_COUNTER: &str = "flags_db_connection_pool_idle_total";
 pub const DB_CONNECTION_POOL_MAX_COUNTER: &str = "flags_db_connection_pool_max_total";
+pub const DB_CONNECTION_POOL_SIZE_GAUGE: &str = "flags_db_connection_pool_size";
 
 // Flag evaluation timing
 pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
