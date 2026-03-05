@@ -342,10 +342,17 @@ class BigQueryClient:
             },
             scopes=["https://www.googleapis.com/auth/cloud-platform"],
         )
-        client = bigquery.Client(
-            project=project_id,
-            credentials=credentials,
-        )
+        from posthog.security.outbound_proxy import get_proxy_config
+
+        proxy_cfg = get_proxy_config()
+        if proxy_cfg:
+            from google.auth.transport.requests import AuthorizedSession
+
+            authed_session = AuthorizedSession(credentials)
+            authed_session.proxies = proxy_cfg
+            client = bigquery.Client(project=project_id, credentials=credentials, _http=authed_session)
+        else:
+            client = bigquery.Client(project=project_id, credentials=credentials)
         return cls(client)
 
     async def create_table(

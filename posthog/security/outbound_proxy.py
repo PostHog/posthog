@@ -48,6 +48,17 @@ def get_proxy_url() -> str | None:
     return None
 
 
+def get_proxy_host_port() -> tuple[str, int] | None:
+    """Return ``(host, port)`` for SDKs that need them separately (e.g. Snowflake)."""
+    url = get_proxy_url()
+    if not url:
+        return None
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    return (parsed.hostname or "", parsed.port or 8080)
+
+
 # ---------------------------------------------------------------------------
 # requests — pre-configured Session instance
 # ---------------------------------------------------------------------------

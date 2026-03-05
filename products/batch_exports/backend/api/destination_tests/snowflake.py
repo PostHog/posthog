@@ -81,6 +81,11 @@ class SnowflakeEstablishConnectionTestStep(DestinationTestStep):
         if result is not None:
             return result
 
+        from posthog.security.outbound_proxy import get_proxy_host_port
+
+        proxy = get_proxy_host_port()
+        proxy_kwargs = {"proxy_host": proxy[0], "proxy_port": str(proxy[1])} if proxy else {}
+
         try:
             connection = await asyncio.to_thread(
                 snowflake.connector.connect,
@@ -90,6 +95,7 @@ class SnowflakeEstablishConnectionTestStep(DestinationTestStep):
                 private_key=private_key,
                 # wrap role in quotes in case it contains lowercase or special characters
                 role=f'"{self.role}"' if self.role is not None else None,
+                **proxy_kwargs,
             )
         except (OperationalError, InterfaceError, DatabaseError) as err:
             if err.msg is not None and "404 Not Found" in err.msg:
@@ -165,6 +171,11 @@ class SnowflakeWarehouseTestStep(DestinationTestStep):
         if result is not None:
             return result
 
+        from posthog.security.outbound_proxy import get_proxy_host_port
+
+        proxy = get_proxy_host_port()
+        proxy_kwargs = {"proxy_host": proxy[0], "proxy_port": str(proxy[1])} if proxy else {}
+
         connection = await asyncio.to_thread(
             snowflake.connector.connect,
             user=self.user,
@@ -172,6 +183,7 @@ class SnowflakeWarehouseTestStep(DestinationTestStep):
             account=self.account,
             private_key=private_key,
             role=f'"{self.role}"' if self.role is not None else None,
+            **proxy_kwargs,
         )
 
         with connection.cursor() as cursor:
@@ -253,6 +265,11 @@ class SnowflakeDatabaseTestStep(DestinationTestStep):
         if result is not None:
             return result
 
+        from posthog.security.outbound_proxy import get_proxy_host_port
+
+        proxy = get_proxy_host_port()
+        proxy_kwargs = {"proxy_host": proxy[0], "proxy_port": str(proxy[1])} if proxy else {}
+
         connection = await asyncio.to_thread(
             snowflake.connector.connect,
             user=self.user,
@@ -261,6 +278,7 @@ class SnowflakeDatabaseTestStep(DestinationTestStep):
             private_key=private_key,
             role=f'"{self.role}"' if self.role is not None else None,
             warehouse=self.warehouse,
+            **proxy_kwargs,
         )
 
         with connection:
@@ -347,6 +365,11 @@ class SnowflakeSchemaTestStep(DestinationTestStep):
         if result is not None:
             return result
 
+        from posthog.security.outbound_proxy import get_proxy_host_port
+
+        proxy = get_proxy_host_port()
+        proxy_kwargs = {"proxy_host": proxy[0], "proxy_port": str(proxy[1])} if proxy else {}
+
         connection = await asyncio.to_thread(
             snowflake.connector.connect,
             user=self.user,
@@ -355,6 +378,7 @@ class SnowflakeSchemaTestStep(DestinationTestStep):
             private_key=private_key,
             role=f'"{self.role}"' if self.role is not None else None,
             warehouse=self.warehouse,
+            **proxy_kwargs,
         )
 
         with connection:

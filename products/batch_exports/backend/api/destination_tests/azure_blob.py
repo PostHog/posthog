@@ -40,8 +40,19 @@ class AzureBlobContainerTestStep(DestinationTestStep):
         assert self.connection_string is not None
         assert self.container_name is not None
 
+        from posthog.security.outbound_proxy import get_proxy_url
+
+        proxy_url = get_proxy_url()
+        proxy_kwargs: dict = {}
+        if proxy_url:
+            from azure.core.pipeline.policies import ProxyPolicy
+
+            proxy_kwargs["proxy_policy"] = ProxyPolicy(proxies={"https": proxy_url, "http": proxy_url})
+
         try:
-            async with BlobServiceClient.from_connection_string(self.connection_string) as blob_service_client:
+            async with BlobServiceClient.from_connection_string(
+                self.connection_string, **proxy_kwargs
+            ) as blob_service_client:
                 container_client = blob_service_client.get_container_client(self.container_name)
                 await container_client.get_container_properties()
 

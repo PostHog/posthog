@@ -991,6 +991,13 @@ async def upload_manifest_file(
     requirement when using Parquet. Since we don't track exactly the size of bytes of
     each Parquet file produced, this function gets it from S3 instead.
     """
+    from aiobotocore.config import AioConfig
+
+    from posthog.security.outbound_proxy import get_proxy_config
+
+    proxy_cfg = get_proxy_config()
+    boto_config = AioConfig(proxies=proxy_cfg) if proxy_cfg else None
+
     session = aioboto3.Session()
     async with session.client(
         "s3",
@@ -998,6 +1005,7 @@ async def upload_manifest_file(
         aws_access_key_id=aws_access_key_id,
         aws_secret_access_key=aws_secret_access_key,
         endpoint_url=endpoint_url,
+        config=boto_config,
     ) as client:
         entries = []
 
@@ -1084,12 +1092,20 @@ async def delete_uploaded_files(
     The delete itself is a "best-effort" as we don't want to fail the batch export if
     this fails.
     """
+    from aiobotocore.config import AioConfig
+
+    from posthog.security.outbound_proxy import get_proxy_config
+
+    proxy_cfg = get_proxy_config()
+    boto_config = AioConfig(proxies=proxy_cfg) if proxy_cfg else None
+
     session = aioboto3.Session()
     async with session.client(
         "s3",
         region_name=region_name,
         aws_access_key_id=aws_access_key_id,
         aws_secret_access_key=aws_secret_access_key,
+        config=boto_config,
     ) as client:
 
         async def delete_key(f: str):

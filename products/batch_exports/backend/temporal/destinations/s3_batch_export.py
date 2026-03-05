@@ -520,6 +520,13 @@ class ConcurrentS3Consumer(Consumer):
             }
             if self.use_virtual_style_addressing:
                 config["s3"] = {"addressing_style": "virtual"}
+
+            from posthog.security.outbound_proxy import get_proxy_config
+
+            proxy_cfg = get_proxy_config()
+            if proxy_cfg:
+                config["proxies"] = proxy_cfg
+
             boto_config = AioConfig(**config)
 
             try:

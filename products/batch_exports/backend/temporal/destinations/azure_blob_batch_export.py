@@ -154,10 +154,20 @@ class AzureBlobConsumer(Consumer):
         # Blobs larger than `max_single_put_size` are uploaded in blocks of `max_block_size`.
         # These are Azure SDK defaults but we set them explicitly for visibility.
         # See: https://learn.microsoft.com/en-us/python/api/azure-storage-blob/azure.storage.blob.blobserviceclient
+        from posthog.security.outbound_proxy import get_proxy_url
+
+        proxy_url = get_proxy_url()
+        proxy_kwargs: dict = {}
+        if proxy_url:
+            from azure.core.pipeline.policies import ProxyPolicy
+
+            proxy_kwargs["proxy_policy"] = ProxyPolicy(proxies={"https": proxy_url, "http": proxy_url})
+
         blob_service_client = BlobServiceClient.from_connection_string(
             conn_str=connection_string,
             max_single_put_size=64 * 1024 * 1024,  # 64 MiB
             max_block_size=4 * 1024 * 1024,  # 4 MiB
+            **proxy_kwargs,
         )
         container_client = blob_service_client.get_container_client(inputs.container_name)
 

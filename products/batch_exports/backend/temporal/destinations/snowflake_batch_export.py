@@ -573,6 +573,11 @@ class SnowflakeClient:
 
         try:
             async with CONNECTION_SEMAPHORE:
+                from posthog.security.outbound_proxy import get_proxy_host_port
+
+                proxy = get_proxy_host_port()
+                proxy_kwargs = {"proxy_host": proxy[0], "proxy_port": str(proxy[1])} if proxy else {}
+
                 connection = await asyncio.to_thread(
                     snowflake.connector.connect,
                     user=self.user,
@@ -585,6 +590,7 @@ class SnowflakeClient:
                     role=f'"{self.role}"' if self.role is not None else None,
                     private_key=self.private_key,
                     login_timeout=5,
+                    **proxy_kwargs,
                 )
             connection.telemetry_enabled = False
 

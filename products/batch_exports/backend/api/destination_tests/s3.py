@@ -49,7 +49,13 @@ class S3EnsureBucketTestStep(DestinationTestStep):
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         import aioboto3
+        from aiobotocore.config import AioConfig
         from botocore.exceptions import ClientError
+
+        from posthog.security.outbound_proxy import get_proxy_config
+
+        proxy_cfg = get_proxy_config()
+        boto_config = AioConfig(proxies=proxy_cfg) if proxy_cfg else None
 
         session = aioboto3.Session()
         async with session.client(
@@ -58,6 +64,7 @@ class S3EnsureBucketTestStep(DestinationTestStep):
             aws_access_key_id=self.aws_access_key_id,
             aws_secret_access_key=self.aws_secret_access_key,
             endpoint_url=self.endpoint_url,
+            config=boto_config,
         ) as client:
             assert self.bucket_name is not None
             try:
