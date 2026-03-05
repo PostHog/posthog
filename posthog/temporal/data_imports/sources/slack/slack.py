@@ -1,8 +1,10 @@
+import time
 import datetime
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any, Optional
 
 import requests
+import structlog
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
@@ -11,6 +13,27 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, messages_endpoint_config
+
+logger = structlog.get_logger(__name__)
+
+_SLACK_MAX_RETRIES = 5
+_SLACK_DEFAULT_RETRY_AFTER = 1
+
+
+def _slack_get(url: str, **kwargs: Any) -> requests.Response:
+    for attempt in range(_SLACK_MAX_RETRIES):
+        response = requests.get(url, **kwargs)
+        if response.status_code != 429:
+            return response
+        retry_after = int(response.headers.get("Retry-After", _SLACK_DEFAULT_RETRY_AFTER))
+        logger.warning(
+            "Slack API rate limited",
+            url=url,
+            attempt=attempt + 1,
+            retry_after=retry_after,
+        )
+        time.sleep(retry_after)
+    return response
 
 
 class SlackCursorPaginator(BasePaginator):
@@ -90,7 +113,8 @@ def _fetch_all_channels(access_token: str) -> list[dict[str, Any]]:
         if cursor:
             params["cursor"] = cursor
 
-        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response = _slack_get(url, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
         data = response.json()
 
         if not data.get("ok"):
@@ -108,6 +132,7 @@ def _fetch_all_channels(access_token: str) -> list[dict[str, Any]]:
 def _fetch_messages_for_channel(
     access_token: str,
     channel_id: str,
+    oldest_ts: str | None = None,
 ) -> Iterator[dict[str, Any]]:
     has_more = True
     cursor: str | None = None
@@ -119,10 +144,13 @@ def _fetch_messages_for_channel(
             "channel": channel_id,
             "limit": 999,
         }
+        if oldest_ts:
+            params["oldest"] = oldest_ts
         if cursor:
             params["cursor"] = cursor
 
-        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response = _slack_get(url, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
         data = response.json()
 
         if not data.get("ok"):
@@ -158,7 +186,8 @@ def _fetch_thread_replies(
         if cursor:
             params["cursor"] = cursor
 
-        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response = _slack_get(url, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
         data = response.json()
 
         if not data.get("ok"):
@@ -193,8 +222,9 @@ def _add_timestamp(msg: dict[str, Any]) -> dict[str, Any]:
 def _channel_messages_generator(
     access_token: str,
     channel_id: str,
+    oldest_ts: str | None = None,
 ) -> Iterator[dict[str, Any]]:
-    for msg in _fetch_messages_for_channel(access_token, channel_id):
+    for msg in _fetch_messages_for_channel(access_token, channel_id, oldest_ts=oldest_ts):
         yield _add_timestamp(msg)
         if msg.get("reply_count", 0) > 0:
             for reply in _fetch_thread_replies(access_token, channel_id, msg["ts"]):
@@ -245,8 +275,13 @@ def slack_source(
         if channel_id is None:
             raise Exception(f"channel_not_found: {endpoint}")
 
+        oldest_ts: str | None = None
+        if should_use_incremental_field and db_incremental_field_last_value is not None:
+            oldest_ts = str(datetime.datetime.fromisoformat(db_incremental_field_last_value).timestamp())
+
         resolved_id = channel_id
-        items = lambda: _channel_messages_generator(access_token, resolved_id)
+        resolved_oldest_ts = oldest_ts
+        items = lambda: _channel_messages_generator(access_token, resolved_id, oldest_ts=resolved_oldest_ts)
 
     return SourceResponse(
         name=endpoint,
@@ -263,7 +298,8 @@ def validate_credentials(access_token: str) -> bool:
     headers = {"Authorization": f"Bearer {access_token}"}
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = _slack_get(url, headers=headers, timeout=10)
+        response.raise_for_status()
         data = response.json()
         return data.get("ok", False)
     except Exception:
