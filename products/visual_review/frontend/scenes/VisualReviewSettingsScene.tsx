@@ -218,10 +218,19 @@ function AddRepoDropdown(): JSX.Element {
             loading={saving}
             options={[
                 {
-                    options: unaddedRepos.map((repo: GitHubRepoApi) => ({
-                        value: repo.full_name,
-                        label: repo.full_name,
-                    })),
+                    options:
+                        unaddedRepos.length > 0
+                            ? unaddedRepos.map((repo: GitHubRepoApi) => ({
+                                  value: repo.full_name,
+                                  label: repo.full_name,
+                              }))
+                            : [
+                                  {
+                                      value: '__empty__' as any,
+                                      label: 'No more repositories',
+                                      disabledReason: 'All repositories have been added',
+                                  },
+                              ],
                     footer: (
                         <LemonButton
                             type="tertiary"
