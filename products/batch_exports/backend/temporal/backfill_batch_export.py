@@ -332,8 +332,8 @@ async def _get_backfill_info_for_persons(
 ) -> tuple[dt.datetime | None, int | None]:
     """Get adjusted start time and estimated record count for persons model.
 
-    Queries both `person` and `person_distinct_id2` tables. Uses the same
-    CTE pattern as the export queries to count deduplicated distinct_ids.
+    Queries both `person` and `person_distinct_id2` tables. The count uses
+    `uniq()` for an approximate count to reduce memory usage on large teams.
 
     Returns:
         A tuple of (adjusted_start_at, estimated_records_count).
@@ -406,32 +406,21 @@ async def _get_backfill_info_for_persons(
             SELECT id
             FROM person
             WHERE team_id = %(team_id)s
-                AND id IN (
-                    SELECT id FROM person
-                    WHERE team_id = %(team_id)s
-                        AND _timestamp > '2000-01-01'
-                        {date_conditions}
-                )
             GROUP BY id
             HAVING argMax(_timestamp, version) > '2000-01-01'
                 {having_date_conditions}
         ),
         distinct_ids AS (
+
             -- new distinct_ids
             SELECT distinct_id
             FROM person_distinct_id2
             WHERE team_id = %(team_id)s
-                AND distinct_id IN (
-                    SELECT distinct_id FROM person_distinct_id2
-                    WHERE team_id = %(team_id)s
-                        AND _timestamp > '2000-01-01'
-                        {date_conditions}
-                )
             GROUP BY distinct_id
             HAVING argMax(_timestamp, version) > '2000-01-01'
                 {having_date_conditions}
 
-            UNION DISTINCT
+            UNION ALL
 
             -- existing distinct_ids for new/updated persons
             SELECT DISTINCT distinct_id
@@ -439,9 +428,10 @@ async def _get_backfill_info_for_persons(
             WHERE team_id = %(team_id)s
                 AND person_id IN new_persons
         )
-        SELECT count() AS record_count
+        SELECT uniq(distinct_id) AS record_count
         FROM distinct_ids
         FORMAT JSONEachRow
+        SETTINGS optimize_uniq_to_count = 0
     """
 
     async with get_client(team_id=team_id) as client:
