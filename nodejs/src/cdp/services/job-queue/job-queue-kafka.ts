@@ -19,12 +19,10 @@ export class CyclotronJobQueueKafka {
     private kafkaConsumer?: KafkaConsumer
     private kafkaProducer?: KafkaProducerWrapper
     private fetchTester?: WarpstreamFetchTester
+    private queue?: CyclotronJobQueueKind
+    private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
 
-    constructor(
-        private config: PluginsServerConfig,
-        private queue: CyclotronJobQueueKind,
-        private consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
-    ) {}
+    constructor(private config: PluginsServerConfig) {}
 
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
@@ -34,7 +32,13 @@ export class CyclotronJobQueueKafka {
         this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
     }
 
-    public async startAsConsumer() {
+    public async startAsConsumer(
+        queue: CyclotronJobQueueKind,
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+    ) {
+        this.queue = queue
+        this.consumeBatch = consumeBatch
+
         const groupId = `cdp-cyclotron-${this.queue}-consumer`
         const topic = `cdp_cyclotron_${this.queue}`
 
@@ -104,11 +108,6 @@ export class CyclotronJobQueueKafka {
                     teamId: x.teamId.toString(),
                 }
 
-                if (x.queueScheduledAt && x.state?.returnTopic) {
-                    headers.queueScheduledAt = x.queueScheduledAt.toString()
-                    headers.returnTopic = `cdp_cyclotron_${x.state.returnTopic}`
-                }
-
                 await producer
                     .produce({
                         value: Buffer.from(value),
@@ -152,7 +151,7 @@ export class CyclotronJobQueueKafka {
 
     private async consumeKafkaBatch(messages: Message[]): Promise<{ backgroundTask: Promise<any> }> {
         if (messages.length === 0) {
-            return await this.consumeBatch([])
+            return await this.consumeBatch!([])
         }
 
         const invocations: CyclotronJobInvocation[] = []
@@ -181,7 +180,7 @@ export class CyclotronJobQueueKafka {
             }
         }
 
-        return await this.consumeBatch(invocations)
+        return await this.consumeBatch!(invocations)
     }
 }
 

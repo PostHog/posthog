@@ -25,7 +25,6 @@ export const STEP_ORDER: Record<ExperimentWizardStep, number> = {
 
 export interface ExperimentWizardLogicProps {
     tabId: string
-    experiment?: Experiment
 }
 
 export const experimentWizardLogic = kea<experimentWizardLogicType>([
@@ -33,11 +32,11 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
 
     props({} as ExperimentWizardLogicProps),
 
-    key((props) => `${props.tabId}-${props.experiment?.id ?? 'create-experiment'}`),
+    key((props) => `${props.tabId}-create-experiment`),
 
     connect((props: ExperimentWizardLogicProps) => ({
         values: [
-            createExperimentLogic({ experiment: props.experiment, tabId: props.tabId }),
+            createExperimentLogic({ tabId: props.tabId }),
             [
                 'experiment',
                 'sharedMetrics',
@@ -47,7 +46,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             ],
         ],
         actions: [
-            createExperimentLogic({ experiment: props.experiment, tabId: props.tabId }),
+            createExperimentLogic({ tabId: props.tabId }),
             [
                 'setExperiment',
                 'setExperimentValue',
