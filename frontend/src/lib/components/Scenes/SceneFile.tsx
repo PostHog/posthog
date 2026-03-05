@@ -29,7 +29,7 @@ export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element
     const { openMoveToModal } = useActions(moveToLogic)
 
     return projectTreeRefEntry ? (
-        <ScenePanelLabel title="File">
+        <ScenePanelLabel title="Project">
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <ButtonPrimitive variant="panel" menuItem data-attr={`${dataAttrKey}-file-dropdown-menu-trigger`}>

@@ -39,7 +39,7 @@ async def fetch_all_clustering_filters_activity(
 class JobConfig:
     """One clustering job's configuration, serializable over Temporal."""
 
-    job_id: int
+    job_id: str
     name: str
     analysis_level: AnalysisLevel
     event_filters: list[dict[str, Any]]
@@ -68,7 +68,7 @@ async def fetch_all_clustering_jobs_activity(
         for job in jobs:
             result.setdefault(job.team_id, []).append(
                 JobConfig(
-                    job_id=job.id,
+                    job_id=str(job.id),
                     name=job.name,
                     analysis_level=cast(AnalysisLevel, job.analysis_level),
                     event_filters=job.event_filters,
@@ -87,7 +87,7 @@ def resolve_level_jobs_for_team(
     """Pick jobs matching the analysis level, with legacy fallback.
 
     If the team has ClusteringJob rows but none for this level, returns [].
-    If the team has no rows at all, returns a single legacy JobConfig(job_id=0).
+    If the team has no rows at all, returns a single legacy JobConfig(job_id="").
     """
     level_jobs = [job for job in team_jobs if job.analysis_level == analysis_level]
     if level_jobs:
@@ -96,4 +96,4 @@ def resolve_level_jobs_for_team(
     if team_jobs:
         return []
 
-    return [JobConfig(job_id=0, name="", analysis_level=analysis_level, event_filters=legacy_event_filters)]
+    return [JobConfig(job_id="", name="", analysis_level=analysis_level, event_filters=legacy_event_filters)]

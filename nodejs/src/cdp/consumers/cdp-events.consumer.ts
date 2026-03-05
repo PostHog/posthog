@@ -42,7 +42,7 @@ export class CdpEventsConsumer<
         groupId: string = 'cdp-processed-events-consumer'
     ) {
         super(config, deps)
-        this.cyclotronJobQueue = new CyclotronJobQueue(config, 'hog') // NOTE: The queue here doesn't matter as we aren't consuming from it...
+        this.cyclotronJobQueue = new CyclotronJobQueue(config)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
         this.hogRateLimiter = new HogRateLimiterService(
             {

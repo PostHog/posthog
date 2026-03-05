@@ -17,12 +17,13 @@ import { quickFiltersSectionLogic } from './quickFiltersSectionLogic'
 
 export interface QuickFiltersSectionProps {
     context: QuickFilterContext
+    logicKey?: string
 }
 
-export function QuickFiltersSection({ context }: QuickFiltersSectionProps): JSX.Element {
+export function QuickFiltersSection({ context, logicKey }: QuickFiltersSectionProps): JSX.Element {
     const { quickFilters } = useValues(quickFiltersLogic({ context }))
-    const { selectedQuickFilters } = useValues(quickFiltersSectionLogic({ context }))
-    const { setQuickFilterValue, clearQuickFilter } = useActions(quickFiltersSectionLogic({ context }))
+    const { selectedQuickFilters } = useValues(quickFiltersSectionLogic({ context, logicKey }))
+    const { setQuickFilterValue, clearQuickFilter } = useActions(quickFiltersSectionLogic({ context, logicKey }))
     const { openModal } = useActions(quickFiltersModalLogic({ context }))
 
     return (

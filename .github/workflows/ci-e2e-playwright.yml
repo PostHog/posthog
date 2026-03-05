@@ -198,8 +198,8 @@ jobs:
                     while [ $attempt -le $max_attempts ]; do
                         echo "Attempt $attempt of $max_attempts to start stack..."
 
-                        if docker compose -f docker-compose.dev.yml --profile capture down && \
-                          docker compose -f docker-compose.dev.yml --profile capture up -d; then
+                        if docker compose -f docker-compose.dev.yml down && \
+                          docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d; then
                             echo "Stack started successfully"
                             exit 0
                         fi
@@ -320,7 +320,7 @@ jobs:
                   bin/turbo --filter=@posthog/frontend prepare
 
             - name: Start Docker services
-              run: docker compose -f docker-compose.dev.yml --profile capture up -d
+              run: docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
 
             - name: Wait for Docker services
               run: bin/wait-for-docker

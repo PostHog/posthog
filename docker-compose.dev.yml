@@ -304,6 +304,22 @@ services:
         volumes:
             - 'seaweedfs-data:/data'
 
+    duckgres:
+        image: ghcr.io/posthog/duckgres:latest
+        restart: on-failure
+        profiles: ['duckgres']
+        ports:
+            - '15432:15432'
+        volumes:
+            - ./devenv/duckgres.yaml:/app/config.yaml:ro
+            - duckgres-data:/app/data
+        depends_on:
+            db:
+                condition: service_healthy
+            objectstorage:
+                condition: service_started
+        command: ['--config', '/app/config.yaml']
+
     etcd:
         image: quay.io/coreos/etcd:v3.6.8
         restart: on-failure
@@ -327,3 +343,4 @@ volumes:
     postgres-15-data:
     redpanda-data:
     seaweedfs-data:
+    duckgres-data:

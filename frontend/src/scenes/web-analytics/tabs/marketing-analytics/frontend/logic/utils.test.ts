@@ -13,6 +13,7 @@ import {
 import { NativeSource } from './marketingAnalyticsLogic'
 import {
     createMarketingTile,
+    findSchemaByFieldName,
     getEnabledNativeMarketingSources,
     getOrderBy,
     getSortedColumnsByArray,
@@ -416,6 +417,37 @@ describe('marketing analytics utils', () => {
             const source = makeMockSource(sourceType, minimalSourceFields[sourceType])
             const result = createMarketingTile(source, column, 'USD')
             expect(result).toMatchSnapshot()
+        })
+    })
+
+    describe('findSchemaByFieldName', () => {
+        const schemas = [
+            { name: 'campaign', status: 'Completed' },
+            { name: 'campaign_stats', status: 'Completed' },
+        ]
+
+        it.each([
+            ['exact match returns schema', schemas, 'campaign', 'GoogleAds', 'campaign'],
+            [
+                'Google Ads falls back from campaign_overview_stats to campaign_stats',
+                schemas,
+                'campaign_overview_stats',
+                'GoogleAds',
+                'campaign_stats',
+            ],
+            ['non-Google Ads source has no fallback', schemas, 'campaign_overview_stats', 'LinkedinAds', undefined],
+            ['returns undefined when no match and no fallback', schemas, 'nonexistent', 'GoogleAds', undefined],
+            ['returns undefined for undefined schemas', undefined, 'campaign', 'GoogleAds', undefined],
+            [
+                'prefers exact match over fallback',
+                [...schemas, { name: 'campaign_overview_stats', status: 'Running' }],
+                'campaign_overview_stats',
+                'GoogleAds',
+                'campaign_overview_stats',
+            ],
+        ])('%s', (_name, testSchemas, fieldName, sourceType, expectedName) => {
+            const result = findSchemaByFieldName(testSchemas, fieldName, sourceType)
+            expect(result?.name).toBe(expectedName)
         })
     })
 
