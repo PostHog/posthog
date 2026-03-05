@@ -170,7 +170,7 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if isinstance(self.source_runner, FunnelsQueryRunner):
             assert isinstance(self.query.source, FunnelsQuery)
             funnels_filter = self.query.source.funnelsFilter or FunnelsFilter()
-            return funnels_filter.funnelAggregateByHogQL == FunnelAggregateByHogQL.PROPERTIES__SESSION_ID
+            return funnels_filter.funnelAggregateByHogQL == FunnelAggregateByHogQL.PROPERTIES__SESSION_ID.value
         return False
 
     def _calculate(self) -> HogQLQueryResponse:
