@@ -44,7 +44,7 @@ export function InsightMoveToDashboardMenu({
                 />
             </div>
         )
-    }, [handleSearchChange])
+    }, [handleSearchChange, searchTerm])
 
     const searchItem: LemonMenuItem = {
         custom: true,
