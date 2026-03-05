@@ -42,7 +42,13 @@ export function NodeDetailQuery({ id }: NodeDetailSceneLogicProps): JSX.Element 
                     height="100%"
                 />
                 <div className="absolute top-2 right-2 z-10">
-                    <LemonButton size="small" type="secondary" icon={<IconPencil />} onClick={openQueryModal} tooltip="Edit in SQL editor" />
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconPencil />}
+                        onClick={openQueryModal}
+                        tooltip="Edit in SQL editor"
+                    />
                 </div>
             </div>
         </div>
