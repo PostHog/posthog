@@ -100,23 +100,12 @@ describe('klime template', () => {
         expect(parseBatchEvent(response).type).toBe('track')
     })
 
-    it('excludes $ properties but includes non-$ event properties for track', async () => {
-        const response = await tester.invoke(defaultInputs, {
-            event: {
-                uuid: 'uuid-1',
-                event: 'Purchase',
-                properties: { $lib: 'web', amount: 99.99, currency: 'USD' },
-                timestamp: '2024-01-01T00:00:00Z',
-            },
-        })
-
-        expect(response.error).toBeUndefined()
-        expect(parseBatchEvent(response).properties).toEqual({ amount: 99.99, currency: 'USD' })
-    })
-
-    it('excludes event properties when include_all_properties is false for track', async () => {
+    it.each([
+        [true, { amount: 99.99, currency: 'USD' }],
+        [false, undefined],
+    ])('track properties when include_all_properties is %s', async (includeAll, expected) => {
         const response = await tester.invoke(
-            { ...defaultInputs, include_all_properties: false },
+            { ...defaultInputs, include_all_properties: includeAll },
             {
                 event: {
                     uuid: 'uuid-1',
@@ -128,7 +117,7 @@ describe('klime template', () => {
         )
 
         expect(response.error).toBeUndefined()
-        expect(parseBatchEvent(response).properties).toBeUndefined()
+        expect(parseBatchEvent(response).properties).toEqual(expected)
     })
 
     it('includes non-$ person properties for identify', async () => {
