@@ -11,7 +11,7 @@ import {
 } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
 
-import { isOptOutEligibleAction } from './hogflows/steps/types'
+import { isEmailAction } from './hogflows/steps/types'
 import { EXIT_NODE_ID, workflowLogic } from './workflowLogic'
 import type { workflowMetricsSummaryLogicType } from './workflowMetricsSummaryLogicType'
 
@@ -76,13 +76,14 @@ export const WORKFLOW_EMAIL_METRICS: Record<
 > = {
     email_sent: {
         name: 'Sent',
-        description: 'Total number of emails sent',
+        description: 'Total number of emails sent to recipients',
         color: getColorVar('primary'),
         metricNames: ['email_sent'],
     },
     email_failed: {
         name: 'Failed',
-        description: 'Total number of emails that failed to send',
+        description:
+            'Total number of emails that were not attempted to be sent. This typically indicates the PostHog email service determined the email contained a virus.',
         color: getColorVar('danger'),
         metricNames: ['email_failed'],
     },
@@ -237,7 +238,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 appMetricsTrendsLoading || exitNodeCompletedLoading,
         ],
 
-        emailActions: [(s) => [s.workflow], (workflow) => workflow.actions.filter(isOptOutEligibleAction)],
+        emailActions: [(s) => [s.workflow], (workflow) => workflow.actions.filter(isEmailAction)],
 
         metricNameBySummaryMetric: [
             (s) => [s.appMetricsTrends],
@@ -312,11 +313,12 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 emailActions.map((action: { id: string; name: string }) => {
                     const totals = emailTotalsByActionId[action.id] || {}
                     const sent = totals.email_sent ?? 0
-                    const failed = totals.email_failed ?? 0
+                    const bounced = totals.email_bounced ?? 0
+                    const blocked = totals.email_blocked ?? 0
                     return {
                         id: action.id,
                         email: action.name,
-                        delivered: Math.max(0, sent - failed),
+                        delivered: Math.max(0, sent - bounced - blocked),
                         sent,
                         opened: totals.email_opened ?? 0,
                         linkClicked: totals.email_link_clicked ?? 0,
