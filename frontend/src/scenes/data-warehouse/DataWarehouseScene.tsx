@@ -84,15 +84,22 @@ export function DataWarehouseScene(): JSX.Element {
                         key: DataWarehouseTab.SOURCES,
                         label: 'Sources',
                         content: <SourcesTab />,
-                        link: combineUrl(urls.dataWarehouse(), { ...searchParams, tab: DataWarehouseTab.SOURCES }).url,
+                        link: combineUrl(urls.dataWarehouse(), {
+                            ...searchParams,
+                            tab: DataWarehouseTab.SOURCES,
+                        }).url,
                     },
                     {
                         key: DataWarehouseTab.VIEWS,
                         label: 'Views',
                         content: <ViewsTab />,
-                        link: combineUrl(urls.dataWarehouse(), { ...searchParams, tab: DataWarehouseTab.VIEWS }).url,
+                        link: combineUrl(urls.dataWarehouse(), {
+                            ...searchParams,
+                            tab: DataWarehouseTab.VIEWS,
+                        }).url,
                     },
-                    ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]
+                    //   ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]
+                    ...(true
                         ? [
                               {
                                   key: DataWarehouseTab.MODELING,

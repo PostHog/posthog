@@ -127,6 +127,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
         setEndpointName: (name: string | null) => ({ name }),
         setViewingVersion: (version: EndpointVersionType | null) => ({ version }),
+        setFromNode: (fromNodeId: string | null, fromNodeName: string | null) => ({ fromNodeId, fromNodeName }),
     }),
     reducers({
         localQuery: [
@@ -185,6 +186,18 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             {
                 setViewingVersion: (_, { version }) => version,
                 // Note: Don't reset on loadEndpointSuccess - the listener handles restoring from URL
+            },
+        ],
+        fromNodeId: [
+            null as string | null,
+            {
+                setFromNode: (_, { fromNodeId }) => fromNodeId,
+            },
+        ],
+        fromNodeName: [
+            null as string | null,
+            {
+                setFromNode: (_, { fromNodeName }) => fromNodeName,
             },
         ],
     }),
@@ -247,19 +260,34 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.endpoint],
-            (endpoint: EndpointType | null): Breadcrumb[] => [
-                {
-                    key: Scene.Endpoints,
-                    name: 'endpoints',
-                    path: urls.endpoints(),
-                    iconType: 'endpoints',
-                },
-                {
+            (s) => [s.endpoint, s.fromNodeId, s.fromNodeName],
+            (endpoint: EndpointType | null, fromNodeId: string | null, fromNodeName: string | null): Breadcrumb[] => {
+                const crumbs: Breadcrumb[] = []
+                if (fromNodeId) {
+                    crumbs.push({
+                        key: Scene.Models,
+                        name: 'Models',
+                        path: urls.models(),
+                    })
+                    crumbs.push({
+                        key: [Scene.NodeDetail, fromNodeId],
+                        name: fromNodeName || 'Node',
+                        path: urls.nodeDetail(fromNodeId),
+                    })
+                } else {
+                    crumbs.push({
+                        key: Scene.Endpoints,
+                        name: 'endpoints',
+                        path: urls.endpoints(),
+                        iconType: 'endpoints',
+                    })
+                }
+                crumbs.push({
                     key: [Scene.Endpoints, endpoint?.name || 'new'],
                     name: endpoint?.name || 'New Endpoint',
-                },
-            ],
+                })
+                return crumbs
+            },
         ],
     }),
     listeners(({ actions, values }) => ({
@@ -375,6 +403,8 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                     actions.setEndpointName(name)
                     actions.loadEndpoint(name)
                 }
+
+                actions.setFromNode(searchParams.from_node ?? null, searchParams.from_node_name ?? null)
             }
 
             if (searchParams.tab && searchParams.tab !== values.activeTab) {

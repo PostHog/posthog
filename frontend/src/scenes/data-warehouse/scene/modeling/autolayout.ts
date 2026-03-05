@@ -19,7 +19,13 @@ const getElkPortSide = (position: Position): string => {
 
 const elk = new ELK()
 
-export const getFormattedNodes = async (nodes: Node[], edges: Edge[], direction?: ElkDirection): Promise<Node[]> => {
+export const getFormattedNodes = async (
+    nodes: Node[],
+    edges: Edge[],
+    direction?: ElkDirection,
+    nodeWidth?: number,
+    nodeHeight?: number
+): Promise<Node[]> => {
     if (nodes.length === 0) {
         return []
     }
@@ -58,8 +64,8 @@ export const getFormattedNodes = async (nodes: Node[], edges: Edge[], direction?
 
             return {
                 ...node,
-                width: NODE_WIDTH,
-                height: NODE_HEIGHT,
+                width: nodeWidth ?? NODE_WIDTH,
+                height: nodeHeight ?? NODE_HEIGHT,
                 targetPosition: direction === 'DOWN' ? 'top' : 'left',
                 sourcePosition: direction === 'RIGHT' ? 'bottom' : 'right',
                 ports: [...handles],

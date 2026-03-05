@@ -165,6 +165,11 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             (nodes: DataModelingNode[]): Record<string, string> =>
                 Object.fromEntries(nodes.filter((n) => n.saved_query_id).map((n) => [n.saved_query_id, n.id])),
         ],
+        savedQueryIdToNodeType: [
+            (s) => [s.dataModelingNodes],
+            (nodes: DataModelingNode[]): Record<string, string> =>
+                Object.fromEntries(nodes.filter((n) => n.saved_query_id).map((n) => [n.saved_query_id!, n.type])),
+        ],
         enrichedMaterializedViews: [
             (s) => [s.dataWarehouseSavedQueries, s.materializedViewDependenciesMap, s.runHistoryMap],
             (

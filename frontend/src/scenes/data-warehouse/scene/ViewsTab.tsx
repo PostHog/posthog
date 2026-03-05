@@ -84,6 +84,7 @@ export function ViewsTab(): JSX.Element {
         materializedViewsCurrentPage,
         viewsCurrentPage,
         savedQueryIdToNodeId,
+        savedQueryIdToNodeType,
     } = useValues(viewsTabLogic)
     const { setSearchTerm, deleteView, runMaterialization, setMaterializedViewsPage, setViewsPage } =
         useActions(viewsTabLogic)
@@ -142,11 +143,12 @@ export function ViewsTab(): JSX.Element {
                                                 managed viewset
                                             </span>
                                         </>
-                                    ) : view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT ? (
+                                    ) : view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT ||
+                                      savedQueryIdToNodeType[view.id] === 'endpoint' ? (
                                         <LemonTableLink
-                                            to={urls.endpoint(view.name)}
+                                            to={urls.endpoint(view.name.replace(/_v\d+$/, ''))}
                                             title={view.name}
-                                            description={`Created by the ${view.name} endpoint.`}
+                                            description={`Created by the ${view.name.replace(/_v\d+$/, '')} endpoint.`}
                                         />
                                     ) : (
                                         <LemonTableLink

@@ -1,12 +1,21 @@
 import { MarkerType, Position } from '@xyflow/react'
-import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, DataModelingEdge, DataModelingJob, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
+import {
+    Breadcrumb,
+    DataModelingEdge,
+    DataModelingJob,
+    DataModelingJobStatus,
+    DataModelingNode,
+    DataWarehouseSavedQuery,
+} from '~/types'
 
 import { getFormattedNodes } from '../data-warehouse/scene/modeling/autolayout'
 import { Edge, Node, NodeHandle } from '../data-warehouse/scene/modeling/types'
@@ -83,6 +92,9 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
     props({} as NodeDetailSceneLogicProps),
     path(['scenes', 'models', 'nodeDetailSceneLogic']),
     key((props: NodeDetailSceneLogicProps) => props.id),
+    connect({
+        actions: [dataWarehouseViewsLogic, ['updateDataWarehouseSavedQuerySuccess']],
+    }),
     loaders(({ props }) => ({
         node: [
             null as DataModelingNode | null,
@@ -140,6 +152,9 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         loadNextJobs: true,
         loadPreviousJobs: true,
         updateNodeDescription: (description: string) => ({ description }),
+        loadRecentJobs: true,
+        loadRecentJobsSuccess: (recentJobs: DataModelingJob[]) => ({ recentJobs }),
+        setFromNode: (fromNodeId: string | null, fromNodeName: string | null) => ({ fromNodeId, fromNodeName }),
     }),
     reducers({
         queryModalOpen: [
@@ -158,22 +173,61 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 loadNode: () => false,
             },
         ],
+        fromNodeId: [
+            null as string | null,
+            {
+                setFromNode: (_, { fromNodeId }) => fromNodeId,
+            },
+        ],
+        fromNodeName: [
+            null as string | null,
+            {
+                setFromNode: (_, { fromNodeName }) => fromNodeName,
+            },
+        ],
+        latestJobMetadataBySavedQueryId: [
+            {} as Record<string, { status: DataModelingJobStatus; lastRunAt: string | null }>,
+            {
+                loadRecentJobsSuccess: (_, { recentJobs }) => {
+                    const map: Record<string, { status: DataModelingJobStatus; lastRunAt: string | null }> = {}
+                    for (const job of recentJobs) {
+                        if (job.saved_query_id) {
+                            map[job.saved_query_id] = {
+                                status: job.status,
+                                lastRunAt: job.last_run_at,
+                            }
+                        }
+                    }
+                    return map
+                },
+            },
+        ],
     }),
     selectors({
         nodeType: [(s) => [s.node], (node: DataModelingNode | null) => node?.type ?? null],
         breadcrumbs: [
-            (s) => [s.node],
-            (node: DataModelingNode | null): Breadcrumb[] => [
-                {
-                    key: Scene.Models,
-                    name: 'Models',
-                    path: urls.models(),
-                },
-                {
+            (s) => [s.node, s.fromNodeId, s.fromNodeName],
+            (node: DataModelingNode | null, fromNodeId: string | null, fromNodeName: string | null): Breadcrumb[] => {
+                const crumbs: Breadcrumb[] = [
+                    {
+                        key: Scene.Models,
+                        name: 'Models',
+                        path: urls.models(),
+                    },
+                ]
+                if (fromNodeId) {
+                    crumbs.push({
+                        key: [Scene.NodeDetail, fromNodeId],
+                        name: fromNodeName || 'Node',
+                        path: urls.nodeDetail(fromNodeId),
+                    })
+                }
+                crumbs.push({
                     key: [Scene.NodeDetail, node?.id || 'loading'],
                     name: node?.name || 'Loading...',
-                },
-            ],
+                })
+                return crumbs
+            },
         ],
         latestRowCount: [
             (s) => [s.materializationJobs],
@@ -187,6 +241,22 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             (jobs: PaginatedResponse<DataModelingJob> | null): string | null => {
                 const latest = jobs?.results?.[0]
                 return latest?.status ?? null
+            },
+        ],
+        latestJobMetadataByNodeId: [
+            (s) => [s.lineageGraph, s.latestJobMetadataBySavedQueryId],
+            (
+                lineageGraph,
+                latestJobMetadataBySavedQueryId
+            ): Record<string, { status: DataModelingJobStatus; lastRunAt: string | null }> => {
+                const map: Record<string, { status: DataModelingJobStatus; lastRunAt: string | null }> = {}
+                const nodes = lineageGraph?.compact?.nodes ?? []
+                for (const node of nodes) {
+                    if (node.data.savedQueryId && latestJobMetadataBySavedQueryId[node.data.savedQueryId]) {
+                        map[node.id] = latestJobMetadataBySavedQueryId[node.data.savedQueryId]
+                    }
+                }
+                return map
             },
         ],
     }),
@@ -205,6 +275,22 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 actions.loadMaterializationJobs(savedQuery.id)
             }
         },
+        loadLineageGraphSuccess: () => {
+            actions.loadRecentJobs()
+        },
+        loadRecentJobs: async () => {
+            try {
+                const recent = await api.dataModelingJobs.listRecent()
+                actions.loadRecentJobsSuccess(recent)
+            } catch {
+                // silent failure
+            }
+        },
+        updateDataWarehouseSavedQuerySuccess: ({ payload: updatePayload }) => {
+            if (updatePayload?.id && updatePayload.id === values.savedQuery?.id) {
+                actions.loadSavedQuery(updatePayload.id)
+            }
+        },
         loadNextJobs: () => {
             const nextUrl = values.materializationJobs?.next
             if (nextUrl) {
@@ -219,6 +305,8 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         },
     })),
     afterMount(({ actions }) => {
+        const { searchParams } = router.values
+        actions.setFromNode(searchParams.from_node ?? null, searchParams.from_node_name ?? null)
         actions.loadNode()
     }),
     beforeUnmount(({ actions }) => {

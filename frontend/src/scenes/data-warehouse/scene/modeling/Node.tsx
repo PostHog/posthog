@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import React, { useCallback, useState } from 'react'
 
 import { IconActivity, IconClockRewind, IconPlay, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -121,20 +121,30 @@ function NodeTags({ label, color, userTag }: { label: string; color: string; use
 
 function NodeLabelAndAction({
     label,
+    type,
     showAction,
     action,
     isActionRunning,
 }: {
     label: string
+    type: DataModelingNodeType
     showAction: boolean
     isActionRunning: boolean
     action: (e: React.MouseEvent) => void
 }): JSX.Element {
+    const { displayName, version } =
+        type === 'endpoint' ? parseEndpointVersion(label) : { displayName: label, version: null }
+
     return (
-        <div className="flex items-center justify-between py-2">
+        <div className="flex items-center justify-between py-2 gap-1">
             <Tooltip title={label}>
-                <span className="font-medium text-sm truncate">{label}</span>
+                <span className="font-medium text-sm truncate">{displayName}</span>
             </Tooltip>
+            {version && (
+                <LemonTag size="small" className="shrink-0">
+                    {version}
+                </LemonTag>
+            )}
             {showAction && (
                 <Tooltip title={isActionRunning ? null : 'Run this node'}>
                     <LemonButton
@@ -171,6 +181,29 @@ function syncIntervalToShorthand(syncInterval: DataWarehouseSyncInterval | undef
         default:
             return 'Never'
     }
+}
+
+export function NodeStatusDot({
+    lastJobStatus,
+    className,
+}: {
+    lastJobStatus?: DataModelingJobStatus | null
+    className?: string
+}): JSX.Element {
+    return (
+        <Tooltip title={lastJobStatus ?? 'This node has not been run yet'}>
+            <div
+                className={clsx(
+                    'rounded-full',
+                    className ?? 'w-4 h-4',
+                    lastJobStatus === 'Completed' && 'bg-success border-primary border-1',
+                    lastJobStatus === 'Failed' && 'bg-danger border-primary border-1',
+                    lastJobStatus === 'Cancelled' && 'bg-warning border-primary border-1',
+                    !lastJobStatus && 'bg-surface-primary border-primary border-1'
+                )}
+            />
+        </Tooltip>
+    )
 }
 
 function NodeMetadata({
@@ -212,23 +245,63 @@ function NodeMetadata({
                             <Tooltip title="This node has not been run yet">Never</Tooltip>
                         )}
                     </div>
-                    <Tooltip title={lastJobStatus ?? 'This node has not been run yet'}>
-                        <div
-                            className={clsx(
-                                'rounded-full w-4 h-4',
-                                lastJobStatus === 'Completed' && 'bg-success border-primary border-1',
-                                lastJobStatus === 'Failed' && 'bg-danger border-primary border-1',
-                                lastJobStatus === 'Cancelled' && 'bg-warning border-primary border-1',
-                                !lastJobStatus && 'bg-surface-primary border-primary border-1'
-                            )}
-                        />
-                    </Tooltip>
+                    <NodeStatusDot lastJobStatus={lastJobStatus} />
                 </div>
             )
         default:
             return null
     }
 }
+
+interface NodeCompactProps {
+    name: string
+    type: DataModelingNodeType
+    handles?: NodeHandle[]
+    lastJobStatus?: DataModelingJobStatus | null
+    isSearchMatch?: boolean
+    onNodeClick: () => void
+}
+
+export const NodeCompact = React.memo(function NodeCompact({
+    name,
+    type,
+    handles,
+    lastJobStatus,
+    isSearchMatch,
+    onNodeClick,
+}: NodeCompactProps): JSX.Element {
+    const nodeTypeSettings = NODE_TYPE_SETTINGS[type]
+    const showStatusDot = type === 'matview' || type === 'endpoint'
+    const { displayName, version } =
+        type === 'endpoint' ? parseEndpointVersion(name) : { displayName: name, version: null }
+
+    return (
+        <div
+            className={clsx(
+                'flex items-center gap-1.5 rounded-lg border px-3 py-2 cursor-pointer',
+                isSearchMatch && 'ring-2 ring-link/30'
+            )}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                borderColor: nodeTypeSettings.color,
+                backgroundColor: `color-mix(in srgb, ${nodeTypeSettings.color} 25%, white)`,
+                opacity: isSearchMatch === undefined || isSearchMatch ? 1 : 0.5,
+            }}
+            onClick={onNodeClick}
+        >
+            {handles && <NodeHandles handles={handles} />}
+            <Tooltip title={name}>
+                <span className="font-medium text-sm truncate flex-1">{displayName}</span>
+            </Tooltip>
+            {version && (
+                <LemonTag size="small" className="shrink-0">
+                    {version}
+                </LemonTag>
+            )}
+            {showStatusDot && <NodeStatusDot lastJobStatus={lastJobStatus} className="w-3 h-3 shrink-0" />}
+        </div>
+    )
+})
 
 export const NodeInner = React.memo(function NodeInner({
     name,
@@ -278,7 +351,6 @@ export const NodeInner = React.memo(function NodeInner({
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                // dims non matched nodes, search match is undefined when the debounced query value is unset
                 opacity: isSearchMatch === undefined || isSearchMatch ? 1 : 0.5,
             }}
             onMouseEnter={handleMouseEnter}
@@ -299,6 +371,7 @@ export const NodeInner = React.memo(function NodeInner({
                 <NodeTags color={nodeTypeSettings.color} label={nodeTypeSettings.label} userTag={userTag} />
                 <NodeLabelAndAction
                     label={name}
+                    type={type}
                     showAction={canRun && (type === 'matview' || type === 'endpoint')}
                     isActionRunning={isRunning ?? false}
                     action={onMaterialize}

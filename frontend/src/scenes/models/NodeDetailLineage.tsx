@@ -10,41 +10,54 @@ import {
     ReactFlowProvider,
 } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useMemo, useState } from 'react'
 
 import { IconExpand } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
-import { sceneLogic } from 'scenes/sceneLogic'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import type { DataModelingJobStatus } from '~/types'
 
 import { NodeCompact, NodeInner } from '../data-warehouse/scene/modeling/Node'
 import { Edge, Node, NodeData } from '../data-warehouse/scene/modeling/types'
-import type { DataModelingJobStatus } from '~/types'
 import { nodeDetailSceneLogic, NodeDetailSceneLogicProps } from './nodeDetailSceneLogic'
 
-function useNodeClick(nodeId: string, data: NodeData): () => void {
-    const { newTab } = useActions(sceneLogic)
-
+function useNodeClick(
+    nodeId: string,
+    data: NodeData,
+    currentNode?: { id: string; name: string } | undefined
+): () => void {
     return useCallback((): void => {
         if (data.type === 'endpoint') {
             const versionMatch = data.name.match(/^(.+)_v(\d+)$/)
-            if (versionMatch) {
-                newTab(urls.endpoint(versionMatch[1], parseInt(versionMatch[2])))
-            } else {
-                newTab(urls.endpoint(data.name))
-            }
+            const endpointUrl = versionMatch
+                ? urls.endpoint(versionMatch[1], parseInt(versionMatch[2]))
+                : urls.endpoint(data.name)
+            const searchParams = currentNode
+                ? { from_node: currentNode.id, from_node_name: currentNode.name }
+                : undefined
+            router.actions.push(endpointUrl, searchParams)
         } else {
-            newTab(urls.nodeDetail(nodeId))
+            const nodeSearchParams = currentNode
+                ? { from_node: currentNode.id, from_node_name: currentNode.name }
+                : undefined
+            router.actions.push(urls.nodeDetail(nodeId), nodeSearchParams)
         }
-    }, [nodeId, data.type, data.name, newTab])
+    }, [nodeId, data.type, data.name, currentNode?.id, currentNode?.name])
+}
+
+function currentNodeFromData(data: NodeData): { id: string; name: string } | undefined {
+    return data.currentNodeId
+        ? { id: data.currentNodeId as string, name: (data.currentNodeName as string) ?? '' }
+        : undefined
 }
 
 function CompactLineageNode(props: { id: string; data: NodeData }): JSX.Element {
-    const handleNodeClick = useNodeClick(props.id, props.data)
+    const handleNodeClick = useNodeClick(props.id, props.data, currentNodeFromData(props.data))
 
     return (
         <NodeCompact
@@ -59,7 +72,7 @@ function CompactLineageNode(props: { id: string; data: NodeData }): JSX.Element 
 }
 
 function FullLineageNode(props: { id: string; data: NodeData }): JSX.Element {
-    const handleNodeClick = useNodeClick(props.id, props.data)
+    const handleNodeClick = useNodeClick(props.id, props.data, currentNodeFromData(props.data))
     const noop = useCallback((e: React.MouseEvent) => e.stopPropagation(), [])
     const noopVoid = useCallback(() => {}, [])
 
@@ -93,7 +106,9 @@ function LineageGraphContent({
     fullscreen = false,
 }: NodeDetailSceneLogicProps & { className?: string; fullscreen?: boolean }): JSX.Element {
     const logicProps = { id }
-    const { lineageGraph, lineageGraphLoading, node, latestJobStatus } = useValues(nodeDetailSceneLogic(logicProps))
+    const { lineageGraph, lineageGraphLoading, node, latestJobStatus, latestJobMetadataByNodeId } = useValues(
+        nodeDetailSceneLogic(logicProps)
+    )
     const { isDarkModeOn } = useValues(themeLogic)
     const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
 
@@ -141,12 +156,26 @@ function LineageGraphContent({
         )
     }
 
-    // Highlight the current node and inject its job status from materialization data
-    const highlightedNodes = graph.nodes.map((n) =>
-        n.id === node?.id
-            ? { ...n, data: { ...n.data, isSearchMatch: true, lastJobStatus: (latestJobStatus as DataModelingJobStatus) ?? n.data.lastJobStatus } }
-            : { ...n, data: { ...n.data, isSearchMatch: undefined } }
-    )
+    // Enrich all nodes with live job metadata, and highlight the current node
+    const highlightedNodes = graph.nodes.map((n) => {
+        const isCurrentNode = n.id === node?.id
+        const metadata = latestJobMetadataByNodeId[n.id]
+        const lastJobStatus = isCurrentNode
+            ? ((latestJobStatus as DataModelingJobStatus) ?? metadata?.status ?? n.data.lastJobStatus)
+            : (metadata?.status ?? n.data.lastJobStatus)
+        const lastRunAt = metadata?.lastRunAt ?? n.data.lastRunAt
+        return {
+            ...n,
+            data: {
+                ...n.data,
+                isSearchMatch: isCurrentNode ? true : undefined,
+                lastJobStatus,
+                lastRunAt,
+                currentNodeId: node?.id,
+                currentNodeName: node?.name,
+            },
+        }
+    })
 
     return (
         <div className={className ?? 'h-72'}>

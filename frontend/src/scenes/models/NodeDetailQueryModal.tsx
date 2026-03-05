@@ -24,9 +24,9 @@ export function NodeDetailQueryModal({ id }: NodeDetailSceneLogicProps): JSX.Ele
     const { sidePanelWidth } = useValues(panelLayoutLogic)
 
     const sqlEditorTabId = useMemo(() => `node-detail-query-${id}`, [id])
-    const { setQueryInput, setSourceQuery, runQuery } = useActions(
-        sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
-    )
+    const sqlEditorProps = useMemo(() => ({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded }), [sqlEditorTabId])
+    const { queryInput } = useValues(sqlEditorLogic(sqlEditorProps))
+    const { setQueryInput, setSourceQuery, runQuery, updateView } = useActions(sqlEditorLogic(sqlEditorProps))
 
     const query = savedQuery?.query?.query
     const variables = savedQuery?.query?.variables
@@ -62,7 +62,29 @@ export function NodeDetailQueryModal({ id }: NodeDetailSceneLogicProps): JSX.Ele
             >
                 <div className="flex items-center justify-between px-4 py-2 border-b bg-bg-light">
                     <span className="font-semibold">{node?.name ?? 'Edit query'}</span>
-                    <LemonButton icon={<IconX />} size="small" onClick={closeQueryModal} />
+                    <div className="flex items-center gap-1">
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={() => {
+                                if (savedQuery && queryInput) {
+                                    updateView({
+                                        id: savedQuery.id,
+                                        query: { kind: NodeKind.HogQLQuery, query: queryInput, variables },
+                                        types: [],
+                                        shouldRematerialize: savedQuery.is_materialized ?? false,
+                                        edited_history_id: savedQuery.latest_history_id,
+                                    })
+                                }
+                            }}
+                            disabledReason={
+                                !savedQuery ? 'No saved query' : queryInput === query ? 'No changes to save' : undefined
+                            }
+                        >
+                            Save
+                        </LemonButton>
+                        <LemonButton icon={<IconX />} size="small" onClick={closeQueryModal} />
+                    </div>
                 </div>
                 <div className="flex-1 overflow-hidden">
                     <SQLEditor tabId={sqlEditorTabId} mode={SQLEditorMode.Embedded} />
