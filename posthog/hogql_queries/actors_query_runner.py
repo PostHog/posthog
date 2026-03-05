@@ -155,8 +155,8 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         for row in results_list:
             result_row = list(row)
             person_uuid = str(result_row[person_id_col_index]) if result_row[person_id_col_index] else None
-            person = persons_lookup.get(person_uuid) if person_uuid else None
-            result_row[person_id_col_index] = person or {"id": person_uuid}
+            person = persons_lookup.get(person_uuid) if person_uuid else {}
+            result_row[person_id_col_index] = person
             enriched.append(result_row)
 
         input_columns[person_id_col_index] = "person"

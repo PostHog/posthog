@@ -1,5 +1,5 @@
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { humanFriendlyDuration, midEllipsis } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { gatherIconProperties, PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 
@@ -33,14 +33,18 @@ export function SessionActorDisplay({ actor }: { actor: SessionActorType }): JSX
                     </>
                 )}
             </div>
-            <CopyToClipboardInline
-                explicitValue={actor.person ? asDisplay(actor.person) : actor.id}
-                iconStyle={{ color: 'var(--color-accent)' }}
-                iconPosition="end"
-                className="text-xs text-secondary"
-            >
-                {actor.person ? asDisplay(actor.person) : midEllipsis(actor.id, 32)}
-            </CopyToClipboardInline>
+            {actor.person?.id ? (
+                <CopyToClipboardInline
+                    explicitValue={asDisplay(actor.person)}
+                    iconStyle={{ color: 'var(--color-accent)' }}
+                    iconPosition="end"
+                    className="text-xs text-secondary"
+                >
+                    <span>{asDisplay(actor.person)}</span>
+                </CopyToClipboardInline>
+            ) : (
+                <span className="text-xs text-secondary">{asDisplay(actor.person)}</span>
+            )}
         </>
     )
 }

@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { render, screen } from '@testing-library/react'
 
-import { SessionActorType } from '~/types'
+import { PersonActorType, SessionActorType } from '~/types'
 
 import { SessionActorDisplay } from './SessionActorDisplay'
 
@@ -49,9 +49,13 @@ describe('SessionActorDisplay', () => {
         expect(screen.getAllByText('user@example.com').length).toBeGreaterThan(0)
     })
 
-    it('renders truncated session ID when no person data', () => {
-        render(<SessionActorDisplay actor={baseSession} />)
-        expect(screen.getAllByText(/session-abc-123/).length).toBeGreaterThan(0)
+    it('renders "Anonymous" when no person data', () => {
+        const actor: SessionActorType = {
+            ...baseSession,
+            person: {} as PersonActorType,
+        }
+        render(<SessionActorDisplay actor={actor} />)
+        expect(screen.getByText('Anonymous')).toBeInTheDocument()
     })
 
     it('renders "Unknown time" when no created_at', () => {
