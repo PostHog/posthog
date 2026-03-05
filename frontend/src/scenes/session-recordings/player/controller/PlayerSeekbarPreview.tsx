@@ -2,7 +2,6 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { MutableRefObject, memo, useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { colonDelimitedDuration } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -89,22 +88,23 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
     const { currentTeam } = useValues(teamLogic)
     const absoluteTime = startTime?.add(progressionSeconds, 'seconds')
 
-    const applyTz = (t: Dayjs): Dayjs => {
+    const applyTz = (t: typeof absoluteTime): string => {
+        if (!t) {
+            return '00:00:00'
+        }
         if (timestampFormat === TimestampFormat.UTC) {
-            return t.tz('UTC')
+            return t.tz('UTC').format('HH:mm:ss')
         }
         if (timestampFormat === TimestampFormat.Project && currentTeam?.timezone) {
-            return t.tz(currentTeam.timezone)
+            return t.tz(currentTeam.timezone).format('HH:mm:ss')
         }
-        return t
+        return t.format('HH:mm:ss')
     }
 
     const content =
         timestampFormat === TimestampFormat.Relative
             ? colonDelimitedDuration(minMs / 1000 + progressionSeconds, fixedUnits)
-            : absoluteTime
-              ? applyTz(absoluteTime).format('HH:mm:ss')
-              : '00:00:00'
+            : applyTz(absoluteTime)
 
     const isHovering = useIsHovering(seekBarRef)
 
