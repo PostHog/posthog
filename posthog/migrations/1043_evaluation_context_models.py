@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1035_llm_prompt_versioning"),
+        ("posthog", "1042_subscription_integration_idx"),
     ]
 
     operations = [
