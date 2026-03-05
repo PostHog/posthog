@@ -310,6 +310,7 @@ async def create_cloudflare_worker_route(inputs: CreateCloudflareProxyInputs):
             logger.info("Cloudflare Worker Route already exists for domain %s", inputs.domain)
             return
         if e.is_rate_limited():
+            # Rate limited by Cloudflare — re-raise to let Temporal retry with backoff
             raise
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
 
