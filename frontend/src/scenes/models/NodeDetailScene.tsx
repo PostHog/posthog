@@ -10,6 +10,9 @@ import { SceneTitleSection } from "~/layout/scenes/components/SceneTitleSection"
 import { ProductKey } from "~/queries/schema/schema-general";
 
 import { NODE_TYPE_SETTINGS } from './constants'
+import { NodeDetailColumns } from './NodeDetailColumns'
+import { NodeDetailQuery } from './NodeDetailQuery'
+import { NodeDetailQueryModal } from './NodeDetailQueryModal'
 import { nodeDetailSceneLogic, NodeDetailSceneLogicProps } from './nodeDetailSceneLogic'
 
 export const scene: SceneExport<NodeDetailSceneLogicProps> = {
@@ -20,31 +23,70 @@ export const scene: SceneExport<NodeDetailSceneLogicProps> = {
 };
 
 export function NodeDetailScene({ id }: { id?: string } = {}): JSX.Element {
-    const logicProps = { id: id || '' }
-    const { node, nodeLoading, savedQuery, savedQueryLoading } = useValues(nodeDetailSceneLogic(logicProps))
+  const logicProps = { id: id || "" };
+  const { node, nodeLoading, savedQuery, latestRowCount } = useValues(
+    nodeDetailSceneLogic(logicProps),
+  );
+  const { updateNodeDescription } = useActions(
+    nodeDetailSceneLogic(logicProps),
+  );
+
+  if (nodeLoading || !node) {
+    return (
+      <SceneContent>
+        <div className="flex items-center justify-center py-16">
+          <Spinner className="text-4xl" />
+        </div>
+      </SceneContent>
+    );
+  }
 
   const typeSettings = NODE_TYPE_SETTINGS[node.type];
   const hasQuery = node.type !== "table" && savedQuery?.query?.query;
 
-    const typeSettings = NODE_TYPE_SETTINGS[node.type]
-    const isLoading = savedQueryLoading
+  return (
+    <SceneContent>
+      <SceneTitleSection
+        name={node.name}
+        description={node.description || null}
+        resourceType={{ type: "data_warehouse" }}
+        isLoading={nodeLoading}
+        canEdit
+        saveOnBlur
+        renameDebounceMs={0}
+        onDescriptionChange={updateNodeDescription}
+        noBorder
+      />
 
-    return (
-        <SceneContent>
-            <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                    <h1 className="text-2xl font-bold mb-0">{node.name}</h1>
-                    <LemonTag style={{ backgroundColor: typeSettings.color, color: 'white' }}>
-                        {typeSettings.label}
-                    </LemonTag>
-                </div>
+      <div className="flex items-center gap-2 mb-2">
+        <LemonTag
+          style={{ backgroundColor: typeSettings.color, color: "white" }}
+        >
+          {typeSettings.label}
+        </LemonTag>
+        {latestRowCount !== null && (
+          <Tooltip title="Row count from last materialization">
+            <span className="text-xs text-muted">
+              {humanFriendlyNumber(latestRowCount)}{" "}
+              {latestRowCount === 1 ? "row" : "rows"}
+            </span>
+          </Tooltip>
+        )}
+      </div>
 
-                {savedQuery && !isLoading && savedQuery.columns && (
-                    <div className="text-secondary text-sm">
-                        {savedQuery.columns.length} column{savedQuery.columns.length !== 1 ? 's' : ''}
-                    </div>
-                )}
+      <div className="space-y-6">
+        {/* Query + Columns two-column layout */}
+        {hasQuery ? (
+          <div className="grid grid-cols-1 md:grid-cols-[3fr_2fr] gap-6">
+            <NodeDetailQuery id={logicProps.id} />
+            <NodeDetailColumns id={logicProps.id} />
+          </div>
+        ) : (
+          <NodeDetailColumns id={logicProps.id} />
+        )}
             </div>
+
+            {hasQuery && <NodeDetailQueryModal id={logicProps.id} />}
         </SceneContent>
     )
 }
