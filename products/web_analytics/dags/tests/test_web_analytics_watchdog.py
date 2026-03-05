@@ -187,11 +187,11 @@ class TestWebAnalyticsWatchdogAsset:
         assert result.metadata["total_checked"].value == 3
         assert result.metadata["total_passing"].value == 2
 
-        failing = result.metadata["failing_partitions"].data
+        failing = result.metadata["failing_partitions"].value
         assert len(failing) == 1
         assert failing[0]["partition_date"] == "2024-01-18"
 
-        remediation = result.metadata["remediation_configs"].data
+        remediation = result.metadata["remediation_configs"].value
         assert len(remediation) == 1
         assert remediation[0]["partition_key"] == "2024-01-18"
 
@@ -210,7 +210,7 @@ class TestWebAnalyticsWatchdogAsset:
         failure = exc_info.value
         assert failure.metadata["total_checked"].value == 0
         assert failure.metadata["error_count"].value == 2
-        assert len(failure.metadata["errors"].data) == 2
+        assert len(failure.metadata["errors"].value) == 2
 
     @freeze_time("2024-01-20 12:00:00")
     @patch("products.web_analytics.dags.web_analytics_watchdog.check_partition_accuracy")
