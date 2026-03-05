@@ -19,12 +19,18 @@ SERVICES+=("$@")
 # start checking health, the 300 s timeout burns on image downloads
 # instead of actual service startup.  Wait for any running compose
 # process to finish first so the timeout only measures health-check time.
+COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
 if pgrep -f "docker compose.*up" >/dev/null 2>&1; then
     echo "docker compose is still running (likely pulling images) — waiting for it to finish…"
+    compose_wait_start=$SECONDS
     while pgrep -f "docker compose.*up" >/dev/null 2>&1; do
+        if [ $(( SECONDS - compose_wait_start )) -ge "$COMPOSE_WAIT_TIMEOUT" ]; then
+            echo "Timed out after ${COMPOSE_WAIT_TIMEOUT}s waiting for docker compose to finish. Proceeding anyway."
+            break
+        fi
         sleep 2
     done
-    echo "docker compose finished."
+    echo "docker compose wait done after $(( SECONDS - compose_wait_start ))s."
 fi
 
 SECONDS=0
