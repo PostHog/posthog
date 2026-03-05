@@ -52,15 +52,16 @@ def proto_group_type_mapping_to_result(mapping: group_pb2.GroupTypeMapping) -> G
 def fetch_group_type_mapping_result(project_id: int, group_type_index: int) -> GroupTypeMappingResult | None:
     """Fetch a single GroupTypeMappingResult via the personhog gRPC client.
 
-    Returns None if the client is not configured or the mapping is not found.
-    All proto imports are isolated here.
+    Raises RuntimeError if the client is not configured (so callers fall back
+    to ORM, consistent with ``_fetch_group_types_via_personhog``).
+    Returns None if the mapping is not found.
     """
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
 
     client = get_personhog_client()
     if client is None:
-        return None
+        raise RuntimeError("personhog client not configured")
 
     resp = client.get_group_type_mappings_by_project_id(GetGroupTypeMappingsByProjectIdRequest(project_id=project_id))
     for m in resp.mappings:
