@@ -41,7 +41,7 @@ def migrate_evaluation_tags_to_contexts(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1029_evaluation_context_models"),
+        ("posthog", "1036_evaluation_context_models"),
     ]
 
     operations = [

@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1028_repo_routing_rule"),
+        ("posthog", "1035_llm_prompt_versioning"),
     ]
 
     operations = [
