@@ -14,6 +14,8 @@ const NotebookPanel = lazy(() =>
     import('scenes/notebooks/NotebookPanel/NotebookPanel').then((m) => ({ default: m.NotebookPanel }))
 )
 
+import { useWindowSize } from 'lib/hooks/useWindowSize'
+
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import {
     SidePanelExports,
@@ -184,7 +186,7 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
         }
     }, [sidePanelOpen, selectedTab, sidePanelOpenAndAvailable, closeSidePanel])
 
-    const viewportWidth = window.innerWidth ?? undefined
+    const { windowSize } = useWindowSize()
 
     const rawSidePanelWidth = !visibleTabs.length
         ? 0
@@ -192,7 +194,7 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
           ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH_COMPACT)
           : 0
 
-    const sidePanelWidth = viewportWidth ? Math.min(rawSidePanelWidth, viewportWidth) : rawSidePanelWidth
+    const sidePanelWidth = windowSize.width != null ? Math.min(rawSidePanelWidth, windowSize.width) : rawSidePanelWidth
 
     // Update sidepanel width in panelLayoutLogic
     useEffect(() => {
