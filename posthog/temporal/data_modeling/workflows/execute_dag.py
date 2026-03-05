@@ -1,4 +1,5 @@
 import json
+import asyncio
 import datetime as dt
 import dataclasses
 from collections import defaultdict
@@ -17,6 +18,8 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
 )
+
+MAX_CONCURRENT_CHILDREN = 10
 
 
 class EmptyDAGOrCycleError(Exception):
@@ -39,6 +42,7 @@ class ExecuteDAGInputs:
     team_id: int
     dag_id: str
     node_ids: list[str] | None = None
+    v2_only: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -229,6 +233,10 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         ephemeral_node_set = set(dag_structure.ephemeral_nodes)
         failed_node_set: set[str] = set()
         downstreams = _get_downstream_lookup(edge_lookup)
+        # execute child workflows with bounded concurrency using a sliding window;
+        # the semaphore limits how many child workflows run simultaneously across
+        # all levels to be a friendlier neighbor to duckgres infrastructure
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHILDREN)
         for i, level in enumerate(levels):
             temporalio.workflow.logger.info(
                 f"Executing level {i + 1}/{len(levels)}",
@@ -276,71 +284,63 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             if not execute_nodes:
                 continue
 
-            # execute child workflows in parallel for this level
-            child_handles = []
-            for node_id in execute_nodes:
-                handle = await temporalio.workflow.start_child_workflow(
-                    MaterializeViewWorkflow.run,
-                    MaterializeViewWorkflowInputs(
-                        team_id=inputs.team_id,
-                        dag_id=inputs.dag_id,
-                        node_id=node_id,
-                    ),
-                    id=f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}",
-                    parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
-                    retry_policy=temporalio.common.RetryPolicy(
-                        maximum_attempts=1,  # retries handled within child workflow
-                    ),
-                )
-                child_handles.append((node_id, handle))
-
-            # wait for all child workflows in this level to complete
-            for node_id, handle in child_handles:
-                try:
-                    result: MaterializeViewWorkflowResult = await handle
-                    node_results.append(
-                        NodeResult(
+            async def _run_child(node_id: str) -> NodeResult:
+                async with semaphore:
+                    handle = await temporalio.workflow.start_child_workflow(
+                        MaterializeViewWorkflow.run,
+                        MaterializeViewWorkflowInputs(
+                            team_id=inputs.team_id,
+                            dag_id=inputs.dag_id,
+                            node_id=node_id,
+                            v2_only=inputs.v2_only,
+                        ),
+                        id=f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}",
+                        parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
+                        retry_policy=temporalio.common.RetryPolicy(
+                            maximum_attempts=1,  # retries handled within child workflow
+                        ),
+                    )
+                    try:
+                        result: MaterializeViewWorkflowResult = await handle
+                        temporalio.workflow.logger.info(
+                            f"Node {node_id} materialized successfully",
+                            extra={"rows_materialized": result.rows_materialized, **inputs.properties_to_log},
+                        )
+                        return NodeResult(
                             node_id=node_id,
                             success=True,
                             rows_materialized=result.rows_materialized,
                             duration_seconds=result.duration_seconds,
                         )
-                    )
-                    temporalio.workflow.logger.info(
-                        f"Node {node_id} materialized successfully",
-                        extra={"rows_materialized": result.rows_materialized, **inputs.properties_to_log},
-                    )
-                except temporalio.exceptions.ChildWorkflowError as e:
-                    failed_node_set.add(node_id)
-                    error_message = str(e.cause) if e.cause else str(e)
-                    node_results.append(
-                        NodeResult(
+                    except temporalio.exceptions.ChildWorkflowError as e:
+                        error_message = str(e.cause) if e.cause else str(e)
+                        temporalio.workflow.logger.error(
+                            f"Node {node_id} failed to materialize: {error_message}",
+                            extra=inputs.properties_to_log,
+                        )
+                        return NodeResult(
                             node_id=node_id,
                             success=False,
                             error=strip_hostname_from_error(error_message),
                         )
-                    )
-                    # log original error with hostname for internal debugging
-                    temporalio.workflow.logger.error(
-                        f"Node {node_id} failed to materialize: {error_message}",
-                        extra=inputs.properties_to_log,
-                    )
-                except Exception as e:
-                    capture_exception(e)
-                    failed_node_set.add(node_id)
-                    error_str = str(e)
-                    node_results.append(
-                        NodeResult(
+                    except Exception as e:
+                        capture_exception(e)
+                        error_str = str(e)
+                        temporalio.workflow.logger.error(
+                            f"Node {node_id} failed with unexpected error: {error_str}",
+                            extra=inputs.properties_to_log,
+                        )
+                        return NodeResult(
                             node_id=node_id,
                             success=False,
                             error=strip_hostname_from_error(error_str),
                         )
-                    )
-                    # log original error with hostname for internal debugging
-                    temporalio.workflow.logger.error(
-                        f"Node {node_id} failed with unexpected error: {error_str}",
-                        extra=inputs.properties_to_log,
-                    )
+
+            level_results = await asyncio.gather(*[_run_child(node_id) for node_id in execute_nodes])
+            for nr in level_results:
+                node_results.append(nr)
+                if not nr.success:
+                    failed_node_set.add(nr.node_id)
 
         # compute summary
         end_time = temporalio.workflow.now()

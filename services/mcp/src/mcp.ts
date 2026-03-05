@@ -18,7 +18,7 @@ import { handleToolError } from '@/lib/errors'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { formatPrompt } from '@/lib/utils'
+import { formatPrompt, sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
@@ -62,6 +62,11 @@ export class MCP extends McpAgent<Env> {
 
     _sessionManager: SessionManager | undefined
 
+    _clientInfoPromise: Promise<void> | undefined
+    _mcpClientName: string | undefined
+    _mcpClientVersion: string | undefined
+    _mcpProtocolVersion: string | undefined
+
     get requestProperties(): RequestProperties {
         return this.props as RequestProperties
     }
@@ -84,6 +89,37 @@ export class MCP extends McpAgent<Env> {
         }
 
         return this._sessionManager
+    }
+
+    async resolveClientInfo(): Promise<void> {
+        if (!this._clientInfoPromise) {
+            this._clientInfoPromise = this._doResolveClientInfo()
+        }
+        return this._clientInfoPromise
+    }
+
+    private async _doResolveClientInfo(): Promise<void> {
+        try {
+            const initRequest = await this.getInitializeRequest()
+            if (!initRequest || !('params' in initRequest)) {
+                return
+            }
+
+            const params = (
+                initRequest as {
+                    params?: { clientInfo?: { name?: string; version?: string }; protocolVersion?: string }
+                }
+            ).params
+            if (!params) {
+                return
+            }
+
+            this._mcpClientName = sanitizeHeaderValue(params.clientInfo?.name)
+            this._mcpClientVersion = sanitizeHeaderValue(params.clientInfo?.version)
+            this._mcpProtocolVersion = sanitizeHeaderValue(params.protocolVersion)
+        } catch {
+            // skip
+        }
     }
 
     async detectRegion(): Promise<CloudRegion | undefined> {
@@ -135,10 +171,14 @@ export class MCP extends McpAgent<Env> {
     async api(): Promise<ApiClient> {
         if (!this._api) {
             const baseUrl = await this.getBaseUrl()
+            await this.resolveClientInfo()
             this._api = new ApiClient({
                 apiToken: this.requestProperties.apiToken,
                 baseUrl,
                 clientUserAgent: this.requestProperties.clientUserAgent,
+                mcpClientName: this._mcpClientName,
+                mcpClientVersion: this._mcpClientVersion,
+                mcpProtocolVersion: this._mcpProtocolVersion,
             })
         }
 
@@ -166,6 +206,8 @@ export class MCP extends McpAgent<Env> {
 
             const client = getPostHogClient()
 
+            await this.resolveClientInfo()
+
             client.capture({
                 distinctId,
                 event,
@@ -175,6 +217,9 @@ export class MCP extends McpAgent<Env> {
                               $session_id: await this.sessionManager.getSessionUuid(this.requestProperties.sessionId),
                           }
                         : {}),
+                    ...(this._mcpClientName ? { mcp_client_name: this._mcpClientName } : {}),
+                    ...(this._mcpClientVersion ? { mcp_client_version: this._mcpClientVersion } : {}),
+                    ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),
                     ...properties,
                 },
             })

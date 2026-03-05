@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { IconChevronDown, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 import { LemonInput, Popover } from '@posthog/lemon-ui'
@@ -13,7 +14,11 @@ interface DashboardsFiltersBarProps {
 
 export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps): JSX.Element {
     const { filters, currentTab, filteredTags, tagSearch, showTagPopover } = useValues(dashboardsLogic)
-    const { setFilters, setTagSearch, setShowTagPopover } = useActions(dashboardsLogic)
+    const { setFilters, setTagSearch, setShowTagPopover, setSearch } = useActions(dashboardsLogic)
+
+    const debouncedSetSearch = useDebouncedCallback((value: string) => {
+        setSearch(value)
+    }, 300)
 
     const handleTagToggle = (tag: string): void => {
         const selected = new Set(filters.tags || [])
@@ -30,7 +35,10 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
             <LemonInput
                 type="search"
                 placeholder="Search for dashboards"
-                onChange={(x) => setFilters({ search: x })}
+                onChange={(value) => {
+                    setFilters({ search: value })
+                    debouncedSetSearch(value)
+                }}
                 value={filters.search}
             />
             <div className="flex items-center gap-2 flex-wrap">

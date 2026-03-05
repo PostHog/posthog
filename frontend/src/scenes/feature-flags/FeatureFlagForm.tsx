@@ -32,6 +32,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { approvalsGateLogic } from 'lib/approvals/approvalsGateLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -40,6 +41,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import 'lib/lemon-ui/Lettermark'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet } from 'lib/utils'
+import { ApprovalActionKey } from 'scenes/approvals/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { urls } from 'scenes/urls'
 
@@ -84,6 +86,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
+    const { isApprovalRequired } = useValues(approvalsGateLogic)
     const hasEvaluationTags = useFeatureFlag('FLAG_EVALUATION_TAGS')
     const featureFlagsV2Enabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
     const showBucketingIdentifierUI = !!featureFlags[FEATURE_FLAGS.FLAG_BUCKETING_IDENTIFIER]
@@ -260,23 +263,38 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <LemonDivider />
 
                                 <LemonField name="active">
-                                    {({ value, onChange }) => (
-                                        <LemonSwitch
-                                            checked={value}
-                                            onChange={onChange}
-                                            label={
-                                                <span className="flex items-center gap-1">
-                                                    <span>Enabled</span>
-                                                    <Tooltip title="When disabled, all SDKs return false without checking release conditions.">
-                                                        <IconInfo className="text-secondary text-base" />
-                                                    </Tooltip>
-                                                </span>
-                                            }
-                                            bordered
-                                            fullWidth
-                                            data-attr="feature-flag-enabled"
-                                        />
-                                    )}
+                                    {({ value, onChange }) => {
+                                        const requiresApprovalToEnable =
+                                            isNewFeatureFlag &&
+                                            isApprovalRequired(ApprovalActionKey.FEATURE_FLAG_ENABLE)
+
+                                        if (requiresApprovalToEnable && value) {
+                                            queueMicrotask(() => onChange(false))
+                                        }
+
+                                        return (
+                                            <LemonSwitch
+                                                checked={value}
+                                                onChange={onChange}
+                                                disabledReason={
+                                                    requiresApprovalToEnable
+                                                        ? 'Enabling feature flags requires approval. Create the flag first, then enable it.'
+                                                        : undefined
+                                                }
+                                                label={
+                                                    <span className="flex items-center gap-1">
+                                                        <span>Enabled</span>
+                                                        <Tooltip title="When disabled, all SDKs return false without checking release conditions.">
+                                                            <IconInfo className="text-secondary text-base" />
+                                                        </Tooltip>
+                                                    </span>
+                                                }
+                                                bordered
+                                                fullWidth
+                                                data-attr="feature-flag-enabled"
+                                            />
+                                        )
+                                    }}
                                 </LemonField>
                             </div>
 

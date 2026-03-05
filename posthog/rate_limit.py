@@ -159,13 +159,12 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
 
         self.num_requests, self.duration = self.parse_rate(self.rate)
 
-    def allow_request(self, request, view):
+    def _allow_request_internal(self, request, view, *, personal_api_key_only: bool) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
 
-        # Only rate limit authenticated requests made with a personal API key
         personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
-        if request.user.is_authenticated and personal_api_key is None:
+        if personal_api_key_only and request.user.is_authenticated and personal_api_key is None:
             return True
 
         try:
@@ -173,7 +172,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             if team_id is not None and self.scope == HogQLQueryThrottle.scope:
                 self.load_team_rate_limit(team_id)
 
-            request_would_be_allowed = super().allow_request(request, view)
+            request_would_be_allowed = SimpleRateThrottle.allow_request(self, request, view)
             if request_would_be_allowed:
                 return True
 
@@ -214,6 +213,10 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         except Exception as e:
             capture_exception(e)
             return True
+
+    def allow_request(self, request, view):
+        # Only rate limit authenticated requests made with a personal API key
+        return self._allow_request_internal(request, view, personal_api_key_only=True)
 
     def get_cache_key(self, request, view):
         """
@@ -348,6 +351,15 @@ class SustainedRateThrottle(PersonalApiKeyRateThrottle):
     # Intended to block slower but sustained bursts of requests, per project
     scope = "sustained"
     rate = "4800/hour"
+
+
+class PersonalApiKeyOrUserRateThrottle(PersonalApiKeyRateThrottle):
+    """
+    Rate limit both personal API key and web-authenticated user requests.
+    """
+
+    def allow_request(self, request, view):
+        return self._allow_request_internal(request, view, personal_api_key_only=False)
 
 
 class ClickHouseBurstRateThrottle(PersonalApiKeyRateThrottle):
@@ -536,6 +548,13 @@ class LLMAnalyticsSummarizationDailyThrottle(PersonalApiKeyRateThrottle):
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_summarization_daily"
     rate = "500/day"
+
+
+class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Stricter burst limit for publishing prompt versions.
+    # This protects against accidental loops or scripted abuse while allowing normal usage.
+    scope = "llm_prompt_publish_burst"
+    rate = "30/minute"
 
 
 class EventValuesBurstThrottle(PersonalApiKeyRateThrottle):

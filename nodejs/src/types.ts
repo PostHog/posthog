@@ -285,8 +285,14 @@ export type IngestionConsumerConfig = {
     EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
 
+    // AI event splitting config
+    INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
+    /** '*' for all teams, or comma-separated team IDs */
+    INGESTION_AI_EVENT_SPLITTING_TEAMS: string
+
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
 
     // Cookieless server hash mode config
