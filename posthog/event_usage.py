@@ -321,6 +321,7 @@ def report_user_action(
     properties: Optional[dict] = None,
     *,
     team: Optional[Team] = None,
+    organization: Optional[Organization] = None,
     request: Optional["Request"] = None,
 ):
     if user is None or not user.distinct_id:
@@ -333,7 +334,41 @@ def report_user_action(
         distinct_id=user.distinct_id,
         event=event,
         properties=properties,
-        groups=groups(user.current_organization, team or user.current_team),
+        groups=groups(organization or user.current_organization, team or user.current_team),
+    )
+
+
+def report_user_or_team_action(
+    event: str,
+    properties: Optional[dict] = None,
+    *,
+    user: Optional[User] = None,
+    team: Optional[Team] = None,
+    organization: Optional[Organization] = None,
+    request: Optional["Request"] = None,
+):
+    if properties is None:
+        properties = {}
+    if request is not None:
+        properties = {**get_request_analytics_properties(request), **properties}
+
+    distinct_id = None
+    if user and user.distinct_id:
+        distinct_id = user.distinct_id
+    elif team:
+        distinct_id = str(team.uuid)
+
+    if not distinct_id:
+        return
+
+    org = organization or (user.current_organization if user else None)
+    tm = team or (user.current_team if user else None)
+
+    posthoganalytics.capture(
+        distinct_id=distinct_id,
+        event=event,
+        properties=properties,
+        groups=groups(org, tm),
     )
 
 
