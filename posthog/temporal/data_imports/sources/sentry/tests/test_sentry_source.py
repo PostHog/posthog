@@ -57,7 +57,6 @@ class TestSentrySource:
             "projects",
             "teams",
             "members",
-            "organization_users",
             "releases",
             "environments",
             "monitors",

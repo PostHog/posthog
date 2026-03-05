@@ -116,7 +116,6 @@ class TestSentryTransport:
             ("projects", "/organizations/acme/projects/", "id"),
             ("teams", "/organizations/acme/teams/", "id"),
             ("members", "/organizations/acme/members/", "id"),
-            ("organization_users", "/organizations/acme/users/", "id"),
             ("releases", "/organizations/acme/releases/", "version"),
             ("environments", "/organizations/acme/environments/", "id"),
             ("monitors", "/organizations/acme/monitors/", "id"),

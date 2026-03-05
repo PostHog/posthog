@@ -60,12 +60,6 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
         incremental_fields=[],
         primary_key="id",
     ),
-    "organization_users": SentryEndpointConfig(
-        name="organization_users",
-        path="/organizations/{organization_slug}/users/",
-        incremental_fields=[],
-        primary_key="id",
-    ),
     "releases": SentryEndpointConfig(
         name="releases",
         path="/organizations/{organization_slug}/releases/",
