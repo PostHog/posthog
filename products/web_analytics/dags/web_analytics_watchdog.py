@@ -182,6 +182,8 @@ def web_analytics_watchdog(context: AssetExecutionContext, config: WatchdogConfi
         raise dagster.Failure(
             description=f"All partition checks failed with errors ({len(errors)} errors)",
             metadata={
+                "total_checked": MetadataValue.int(total_checked),
+                "error_count": MetadataValue.int(len(errors)),
                 "errors": MetadataValue.json(errors),
                 "lookback_days": MetadataValue.int(lookback_days),
             },

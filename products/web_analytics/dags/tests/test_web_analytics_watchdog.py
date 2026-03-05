@@ -204,8 +204,13 @@ class TestWebAnalyticsWatchdogAsset:
             asset_config={"team_id": 2, "lookback_days": 2, "tolerance_pct": 5.0, "dry_run": True}
         )
 
-        with pytest.raises(dagster.Failure, match="All partition checks failed"):
+        with pytest.raises(dagster.Failure, match="All partition checks failed") as exc_info:
             web_analytics_watchdog(context)
+
+        failure = exc_info.value
+        assert failure.metadata["total_checked"].value == 0
+        assert failure.metadata["error_count"].value == 2
+        assert len(failure.metadata["errors"].data) == 2
 
     @freeze_time("2024-01-20 12:00:00")
     @patch("products.web_analytics.dags.web_analytics_watchdog.check_partition_accuracy")
