@@ -49,7 +49,7 @@ services:
     objectstorage-azure:
         profiles: [azure]
 
-    # Misc
+    # Coordination - etcd for PersonHog and Kafka partition assignment
     etcd:
         profiles: [etcd]
 # Core services NOT listed = always start:
