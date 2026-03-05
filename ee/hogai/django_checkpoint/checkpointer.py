@@ -25,7 +25,10 @@ from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBl
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
-    jsonplus_serde = JsonPlusSerializer()
+    jsonplus_serde = JsonPlusSerializer(allowed_msgpack_modules=None)
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(serde=JsonPlusSerializer(allowed_msgpack_modules=None), **kwargs)
 
     def _load_writes(self, writes: Sequence[ConversationCheckpointWrite]) -> list[PendingWrite]:
         return (
@@ -43,10 +46,11 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         )
 
     def _load_json(self, obj: Any):
-        return self.jsonplus_serde.loads(self.jsonplus_serde.dumps(obj))
+        serialized = json.dumps(obj, ensure_ascii=False).encode("utf-8", "ignore")
+        return json.loads(serialized, object_hook=self.jsonplus_serde._reviver)
 
     def _dump_json(self, obj: Any) -> dict[str, Any]:
-        serialized_metadata = self.jsonplus_serde.dumps(obj)
+        serialized_metadata = json.dumps(obj, ensure_ascii=False).encode("utf-8", "ignore")
         # NOTE: we're using JSON serializer (not msgpack), so we need to remove null characters before writing
         nulls_removed = serialized_metadata.decode().replace("\\u0000", "")
         return json.loads(nulls_removed)
