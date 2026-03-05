@@ -40,7 +40,7 @@ Any time a new issue is created or updated, we write to the ClickHouse table (vi
 We could use signals:
 
 ```python
-@receiver(post_save, sender=ErrorTrackingAutoCaptureControls)
+@receiver(post_save, sender=ErrorTrackingIssue)
 ```
 
 These run on every instance, though, so we should add something in between — like a Celery task with deduplication, or another approach.
