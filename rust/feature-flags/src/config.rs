@@ -1033,7 +1033,7 @@ mod tests {
         let limits = config.effective_rate_limits();
         assert_eq!(limits.len(), 1);
         assert_eq!(limits.get(&123), Some(&"1200/minute".to_string()));
-        assert!(limits.get(&456).is_none());
+        assert!(!limits.contains_key(&456));
     }
 
     #[test]
