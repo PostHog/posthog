@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -31,8 +31,9 @@ def _get_active_prompt_queryset_for_team_id(team_id: int) -> QuerySet[LLMPrompt]
 
 
 def _attach_first_version_id(prompt: LLMPrompt, team_id: int, prompt_name: str) -> LLMPrompt:
+    prompt_with_first_version_id = cast(Any, prompt)
     if prompt.version == 1:
-        prompt.first_version_id = prompt.id
+        prompt_with_first_version_id.first_version_id = prompt.id
         return prompt
 
     first_version_id = (
@@ -42,7 +43,7 @@ def _attach_first_version_id(prompt: LLMPrompt, team_id: int, prompt_name: str) 
         .first()
     )
     if first_version_id is not None:
-        prompt.first_version_id = first_version_id
+        prompt_with_first_version_id.first_version_id = first_version_id
     return prompt
 
 

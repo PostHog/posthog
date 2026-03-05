@@ -35,7 +35,6 @@ export const scene: SceneExport<PromptLogicProps> = {
         promptName: name && name !== 'new' ? name : 'new',
         mode: searchParams?.edit === 'true' ? PromptMode.Edit : PromptMode.View,
         selectedVersion: searchParams?.version ? Number(searchParams.version) || null : null,
-        selectedVersionId: typeof searchParams?.version_id === 'string' ? searchParams.version_id : null,
     }),
 }
 
@@ -147,12 +146,7 @@ export function LLMPromptScene(): JSX.Element {
                                 router.actions.replace(urls.llmAnalyticsPrompt(prompt.name), {
                                     ...cleanPromptSearchParams(
                                         currentSearchParams,
-                                        currentSearchParams.version_id
-                                            ? prompt.version
-                                            : prompt.is_latest
-                                              ? null
-                                              : prompt.version,
-                                        currentSearchParams.version_id ? prompt.id : null
+                                        prompt.is_latest ? null : prompt.version
                                     ),
                                     tab,
                                 })
@@ -174,7 +168,6 @@ export function LLMPromptScene(): JSX.Element {
                                     content: <PromptUsage prompt={prompt} />,
                                 },
                             ]}
-                            sceneInset
                         />
                     ) : (
                         <>

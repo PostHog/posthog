@@ -17,6 +17,7 @@ import { cleanPagedSearchOrderParams } from '../utils'
 import type { llmPromptsLogicType } from './llmPromptsLogicType'
 
 export const PROMPTS_PER_PAGE = 30
+export const LLM_PROMPTS_FORCE_RELOAD_PARAM = 'llm_prompts_force_reload'
 
 export interface PromptFilters {
     page: number
@@ -177,10 +178,17 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
     tabAwareUrlToAction(({ actions, values }) => ({
         [urls.llmAnalyticsPrompts()]: (_, searchParams, __, { method }) => {
             const newFilters = cleanFilters(searchParams)
+            const forceReload = typeof searchParams?.[LLM_PROMPTS_FORCE_RELOAD_PARAM] === 'string'
             if (!objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)
-            } else if (method !== 'REPLACE') {
+            } else if (forceReload || method !== 'REPLACE') {
                 actions.loadPrompts(false)
+            }
+
+            if (forceReload) {
+                const nextSearchParams = { ...searchParams }
+                delete nextSearchParams[LLM_PROMPTS_FORCE_RELOAD_PARAM]
+                router.actions.replace(urls.llmAnalyticsPrompts(), nextSearchParams)
             }
         },
     })),

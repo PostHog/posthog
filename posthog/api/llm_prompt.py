@@ -12,6 +12,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 
 from posthog.api.capture import capture_internal
 from posthog.api.llm_prompt_serializers import (
@@ -28,6 +29,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.llm_prompt import (
     LLMPromptNotFoundError,
     LLMPromptVersionConflictError,
+    LLMPromptVersionLimitError,
     archive_prompt,
     get_active_prompt_queryset,
     get_latest_prompts_queryset,
@@ -40,7 +42,7 @@ from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import LLMPrompt, User
 from posthog.permissions import AccessControlPermission, get_organization_from_view
-from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
@@ -103,7 +105,9 @@ class LLMPromptViewSet(
         return get_active_prompt_queryset(self.team)
 
     def get_throttles(self):
-        if self.action in ["get_by_name", "update_by_name", "resolve_by_name"]:
+        if self.action == "update_by_name":
+            return [LLMPromptPublishBurstRateThrottle(), BurstRateThrottle(), SustainedRateThrottle()]
+        if self.action in ["get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
 
         return super().get_throttles()
@@ -194,8 +198,8 @@ class LLMPromptViewSet(
         queryset = queryset.order_by(ALLOWED_LIST_ORDERINGS.get(order_by, "-created_at"), "-id")
         return queryset
 
-    def perform_create(self, serializer: LLMPromptSerializer) -> None:
-        instance = serializer.save()
+    def perform_create(self, serializer: BaseSerializer[Any]) -> None:
+        instance = cast(LLMPrompt, serializer.save())
 
         report_user_action(
             cast(User, self.request.user),
@@ -205,7 +209,8 @@ class LLMPromptViewSet(
                 "prompt_name": instance.name,
                 "prompt_version": instance.version,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
     @extend_schema(
@@ -255,6 +260,16 @@ class LLMPromptViewSet(
                 },
                 status=status.HTTP_409_CONFLICT,
             )
+        except LLMPromptVersionLimitError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"Prompt has reached the maximum of {err.max_version} versions. "
+                        "Archive and recreate the prompt to continue publishing."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         report_user_action(
             cast(User, request.user),
@@ -265,7 +280,8 @@ class LLMPromptViewSet(
                 "prompt_version": published_prompt.version,
                 "base_version": payload.validated_data["base_version"],
             },
-            self.team,
+            team=self.team,
+            request=request,
         )
         return Response(self._serialize_prompt(published_prompt))
 
@@ -338,7 +354,8 @@ class LLMPromptViewSet(
                 "prompt_name": prompt_name,
                 "prompt_versions": prompt_versions,
             },
-            self.team,
+            team=self.team,
+            request=request,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -352,7 +369,8 @@ class LLMPromptViewSet(
             return self.get_paginated_response(serializer.data)
 
         serializer = self.get_serializer(queryset, many=True)
-        return Response({"count": queryset.count(), "results": serializer.data})
+        data = serializer.data
+        return Response({"count": len(data), "results": data})
 
     @llma_track_latency("llma_prompts_create")
     @monitor(feature=None, endpoint="llma_prompts_create", method="POST")

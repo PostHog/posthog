@@ -861,7 +861,6 @@ const EventContent = React.memo(
 
         const promptName = event && isLLMEvent(event) ? event.properties['$ai_prompt_name'] : null
         const promptVersion = event && isLLMEvent(event) ? event.properties['$ai_prompt_version'] : null
-        const promptVersionId = event && isLLMEvent(event) ? event.properties['$ai_prompt_version_id'] : null
         const showPromptButton = !!promptName
 
         const showPlaygroundButton = isGenerationEvent
@@ -982,13 +981,11 @@ const EventContent = React.memo(
                                             size="xsmall"
                                             icon={<IconAIText />}
                                             to={
-                                                promptVersion || promptVersionId
-                                                    ? combineUrl(urls.llmAnalyticsPrompt(promptName), {
-                                                          ...(promptVersion ? { version: String(promptVersion) } : {}),
-                                                          ...(promptVersionId
-                                                              ? { version_id: String(promptVersionId) }
-                                                              : {}),
-                                                      }).url
+                                                promptVersion
+                                                    ? combineUrl(
+                                                          urls.llmAnalyticsPrompt(promptName),
+                                                          promptVersion ? { version: String(promptVersion) } : {}
+                                                      ).url
                                                     : urls.llmAnalyticsPrompt(promptName)
                                             }
                                             tooltip="View the prompt used for this generation"

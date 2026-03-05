@@ -1,4 +1,5 @@
 import re
+import json
 from typing import Any
 
 from rest_framework import serializers
@@ -8,6 +9,17 @@ from posthog.models.llm_prompt import LLMPrompt
 
 RESERVED_PROMPT_NAMES = {"new"}
 DEFAULT_VERSION_PAGE_SIZE = 50
+MAX_PROMPT_PAYLOAD_BYTES = 1_000_000
+
+
+def validate_prompt_payload_size(prompt_payload: Any) -> Any:
+    prompt_payload_bytes = len(json.dumps(prompt_payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    if prompt_payload_bytes > MAX_PROMPT_PAYLOAD_BYTES:
+        raise serializers.ValidationError(
+            f"Prompt payload must be {MAX_PROMPT_PAYLOAD_BYTES} bytes or fewer.",
+            code="max_size",
+        )
+    return prompt_payload
 
 
 class LLMPromptFetchQuerySerializer(serializers.Serializer):
@@ -29,6 +41,9 @@ class LLMPromptResolveQuerySerializer(LLMPromptFetchQuerySerializer):
 class LLMPromptPublishSerializer(serializers.Serializer):
     prompt = serializers.JSONField()
     base_version = serializers.IntegerField(min_value=1)
+
+    def validate_prompt(self, value: Any) -> Any:
+        return validate_prompt_payload_size(value)
 
 
 class LLMPromptSerializer(serializers.ModelSerializer):
@@ -60,6 +75,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "deleted",
             "is_latest",
             "latest_version",
             "version_count",
@@ -98,15 +114,12 @@ class LLMPromptSerializer(serializers.ModelSerializer):
 
         return value
 
+    def validate_prompt(self, value: Any) -> Any:
+        return validate_prompt_payload_size(value)
+
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()
         name = data.get("name")
-
-        if "deleted" in data:
-            raise serializers.ValidationError(
-                {"deleted": "Use the archive endpoint to archive all active versions for this prompt."},
-                code="immutable",
-            )
 
         if self.instance is None:
             if name and LLMPrompt.objects.filter(name=name, team=team, deleted=False).exists():

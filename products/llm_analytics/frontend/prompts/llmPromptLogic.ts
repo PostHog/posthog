@@ -26,7 +26,9 @@ import {
     NodeKind,
     ProductIntentContext,
     ProductKey,
+    TracesQuery,
 } from '~/queries/schema/schema-general'
+import { isTracesQuery } from '~/queries/utils'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
 import {
@@ -42,6 +44,7 @@ import {
 
 import type { llmPromptLogicType } from './llmPromptLogicType'
 import { llmPromptsLogic } from './llmPromptsLogic'
+import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
 
 export enum PromptMode {
     View = 'view',
@@ -57,7 +60,6 @@ export interface PromptLogicProps {
     promptName: string | 'new'
     mode?: PromptMode
     selectedVersion?: number | null
-    selectedVersionId?: string | null
     tabId?: string
 }
 
@@ -66,7 +68,7 @@ export interface PromptFormValues {
     prompt: string
 }
 
-interface ResolvedLLMPrompt extends LLMPrompt {
+export interface ResolvedLLMPrompt extends LLMPrompt {
     versions: LLMPromptVersionSummary[]
     has_more: boolean
 }
@@ -82,12 +84,14 @@ const DEFAULT_PROMPT_FORM_VALUES: PromptFormValues = {
 
 const PROMPT_FETCHED_EVENT = '$llm_prompt_fetched'
 const PROMPT_VERSIONS_LIMIT = 50
+export const PROMPT_NAME_MAX_LENGTH = 255
+const DEFAULT_PROMPT_ANALYTICS_DATE_FROM = '-1d'
 const STALE_PROMPT_ERROR_MESSAGE =
     'This prompt changed while you were editing it. Review the latest version and try again.'
 
 async function fetchResolvedPrompt(
     promptName: string,
-    params?: { version?: number; version_id?: string; offset?: number; before_version?: number; limit?: number }
+    params?: { version?: number; offset?: number; before_version?: number; limit?: number }
 ): Promise<ResolvedLLMPrompt> {
     return getResolvedPrompt(
         await api.llmPrompts.resolveByName(promptName, {
@@ -115,6 +119,16 @@ function getResolvedPrompt(response: LLMPromptResolveResponse): ResolvedLLMPromp
     }
 }
 
+function buildPromptVersionSummary(prompt: LLMPrompt, isLatest: boolean): LLMPromptVersionSummary {
+    return {
+        id: prompt.id,
+        version: prompt.version,
+        created_by: prompt.created_by,
+        created_at: prompt.created_at,
+        is_latest: isLatest,
+    }
+}
+
 function getApiErrorDetail(error: unknown): string | undefined {
     if (error !== null && typeof error === 'object' && 'detail' in error && typeof error.detail === 'string') {
         return error.detail
@@ -137,8 +151,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     path(['scenes', 'llm-analytics', 'llmPromptLogic']),
     props({ promptName: 'new' } as PromptLogicProps),
     key(
-        ({ promptName, selectedVersion, selectedVersionId, tabId }) =>
-            `prompt-${promptName}:${selectedVersionId ?? selectedVersion ?? 'latest'}::${tabId ?? 'default'}`
+        ({ promptName, selectedVersion, tabId }) =>
+            `prompt-${promptName}:${selectedVersion ?? 'latest'}::${tabId ?? 'default'}`
     ),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
@@ -151,6 +165,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         setVersionsLoading: (versionsLoading: boolean) => ({ versionsLoading }),
         setMode: (mode: PromptMode) => ({ mode }),
         setAnalyticsScope: (analyticsScope: PromptAnalyticsScope) => ({ analyticsScope }),
+        setRelatedTracesQuery: (query: DataTableNode) => ({ query }),
     }),
 
     reducers(({ props }) => ({
@@ -181,6 +196,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 setAnalyticsScope: (_, { analyticsScope }) => analyticsScope,
             },
         ],
+        relatedTracesQueryOverride: [
+            null as DataTableNode | null,
+            {
+                setRelatedTracesQuery: (_, { query }) => query,
+            },
+        ],
     })),
 
     loaders(({ props }) => ({
@@ -189,7 +210,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             loadPrompt: async () =>
                 fetchResolvedPrompt(props.promptName, {
                     version: props.selectedVersion ?? undefined,
-                    version_id: props.selectedVersionId ?? undefined,
                 }),
         },
     })),
@@ -204,9 +224,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                     ? 'Name is required'
                     : name.toLowerCase() === 'new'
                       ? "'new' is a reserved name and cannot be used"
-                      : !/^[a-zA-Z0-9_-]+$/.test(name)
-                        ? 'Only letters, numbers, hyphens (-), and underscores (_) are allowed'
-                        : undefined,
+                      : name.length > PROMPT_NAME_MAX_LENGTH
+                        ? `Name must be ${PROMPT_NAME_MAX_LENGTH} characters or fewer`
+                        : !/^[a-zA-Z0-9_-]+$/.test(name)
+                          ? 'Only letters, numbers, hyphens (-), and underscores (_) are allowed'
+                          : undefined,
                 prompt: !prompt?.trim() ? 'Prompt content is required' : undefined,
             }),
 
@@ -242,8 +264,27 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                         })
                         llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                         lemonToast.success('Prompt version published successfully')
+
+                        const optimisticVersions = [
+                            buildPromptVersionSummary(savedPrompt, true),
+                            ...currentPrompt.versions
+                                .filter((version) => version.id !== savedPrompt.id)
+                                .map((version) => ({ ...version, is_latest: false })),
+                        ]
+
+                        actions.setPrompt({
+                            ...savedPrompt,
+                            versions: optimisticVersions,
+                            has_more: currentPrompt.has_more,
+                        })
+                        actions.setPromptFormValues(getPromptFormDefaults(savedPrompt))
+                        actions.setMode(PromptMode.View)
                         router.actions.replace(urls.llmAnalyticsPrompt(props.promptName))
-                        await refreshLatestPromptState(props.promptName, actions)
+
+                        // PATCH already succeeded, so keep optimistic state even if follow-up read fails.
+                        try {
+                            await refreshLatestPromptState(props.promptName, actions)
+                        } catch {}
                     }
 
                     actions.setMode(PromptMode.View)
@@ -353,8 +394,14 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                     return [
                         {
                             type: PropertyFilterType.Event,
-                            key: '$ai_prompt_version_id',
-                            value: prompt.id,
+                            key: '$ai_prompt_name',
+                            value: prompt.name,
+                            operator: PropertyOperator.Exact,
+                        },
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$ai_prompt_version',
+                            value: prompt.version,
                             operator: PropertyOperator.Exact,
                         },
                     ]
@@ -371,9 +418,9 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             },
         ],
 
-        relatedTracesQuery: [
-            (s) => [s.prompt, s.tracePropertyFilters, s.analyticsScope],
-            (prompt, tracePropertyFilters, analyticsScope): DataTableNode | null => {
+        defaultRelatedTracesQuery: [
+            (s) => [s.prompt, s.tracePropertyFilters],
+            (prompt, tracePropertyFilters): DataTableNode | null => {
                 if (!isPrompt(prompt)) {
                     return null
                 }
@@ -383,17 +430,24 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                     source: {
                         kind: NodeKind.TracesQuery,
                         dateRange: {
-                            date_from:
-                                analyticsScope === PromptAnalyticsScope.AllVersions
-                                    ? prompt.first_version_created_at
-                                    : '-7d',
+                            date_from: DEFAULT_PROMPT_ANALYTICS_DATE_FROM,
                             date_to: undefined,
                         },
                         filterTestAccounts: false,
                         filterSupportTraces: true,
                         properties: tracePropertyFilters,
                     },
-                    columns: ['id', 'traceName', 'person', 'errors', 'totalLatency', 'usage', 'totalCost', 'timestamp'],
+                    columns: [
+                        'id',
+                        'traceName',
+                        'promptVersion',
+                        'person',
+                        'errors',
+                        'totalLatency',
+                        'usage',
+                        'totalCost',
+                        'timestamp',
+                    ],
                     showDateRange: true,
                     showReload: true,
                     showSearch: false,
@@ -404,20 +458,53 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 }
             },
         ],
+        relatedTracesQuery: [
+            (s) => [s.defaultRelatedTracesQuery, s.relatedTracesQueryOverride],
+            (defaultRelatedTracesQuery, relatedTracesQueryOverride): DataTableNode | null => {
+                if (!defaultRelatedTracesQuery) {
+                    return null
+                }
+                if (!relatedTracesQueryOverride) {
+                    return defaultRelatedTracesQuery
+                }
+                if (
+                    !isTracesQuery(defaultRelatedTracesQuery.source) ||
+                    !isTracesQuery(relatedTracesQueryOverride.source)
+                ) {
+                    return defaultRelatedTracesQuery
+                }
+
+                return {
+                    ...defaultRelatedTracesQuery,
+                    ...relatedTracesQueryOverride,
+                    source: {
+                        ...(defaultRelatedTracesQuery.source as TracesQuery),
+                        ...(relatedTracesQueryOverride.source as TracesQuery),
+                        properties: defaultRelatedTracesQuery.source.properties,
+                    },
+                    columns: defaultRelatedTracesQuery.columns,
+                }
+            },
+        ],
 
         viewAllTracesUrl: [
-            (s) => [s.prompt, s.tracePropertyFilters, s.analyticsScope],
-            (prompt, tracePropertyFilters, analyticsScope): string => {
+            (s) => [s.prompt, s.relatedTracesQuery, s.tracePropertyFilters],
+            (prompt, relatedTracesQuery, tracePropertyFilters): string => {
                 if (!isPrompt(prompt)) {
                     return urls.llmAnalyticsTraces()
                 }
 
+                if (relatedTracesQuery && isTracesQuery(relatedTracesQuery.source)) {
+                    return combineUrl(urls.llmAnalyticsTraces(), {
+                        filters: relatedTracesQuery.source.properties ?? tracePropertyFilters,
+                        date_from: relatedTracesQuery.source.dateRange?.date_from ?? DEFAULT_PROMPT_ANALYTICS_DATE_FROM,
+                        date_to: relatedTracesQuery.source.dateRange?.date_to ?? undefined,
+                    }).url
+                }
+
                 return combineUrl(urls.llmAnalyticsTraces(), {
-                    filters: JSON.stringify(tracePropertyFilters),
-                    date_from:
-                        analyticsScope === PromptAnalyticsScope.AllVersions
-                            ? prompt.first_version_created_at
-                            : undefined,
+                    filters: tracePropertyFilters,
+                    date_from: DEFAULT_PROMPT_ANALYTICS_DATE_FROM,
                 }).url
             },
         ],
@@ -453,50 +540,63 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
         promptUsageTrendQuery: [
             (s) => [s.prompt, s.promptUsagePropertyFilter, s.analyticsScope],
-            (prompt, promptUsagePropertyFilter, analyticsScope): InsightVizNode => ({
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    series: [{ kind: NodeKind.EventsNode, event: PROMPT_FETCHED_EVENT, name: PROMPT_FETCHED_EVENT }],
-                    properties: promptUsagePropertyFilter,
-                    dateRange: {
-                        date_from:
-                            analyticsScope === PromptAnalyticsScope.AllVersions && isPrompt(prompt)
-                                ? prompt.first_version_created_at
-                                : '-30d',
-                        explicitDate: analyticsScope === PromptAnalyticsScope.AllVersions,
+            (
+                prompt: PromptFormValues | ResolvedLLMPrompt | null,
+                promptUsagePropertyFilter: AnyPropertyFilter[],
+                analyticsScope: PromptAnalyticsScope
+            ): InsightVizNode => {
+                void prompt
+                void analyticsScope
+
+                return {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            { kind: NodeKind.EventsNode, event: PROMPT_FETCHED_EVENT, name: PROMPT_FETCHED_EVENT },
+                        ],
+                        properties: promptUsagePropertyFilter,
+                        dateRange: {
+                            date_from: DEFAULT_PROMPT_ANALYTICS_DATE_FROM,
+                        },
+                        interval: 'day',
+                        trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
                     },
-                    interval: 'day',
-                    trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-                },
-                full: false,
-                showLastComputation: true,
-                showLastComputationRefresh: true,
-            }),
+                    full: false,
+                    showLastComputation: true,
+                    showLastComputationRefresh: true,
+                }
+            },
         ],
 
         promptUsageLogQuery: [
             (s) => [s.prompt, s.promptUsagePropertyFilter, s.analyticsScope],
-            (prompt, promptUsagePropertyFilter, analyticsScope): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    event: PROMPT_FETCHED_EVENT,
-                    properties: promptUsagePropertyFilter,
-                    select: [
-                        ...defaultDataTableColumns(NodeKind.EventsQuery),
-                        'properties.prompt_name',
-                        'properties.prompt_version',
-                    ],
-                    after:
-                        analyticsScope === PromptAnalyticsScope.AllVersions && isPrompt(prompt)
-                            ? prompt.first_version_created_at
-                            : '-30d',
-                },
-                full: false,
-                showDateRange: true,
-                showReload: true,
-            }),
+            (
+                prompt: PromptFormValues | ResolvedLLMPrompt | null,
+                promptUsagePropertyFilter: AnyPropertyFilter[],
+                analyticsScope: PromptAnalyticsScope
+            ): DataTableNode => {
+                void prompt
+                void analyticsScope
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        event: PROMPT_FETCHED_EVENT,
+                        properties: promptUsagePropertyFilter,
+                        select: [
+                            ...defaultDataTableColumns(NodeKind.EventsQuery),
+                            'properties.prompt_name',
+                            'properties.prompt_version',
+                        ],
+                        after: DEFAULT_PROMPT_ANALYTICS_DATE_FROM,
+                    },
+                    full: false,
+                    showDateRange: true,
+                    showReload: true,
+                }
+            },
         ],
     }),
 
@@ -507,7 +607,10 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                     await api.llmPrompts.archiveByName(values.prompt.name)
                     lemonToast.info(`${values.prompt.name || 'Prompt'} has been archived.`)
                     llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
-                    router.actions.replace(urls.llmAnalyticsPrompts(), router.values.searchParams)
+                    router.actions.replace(urls.llmAnalyticsPrompts(), {
+                        ...router.values.searchParams,
+                        [LLM_PROMPTS_FORCE_RELOAD_PARAM]: String(Date.now()),
+                    })
                 } catch {
                     lemonToast.error('Failed to archive prompt')
                 }
@@ -529,7 +632,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
                 const response = await fetchResolvedPrompt(props.promptName, {
                     version: values.prompt.version,
-                    version_id: values.prompt.id,
                     before_version: oldestLoadedVersion,
                 })
 
@@ -537,7 +639,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 const appendedVersions = response.versions.filter((version) => !existingVersionIds.has(version.id))
 
                 actions.setPrompt({
-                    ...response.prompt,
+                    ...response,
                     versions: [...values.prompt.versions, ...appendedVersions],
                     has_more: response.has_more,
                 })
@@ -592,7 +694,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
     afterMount(({ actions, values }) => {
         if (values.isNewPrompt) {
-            actions.resetPromptForm()
+            actions.setPrompt(DEFAULT_PROMPT_FORM_VALUES)
+            actions.resetPromptForm(DEFAULT_PROMPT_FORM_VALUES)
         } else {
             actions.loadPrompt()
         }
@@ -610,6 +713,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
     tabAwareUrlToAction(({ actions, values }) => ({
         '/llm-analytics/prompts/:name': (_, __, ___, { method }) => {
+            if (method === 'PUSH' && values.isNewPrompt) {
+                actions.setPrompt(DEFAULT_PROMPT_FORM_VALUES)
+                actions.resetPromptForm(DEFAULT_PROMPT_FORM_VALUES)
+                return
+            }
+
             if (method === 'PUSH' && !values.isNewPrompt) {
                 actions.loadPrompt()
             }

@@ -1872,6 +1872,10 @@ export class ApiRequest {
         return this.llmPrompts(teamId).addPathComponent('name').addPathComponent(name)
     }
 
+    public llmPromptArchiveByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmPromptByName(name, teamId).addPathComponent('archive')
+    }
+
     public llmPromptResolveByName(name: string, teamId?: TeamType['id']): ApiRequest {
         return this.llmPrompts(teamId).addPathComponent('resolve').addPathComponent('name').addPathComponent(name)
     }
@@ -5655,7 +5659,7 @@ const api = {
         },
 
         async archiveByName(promptName: string): Promise<void> {
-            await new ApiRequest().llmPromptByName(promptName).addPathComponent('archive').create({ data: {} })
+            await new ApiRequest().llmPromptArchiveByName(promptName).create({ data: {} })
         },
 
         async create(data: { name: LLMPrompt['name']; prompt: LLMPrompt['prompt'] }): Promise<LLMPrompt> {

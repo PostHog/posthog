@@ -11,6 +11,7 @@ from posthog.models.llm_prompt import LLMPrompt, annotate_llm_prompt_version_his
 from posthog.storage.llm_prompt_cache import invalidate_prompt_latest_cache, invalidate_prompt_version_caches
 
 SYNC_ARCHIVE_VERSION_INVALIDATION_LIMIT = 100
+MAX_PROMPT_VERSION = 2000
 
 
 class LLMPromptNotFoundError(Exception):
@@ -20,6 +21,11 @@ class LLMPromptNotFoundError(Exception):
 @dataclass
 class LLMPromptVersionConflictError(Exception):
     current_version: int
+
+
+@dataclass
+class LLMPromptVersionLimitError(Exception):
+    max_version: int
 
 
 def get_active_prompt_queryset(team: Team) -> QuerySet[LLMPrompt]:
@@ -98,6 +104,8 @@ def publish_prompt_version(
 
         if base_version != current_latest.version:
             raise LLMPromptVersionConflictError(current_version=current_latest.version)
+        if current_latest.version >= MAX_PROMPT_VERSION:
+            raise LLMPromptVersionLimitError(max_version=MAX_PROMPT_VERSION)
 
         LLMPrompt.objects.filter(pk=current_latest.pk).update(is_latest=False)
         published_prompt = LLMPrompt.objects.create(
@@ -109,7 +117,10 @@ def publish_prompt_version(
             created_by=user,
         )
 
-    return get_active_prompt_queryset(team).filter(pk=published_prompt.pk).order_by("-created_at", "-id").get()
+        refreshed_prompt = (
+            get_active_prompt_queryset(team).filter(pk=published_prompt.pk).order_by("-created_at", "-id").first()
+        )
+        return refreshed_prompt if refreshed_prompt is not None else published_prompt
 
 
 def archive_prompt(team: Team, prompt_name: str) -> list[int]:

@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { NodeKind, TracesQuery } from '~/queries/schema/schema-general'
+import { EventsQuery, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -68,17 +68,23 @@ describe('llmPromptLogic', () => {
         expect(source.properties).toEqual([
             {
                 type: PropertyFilterType.Event,
-                key: '$ai_prompt_version_id',
-                value: 'prompt-version-2',
+                key: '$ai_prompt_name',
+                value: 'my-test-prompt',
+                operator: PropertyOperator.Exact,
+            },
+            {
+                type: PropertyFilterType.Event,
+                key: '$ai_prompt_version',
+                value: 2,
                 operator: PropertyOperator.Exact,
             },
         ])
-        expect(source.dateRange?.date_from).toBe('-7d')
+        expect(source.dateRange?.date_from).toBe('-1d')
 
         logic.unmount()
     })
 
-    it('switches traces and usage filters to all current versions scope', async () => {
+    it('switches traces and usage filters to all versions scope', async () => {
         const logic = llmPromptLogic({ promptName: 'existing-prompt' })
         logic.mount()
         logic.actions.setPrompt(mockPrompt)
@@ -106,7 +112,58 @@ describe('llmPromptLogic', () => {
                 operator: PropertyOperator.Exact,
             },
         ])
-        expect(source.dateRange?.date_from).toBe('2024-01-01T00:00:00Z')
+        expect(source.dateRange?.date_from).toBe('-1d')
+
+        logic.unmount()
+    })
+
+    it('applies traces query overrides and preserves scope-specific property filters', async () => {
+        const logic = llmPromptLogic({ promptName: 'existing-prompt' })
+        logic.mount()
+        logic.actions.setPrompt(mockPrompt)
+
+        const initialQuery = logic.values.relatedTracesQuery
+        expect(initialQuery).not.toBeNull()
+
+        logic.actions.setRelatedTracesQuery({
+            ...initialQuery!,
+            source: {
+                ...(initialQuery!.source as TracesQuery),
+                dateRange: {
+                    date_from: '-7d',
+                    date_to: undefined,
+                },
+            },
+        })
+
+        let source = logic.values.relatedTracesQuery?.source as TracesQuery
+        expect(source.dateRange?.date_from).toBe('-7d')
+        expect(source.properties).toEqual([
+            {
+                type: PropertyFilterType.Event,
+                key: '$ai_prompt_name',
+                value: 'my-test-prompt',
+                operator: PropertyOperator.Exact,
+            },
+            {
+                type: PropertyFilterType.Event,
+                key: '$ai_prompt_version',
+                value: 2,
+                operator: PropertyOperator.Exact,
+            },
+        ])
+
+        logic.actions.setAnalyticsScope(PromptAnalyticsScope.AllVersions)
+        source = logic.values.relatedTracesQuery?.source as TracesQuery
+        expect(source.dateRange?.date_from).toBe('-7d')
+        expect(source.properties).toEqual([
+            {
+                type: PropertyFilterType.Event,
+                key: '$ai_prompt_name',
+                value: 'my-test-prompt',
+                operator: PropertyOperator.Exact,
+            },
+        ])
 
         logic.unmount()
     })
@@ -119,16 +176,67 @@ describe('llmPromptLogic', () => {
         const url = logic.values.viewAllTracesUrl
         expect(url).toContain('/llm-analytics/traces?')
 
-        const filterParam = url.split('filters=')[1]
-        const decodedFilter = JSON.parse(decodeURIComponent(filterParam))
+        const parsedUrl = new URL(url, 'https://posthog.test')
+        const decodedFilter = JSON.parse(parsedUrl.searchParams.get('filters') || '[]')
         expect(decodedFilter).toEqual([
             {
                 type: PropertyFilterType.Event,
-                key: '$ai_prompt_version_id',
-                value: 'prompt-version-2',
+                key: '$ai_prompt_name',
+                value: 'my-test-prompt',
+                operator: PropertyOperator.Exact,
+            },
+            {
+                type: PropertyFilterType.Event,
+                key: '$ai_prompt_version',
+                value: 2,
                 operator: PropertyOperator.Exact,
             },
         ])
+        expect(parsedUrl.searchParams.get('date_from')).toBe('-1d')
+
+        logic.unmount()
+    })
+
+    it('uses the currently selected related-traces date range in view-all-traces URL', async () => {
+        const logic = llmPromptLogic({ promptName: 'existing-prompt' })
+        logic.mount()
+        logic.actions.setPrompt(mockPrompt)
+
+        const initialQuery = logic.values.relatedTracesQuery
+        expect(initialQuery).not.toBeNull()
+
+        logic.actions.setRelatedTracesQuery({
+            ...initialQuery!,
+            source: {
+                ...(initialQuery!.source as TracesQuery),
+                dateRange: {
+                    date_from: '-30d',
+                    date_to: '-1d',
+                },
+            },
+        })
+
+        const url = logic.values.viewAllTracesUrl
+        const parsedUrl = new URL(url, 'https://posthog.test')
+
+        expect(parsedUrl.searchParams.get('date_from')).toBe('-30d')
+        expect(parsedUrl.searchParams.get('date_to')).toBe('-1d')
+
+        logic.unmount()
+    })
+
+    it('defaults usage trend and log date ranges to last 1 day', async () => {
+        const logic = llmPromptLogic({ promptName: 'existing-prompt' })
+        logic.mount()
+        logic.actions.setPrompt(mockPrompt)
+
+        expect(logic.values.promptUsageTrendQuery.source.dateRange?.date_from).toBe('-1d')
+        expect((logic.values.promptUsageLogQuery.source as EventsQuery).after).toBe('-1d')
+
+        logic.actions.setAnalyticsScope(PromptAnalyticsScope.AllVersions)
+
+        expect(logic.values.promptUsageTrendQuery.source.dateRange?.date_from).toBe('-1d')
+        expect((logic.values.promptUsageLogQuery.source as EventsQuery).after).toBe('-1d')
 
         logic.unmount()
     })
@@ -141,5 +249,25 @@ describe('llmPromptLogic', () => {
         expect(logic.values.breadcrumbs[1].name).toBe('my-test-prompt v2')
 
         logic.unmount()
+    })
+
+    it('resets new prompt form values after unmount and remount', async () => {
+        const firstMount = llmPromptLogic({ promptName: 'new' })
+        firstMount.mount()
+
+        firstMount.actions.setPromptFormValues({
+            name: 'stale-name',
+            prompt: 'stale prompt',
+        })
+        expect(firstMount.values.promptForm.name).toBe('stale-name')
+        expect(firstMount.values.promptForm.prompt).toBe('stale prompt')
+        firstMount.unmount()
+
+        const secondMount = llmPromptLogic({ promptName: 'new' })
+        secondMount.mount()
+
+        expect(secondMount.values.promptForm.name).toBe('')
+        expect(secondMount.values.promptForm.prompt).toBe('')
+        secondMount.unmount()
     })
 })

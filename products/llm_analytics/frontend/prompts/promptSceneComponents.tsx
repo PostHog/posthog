@@ -13,7 +13,7 @@ import { Query } from '~/queries/Query/Query'
 import { LLMPrompt, LLMPromptVersionSummary } from '~/types'
 
 import { useTracesQueryContext } from '../LLMAnalyticsTracesScene'
-import { PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
+import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
 
 export function PromptViewDetails(): JSX.Element {
     const { prompt } = useValues(llmPromptLogic)
@@ -44,8 +44,7 @@ export function PromptViewDetails(): JSX.Element {
                     </LemonTag>
                 )}
                 <span className="text-secondary text-sm">
-                    Latest version is v{prompt.latest_version}. This prompt has {prompt.version_count} published version
-                    {prompt.version_count === 1 ? '' : 's'}.
+                    This prompt has {prompt.version_count} published version{prompt.version_count === 1 ? '' : 's'}.
                 </span>
             </div>
 
@@ -61,9 +60,7 @@ export function PromptViewDetails(): JSX.Element {
 
             <div className="grid gap-3 text-sm text-secondary sm:grid-cols-2">
                 <div>Published {dayjs(prompt.created_at).format('MMM D, YYYY h:mm A')}</div>
-                <div>
-                    First active version created {dayjs(prompt.first_version_created_at).format('MMM D, YYYY h:mm A')}
-                </div>
+                <div>First version created {dayjs(prompt.first_version_created_at).format('MMM D, YYYY h:mm A')}</div>
             </div>
 
             {variables.length > 0 && (
@@ -82,7 +79,7 @@ export function PromptViewDetails(): JSX.Element {
 
 export function PromptRelatedTraces(): JSX.Element {
     const { prompt, relatedTracesQuery, viewAllTracesUrl, analyticsScope } = useValues(llmPromptLogic)
-    const { setAnalyticsScope } = useActions(llmPromptLogic)
+    const { setAnalyticsScope, setRelatedTracesQuery } = useActions(llmPromptLogic)
     const tracesQueryContext = useTracesQueryContext()
 
     if (!prompt || !isPrompt(prompt)) {
@@ -91,18 +88,17 @@ export function PromptRelatedTraces(): JSX.Element {
 
     return (
         <div className="mt-8" data-attr="prompt-related-traces-section">
-            <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
+            <div className="mb-4 flex flex-col gap-3">
+                <div className="min-w-0 flex-1">
                     <h3 className="text-lg font-semibold">Related traces</h3>
                     <p className="mt-1 text-sm text-secondary">
-                        Send <code className="rounded bg-bg-light px-1">$ai_prompt_name</code>,{' '}
-                        <code className="rounded bg-bg-light px-1">$ai_prompt_version</code>, and{' '}
-                        <code className="rounded bg-bg-light px-1">$ai_prompt_version_id</code> with your LLM events for
+                        Send <code className="rounded bg-bg-light px-1">$ai_prompt_name</code> and{' '}
+                        <code className="rounded bg-bg-light px-1">$ai_prompt_version</code> with your LLM events for
                         version-specific attribution.
                     </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <PromptAnalyticsScopeControls
                         analyticsScope={analyticsScope}
                         setAnalyticsScope={setAnalyticsScope}
@@ -120,15 +116,16 @@ export function PromptRelatedTraces(): JSX.Element {
 
             {analyticsScope === PromptAnalyticsScope.Selected && (
                 <LemonBanner type="info" className="mb-4">
-                    Selected-version trace filtering uses <code>$ai_prompt_version_id</code>. If your events only send
-                    the prompt name, switch to all current versions.
+                    Currently matching <code>$ai_prompt_name="{prompt.name}"</code> and{' '}
+                    <code>$ai_prompt_version={prompt.version}</code>. If your events only send the prompt name, switch
+                    to all versions.
                 </LemonBanner>
             )}
 
             {relatedTracesQuery && (
                 <DataTable
                     query={relatedTracesQuery}
-                    setQuery={() => {}}
+                    setQuery={setRelatedTracesQuery}
                     context={tracesQueryContext}
                     uniqueKey="prompt-related-traces"
                     attachTo={llmPromptLogic}
@@ -153,13 +150,13 @@ export function PromptUsage({ prompt }: { prompt: LLMPrompt }): JSX.Element {
                 .
             </LemonBanner>
 
-            <div className="mb-4 flex items-center justify-between gap-2">
-                <div>
+            <div className="mb-4 flex flex-col gap-2">
+                <div className="min-w-0">
                     <b>Trend</b>
                     <div className="text-secondary">
                         {analyticsScope === PromptAnalyticsScope.Selected
                             ? `Prompt fetches for "${prompt.name}" version ${prompt.version}`
-                            : `Prompt fetches for all current versions of "${prompt.name}"`}
+                            : `Prompt fetches for all versions of "${prompt.name}"`}
                     </div>
                 </div>
 
@@ -172,7 +169,7 @@ export function PromptUsage({ prompt }: { prompt: LLMPrompt }): JSX.Element {
                 <div className="text-secondary">
                     {analyticsScope === PromptAnalyticsScope.Selected
                         ? `Prompt fetch events for "${prompt.name}" version ${prompt.version}`
-                        : `Prompt fetch events for all current versions of "${prompt.name}"`}
+                        : `Prompt fetch events for all versions of "${prompt.name}"`}
                 </div>
             </div>
             <Query query={promptUsageLogQuery} />
@@ -190,7 +187,7 @@ export function PromptEditForm({
     const { promptVariables, isNewPrompt } = useValues(llmPromptLogic)
 
     return (
-        <div className="max-w-3xl space-y-4">
+        <div className="mt-4 max-w-3xl space-y-4">
             {isHistoricalVersion && selectedVersion ? (
                 <LemonBanner type="info">
                     You are publishing a new latest version from historical version v{selectedVersion}. The original
@@ -203,13 +200,13 @@ export function PromptEditForm({
                 label="Name"
                 help={
                     isNewPrompt
-                        ? 'This name is used to fetch the prompt from your code. It must be unique and cannot be changed later. Only letters, numbers, hyphens (-), and underscores (_) are allowed.'
+                        ? `This name is used to fetch the prompt from your code. It must be unique and cannot be changed later. Maximum ${PROMPT_NAME_MAX_LENGTH} characters. Only letters, numbers, hyphens (-), and underscores (_) are allowed.`
                         : 'This name is used to fetch the prompt from your code.'
                 }
             >
                 <LemonInput
-                    name="name"
                     placeholder="my-prompt-name"
+                    maxLength={PROMPT_NAME_MAX_LENGTH}
                     fullWidth
                     disabledReason={!isNewPrompt ? 'Prompt name cannot be changed after creation' : undefined}
                 />
@@ -221,7 +218,6 @@ export function PromptEditForm({
                 help="Use {{variable_name}} to define variables that will be replaced when fetching the prompt from your backend."
             >
                 <LemonTextArea
-                    name="prompt"
                     placeholder="You are a helpful assistant for {{company_name}}. Help the user with their question about {{topic}}."
                     minRows={10}
                     className="font-mono"
@@ -260,7 +256,7 @@ export function PromptVersionSidebar({
     searchParams: Record<string, any>
 }): JSX.Element {
     return (
-        <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:w-80">
+        <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:mt-3 xl:w-80">
             <div className="rounded border bg-surface-primary p-4">
                 <div className="mb-3 flex items-center justify-between">
                     <div>
@@ -274,12 +270,7 @@ export function PromptVersionSidebar({
                 <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
                     {versions.map((versionPrompt) => {
                         const selected = prompt?.id === versionPrompt.id
-                        const versionUrl = buildPromptUrl(
-                            promptName,
-                            searchParams,
-                            versionPrompt.version,
-                            versionPrompt.id
-                        )
+                        const versionUrl = buildPromptUrl(promptName, searchParams, versionPrompt.version)
 
                         return (
                             <Link
@@ -329,8 +320,7 @@ export function PromptVersionSidebar({
 
 export function cleanPromptSearchParams(
     searchParams: Record<string, any>,
-    version: number | null,
-    versionId?: string | null
+    version: number | null
 ): Record<string, any> {
     const nextSearchParams = { ...searchParams }
 
@@ -340,24 +330,14 @@ export function cleanPromptSearchParams(
         delete nextSearchParams.version
     }
 
-    if (versionId) {
-        nextSearchParams.version_id = versionId
-    } else {
-        delete nextSearchParams.version_id
-    }
+    delete nextSearchParams.version_id
 
     delete nextSearchParams.edit
     return nextSearchParams
 }
 
-export function buildPromptUrl(
-    promptName: string,
-    searchParams: Record<string, any>,
-    version: number | null,
-    versionId?: string | null
-): string {
-    return combineUrl(urls.llmAnalyticsPrompt(promptName), cleanPromptSearchParams(searchParams, version, versionId))
-        .url
+export function buildPromptUrl(promptName: string, searchParams: Record<string, any>, version: number | null): string {
+    return combineUrl(urls.llmAnalyticsPrompt(promptName), cleanPromptSearchParams(searchParams, version)).url
 }
 
 function PromptAnalyticsScopeControls({
@@ -368,7 +348,7 @@ function PromptAnalyticsScopeControls({
     setAnalyticsScope: (analyticsScope: PromptAnalyticsScope) => void
 }): JSX.Element {
     return (
-        <div className="flex items-center gap-1 rounded border p-1">
+        <div className="flex flex-wrap items-center gap-1 rounded border p-1">
             <LemonButton
                 size="xsmall"
                 type={analyticsScope === PromptAnalyticsScope.Selected ? 'primary' : 'secondary'}
@@ -381,7 +361,7 @@ function PromptAnalyticsScopeControls({
                 type={analyticsScope === PromptAnalyticsScope.AllVersions ? 'primary' : 'secondary'}
                 onClick={() => setAnalyticsScope(PromptAnalyticsScope.AllVersions)}
             >
-                All current versions
+                All versions
             </LemonButton>
         </div>
     )

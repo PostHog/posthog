@@ -15,7 +15,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
-import { createdAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
+import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
@@ -74,15 +74,6 @@ export function LLMPromptsScene(): JSX.Element {
             },
         },
         {
-            title: 'Latest version',
-            dataIndex: 'latest_version',
-            key: 'latest_version',
-            width: 120,
-            render: function renderLatestVersion(_, prompt) {
-                return <span className="font-mono text-sm">v{prompt.latest_version}</span>
-            },
-        },
-        {
             title: 'Versions',
             dataIndex: 'version_count',
             key: 'version_count',
@@ -91,7 +82,7 @@ export function LLMPromptsScene(): JSX.Element {
                 return <span className="text-muted-alt">{prompt.version_count}</span>
             },
         },
-        createdAtColumn<LLMPrompt>() as LemonTableColumn<LLMPrompt, keyof LLMPrompt | undefined>,
+        atColumn('created_at', 'Latest version created') as LemonTableColumn<LLMPrompt, keyof LLMPrompt | undefined>,
         {
             width: 0,
             render: function renderMore(_, prompt) {

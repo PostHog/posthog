@@ -8,7 +8,10 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.llm_prompt import LLMPromptViewSet
+from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES
+from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
 from posthog.models.llm_prompt import LLMPrompt
+from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 
 
 @patch("posthog.api.llm_prompt.posthoganalytics.feature_enabled", return_value=True)
@@ -103,16 +106,30 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["version"] == 1
         assert response.json()["latest_version"] == 1
 
-    def test_create_prompt_rejects_deleted_field(self, mock_feature_enabled):
+    def test_create_prompt_ignores_deleted_field(self, mock_feature_enabled):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_prompts/",
             data={"name": "my-prompt", "prompt": "Prompt content", "deleted": True},
             format="json",
         )
 
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["deleted"] is False
+        created_prompt = LLMPrompt.objects.get(team=self.team, name="my-prompt", version=1, deleted=False)
+        assert created_prompt.deleted is False
+
+    def test_create_prompt_rejects_payload_above_max_size(self, mock_feature_enabled):
+        oversized_prompt = "x" * (MAX_PROMPT_PAYLOAD_BYTES + 1)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "oversized-prompt", "prompt": oversized_prompt},
+            format="json",
+        )
+
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "deleted"
-        assert "archive endpoint" in response.json()["detail"]
+        assert response.json()["attr"] == "prompt"
+        assert "bytes or fewer" in response.json()["detail"]
 
     def test_retrieve_prompt_by_id_is_not_routed(self, mock_feature_enabled):
         prompt = self.create_prompt_version(name="original-name")
@@ -233,6 +250,20 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["latest_version"] == 2
         assert response.json()["version_count"] == 2
 
+    def test_update_prompt_by_name_falls_back_when_post_publish_refresh_misses_row(self, mock_feature_enabled):
+        self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
+
+        with patch("posthog.api.services.llm_prompt.get_active_prompt_queryset", return_value=LLMPrompt.objects.none()):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/llm_prompts/name/publish-prompt/",
+                data={"prompt": "v2", "base_version": 1},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version"] == 2
+        assert LLMPrompt.objects.filter(team=self.team, name="publish-prompt", version=2, deleted=False).exists()
+
     def test_update_prompt_by_name_returns_conflict_for_stale_base_version(self, mock_feature_enabled):
         self.create_prompt_version(name="publish-prompt", version=1, is_latest=False, prompt="v1")
         self.create_prompt_version(name="publish-prompt", version=2, is_latest=True, prompt="v2")
@@ -245,6 +276,33 @@ class TestLLMPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["current_version"] == 2
+
+    def test_update_prompt_by_name_rejects_payload_above_max_size(self, mock_feature_enabled):
+        self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
+        oversized_prompt = "x" * (MAX_PROMPT_PAYLOAD_BYTES + 1)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/publish-prompt/",
+            data={"prompt": oversized_prompt, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "prompt"
+        assert "bytes or fewer" in response.json()["detail"]
+
+    def test_update_prompt_by_name_rejects_publish_when_version_limit_reached(self, mock_feature_enabled):
+        self.create_prompt_version(name="publish-prompt", version=MAX_PROMPT_VERSION, is_latest=True, prompt="v-limit")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/publish-prompt/",
+            data={"prompt": "v-over-limit", "base_version": MAX_PROMPT_VERSION},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert str(MAX_PROMPT_VERSION) in response.json()["detail"]
+        assert LLMPrompt.objects.filter(team=self.team, name="publish-prompt", deleted=False).count() == 1
 
     def test_update_prompt_by_name_forbidden_for_personal_api_key_auth(self, mock_feature_enabled):
         self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
@@ -544,3 +602,23 @@ class TestLLMPromptAPI(APIBaseTest):
 
         view.action = "update_by_name"
         assert view.dangerously_get_required_scopes(request, view) == ["llm_prompt:write"]
+
+    def test_update_by_name_uses_publish_specific_burst_throttle(self, mock_feature_enabled):
+        view = LLMPromptViewSet()
+        view.action = "update_by_name"
+
+        throttles = view.get_throttles()
+
+        assert isinstance(throttles[0], LLMPromptPublishBurstRateThrottle)
+        assert isinstance(throttles[1], BurstRateThrottle)
+        assert isinstance(throttles[2], SustainedRateThrottle)
+
+    def test_get_by_name_uses_default_burst_and_sustained_throttles(self, mock_feature_enabled):
+        view = LLMPromptViewSet()
+        view.action = "get_by_name"
+
+        throttles = view.get_throttles()
+
+        assert len(throttles) == 2
+        assert isinstance(throttles[0], BurstRateThrottle)
+        assert isinstance(throttles[1], SustainedRateThrottle)
