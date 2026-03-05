@@ -396,6 +396,7 @@ export interface NotificationSettings {
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
     materialized_view_sync_failed?: boolean
+    billing_usage_change_emails?: boolean
 }
 
 export interface PluginAccess {

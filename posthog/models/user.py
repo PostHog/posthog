@@ -39,6 +39,7 @@ class Notifications(TypedDict, total=False):
     )
     project_api_key_exposed: bool
     materialized_view_sync_failed: bool
+    billing_usage_change_emails: bool
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
@@ -51,6 +52,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
     "project_api_key_exposed": True,  # Private project API key (secure API key) exposure alerts enabled by default
     "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
+    "billing_usage_change_emails": True,  # Billing usage spike/change emails enabled by default
 }
 
 # We don't need the following attributes in most cases, so we defer them by default

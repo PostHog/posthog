@@ -1363,6 +1363,7 @@ class TestUserAPI(APIBaseTest):
                     "all_weekly_digest_disabled": True,
                     "data_pipeline_error_threshold": 0.1,
                     "materialized_view_sync_failed": True,
+                    "billing_usage_change_emails": False,
                 }
             },
         )
@@ -1381,6 +1382,7 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
+                "billing_usage_change_emails": False,
             },
         )
 
@@ -1397,6 +1399,7 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
+                "billing_usage_change_emails": False,
             },
         )
 
@@ -1467,6 +1470,7 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.01,  # Default value
                 "project_api_key_exposed": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value
+                "billing_usage_change_emails": True,  # Default value
             },
         )
 

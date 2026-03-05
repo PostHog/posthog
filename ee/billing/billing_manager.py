@@ -5,7 +5,6 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from django.conf import settings
-from django.db.models import F
 
 import jwt
 import requests
@@ -239,17 +238,26 @@ class BillingManager:
                 ).values_list("email", flat=True)
             )
 
-            org_users = list(
-                organization.members.values("email", "distinct_id", "organization_membership__level")
-                .order_by("email")  # Deterministic order for tests
-                .annotate(role=F("organization_membership__level"))
-                .filter(role__gte=OrganizationMembership.Level.ADMIN)
-                .values(
-                    "email",
-                    "distinct_id",
-                    "role",
+            admin_memberships = (
+                OrganizationMembership.objects.filter(
+                    organization=organization,
+                    level__gte=OrganizationMembership.Level.ADMIN,
                 )
+                .select_related("user")
+                .order_by("user__email")  # Deterministic order for tests
             )
+
+            org_users = [
+                {
+                    "email": membership.user.email,
+                    "distinct_id": membership.user.distinct_id,
+                    "role": membership.level,
+                    "billing_usage_change_emails": membership.user.notification_settings.get(
+                        "billing_usage_change_emails", True
+                    ),
+                }
+                for membership in admin_memberships
+            ]
 
             self.update_billing(
                 organization,
