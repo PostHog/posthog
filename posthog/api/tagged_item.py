@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Optional
+from typing import Literal, Optional
 
 from django.db.models import Prefetch, Q, QuerySet
 
@@ -182,7 +182,7 @@ def handle_tagged_item_change(
         if related_object_type == "ticket" and related_object_id:
             ticket = tagged_item.ticket
             ticket_name = f"Ticket #{ticket.ticket_number}" if ticket else related_object_name
-            tag_activity = "added" if activity == "created" else "removed"
+            tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
             log_activity(
                 organization_id=tagged_item.tag.team.organization_id
                 if tagged_item.tag and tagged_item.tag.team
@@ -199,7 +199,7 @@ def handle_tagged_item_change(
                         Change(
                             type="Ticket",
                             field="tag",
-                            action=tag_activity,
+                            action=tag_action,
                             after=tagged_item.tag.name if activity == "created" else None,
                             before=tagged_item.tag.name if activity == "deleted" else None,
                         )

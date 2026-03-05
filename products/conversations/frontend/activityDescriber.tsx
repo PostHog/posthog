@@ -90,7 +90,7 @@ const ticketActionsMapping: Record<
     },
     tag: function onTag(change) {
         const tagName = (change?.after || change?.before) as string
-        if (change?.action === 'added') {
+        if (change?.action === 'created') {
             return {
                 description: [
                     <>
@@ -99,7 +99,7 @@ const ticketActionsMapping: Record<
                 ],
             }
         }
-        if (change?.action === 'removed') {
+        if (change?.action === 'deleted') {
             return {
                 description: [
                     <>
