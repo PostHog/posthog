@@ -7,6 +7,7 @@ from unittest.mock import patch
 from posthog.schema import CachedHogQLQueryResponse, HogQLFilters, HogQLPropertyFilter, HogQLQuery, HogQLVariable
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
@@ -175,3 +176,14 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         result_false = runner_false.calculate()
         self.assertEqual(result_false.results[0][0], 1)
+
+    def test_invalid_connection_id_raises_exposed_hogql_error(self):
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select 1",
+                connectionId=str(UUIDT()),
+            )
+        )
+
+        with self.assertRaises(ExposedHogQLError):
+            runner.calculate()

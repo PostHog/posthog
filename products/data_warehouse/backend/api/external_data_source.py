@@ -887,14 +887,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         )
 
                 stale_schemas = ExternalDataSchema.objects.filter(
-                    team_id=self.team_id, source_id=instance.id, deleted=False
+                    Q(team_id=self.team_id, source_id=instance.id),
+                    Q(deleted=False) | Q(table__deleted=False),
                 ).exclude(name__in=schema_names)
                 stale_count = 0
                 for stale_schema in stale_schemas:
                     stale_count += 1
                     if stale_schema.table and not stale_schema.table.deleted:
                         stale_schema.table.soft_delete()
-                    stale_schema.soft_delete()
+                    if not stale_schema.deleted:
+                        stale_schema.soft_delete()
 
                 if stale_count > 0:
                     schemas_deleted = list({*schemas_deleted, *list(stale_schemas.values_list("name", flat=True))})

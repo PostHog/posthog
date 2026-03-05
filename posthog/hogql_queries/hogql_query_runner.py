@@ -13,6 +13,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
@@ -105,7 +106,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if self.query.connectionId:
             source = ExternalDataSource.objects.filter(team_id=self.team.pk, id=self.query.connectionId).first()
             if source is None:
-                raise ValueError("Invalid connectionId for this team")
+                raise ExposedHogQLError("Invalid connectionId for this team")
             selected_source_id = str(source.id)
 
         response = func(
