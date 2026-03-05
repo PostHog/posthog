@@ -5,6 +5,57 @@ set -eE
 MIGRATION_TYPE=""
 FRESH_MODE=false
 
+# Wait for PostgreSQL to accept connections on a given URL
+# This handles the race condition where Docker health checks pass but
+# the host port binding isn't ready (common with Orbstack/Docker Desktop)
+wait_for_postgres() {
+    local db_url="$1"
+    local timeout="${2:-60}"
+
+    # Extract host:port from database URL
+    # URL format: postgres://user:pass@host:port/dbname
+    local host_port
+    host_port=$(echo "$db_url" | sed -n 's|.*@\([^/]*\)/.*|\1|p')
+    if [ -z "$host_port" ]; then
+        host_port="localhost:5432"
+    fi
+
+    local host="${host_port%:*}"
+    local port="${host_port#*:}"
+    if [ "$host" = "$port" ]; then
+        port=5432
+    fi
+
+    log_json "info" "Waiting for PostgreSQL" "waiting" "" "\"host\":\"$host\",\"port\":$port,\"timeout\":$timeout"
+
+    local seconds=0
+    while [ "$seconds" -lt "$timeout" ]; do
+        # Try pg_isready if available
+        if command -v pg_isready &>/dev/null; then
+            if pg_isready -h "$host" -p "$port" -q 2>/dev/null; then
+                log_json "info" "PostgreSQL is ready" "ready" "" "\"elapsed_seconds\":$seconds"
+                return 0
+            fi
+        # Fall back to netcat
+        elif command -v nc &>/dev/null; then
+            if nc -z "$host" "$port" 2>/dev/null; then
+                log_json "info" "PostgreSQL is accepting connections" "ready" "" "\"elapsed_seconds\":$seconds"
+                return 0
+            fi
+        # Fall back to bash /dev/tcp
+        elif (echo >/dev/tcp/"$host"/"$port") 2>/dev/null; then
+            log_json "info" "PostgreSQL is accepting connections" "ready" "" "\"elapsed_seconds\":$seconds"
+            return 0
+        fi
+
+        sleep 1
+        seconds=$((seconds + 1))
+    done
+
+    log_json "error" "Timeout waiting for PostgreSQL" "timeout" "" "\"host\":\"$host\",\"port\":$port,\"timeout\":$timeout"
+    return 1
+}
+
 parse_args() {
     MIGRATION_TYPE="$1"
     shift || true
@@ -86,6 +137,9 @@ run_persons_migrations() {
     PERSONS_DATABASE_NAME=${PERSONS_DATABASE_NAME:-posthog_persons}
     PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$PERSONS_DATABASE_NAME}
 
+    # Wait for PostgreSQL to be ready before starting migrations
+    wait_for_postgres "$PERSONS_DATABASE_URL" 60
+
     log_json "info" "Starting migrations" "starting" "$db_type" "\"database_name\":\"$PERSONS_DATABASE_NAME\",\"fresh_mode\":$FRESH_MODE"
 
     if [ "$FRESH_MODE" = true ]; then
@@ -105,6 +159,9 @@ run_cyclotron_migrations() {
     CYCLOTRON_DATABASE_NAME=${CYCLOTRON_DATABASE_NAME:-cyclotron}
     CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$CYCLOTRON_DATABASE_NAME}
 
+    # Wait for PostgreSQL to be ready before starting migrations
+    wait_for_postgres "$CYCLOTRON_DATABASE_URL" 60
+
     log_json "info" "Starting migrations" "starting" "$db_type" "\"database_name\":\"$CYCLOTRON_DATABASE_NAME\",\"fresh_mode\":$FRESH_MODE"
 
     if [ "$FRESH_MODE" = true ]; then
@@ -123,6 +180,9 @@ run_cyclotron_shadow_migrations() {
     local db_type="cyclotron-shadow"
     CYCLOTRON_SHADOW_DATABASE_NAME=${CYCLOTRON_SHADOW_DATABASE_NAME:-cyclotron_shadow}
     CYCLOTRON_SHADOW_DATABASE_URL=${CYCLOTRON_SHADOW_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$CYCLOTRON_SHADOW_DATABASE_NAME}
+
+    # Wait for PostgreSQL to be ready before starting migrations
+    wait_for_postgres "$CYCLOTRON_SHADOW_DATABASE_URL" 60
 
     log_json "info" "Starting migrations" "starting" "$db_type" "\"database_name\":\"$CYCLOTRON_SHADOW_DATABASE_NAME\",\"fresh_mode\":$FRESH_MODE"
 
@@ -148,6 +208,9 @@ run_behavioral_cohorts_migrations() {
     DB_PASS="${POSTGRES_BEHAVIORAL_COHORTS_PASSWORD:-posthog}"
 
     BEHAVIORAL_COHORTS_DATABASE_URL=${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://${DB_USER}:${DB_PASS}@${DB_HOST}:5432/$BEHAVIORAL_COHORTS_DATABASE_NAME}
+
+    # Wait for PostgreSQL to be ready before starting migrations
+    wait_for_postgres "$BEHAVIORAL_COHORTS_DATABASE_URL" 60
 
     log_json "info" "Starting migrations" "starting" "$db_type" "\"database_name\":\"$BEHAVIORAL_COHORTS_DATABASE_NAME\",\"fresh_mode\":$FRESH_MODE"
 

@@ -322,6 +322,32 @@ docker:
         description: Stop Docker infrastructure services
         services:
             - docker
+    docker:network:fix:
+        cmd: 'echo "Stopping all containers..."
+
+            docker stop $(docker ps -aq) 2>/dev/null || true
+
+            echo "Removing containers..."
+
+            docker rm $(docker ps -aq) 2>/dev/null || true
+
+            echo "Pruning Docker networks..."
+
+            docker network prune -f
+
+            echo "Restarting Docker services..."
+
+            docker compose -f docker-compose.dev.yml up -d
+
+            echo ""
+
+            echo "Network reset complete. Run ''hogli start'' to continue."
+
+            '
+        description: Fix stale Docker network assignments (helps with 'Connection refused'
+            errors after pulling)
+        services:
+            - docker
     docker:services:remove:
         cmd: docker compose -f docker-compose.dev.yml down -v
         description: Stop Docker infrastructure services and remove all volumes (complete
@@ -619,6 +645,10 @@ tools:
     generate_personhog_proto:
         bin_script: generate_personhog_proto.sh
         description: 'TODO: add description for generate_personhog_proto.sh'
+        hidden: true
+    wait:for:postgres:
+        bin_script: wait-for-postgres
+        description: 'TODO: add description for wait-for-postgres'
         hidden: true
 utilities:
     nuke:

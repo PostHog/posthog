@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+#
+# Wait for PostgreSQL to accept connections on a given host:port.
+#
+# Unlike Docker health checks (which verify the container is healthy),
+# this script verifies that the HOST PORT BINDING is actually accepting
+# connections. This is important when:
+#   - Docker is recreating containers (due to --pull always)
+#   - Orbstack/Docker Desktop has stale network assignments
+#   - There's a brief gap between container "healthy" and port binding ready
+#
+# Usage:
+#   bin/wait-for-postgres [host:port] [timeout_seconds]
+#
+# Examples:
+#   bin/wait-for-postgres                    # localhost:5432, 60s timeout
+#   bin/wait-for-postgres localhost:5432 30  # custom timeout
+#   bin/wait-for-postgres db:5432            # Docker network host
+#
+set -euo pipefail
+
+HOST_PORT="${1:-localhost:5432}"
+TIMEOUT="${2:-60}"
+
+# Parse host and port
+HOST="${HOST_PORT%:*}"
+PORT="${HOST_PORT#*:}"
+if [ "$HOST" = "$PORT" ]; then
+    PORT=5432
+fi
+
+echo "Waiting for PostgreSQL at $HOST:$PORT (timeout: ${TIMEOUT}s)..."
+
+SECONDS=0
+while [ "$SECONDS" -lt "$TIMEOUT" ]; do
+    # Try to connect using pg_isready if available (most reliable)
+    if command -v pg_isready &>/dev/null; then
+        if pg_isready -h "$HOST" -p "$PORT" -q 2>/dev/null; then
+            echo "PostgreSQL at $HOST:$PORT is ready (${SECONDS}s)"
+            exit 0
+        fi
+    # Fall back to netcat/nc for TCP check
+    elif command -v nc &>/dev/null; then
+        if nc -z "$HOST" "$PORT" 2>/dev/null; then
+            echo "PostgreSQL at $HOST:$PORT is accepting connections (${SECONDS}s)"
+            exit 0
+        fi
+    # Fall back to bash /dev/tcp (works on most systems)
+    elif (echo >/dev/tcp/"$HOST"/"$PORT") 2>/dev/null; then
+        echo "PostgreSQL at $HOST:$PORT is accepting connections (${SECONDS}s)"
+        exit 0
+    else
+        echo "Error: No suitable tool found (pg_isready, nc, or bash /dev/tcp)" >&2
+        exit 1
+    fi
+
+    if [ "$((SECONDS % 10))" -eq 0 ] && [ "$SECONDS" -gt 0 ]; then
+        echo "  Still waiting for $HOST:$PORT... (${SECONDS}s)"
+    fi
+    sleep 1
+done
+
+echo ""
+echo "=========================================="
+echo "TIMEOUT: ${TIMEOUT}s waiting for PostgreSQL at $HOST:$PORT"
+echo "=========================================="
+echo ""
+echo "This can happen when:"
+echo "  1. Docker is still pulling images or recreating containers"
+echo "  2. Docker/Orbstack has stale network assignments"
+echo ""
+echo "Quick fix:"
+echo "  docker compose -f docker-compose.dev.yml down"
+echo "  docker network prune -f"
+echo "  docker compose -f docker-compose.dev.yml up -d"
+echo ""
+echo "Or use hogli to reset:"
+echo "  hogli docker:services:down && hogli start"
+echo "=========================================="
+exit 1

@@ -1,10 +1,24 @@
 #!/bin/sh
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+REPO_ROOT=$(dirname "$(dirname "$SCRIPT_DIR")")
 
 CYCLOTRON_SHADOW_DATABASE_NAME=${CYCLOTRON_SHADOW_DATABASE_NAME:-cyclotron_shadow}
 CYCLOTRON_SHADOW_DATABASE_URL=${CYCLOTRON_SHADOW_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$CYCLOTRON_SHADOW_DATABASE_NAME}
 
+# Extract host:port from database URL for connectivity check
+# URL format: postgres://user:pass@host:port/dbname
+PG_HOST_PORT=$(echo "$CYCLOTRON_SHADOW_DATABASE_URL" | sed -n 's|.*@\([^/]*\)/.*|\1|p')
+if [ -z "$PG_HOST_PORT" ]; then
+    PG_HOST_PORT="localhost:5432"
+fi
+
 echo "Performing cyclotron shadow migrations for $CYCLOTRON_SHADOW_DATABASE_URL (DATABASE_NAME=$CYCLOTRON_SHADOW_DATABASE_NAME)"
+
+# Wait for PostgreSQL to accept connections on the host port
+# This is important because Docker health checks don't guarantee host port binding is ready
+if [ -x "$REPO_ROOT/bin/wait-for-postgres" ]; then
+    "$REPO_ROOT/bin/wait-for-postgres" "$PG_HOST_PORT" 60
+fi
 
 cd $SCRIPT_DIR/..
 
