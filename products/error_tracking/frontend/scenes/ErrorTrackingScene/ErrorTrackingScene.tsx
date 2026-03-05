@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/le
 import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -157,6 +158,14 @@ const Header = (): JSX.Element => {
                                 </LemonButton>
                             </>
                         ) : null}
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconFeedback />}
+                            onClick={() => posthog.showSurvey('019cbd35-c91c-0000-9997-9259dc4cc2ef')}
+                        >
+                            Feedback
+                        </LemonButton>
                         <LemonButton
                             size="small"
                             to="https://posthog.com/docs/error-tracking"
