@@ -67,6 +67,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
         {
             title: 'Last checked',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_checked_at',
             render: function renderLastChecked(last_checked_at: any) {
                 return <div className="whitespace-nowrap">{last_checked_at && <TZLabel time={last_checked_at} />}</div>
@@ -75,6 +76,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
         {
             title: 'Last notified',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_notified_at',
             render: function renderLastModified(last_notified_at: any) {
                 return (
@@ -117,7 +119,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                     productName="Alerts"
                     productKey={ProductKey.ALERTS}
                     thingName="alert"
-                    description="Alerts enable you to monitor your insight and notify you when certain conditions are met. Please note that alerts are in alpha and may not be fully reliable."
+                    description="Alerts enable you to monitor your insight and notify you when certain conditions are met."
                     // TODO: update docs link when ready
                     // docsURL="https://posthog.com/docs/data/annotations"
                     isEmpty={alertsSortedByState.length === 0 && !alertsLoading}

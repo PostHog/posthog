@@ -70,12 +70,12 @@ import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { llmPlaygroundPromptsLogic } from './playground/llmPlaygroundPromptsLogic'
 import { SearchHighlight } from './SearchHighlight'
-import { flattenGenerationMessages } from './sentimentUtils'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
@@ -435,7 +435,7 @@ function TraceMetadata({
                     <SentimentBar
                         label={sentimentResult.label ?? 'neutral'}
                         score={sentimentResult.score ?? 0}
-                        messages={flattenGenerationMessages(sentimentResult.generations)}
+                        messages={sentimentResult.messages}
                     />
                 </Chip>
             )}
@@ -599,7 +599,8 @@ const TreeNode = React.memo(function TraceNode({
     const { eventTypeExpanded } = useValues(traceLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { getGenerationSentiment } = useValues(llmSentimentLazyLoaderLogic)
+    const { getGenerationSentiment, isGenerationLoading } = useValues(llmGenerationSentimentLazyLoaderLogic)
+    const { ensureGenerationSentimentLoaded } = useActions(llmGenerationSentimentLazyLoaderLogic)
     const eventType = getEventType(item)
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
     const isBillable =
@@ -610,7 +611,10 @@ const TreeNode = React.memo(function TraceNode({
 
     const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
     const isGeneration = isLLMEvent(item) && (item as LLMTraceEvent).event === '$ai_generation'
-    const genSentiment = showSentiment && isGeneration ? getGenerationSentiment(topLevelTrace.id, item.id) : undefined
+    const genSentiment = showSentiment && isGeneration ? getGenerationSentiment(item.id) : undefined
+    if (showSentiment && isGeneration && genSentiment === undefined && !isGenerationLoading(item.id)) {
+        ensureGenerationSentimentLoaded(item.id)
+    }
 
     const children = [
         isLLMEvent(item) && item.properties.$ai_is_error && (

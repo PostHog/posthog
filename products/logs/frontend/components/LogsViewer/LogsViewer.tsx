@@ -72,8 +72,8 @@ function LogsViewerContent(): JSX.Element {
         clearSelection,
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
-    const { orderBy, sparklineBreakdownBy } = useValues(logsViewerConfigLogic)
-    const { setOrderBy, setSparklineBreakdownBy } = useActions(logsViewerConfigLogic)
+    const { orderBy, sparklineBreakdownBy, sparklineCollapsed } = useValues(logsViewerConfigLogic)
+    const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const { logsLoading, parsedLogs, sparklineData, sparklineLoading, hasMoreLogsToLoad, totalLogsMatchingFilters } =
         useValues(logsViewerDataLogic)
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
@@ -247,7 +247,6 @@ function LogsViewerContent(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
-            <LogsFilterBar />
             <LogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
@@ -255,8 +254,11 @@ function LogsViewerContent(): JSX.Element {
                 displayTimezone={timezone}
                 breakdownBy={sparklineBreakdownBy}
                 onBreakdownByChange={setSparklineBreakdownBy}
+                collapsed={sparklineCollapsed}
+                onToggleCollapse={toggleSparklineCollapsed}
             />
             <SceneDivider />
+            <LogsFilterBar />
             <LogsViewerToolbar
                 totalLogsCount={sparklineLoading ? undefined : totalLogsMatchingFilters}
                 orderBy={orderBy}

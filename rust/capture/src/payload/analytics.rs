@@ -136,11 +136,28 @@ pub async fn handle_event_payload(
     };
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "processing complete");
 
-    // Apply global rate limit per token if enabled
+    check_global_rate_limits(state, &context, &events).await?;
+
+    // Apply all billing limit quotas and drop partial or whole
+    // payload if any are exceeded for this token (team)
+    events = state
+        .quota_limiter
+        .check_and_filter(&context.token, events)
+        .await?;
+    debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "quota limits filter applied");
+
+    Ok((context, events))
+}
+
+async fn check_global_rate_limits(
+    state: &State<router::State>,
+    context: &ProcessingContext,
+    events: &[RawEvent],
+) -> Result<(), CaptureError> {
     if let Some(limiter) = &state.global_rate_limiter_token {
         let cache_key = GlobalRateLimitKey::Token(&context.token).to_cache_key();
         if let Some(limited) = limiter.is_limited(&cache_key, events.len() as u64).await {
-            debug_or_info!(chatty_debug_enabled,
+            debug_or_info!(context.chatty_debug_enabled,
                 context=?context,
                 details=?limited,
                 "global token rate limit applied");
@@ -148,10 +165,9 @@ pub async fn handle_event_payload(
         }
     }
 
-    // Apply global rate limit per (token, distinct_id) if enabled
     if let Some(limiter) = &state.global_rate_limiter_token_distinctid {
         let mut is_rate_limited = false;
-        for event in &events {
+        for event in events {
             let maybe_distinct_id = event
                 .distinct_id
                 .as_ref()
@@ -161,7 +177,7 @@ pub async fn handle_event_payload(
                 let cache_key =
                     GlobalRateLimitKey::TokenDistinctId(&context.token, distinct_id).to_cache_key();
                 if let Some(limited) = limiter.is_limited(&cache_key, 1).await {
-                    debug_or_info!(chatty_debug_enabled,
+                    debug_or_info!(context.chatty_debug_enabled,
                         context=?context,
                         distinct_id,
                         details=?limited,
@@ -175,13 +191,5 @@ pub async fn handle_event_payload(
         }
     }
 
-    // Apply all billing limit quotas and drop partial or whole
-    // payload if any are exceeded for this token (team)
-    events = state
-        .quota_limiter
-        .check_and_filter(&context.token, events)
-        .await?;
-    debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "quota limits filter applied");
-
-    Ok((context, events))
+    Ok(())
 }
