@@ -45,7 +45,7 @@ ADD INDEX IF NOT EXISTS flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRA
 
 ADD_HOSTS = """
 ALTER TABLE {table_name}
-ADD COLUMN IF NOT EXISTS hosts SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)) AFTER event_names
+ADD COLUMN IF NOT EXISTS hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)) AFTER event_names
 """
 
 
