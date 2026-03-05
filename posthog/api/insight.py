@@ -142,7 +142,6 @@ def log_and_report_insight_activity(
     was_impersonated: bool,
     request: Request | None = None,
     changes: list[Change] | None = None,
-    properties: dict[str, Any] | None = None,
 ) -> None:
     """
     Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
@@ -161,15 +160,13 @@ def log_and_report_insight_activity(
             activity=activity,
             detail=Detail(name=insight_name, changes=changes, short_id=insight_short_id),
         )
-        if properties is None:
-            properties = {}
         organization = Organization.objects.get(id=organization_id)
         team = Team.objects.get(id=team_id)
         if not was_impersonated:
             report_user_action(
                 user,
                 f"insight {activity}",
-                {"insight_id": insight_short_id, **properties},
+                {"insight_id": insight_short_id},
                 team=team,
                 organization=organization,
                 request=request,
@@ -206,7 +203,6 @@ def capture_legacy_api_call(request: request.Request, team: Team) -> None:
             "method": request._request.method,
             "query_method": get_query_method(request=request, team=team),
             "filter": get_filter(request=request, team=team),
-            "was_impersonated": is_impersonated_session(request),
             "user_agent": request.headers.get("user-agent"),
         }
 
