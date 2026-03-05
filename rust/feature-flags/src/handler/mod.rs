@@ -211,7 +211,7 @@ async fn process_request_inner(
                 request.is_flags_disabled(),
                 request.flag_keys.clone(),
             )
-            .await;
+            .await?;
 
             // Only record billing if flags are not disabled
             if !request.is_flags_disabled() {

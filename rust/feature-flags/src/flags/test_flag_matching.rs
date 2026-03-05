@@ -214,7 +214,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
         assert!(!result.errors_while_computing_flags);
         assert_eq!(
             result.flags.get("test_flag").unwrap().to_value(),
@@ -304,7 +305,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(!legacy_response.errors_while_computing_flags);
@@ -395,7 +397,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("independent_flag").unwrap().to_value(),
@@ -426,7 +429,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("independent_flag").unwrap().to_value(),
@@ -557,7 +561,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("leaf_flag").unwrap().to_value(),
@@ -580,7 +585,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("leaf_flag").unwrap().to_value(),
@@ -603,7 +609,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("leaf_flag").unwrap().to_value(),
@@ -722,7 +729,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
         // Add this assertion to check the call count
         let fetch_calls = get_fetch_calls_count();
         assert_eq!(fetch_calls, 1, "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 1 time, but it was called {fetch_calls} times");
@@ -858,7 +866,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             // Cycle errors still cause errors_while_computing_flags to be true
             assert!(result.errors_while_computing_flags);
             assert_eq!(
@@ -894,7 +903,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             // Cycle errors still cause errors_while_computing_flags to be true
             assert!(result.errors_while_computing_flags);
             assert_eq!(
@@ -1021,7 +1031,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("leaf_flag").unwrap().to_value(),
@@ -1045,7 +1056,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("leaf_flag").unwrap().to_value(),
@@ -1068,7 +1080,8 @@ mod tests {
                     None,
                     false,
                 )
-                .await;
+                .await
+                .unwrap();
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
                 result.flags.get("leaf_flag").unwrap().to_value(),
@@ -1374,7 +1387,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         let fetch_calls = get_fetch_calls_count();
         assert_eq!(
@@ -3561,7 +3575,8 @@ mod tests {
             None,
             false,
         )
-        .await;
+        .await
+        .unwrap();
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(
@@ -3646,7 +3661,8 @@ mod tests {
             None,
         )
         .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
-        .await;
+        .await
+        .unwrap();
 
         assert!(result.flags.get("flag_continuity_missing").unwrap().enabled);
 
@@ -3782,7 +3798,8 @@ mod tests {
             None,
             false,
         )
-        .await;
+        .await
+        .unwrap();
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(
@@ -4471,7 +4488,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         // Should succeed because we have overrides
         assert!(!result.errors_while_computing_flags);
@@ -5217,7 +5235,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         let fetch_calls = get_fetch_calls_count();
         assert_eq!(
@@ -5258,7 +5277,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result2.errors_while_computing_flags);
         let flag_result2 = result2.flags.get(&flag.key).unwrap();
@@ -5293,7 +5313,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result3.errors_while_computing_flags);
         let flag_result3 = result3.flags.get(&flag.key).unwrap();
@@ -5330,7 +5351,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result4.errors_while_computing_flags);
         let flag_result4 = result4.flags.get(&flag.key).unwrap();
@@ -5488,7 +5510,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result.errors_while_computing_flags);
         // The flag should evaluate using DB properties for condition 1 (which has feature_access="full")
@@ -5529,7 +5552,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result2.errors_while_computing_flags);
         let flag_result2 = result2.flags.get(&flag.key).unwrap();
@@ -5570,7 +5594,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result3.errors_while_computing_flags);
         let flag_result3 = result3.flags.get(&flag.key).unwrap();
@@ -5607,7 +5632,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result4.errors_while_computing_flags);
         let flag_result4 = result4.flags.get(&flag.key).unwrap();
@@ -5648,7 +5674,8 @@ mod tests {
                 None,
                 false,
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(!result5.errors_while_computing_flags);
         let flag_result5 = result5.flags.get(&flag.key).unwrap();
@@ -5866,7 +5893,8 @@ mod tests {
                 graph_result.graph,
                 graph_result.flags_with_missing_deps,
             )
-            .await;
+            .await
+            .unwrap();
 
         // Should have errors_while_computing_flags set to true
         assert!(
@@ -6031,7 +6059,8 @@ mod tests {
                 graph_result.graph,
                 graph_result.flags_with_missing_deps,
             )
-            .await;
+            .await
+            .unwrap();
 
         // Disabled base flag should NOT be in the response (only active flags are returned)
         assert!(
@@ -6132,7 +6161,8 @@ mod tests {
                 graph_result.graph,
                 graph_result.flags_with_missing_deps,
             )
-            .await;
+            .await
+            .unwrap();
 
         // Disabled standalone flag should NOT be in the response
         assert!(
@@ -6217,7 +6247,8 @@ mod tests {
             None,
             true, // optimization enabled
         )
-        .await;
+        .await
+        .unwrap();
 
         // Verify the optimization actually skipped the hash key override lookup
         let lookup_count = get_hash_key_override_lookup_count();
@@ -6307,7 +6338,8 @@ mod tests {
             None,
             true, // optimization enabled
         )
-        .await;
+        .await
+        .unwrap();
 
         // Verify the lookup DID happen for partial rollout (optimization doesn't skip it)
         let lookup_count = get_hash_key_override_lookup_count();
@@ -6410,7 +6442,8 @@ mod tests {
             None,
             true, // optimization enabled
         )
-        .await;
+        .await
+        .unwrap();
 
         // Verify the lookup DID happen for multivariate (optimization doesn't skip it)
         let lookup_count = get_hash_key_override_lookup_count();
@@ -6518,7 +6551,8 @@ mod tests {
             None,
             true, // optimization enabled
         )
-        .await;
+        .await
+        .unwrap();
 
         // Verify the optimization skipped the lookup (100% variant = no hashing needed)
         let lookup_count = get_hash_key_override_lookup_count();
@@ -6610,7 +6644,8 @@ mod tests {
             None,
             false, // optimization disabled (legacy behavior)
         )
-        .await;
+        .await
+        .unwrap();
 
         // Flag should still evaluate correctly in legacy mode
         assert!(
@@ -6742,7 +6777,8 @@ mod tests {
             None,
             true, // optimization enabled
         )
-        .await;
+        .await
+        .unwrap();
 
         // Verify the lookup DID happen because flag_needs_lookup requires it.
         // Even though flag_optimizable could be optimized, the presence of
@@ -6878,7 +6914,8 @@ mod tests {
             Some(vec!["flag_optimizable".to_string()]), // Only request the optimizable flag
             true,                                       // optimization enabled
         )
-        .await;
+        .await
+        .unwrap();
 
         // Verify the lookup was SKIPPED because we only requested flag_optimizable,
         // which is 100% rollout and doesn't need the hash key override lookup.
@@ -7020,7 +7057,8 @@ mod tests {
             Some(vec!["flag_depends_on_b".to_string()]), // Only request the dependent flag
             true,                                        // optimization enabled
         )
-        .await;
+        .await
+        .unwrap();
 
         // The lookup SHOULD happen because flag_needs_lookup (a dependency) requires it,
         // even though flag_depends_on_b itself wouldn't need it (100% rollout).
@@ -7120,7 +7158,8 @@ mod tests {
             None,
             false,
         )
-        .await;
+        .await
+        .unwrap();
 
         // Verify no DB fetch was needed since all required properties are in overrides
         let fetch_calls = get_fetch_calls_count();
@@ -7229,7 +7268,8 @@ mod tests {
             None,
             false,
         )
-        .await;
+        .await
+        .unwrap();
 
         assert!(
             !result.errors_while_computing_flags,
@@ -7331,7 +7371,8 @@ mod tests {
             None,
             false,
         )
-        .await;
+        .await
+        .unwrap();
 
         assert!(
             !result.errors_while_computing_flags,

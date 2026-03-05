@@ -232,14 +232,14 @@ pub async fn evaluate_for_request(
     request_id: Uuid,
     disable_flags: bool,
     flag_keys: Option<Vec<String>>,
-) -> FlagsResponse {
+) -> Result<FlagsResponse, FlagError> {
     // If flags are disabled, return empty FlagsResponse
     if disable_flags {
-        return FlagsResponse::new(false, HashMap::new(), None, request_id);
+        return Ok(FlagsResponse::new(false, HashMap::new(), None, request_id));
     }
 
     if filtered_flags.flags.is_empty() {
-        return FlagsResponse::new(false, HashMap::new(), None, request_id);
+        return Ok(FlagsResponse::new(false, HashMap::new(), None, request_id));
     }
 
     let ctx = FeatureFlagEvaluationContext {

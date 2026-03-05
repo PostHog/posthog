@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use common_metrics::{gauge, histogram, inc};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -7,10 +8,19 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use crate::metrics::consts::{
     RAYON_DISPATCHER_AVAILABLE_PERMITS, RAYON_DISPATCHER_CONTENDED_ACQUIRES,
     RAYON_DISPATCHER_EXECUTION_TIME, RAYON_DISPATCHER_INFLIGHT_TASKS,
-    RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME, RAYON_DISPATCHER_TOTAL_ACQUIRES,
+    RAYON_DISPATCHER_SEMAPHORE_TIMEOUTS, RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME,
+    RAYON_DISPATCHER_TOTAL_ACQUIRES,
 };
 
 static INFLIGHT_TASKS: AtomicUsize = AtomicUsize::new(0);
+
+/// Returned by [`RayonDispatcher::try_spawn`] when the semaphore wait exceeds the
+/// configured timeout. The caller can convert this into an HTTP 504 to trigger
+/// ingress retry on a less-loaded pod.
+#[derive(Debug)]
+pub struct SemaphoreTimeout {
+    pub waited: Duration,
+}
 
 /// Bounds concurrent batch dispatches to the Rayon thread pool.
 ///
@@ -27,12 +37,14 @@ static INFLIGHT_TASKS: AtomicUsize = AtomicUsize::new(0);
 #[derive(Clone)]
 pub struct RayonDispatcher {
     semaphore: Arc<Semaphore>,
+    timeout: Option<Duration>,
 }
 
 impl RayonDispatcher {
-    pub fn new(max_concurrent_batches: usize) -> Self {
+    pub fn new(max_concurrent_batches: usize, timeout: Option<Duration>) -> Self {
         Self {
             semaphore: Arc::new(Semaphore::new(max_concurrent_batches)),
+            timeout,
         }
     }
 
@@ -71,6 +83,82 @@ impl RayonDispatcher {
             wait_start.elapsed().as_secs_f64() * 1000.0,
         );
 
+        Self::dispatch(permit, work).await
+    }
+
+    /// Like [`spawn`](Self::spawn), but respects the configured semaphore timeout.
+    ///
+    /// - When `self.timeout` is `None`: delegates to `spawn`, wraps in `Ok`.
+    /// - When `self.timeout` is `Some(d)`: if the semaphore wait exceeds `d`,
+    ///   returns `Err(SemaphoreTimeout)` so the caller can fail fast (HTTP 504).
+    pub async fn try_spawn<F, R>(&self, work: F) -> Result<Option<R>, SemaphoreTimeout>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let deadline = match self.timeout {
+            None => return Ok(self.spawn(work).await),
+            Some(d) => d,
+        };
+
+        let available_before = self.available_permits();
+        gauge(
+            RAYON_DISPATCHER_AVAILABLE_PERMITS,
+            &[],
+            available_before as f64,
+        );
+
+        inc(RAYON_DISPATCHER_TOTAL_ACQUIRES, &[], 1);
+        if available_before == 0 {
+            inc(RAYON_DISPATCHER_CONTENDED_ACQUIRES, &[], 1);
+        }
+
+        let wait_start = std::time::Instant::now();
+        let permit = match tokio::time::timeout(deadline, self.acquire()).await {
+            Ok(permit) => {
+                histogram(
+                    RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME,
+                    &[],
+                    wait_start.elapsed().as_secs_f64() * 1000.0,
+                );
+                permit
+            }
+            Err(_) => {
+                let waited = wait_start.elapsed();
+                histogram(
+                    RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME,
+                    &[],
+                    waited.as_secs_f64() * 1000.0,
+                );
+                inc(RAYON_DISPATCHER_SEMAPHORE_TIMEOUTS, &[], 1);
+                return Err(SemaphoreTimeout { waited });
+            }
+        };
+
+        Ok(Self::dispatch(permit, work).await)
+    }
+
+    /// Number of permits not currently held. Useful for saturation metrics.
+    pub fn available_permits(&self) -> usize {
+        self.semaphore.available_permits()
+    }
+
+    async fn acquire(&self) -> OwnedSemaphorePermit {
+        self.semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("rayon dispatcher semaphore closed — this is a bug")
+    }
+
+    /// Dispatches `work` onto the Rayon pool, returning the result via oneshot.
+    /// The permit is released before sending the result so that `rx.await` is a
+    /// reliable synchronization point for permit availability.
+    async fn dispatch<F, R>(permit: OwnedSemaphorePermit, work: F) -> Option<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         rayon::spawn(move || {
@@ -86,10 +174,6 @@ impl RayonDispatcher {
             );
 
             INFLIGHT_TASKS.fetch_sub(1, Ordering::Relaxed);
-
-            // Release the permit before sending the result so that
-            // `rx.await` is a reliable synchronization point for permit
-            // availability
             drop(permit);
 
             if let Ok(value) = result {
@@ -100,19 +184,6 @@ impl RayonDispatcher {
 
         rx.await.ok()
     }
-
-    /// Number of permits not currently held. Useful for saturation metrics.
-    pub fn available_permits(&self) -> usize {
-        self.semaphore.available_permits()
-    }
-
-    async fn acquire(&self) -> OwnedSemaphorePermit {
-        self.semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("rayon dispatcher semaphore closed — this is a bug")
-    }
 }
 
 #[cfg(test)]
@@ -121,14 +192,14 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_returns_result() {
-        let dispatcher = RayonDispatcher::new(2);
+        let dispatcher = RayonDispatcher::new(2, None);
         let result = dispatcher.spawn(|| 42).await;
         assert_eq!(result, Some(42));
     }
 
     #[tokio::test]
     async fn spawn_returns_none_on_panic() {
-        let dispatcher = RayonDispatcher::new(2);
+        let dispatcher = RayonDispatcher::new(2, None);
         let result = dispatcher
             .spawn(|| {
                 panic!("intentional test panic");
@@ -139,7 +210,7 @@ mod tests {
 
     #[tokio::test]
     async fn permits_bound_concurrency() {
-        let dispatcher = RayonDispatcher::new(1);
+        let dispatcher = RayonDispatcher::new(1, None);
         let peak = Arc::new(AtomicUsize::new(0));
         let active = Arc::new(AtomicUsize::new(0));
 
@@ -168,7 +239,7 @@ mod tests {
 
     #[tokio::test]
     async fn available_permits_reflects_state() {
-        let dispatcher = RayonDispatcher::new(2);
+        let dispatcher = RayonDispatcher::new(2, None);
         assert_eq!(dispatcher.available_permits(), 2);
 
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
@@ -187,5 +258,46 @@ mod tests {
         tx.send(()).unwrap();
         handle.await.unwrap();
         assert_eq!(dispatcher.available_permits(), 2);
+    }
+
+    #[tokio::test]
+    async fn try_spawn_returns_ok_on_success() {
+        let dispatcher = RayonDispatcher::new(2, Some(Duration::from_secs(5)));
+        let result = dispatcher.try_spawn(|| 42).await;
+        assert_eq!(result.unwrap(), Some(42));
+    }
+
+    #[tokio::test]
+    async fn try_spawn_returns_err_on_timeout() {
+        // 1 permit, block it with a long-running task
+        let dispatcher = RayonDispatcher::new(1, Some(Duration::from_millis(10)));
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let d = dispatcher.clone();
+        let _blocker = tokio::spawn(async move {
+            d.spawn(move || {
+                let _ = rx.blocking_recv();
+            })
+            .await
+        });
+
+        // Wait for the blocker to acquire the permit
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        // This should timeout because the permit is held
+        let result = dispatcher.try_spawn(|| 99).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.waited >= Duration::from_millis(10));
+
+        // Clean up
+        let _ = tx.send(());
+    }
+
+    #[tokio::test]
+    async fn try_spawn_delegates_to_spawn_when_no_timeout() {
+        let dispatcher = RayonDispatcher::new(2, None);
+        let result = dispatcher.try_spawn(|| "hello").await;
+        assert_eq!(result.unwrap(), Some("hello"));
     }
 }
