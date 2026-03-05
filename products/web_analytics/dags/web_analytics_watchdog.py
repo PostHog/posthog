@@ -36,10 +36,12 @@ class WatchdogConfig(dagster.Config):
         description="Maximum acceptable percentage difference before flagging a partition",
     )
     # dry_run defaults to True for safe initial deployment. This allows monitoring accuracy
-    # without automatically triggering remediation jobs until we've validated the thresholds.
+    # while logging remediation suggestions. When False, remediation warnings are elevated.
+    # Note: Automatic remediation is not implemented - remediation_configs in output metadata
+    # should be used for manual intervention via Dagster UI or a separate sensor.
     dry_run: bool = pydantic.Field(
         default=True,
-        description="When True, only logs findings without triggering remediation",
+        description="When True, logs info about needed remediation. When False, logs warnings.",
     )
 
 
