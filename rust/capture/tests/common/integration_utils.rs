@@ -28,7 +28,6 @@ use base64::Engine;
 use common_redis::MockRedisClient;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use health::HealthRegistry;
 use limiters::token_dropper::TokenDropper;
 use serde_json::{from_str, Number, Value};
 use time::format_description::well_known::{Iso8601, Rfc3339};
@@ -955,7 +954,6 @@ impl Event for MemorySink {
 }
 
 fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
-    let liveness = HealthRegistry::new("integration_tests");
     let sink = MemorySink::default();
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(unit.fixed_time)
@@ -970,16 +968,14 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
-    // simple defaults - payload validation isn't the focus of these tests
     let enable_historical_rerouting = false;
     let historical_rerouting_threshold_days = 1_i64;
-    let is_mirror_deploy = false; // TODO: remove after migration to 100% capture-rs backend
+    let is_mirror_deploy = false;
     let verbose_sample_percent = 0.0_f32;
 
     (
         router(
             timesource,
-            liveness.clone(),
             sink.clone(),
             redis,
             None, // global_rate_limiter_token_distinctid
@@ -987,9 +983,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             quota_limiter,
             TokenDropper::default(),
             None, // event_restriction_service
-            false,
             unit.mode,
-            String::from("capture"),
             None,
             25 * 1024 * 1024,
             enable_historical_rerouting,

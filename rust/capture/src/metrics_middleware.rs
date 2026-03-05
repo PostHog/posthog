@@ -1,5 +1,5 @@
 use std::{
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
 
@@ -13,13 +13,22 @@ use axum::{
 };
 use metrics::gauge;
 
-// Re-exporting from health crate for backwards compatibility
-pub use health::{get_shutdown_status, set_shutdown_status, ShutdownStatus};
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 
-// Global atomic counter for active connections
+pub fn mark_shutting_down() {
+    SHUTTING_DOWN.store(true, Ordering::Relaxed);
+}
+
+fn shutdown_status_tag() -> &'static str {
+    if SHUTTING_DOWN.load(Ordering::Relaxed) {
+        "shutting_down"
+    } else {
+        "running"
+    }
+}
+
 static ACTIVE_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
 
-// Guard to ensure connection count is decremented even on panic
 struct ConnectionGuard;
 
 impl Drop for ConnectionGuard {
@@ -29,7 +38,7 @@ impl Drop for ConnectionGuard {
             .saturating_sub(1);
         gauge!(
             METRIC_CAPTURE_ACTIVE_CONNECTIONS,
-            "shutdown_status" => get_shutdown_status().as_str()
+            "shutdown_status" => shutdown_status_tag()
         )
         .set(connections as f64);
     }
@@ -54,11 +63,10 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
 
     let method = req.method().clone();
 
-    // Track active connections with shutdown status label
     let connections = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
     gauge!(
         METRIC_CAPTURE_ACTIVE_CONNECTIONS,
-        "shutdown_status" => get_shutdown_status().as_str()
+        "shutdown_status" => shutdown_status_tag()
     )
     .set(connections as f64);
     let _guard = ConnectionGuard;

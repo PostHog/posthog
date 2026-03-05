@@ -1,9 +1,8 @@
 use crate::api::CaptureError;
 use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
-use health::HealthRegistry;
+use lifecycle::Handle as LifecycleHandle;
 use std::time::Duration;
-use tokio::sync::oneshot;
 use tokio::task;
 use tokio::time::sleep;
 
@@ -18,11 +17,10 @@ pub struct FallbackSink {
     primary: Arc<Box<dyn Event + Send + Sync + 'static>>,
     fallback: Arc<Box<dyn Event + Send + Sync + 'static>>,
     primary_is_healthy: Arc<AtomicBool>,
-    shutdown_tx: Option<oneshot::Sender<()>>,
 }
 
-// FallbackSink attempts to send events to the primary sink, and if it fails, it will send events to the fallback sink.
-// Optionally pass in a health registry to stop attempting to send events to the primary sink if it becomes unhealthy.
+/// Attempts to send events to the primary sink, falling back to the secondary
+/// when the primary is unhealthy or returns a retryable error.
 impl FallbackSink {
     pub fn new<P, F>(primary: P, fallback: F) -> Self
     where
@@ -33,44 +31,23 @@ impl FallbackSink {
             primary: Arc::new(Box::new(primary)),
             fallback: Arc::new(Box::new(fallback)),
             primary_is_healthy: Arc::new(AtomicBool::new(true)),
-            shutdown_tx: None,
         }
     }
-    pub fn new_with_health<P, F>(
-        primary: P,
-        fallback: F,
-        health_registry: HealthRegistry,
-        primary_component_name: String,
-    ) -> Self
+
+    pub fn new_with_health<P, F>(primary: P, fallback: F, primary_handle: LifecycleHandle) -> Self
     where
         P: Event + Send + Sync + 'static,
         F: Event + Send + Sync + 'static,
     {
-        if !health_registry
-            .get_status()
-            .components
-            .contains_key(&primary_component_name)
-        {
-            panic!("health registry does not contain primary component {primary_component_name}")
-        }
-
-        let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
         let primary_is_healthy = Arc::new(AtomicBool::new(true));
         let thread_healthy = primary_is_healthy.clone();
         gauge!("capture_primary_sink_health").set(1.0);
 
-        // Asynchronously update primary health status every 10 seconds
-        // this means if the primary starts failing we'll stop trying to send to it until it recovers.
         task::spawn(async move {
             loop {
                 tokio::select! {
                     _ = sleep(Duration::from_millis(10000)) => {
-                        let is_healthy = health_registry
-                            .get_status()
-                            .components
-                            .get(&primary_component_name)
-                            .map(|c| c.is_healthy())
-                            .unwrap_or(false);
+                        let is_healthy = !primary_handle.is_shutting_down();
                         let was_healthy = thread_healthy.load(Ordering::Relaxed);
                         if was_healthy && !is_healthy {
                             error!("primary sink has become unhealthy");
@@ -81,7 +58,7 @@ impl FallbackSink {
                         }
                         thread_healthy.store(is_healthy, Ordering::Relaxed);
                     }
-                    _ = &mut shutdown_rx => {
+                    _ = primary_handle.shutdown_recv() => {
                         break;
                     }
                 }
@@ -92,7 +69,6 @@ impl FallbackSink {
             primary: Arc::new(Box::new(primary)),
             fallback: Arc::new(Box::new(fallback)),
             primary_is_healthy,
-            shutdown_tx: Some(shutdown_tx),
         }
     }
 }
@@ -132,14 +108,6 @@ impl Event for FallbackSink {
         } else {
             counter!("capture_fallback_sink_failovers_total").increment(1);
             self.fallback.send_batch(events).await
-        }
-    }
-}
-
-impl Drop for FallbackSink {
-    fn drop(&mut self) {
-        if let Some(shutdown_tx) = self.shutdown_tx.take() {
-            drop(shutdown_tx);
         }
     }
 }

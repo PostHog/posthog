@@ -19,7 +19,6 @@ use capture::v0_request::{DataType, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
 use futures::StreamExt;
-use health::HealthRegistry;
 use integration_utils::{DEFAULT_CONFIG, DEFAULT_TEST_TIME};
 use limiters::token_dropper::TokenDropper;
 use reqwest::multipart::{Form, Part};
@@ -132,7 +131,6 @@ async fn setup_ai_router_with_restriction(
     restriction_type: RestrictionType,
     token: &str,
 ) -> (Router, CapturingSink) {
-    let liveness = HealthRegistry::new("ai_restriction_tests");
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
     let timesource = FixedTime {
@@ -162,7 +160,6 @@ async fn setup_ai_router_with_restriction(
 
     let router = router(
         timesource,
-        liveness,
         sink,
         redis,
         None, // global_rate_limiter_token_distinctid
@@ -170,9 +167,7 @@ async fn setup_ai_router_with_restriction(
         quota_limiter,
         TokenDropper::default(),
         Some(service),
-        false,
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,

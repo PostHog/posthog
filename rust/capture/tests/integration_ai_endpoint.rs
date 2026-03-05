@@ -16,7 +16,6 @@ use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, TimeZone, Utc};
 use common_redis::MockRedisClient;
 use futures::StreamExt;
-use health::HealthRegistry;
 use integration_utils::{DEFAULT_CONFIG, DEFAULT_TEST_TIME};
 use limiters::token_dropper::TokenDropper;
 use reqwest::multipart::{Form, Part};
@@ -150,7 +149,6 @@ fn create_ai_event_form(event_name: &str, distinct_id: &str, properties: Value) 
 
 // Helper to setup test router
 fn setup_ai_test_router() -> Router {
-    let liveness = HealthRegistry::new("ai_endpoint_tests");
     let sink = TestSink;
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
@@ -167,7 +165,6 @@ fn setup_ai_test_router() -> Router {
 
     router(
         timesource,
-        liveness,
         sink,
         redis,
         None,
@@ -175,9 +172,7 @@ fn setup_ai_test_router() -> Router {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -1605,7 +1600,6 @@ async fn test_gzip_compressed_request() {
 
 // Helper to setup test router with CapturingSink
 fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
-    let liveness = HealthRegistry::new("ai_endpoint_tests");
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
     let timesource = FixedTime {
@@ -1623,7 +1617,6 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
 
     let router = router(
         timesource,
-        liveness,
         sink,
         redis,
         None,
@@ -1631,9 +1624,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -2513,7 +2504,6 @@ async fn test_ai_event_with_valid_sent_at_applies_clock_skew_correction() {
 
 // Helper to setup test router with custom TokenDropper and CapturingSink
 fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Router, CapturingSink) {
-    let liveness = HealthRegistry::new("ai_endpoint_tests");
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
     let timesource = FixedTime {
@@ -2531,17 +2521,14 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
 
     let router = router(
         timesource,
-        liveness,
         sink,
         redis,
         None,
         None,
         quota_limiter,
         token_dropper,
-        None,  // event_restriction_service
-        false, // metrics
+        None, // event_restriction_service
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,                             // concurrency_limit
         25 * 1024 * 1024,                 // event_size_limit
         false,                            // enable_historical_rerouting
@@ -2708,7 +2695,6 @@ use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 
 // Helper to setup test router with quota limiter configured to limit AI events
 fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, CapturingSink) {
-    let liveness = HealthRegistry::new("ai_endpoint_tests");
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
     let timesource = FixedTime {
@@ -2734,7 +2720,6 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
 
     let router = router(
         timesource,
-        liveness,
         sink,
         redis,
         None,
@@ -2742,9 +2727,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,

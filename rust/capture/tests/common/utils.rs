@@ -6,7 +6,7 @@ use std::num::NonZeroU32;
 use std::ops::Add;
 use std::str::FromStr;
 use std::string::ToString;
-use std::sync::{Arc, Once};
+use std::sync::Once;
 use std::time::Duration;
 
 use anyhow::bail;
@@ -22,20 +22,20 @@ use rdkafka::{Message, TopicPartitionList};
 use redis::{Client, Commands};
 use time::OffsetDateTime;
 use tokio::net::TcpListener;
-use tokio::sync::Notify;
 use tokio::time::timeout;
 use tracing::{info, warn, Level};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::server::serve;
 use common_continuous_profiling::ContinuousProfilingConfig;
-use health::HealthStrategy;
+use lifecycle::Manager;
 use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     print_sink: false,
     noop_sink: false,
     address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
+    observability_address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
     redis_url: "redis://localhost:6379/".to_string(),
     redis_response_timeout_ms: 100,
     redis_connection_timeout_ms: 5000,
@@ -107,7 +107,6 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_bucket: None,
     s3_fallback_endpoint: None,
     s3_fallback_prefix: String::new(),
-    healthcheck_strategy: HealthStrategy::All,
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
     ai_s3_bucket: None,
     ai_s3_prefix: "llma/".to_string(),
@@ -137,7 +136,7 @@ pub fn setup_tracing() {
 }
 pub struct ServerHandle {
     pub addr: SocketAddr,
-    shutdown: Arc<Notify>,
+    shutdown_token: tokio_util::sync::CancellationToken,
     client: reqwest::Client,
 }
 
@@ -157,12 +156,17 @@ impl ServerHandle {
     pub async fn for_config(config: Config) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let notify = Arc::new(Notify::new());
-        let shutdown = notify.clone();
 
-        tokio::spawn(async move {
-            serve(config, listener, async move { notify.notified().await }).await
-        });
+        let token = tokio_util::sync::CancellationToken::new();
+        let shutdown_token = token.clone();
+
+        let manager = Manager::builder("capture-test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_shutdown_token(token)
+            .build();
+
+        tokio::spawn(async move { serve(config, listener, manager).await });
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(3000))
@@ -171,7 +175,7 @@ impl ServerHandle {
 
         Self {
             addr,
-            shutdown,
+            shutdown_token,
             client,
         }
     }
@@ -211,7 +215,7 @@ impl ServerHandle {
 
 impl Drop for ServerHandle {
     fn drop(&mut self) {
-        self.shutdown.notify_one()
+        self.shutdown_token.cancel()
     }
 }
 

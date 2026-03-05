@@ -1,4 +1,3 @@
-use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -7,13 +6,12 @@ use std::time::Duration;
 use axum::extract::ConnectInfo;
 use axum::Router;
 use common_redis::RedisClient;
-use health::{ComponentStatus, HealthRegistry};
 use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
 use hyper_util::server::graceful::GracefulShutdown;
+use lifecycle::{ComponentOptions, Handle as LifecycleHandle, Manager};
 use limiters::redis::ServiceName;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tower::Service;
 use tracing::{debug, error, info, warn};
@@ -40,7 +38,6 @@ use crate::sinks::s3::S3Sink;
 use crate::sinks::Event;
 use limiters::token_dropper::TokenDropper;
 
-// failsafe to prevent infinite loop if k8s endpoint removal is not working in prod
 const MAX_DRAINABLE_CONNECTIONS: u64 = 1000;
 
 const METRIC_CAPTURE_HYPER_ACCEPTED_CONNECTIONS: &str = "capture_hyper_accepted_connections";
@@ -59,9 +56,6 @@ fn is_connection_error(e: &io::Error) -> bool {
     )
 }
 
-/// Configures and spawns a connection handler for an accepted TCP connection.
-/// Sets TCP_NODELAY, creates the hyper service with ConnectInfo, registers with
-/// graceful shutdown, and spawns the connection handler task.
 fn spawn_connection_handler(
     socket: TcpStream,
     remote_addr: SocketAddr,
@@ -115,20 +109,17 @@ fn spawn_connection_handler(
     });
 }
 
-type EventRestrictionState = (
-    Option<EventRestrictionService>,
-    Option<CancellationToken>,
-    Option<JoinHandle<()>>,
-);
-
-fn create_event_restriction_service(config: &Config) -> EventRestrictionState {
+fn create_event_restriction_service(
+    config: &Config,
+    handle: LifecycleHandle,
+) -> Option<EventRestrictionService> {
     if !config.event_restrictions_enabled {
-        return (None, None, None);
+        return None;
     }
 
     let Some(ref redis_url) = config.event_restrictions_redis_url else {
         warn!("Event restrictions enabled but EVENT_RESTRICTIONS_REDIS_URL not set");
-        return (None, None, None);
+        return None;
     };
 
     let service = EventRestrictionService::new(
@@ -136,13 +127,9 @@ fn create_event_restriction_service(config: &Config) -> EventRestrictionState {
         Duration::from_secs(config.event_restrictions_fail_open_after_secs),
     );
 
-    let cancel_token = CancellationToken::new();
-
     let service_clone = service.clone();
     let refresh_interval = Duration::from_secs(config.event_restrictions_refresh_interval_secs);
-    let task_cancel_token = cancel_token.clone();
 
-    // Capture values needed by the repository factory
     let redis_url = redis_url.clone();
     let response_timeout = if config.redis_response_timeout_ms == 0 {
         None
@@ -155,7 +142,18 @@ fn create_event_restriction_service(config: &Config) -> EventRestrictionState {
         Some(Duration::from_millis(config.redis_connection_timeout_ms))
     };
 
-    let handle = tokio::spawn(async move {
+    let cancel_token = CancellationToken::new();
+    let task_cancel_token = cancel_token.clone();
+
+    // Bridge lifecycle shutdown to the CancellationToken that start_refresh_task expects
+    let shutdown_bridge = handle.clone();
+    tokio::spawn(async move {
+        shutdown_bridge.shutdown_recv().await;
+        cancel_token.cancel();
+    });
+
+    tokio::spawn(async move {
+        let _guard = handle.process_scope();
         service_clone
             .start_refresh_task(
                 || {
@@ -186,38 +184,24 @@ fn create_event_restriction_service(config: &Config) -> EventRestrictionState {
         "Event restrictions enabled"
     );
 
-    (Some(service), Some(cancel_token), Some(handle))
+    Some(service)
 }
 
 async fn create_sink(
     config: &Config,
     redis_client: Arc<RedisClient>,
-    liveness: &HealthRegistry,
+    kafka_handle: LifecycleHandle,
+    s3_handle: Option<LifecycleHandle>,
+    noop_handle: Option<LifecycleHandle>,
+    shutdown_handle: LifecycleHandle,
 ) -> anyhow::Result<Box<dyn Event + Send + Sync>> {
     if config.print_sink {
-        // Print sink is only used for local debug, don't allow a container with it to run on prod
-        liveness
-            .register("print_sink".to_string(), Duration::from_secs(30))
-            .await
-            .report_status(ComponentStatus::Unhealthy)
-            .await;
-
         Ok(Box::new(PrintSink {}))
     } else if config.noop_sink {
         info!("NoOpSink enabled, events will be silently dropped");
-        // NoOpSink is used for mirror traffic when we don't need to evaluate the output
-        // events and don't want to waste cost on MSK for nothing. The 12 hour period on
-        // the liveness check is unimportant as the sink does nothing. This is safer than
-        // nerfing the liveness check entirely when NoOpSink is enabled
-        let sink_liveness = liveness
-            .register("noop_sink".to_string(), Duration::from_secs(60 * 60 * 12))
-            .await;
-        Ok(Box::new(NoOpSink::new(sink_liveness).await))
+        let handle = noop_handle.expect("noop_handle required when noop_sink enabled");
+        Ok(Box::new(NoOpSink::new(handle)))
     } else {
-        let sink_liveness = liveness
-            .register("rdkafka".to_string(), Duration::from_secs(30))
-            .await;
-
         let partition = match config.overflow_enabled {
             false => None,
             true => {
@@ -230,16 +214,23 @@ async fn create_sink(
 
                 if config.export_prometheus {
                     let partition = partition.clone();
+                    let sh = shutdown_handle.clone();
                     tokio::spawn(async move {
-                        partition.report_metrics().await;
+                        tokio::select! {
+                            _ = partition.report_metrics() => {}
+                            _ = sh.shutdown_recv() => {}
+                        }
                     });
                 }
 
                 {
-                    // Ensure that the rate limiter state does not grow unbounded
                     let partition = partition.clone();
+                    let sh = shutdown_handle.clone();
                     tokio::spawn(async move {
-                        partition.clean_state().await;
+                        tokio::select! {
+                            _ = partition.clean_state() => {}
+                            _ = sh.shutdown_recv() => {}
+                        }
                     });
                 }
                 Some(partition)
@@ -261,9 +252,10 @@ async fn create_sink(
             _ => None,
         };
 
+        let fallback_handle = kafka_handle.clone();
         let kafka_sink = KafkaSink::new(
             config.kafka.clone(),
-            sink_liveness,
+            kafka_handle,
             partition,
             replay_overflow_limiter,
         )
@@ -271,9 +263,7 @@ async fn create_sink(
         .expect("failed to start Kafka sink");
 
         if config.s3_fallback_enabled {
-            let sink_liveness = liveness
-                .register("s3".to_string(), Duration::from_secs(30))
-                .await;
+            let s3_liveness = s3_handle.expect("s3_handle required when s3_fallback_enabled");
 
             let s3_sink = S3Sink::new(
                 config
@@ -282,7 +272,7 @@ async fn create_sink(
                     .expect("S3 bucket required when fallback enabled"),
                 config.s3_fallback_prefix.clone(),
                 config.s3_fallback_endpoint.clone(),
-                sink_liveness,
+                s3_liveness,
             )
             .await
             .expect("failed to create S3 sink");
@@ -290,8 +280,7 @@ async fn create_sink(
             Ok(Box::new(FallbackSink::new_with_health(
                 kafka_sink,
                 s3_sink,
-                liveness.clone(),
-                "rdkafka".to_string(),
+                fallback_handle,
             )))
         } else {
             Ok(Box::new(kafka_sink))
@@ -299,13 +288,81 @@ async fn create_sink(
     }
 }
 
-pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
-where
-    F: Future<Output = ()> + Send + 'static,
-{
-    let liveness =
-        HealthRegistry::new_with_strategy("liveness", config.healthcheck_strategy.clone());
+pub async fn serve(config: Config, listener: TcpListener, mut manager: Manager) {
+    // --- Register lifecycle components ---
+    let server_handle = manager.register(
+        "server",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+    );
 
+    let kafka_handle = manager.register(
+        "kafka",
+        ComponentOptions::new()
+            .with_liveness_deadline(Duration::from_secs(30))
+            .with_stall_threshold(2),
+    );
+
+    let s3_handle = if config.s3_fallback_enabled {
+        Some(
+            manager.register(
+                "s3-fallback",
+                ComponentOptions::new()
+                    .with_liveness_deadline(Duration::from_secs(30))
+                    .with_stall_threshold(2),
+            ),
+        )
+    } else {
+        None
+    };
+
+    let noop_handle = if config.noop_sink {
+        Some(manager.register("noop-sink", ComponentOptions::new()))
+    } else {
+        None
+    };
+
+    let ai_s3_handle = if config.ai_s3_bucket.is_some() {
+        Some(
+            manager.register(
+                "ai-s3",
+                ComponentOptions::new()
+                    .with_liveness_deadline(Duration::from_secs(60))
+                    .with_stall_threshold(2),
+            ),
+        )
+    } else {
+        None
+    };
+
+    let event_restrictions_handle = if config.event_restrictions_enabled {
+        Some(manager.register(
+            "event-restrictions",
+            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+        ))
+    } else {
+        None
+    };
+
+    let obs_handle = manager.register(
+        "observability",
+        ComponentOptions::new().is_observability(true),
+    );
+
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+
+    let guard = manager.monitor_background();
+
+    // Signal metrics middleware that shutdown is in progress when server handle sees it
+    {
+        let sh = server_handle.clone();
+        tokio::spawn(async move {
+            sh.shutdown_recv().await;
+            crate::metrics_middleware::mark_shutting_down();
+        });
+    }
+
+    // --- Build infrastructure ---
     let redis_client = Arc::new(
         RedisClient::with_config(
             config.redis_url.clone(),
@@ -337,40 +394,37 @@ where
             (None, None)
         };
 
-    // add new "scoped" quota limiters here as new quota tracking buckets are added
-    // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
-    // global billing limiter applied here to every event batch. You must supply the
-    // QuotaResource type and a predicate function that will match events to be limited
     let quota_limiter =
         CaptureQuotaLimiter::new(&config, redis_client.clone(), Duration::from_secs(5))
             .add_scoped_limiter(QuotaResource::Exceptions, is_exception_event)
             .add_scoped_limiter(QuotaResource::Surveys, is_survey_event)
             .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
 
-    // TODO: remove this once we have a billing limiter
     let token_dropper = config
         .drop_events_by_token_distinct_id
         .clone()
         .map(|k| TokenDropper::new(&k))
         .unwrap_or_default();
 
-    // In Recordings capture mode, we unpack a batch of events, and then pack them back up into
-    // a big blob and send to kafka all at once - so we should abort unpacking a batch if the data
-    // size crosses the kafka limit. In the Events mode, we can unpack the batch and send each
-    // event individually, so we should instead allow for some small multiple of our max compressed
-    // body size to be unpacked. If a single event is still too big, we'll drop it at kafka send time.
     let event_payload_max_bytes = match config.capture_mode {
         CaptureMode::Events | CaptureMode::Ai => BATCH_BODY_SIZE * 5,
         CaptureMode::Recordings => config.kafka.kafka_producer_message_max_bytes as usize,
     };
 
-    let sink = create_sink(&config, redis_client.clone(), &liveness)
-        .await
-        .expect("failed to create sink");
+    let sink = create_sink(
+        &config,
+        redis_client.clone(),
+        kafka_handle.clone(),
+        s3_handle,
+        noop_handle,
+        server_handle.clone(),
+    )
+    .await
+    .expect("failed to create sink");
 
-    // Create AI blob storage if S3 is configured
+    // --- AI blob storage ---
     let ai_blob_storage: Option<Arc<dyn crate::ai_s3::BlobStorage>> =
-        if let Some(bucket) = &config.ai_s3_bucket {
+        if let (Some(bucket), Some(ai_handle)) = (&config.ai_s3_bucket, ai_s3_handle) {
             let s3_config = S3Config {
                 bucket: bucket.clone(),
                 region: config.ai_s3_region.clone(),
@@ -380,34 +434,29 @@ where
             };
             let s3_client = S3Client::new(s3_config).await;
 
-            // Register health check for AI blob storage
-            let health_handle = liveness
-                .register("ai_s3".to_string(), Duration::from_secs(60))
-                .await;
-
-            // Verify bucket exists on startup
             if s3_client.check_health().await {
-                health_handle.report_healthy().await;
-                tracing::info!(bucket = bucket, "AI S3 bucket verified");
+                ai_handle.report_healthy();
+                tracing::info!(bucket = bucket.as_str(), "AI S3 bucket verified");
             } else {
-                health_handle
-                    .report_status(ComponentStatus::Unhealthy)
-                    .await;
-                tracing::error!(bucket = bucket, "AI S3 bucket not accessible");
+                ai_handle.report_unhealthy();
+                tracing::error!(bucket = bucket.as_str(), "AI S3 bucket not accessible");
             }
 
-            // Spawn background health check task
             let s3_client_clone = s3_client.clone();
+            let ai_health = ai_handle.clone();
             tokio::spawn(async move {
+                let _guard = ai_health.process_scope();
                 let mut interval = tokio::time::interval(Duration::from_secs(30));
                 loop {
-                    interval.tick().await;
-                    if s3_client_clone.check_health().await {
-                        health_handle.report_healthy().await;
-                    } else {
-                        health_handle
-                            .report_status(ComponentStatus::Unhealthy)
-                            .await;
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            if s3_client_clone.check_health().await {
+                                ai_health.report_healthy();
+                            } else {
+                                ai_health.report_unhealthy();
+                            }
+                        }
+                        _ = ai_health.shutdown_recv() => break,
                     }
                 }
             });
@@ -420,12 +469,63 @@ where
             None
         };
 
-    let (event_restriction_service, event_restrictions_cancel, event_restrictions_handle) =
-        create_event_restriction_service(&config);
+    // --- Event restrictions ---
+    let event_restriction_service = if let Some(er_handle) = event_restrictions_handle {
+        create_event_restriction_service(&config, er_handle)
+    } else {
+        None
+    };
 
+    // --- Observability server (separate listener for metrics, readiness, liveness) ---
+    {
+        let obs_addr = config.observability_address;
+        let export_prometheus = config.export_prometheus;
+        let deploy_role = config.otel_service_name.clone();
+        let capture_mode_tag = config.capture_mode.as_tag();
+
+        let obs_listener = tokio::net::TcpListener::bind(obs_addr)
+            .await
+            .expect("could not bind observability port");
+        info!("observability server listening on {:?}", obs_addr);
+
+        tokio::spawn(async move {
+            let mut obs_app = Router::new()
+                .route(
+                    "/_readiness",
+                    axum::routing::get(move || {
+                        let r = readiness.clone();
+                        async move { r.check().await }
+                    }),
+                )
+                .route(
+                    "/_liveness",
+                    axum::routing::get(move || async move { liveness.check() }),
+                );
+
+            if export_prometheus {
+                let recorder_handle =
+                    crate::prometheus::setup_metrics_recorder(deploy_role, capture_mode_tag);
+                obs_app = obs_app.route(
+                    "/metrics",
+                    axum::routing::get(move || {
+                        let h = recorder_handle.clone();
+                        async move { h.render() }
+                    }),
+                );
+            }
+
+            axum::serve(obs_listener, obs_app.into_make_service())
+                .with_graceful_shutdown(obs_handle.shutdown_signal())
+                .await
+                .expect("observability server failed");
+
+            obs_handle.work_completed();
+        });
+    }
+
+    // --- Build main capture router ---
     let app = router::router(
         crate::time::SystemTime {},
-        liveness,
         sink,
         redis_client,
         global_rate_limiter_token_distinctid,
@@ -433,9 +533,7 @@ where
         quota_limiter,
         token_dropper,
         event_restriction_service,
-        config.export_prometheus,
         config.capture_mode,
-        config.otel_service_name.clone(), // this matches k8s role label in prod deploy envs
         config.concurrency_limit,
         event_payload_max_bytes,
         config.enable_historical_rerouting,
@@ -455,10 +553,9 @@ where
         config.is_mirror_deploy, config.log_level
     );
 
-    // Set up hyper server with manual connection handling and graceful shutdown
+    // --- HTTP accept loop ---
     let mut builder = AutoBuilder::new(TokioExecutor::new());
 
-    // Configure HTTP/1 header read timeout for slow loris protection
     if let Some(timeout_ms) = config.http1_header_read_timeout_ms {
         builder
             .http1()
@@ -469,136 +566,124 @@ where
 
     let graceful = GracefulShutdown::new();
 
-    // Pin the shutdown future so we can poll it in the select loop
-    tokio::pin!(shutdown);
+    {
+        let _scope = server_handle.process_scope();
 
-    loop {
-        tokio::select! {
-            result = listener.accept() => {
-                let (socket, remote_addr) = match result {
-                    Ok(conn) => {
-                        metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPTED_CONNECTIONS, "stage" => "accept").increment(1);
-                        conn
-                    },
-                    Err(e) => {
-                        // Match axum::serve behavior:
-                        // - Connection errors (reset, aborted, refused) are silently retried
-                        // - Other errors (EMFILE, etc.) are logged and we back off 1s to avoid
-                        //   tight loops under resource exhaustion
-                        if is_connection_error(&e) {
-                            metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
-                                "err_type" => "connection",
-                                "stage" => "accept",
-                            ).increment(1);
-                            error!("Hyper accept loop: connection error: {e:#}");
-                        } else {
-                            metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
-                                "err_type" => "resources",
-                                "stage" => "accept",
-                            ).increment(1);
-                            error!("Hyper accept loop: resource error: {e:#}");
-                            tokio::time::sleep(Duration::from_secs(1)).await;
+        loop {
+            tokio::select! {
+                result = listener.accept() => {
+                    let (socket, remote_addr) = match result {
+                        Ok(conn) => {
+                            metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPTED_CONNECTIONS, "stage" => "accept").increment(1);
+                            conn
+                        },
+                        Err(e) => {
+                            if is_connection_error(&e) {
+                                metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+                                    "err_type" => "connection",
+                                    "stage" => "accept",
+                                ).increment(1);
+                                error!("Hyper accept loop: connection error: {e:#}");
+                            } else {
+                                metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+                                    "err_type" => "resources",
+                                    "stage" => "accept",
+                                ).increment(1);
+                                error!("Hyper accept loop: resource error: {e:#}");
+                                tokio::time::sleep(Duration::from_secs(1)).await;
+                            }
+                            continue;
                         }
-                        continue;
-                    }
-                };
+                    };
 
-                spawn_connection_handler(
-                    socket,
-                    remote_addr,
-                    app.clone(),
-                    &builder,
-                    &graceful,
-                    "accept",
-                );
-            }
-            _ = &mut shutdown => {
-                info!("Hyper accept loop: shutdown signal received");
-                break;
-            }
-        }
-    }
-
-    // Drain any connections already queued in the TCP accept backlog.
-    // These connections are already established at the TCP level, so we should
-    // serve them rather than let them see connection reset.
-    info!("Hyper accept loop (draining): checking for queued connections...");
-    let mut drained_count: u64 = 0;
-    loop {
-        if drained_count > MAX_DRAINABLE_CONNECTIONS {
-            error!(
-                "Hyper accept loop (draining): reached loop limit of {} connections",
-                MAX_DRAINABLE_CONNECTIONS
-            );
-            break;
-        }
-        // Use a minimal timeout to check if there are queued connections
-        match tokio::time::timeout(Duration::from_millis(1), listener.accept()).await {
-            Ok(Ok((socket, remote_addr))) => {
-                metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPTED_CONNECTIONS, "stage" => "drain")
-                    .increment(1);
-                drained_count += 1;
-
-                spawn_connection_handler(
-                    socket,
-                    remote_addr,
-                    app.clone(),
-                    &builder,
-                    &graceful,
-                    "drain",
-                );
-            }
-            Ok(Err(e)) => {
-                // Accept error during drain - log but don't sleep, we're draining
-                if is_connection_error(&e) {
-                    metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
-                        "err_type" => "connection",
-                        "stage" => "drain",
-                    )
-                    .increment(1);
-                    error!(
-                        error_type = "connection",
-                        pause = "none",
-                        "Hyper accept loop (draining): {e:#}"
-                    );
-                } else {
-                    metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
-                        "err_type" => "resources",
-                        "stage" => "drain",
-                    )
-                    .increment(1);
-                    error!(
-                        error_type = "resources",
-                        pause = "none",
-                        "Hyper accept loop (draining): {e:#}"
+                    spawn_connection_handler(
+                        socket,
+                        remote_addr,
+                        app.clone(),
+                        &builder,
+                        &graceful,
+                        "accept",
                     );
                 }
+                _ = server_handle.shutdown_recv() => {
+                    info!("Hyper accept loop: shutdown signal received");
+                    break;
+                }
             }
-            Err(_) => {
-                // Timeout - accept queue is empty, done draining
+        }
+
+        // Drain queued connections from the TCP accept backlog
+        info!("Hyper accept loop (draining): checking for queued connections...");
+        let mut drained_count: u64 = 0;
+        loop {
+            if drained_count > MAX_DRAINABLE_CONNECTIONS {
+                error!(
+                    "Hyper accept loop (draining): reached loop limit of {} connections",
+                    MAX_DRAINABLE_CONNECTIONS
+                );
                 break;
             }
+            match tokio::time::timeout(Duration::from_millis(1), listener.accept()).await {
+                Ok(Ok((socket, remote_addr))) => {
+                    metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPTED_CONNECTIONS, "stage" => "drain")
+                        .increment(1);
+                    drained_count += 1;
+
+                    spawn_connection_handler(
+                        socket,
+                        remote_addr,
+                        app.clone(),
+                        &builder,
+                        &graceful,
+                        "drain",
+                    );
+                }
+                Ok(Err(e)) => {
+                    if is_connection_error(&e) {
+                        metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+                            "err_type" => "connection",
+                            "stage" => "drain",
+                        )
+                        .increment(1);
+                        error!(
+                            error_type = "connection",
+                            pause = "none",
+                            "Hyper accept loop (draining): {e:#}"
+                        );
+                    } else {
+                        metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+                            "err_type" => "resources",
+                            "stage" => "drain",
+                        )
+                        .increment(1);
+                        error!(
+                            error_type = "resources",
+                            pause = "none",
+                            "Hyper accept loop (draining): {e:#}"
+                        );
+                    }
+                }
+                Err(_) => {
+                    break;
+                }
+            }
         }
+        info!(
+            drained_connections = drained_count,
+            "Hyper accept loop (shutdown): drained queued connections"
+        );
+
+        info!(
+            "Hyper accept loop (shutdown): waiting for in-flight request handlers to complete..."
+        );
+        graceful.shutdown().await;
+        info!("Hyper accept loop (shutdown): graceful shutdown completed");
+
+        // _scope drops here, signaling server completion to lifecycle manager
     }
-    info!(
-        drained_connections = drained_count,
-        "Hyper accept loop (shutdown): drained queued connections"
-    );
 
-    // Wait for all in-flight connections to complete
-    info!("Hyper accept loop (shutdown): waiting for in-flight request handlers to complete...");
-    graceful.shutdown().await;
-    info!("Hyper accept loop (shutdown): graceful shutdown completed");
-
-    // Shutdown event restrictions refresh task if running
-    if let (Some(cancel_token), Some(handle)) =
-        (event_restrictions_cancel, event_restrictions_handle)
-    {
-        info!("Shutting down event restrictions refresh task...");
-        cancel_token.cancel();
-        if let Err(e) = handle.await {
-            warn!("Event restrictions refresh task failed: {e:#}");
-        }
-        info!("Event restrictions refresh task stopped");
+    // Wait for lifecycle monitor to complete (all components drained)
+    if let Err(e) = guard.wait().await {
+        error!("Lifecycle shutdown error: {e}");
     }
 }

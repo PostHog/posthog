@@ -10,7 +10,6 @@ use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
 use common_redis::MockRedisClient;
-use health::HealthRegistry;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 use serde_json::Value;
@@ -70,7 +69,6 @@ async fn setup_router_with_limits(
     // resources that will be set limited for the given token for scoped limiters to detect
     resources_to_limit: Vec<QuotaResource>,
 ) -> (Router, MemorySink) {
-    let liveness = HealthRegistry::new("quota_limit_tests");
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
         time: DateTime::parse_from_rfc3339("2025-07-31T12:00:00Z")
@@ -125,17 +123,14 @@ async fn setup_router_with_limits(
 
     let app = router(
         timesource,
-        liveness,
         sink.clone(),
         redis,
         None,
         None,
         quota_limiter,
         TokenDropper::default(),
-        None,  // event_restriction_service
-        false, // metrics
+        None, // event_restriction_service
         CaptureMode::Events,
-        String::from("capture"),
         None,        // concurrency_limit
         1024 * 1024, // event_payload_size_limit
         false,       // enable_historical_rerouting
@@ -1146,7 +1141,6 @@ async fn test_survey_quota_allows_events_when_not_limited() {
 #[tokio::test]
 async fn test_survey_quota_cross_batch_first_submission_allowed() {
     let token = "test_token_cross_batch_first";
-    let liveness = HealthRegistry::new("billing_limit_tests");
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
         time: DateTime::parse_from_rfc3339("2025-07-31T12:00:00Z")
@@ -1170,7 +1164,6 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
 
     let app = router(
         timesource,
-        liveness,
         sink.clone(),
         redis,
         None,
@@ -1178,9 +1171,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
         CaptureMode::Events,
-        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1227,7 +1218,6 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
 #[tokio::test]
 async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
     let token = "test_token_cross_batch_dup";
-    let liveness = HealthRegistry::new("billing_limit_tests");
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
         time: DateTime::parse_from_rfc3339("2025-07-31T12:00:00Z")
@@ -1253,7 +1243,6 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
 
     let app = router(
         timesource,
-        liveness,
         sink.clone(),
         redis,
         None,
@@ -1261,9 +1250,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
         CaptureMode::Events,
-        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1310,7 +1297,6 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
 #[tokio::test]
 async fn test_survey_quota_cross_batch_redis_error_fail_open() {
     let token = "test_token_redis_error";
-    let liveness = HealthRegistry::new("billing_limit_tests");
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
         time: DateTime::parse_from_rfc3339("2025-07-31T12:00:00Z")
@@ -1340,7 +1326,6 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
 
     let app = router(
         timesource,
-        liveness,
         sink.clone(),
         redis,
         None,
@@ -1348,9 +1333,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
         CaptureMode::Events,
-        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1736,7 +1719,6 @@ async fn test_ai_quota_with_empty_batch_returns_bad_request() {
 #[tokio::test]
 async fn test_ai_quota_cross_batch_redis_error_fail_open() {
     let token = "test_token_redis_error_ai";
-    let liveness = HealthRegistry::new("ai_limit_tests");
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
         time: DateTime::parse_from_rfc3339("2025-07-31T12:00:00Z")
@@ -1764,7 +1746,6 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
 
     let app = router(
         timesource,
-        liveness,
         sink.clone(),
         redis,
         None,
@@ -1772,9 +1753,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
         CaptureMode::Events,
-        String::from("capture"),
         None,
         1024 * 1024,
         false,

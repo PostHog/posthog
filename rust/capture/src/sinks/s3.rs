@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use aws_sdk_s3::config::Builder;
 use aws_sdk_s3::Client as S3Client;
 use chrono::{DateTime, Datelike, Utc};
-use health::HealthHandle;
+use lifecycle::Handle as LifecycleHandle;
 use metrics::{counter, histogram};
 use std::env;
 use std::sync::Arc;
@@ -29,7 +29,7 @@ struct Inner {
     bucket: String,
     prefix: String,
     buffer: Arc<Mutex<EventBuffer>>,
-    liveness: HealthHandle,
+    liveness: LifecycleHandle,
 }
 
 pub struct S3Sink {
@@ -75,7 +75,7 @@ impl S3Sink {
         bucket: String,
         prefix: String,
         s3_endpoint: Option<String>,
-        liveness: HealthHandle,
+        liveness: LifecycleHandle,
     ) -> anyhow::Result<S3Sink> {
         info!("Initializing S3 sink with bucket: {bucket}");
 
@@ -153,7 +153,6 @@ impl S3Sink {
 
 impl Inner {
     async fn healthcheck(&self) {
-        // Verify bucket exists and is accessible
         if self
             .client
             .head_bucket()
@@ -162,7 +161,7 @@ impl Inner {
             .await
             .is_ok()
         {
-            self.liveness.report_healthy().await;
+            self.liveness.report_healthy();
         };
     }
 
@@ -247,7 +246,7 @@ impl Inner {
                 counter!("capture_s3_events_written_total").increment(event_count as u64);
                 counter!("capture_s3_bytes_written_total").increment(written_bytes as u64);
                 histogram!("capture_s3_batch_size").record(event_count as f64);
-                self.liveness.report_healthy().await;
+                self.liveness.report_healthy();
                 Ok(())
             }
             Err(err) => {
@@ -292,16 +291,19 @@ mod tests {
     use crate::utils::uuid_v7;
     use crate::v0_request::{DataType, ProcessedEventMetadata};
     use common_types::CapturedEvent;
-    use health::HealthRegistry;
-    use time::Duration as TimeDuration;
+    use lifecycle::{ComponentOptions, Manager};
 
     async fn setup_test_sink() -> S3Sink {
-        let registry = HealthRegistry::new("test");
-        let handle = registry
-            .register("s3".to_string(), TimeDuration::seconds(30))
-            .await;
+        let mut manager = Manager::builder("s3-test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .build();
+        let handle = manager.register(
+            "s3",
+            ComponentOptions::new().with_liveness_deadline(Duration::from_secs(30)),
+        );
+        let _guard = manager.monitor_background();
 
-        // Use environment variables for test configuration
         env::set_var("AWS_ACCESS_KEY_ID", "object_storage_root_user");
         env::set_var("AWS_SECRET_ACCESS_KEY", "object_storage_root_password");
 
