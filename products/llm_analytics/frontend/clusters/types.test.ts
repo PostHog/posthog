@@ -48,26 +48,25 @@ describe('getTimestampBoundsFromRunId', () => {
 
 describe('getJobIdFromRunId', () => {
     it.each([
-        { runId: '2_trace_20260122_000043_17', expected: 17, description: 'returns job_id when token is numeric' },
         {
-            runId: '2_trace_20260122_000043_17_production',
-            expected: 17,
-            description: 'returns job_id when numeric token has a label suffix after it',
+            runId: '2_trace_20260122_000043_019cb7f3-a123-7bde-b699-6fa50502196c',
+            expected: '019cb7f3-a123-7bde-b699-6fa50502196c',
+            description: 'returns UUID job_id',
         },
         {
-            runId: '2_trace_20260122_000043_1-baseline',
-            expected: null,
-            description: 'rejects job_id token with non-numeric suffix',
+            runId: '2_generation_20260305_114422_019cb7f3-a126-7809-bffc-7f13bffe1325',
+            expected: '019cb7f3-a126-7809-bffc-7f13bffe1325',
+            description: 'returns UUID job_id for generation level',
         },
         {
-            runId: '2_trace_20260122_000043_baseline',
+            runId: '2_trace_20260122_000043',
             expected: null,
-            description: 'rejects non-numeric job_id token',
+            description: 'returns null when no job_id present',
         },
         {
-            runId: '2_trace_20260122_000043_0',
-            expected: null,
-            description: 'rejects zero job_id',
+            runId: '2_trace_20260122_000043_17',
+            expected: '17',
+            description: 'returns numeric job_id as string for backwards compat',
         },
     ])('returns $expected for $description', ({ runId, expected }) => {
         expect(getJobIdFromRunId(runId)).toBe(expected)
