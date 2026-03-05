@@ -9,6 +9,7 @@ import {
     type CreatedResources,
     SAMPLE_FUNNEL_QUERIES,
     SAMPLE_HOGQL_QUERIES,
+    SAMPLE_TREND_DISPLAY_QUERIES,
     SAMPLE_TREND_QUERIES,
     TEST_ORG_ID,
     TEST_PROJECT_ID,
@@ -213,6 +214,21 @@ describe('Query Integration Tests', () => {
             // Should have property filters on the series
             expect(queryResponse.series[0].properties).not.toBeUndefined()
             expect(queryResponse.series[0].properties.length).toBeGreaterThan(0)
+        })
+    })
+
+    describe('Trends Query Display Types', () => {
+        it.each([
+            ['ActionsBar', SAMPLE_TREND_DISPLAY_QUERIES.barChart],
+            ['ActionsBarValue', SAMPLE_TREND_DISPLAY_QUERIES.barChartValue],
+            ['ActionsPie', SAMPLE_TREND_DISPLAY_QUERIES.pieChart],
+            ['BoldNumber', SAMPLE_TREND_DISPLAY_QUERIES.boldNumber],
+            ['ActionsTable', SAMPLE_TREND_DISPLAY_QUERIES.tableView],
+        ] as const)('should execute trends query with display=%s', async (displayType, query) => {
+            const result = await executeQuery(context, query, `display=${displayType}`)
+            const { results, query: queryResponse } = assertQueryResponse(result, 'TrendsQuery')
+            assertSeriesResults(results)
+            expect(queryResponse.trendsFilter?.display).toBe(displayType)
         })
     })
 

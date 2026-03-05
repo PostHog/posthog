@@ -141,7 +141,14 @@ const CompareFilter = z.object({
 
 // Trends filter
 const TrendsFilter = z.object({
-    display: ChartDisplayType.optional().default('ActionsLineGraph'),
+    display: ChartDisplayType.optional()
+        .default('ActionsLineGraph')
+        .describe(
+            "Chart type for the visualization. 'ActionsLineGraph' = line chart (default), " +
+                "'ActionsBar' = time-series bars, 'ActionsBarValue' = bars ranked by value, " +
+                "'ActionsPie' = pie chart, 'ActionsAreaGraph' = area chart, " +
+                "'BoldNumber' = single KPI number, 'ActionsTable' = table, 'WorldMap' = geo map."
+        ),
     showLegend: z.boolean().optional().default(false),
 })
 

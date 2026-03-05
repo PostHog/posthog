@@ -295,6 +295,25 @@ export const SAMPLE_TREND_QUERIES = {
     },
 } as const satisfies Record<SampleTrendQuery, InsightQuery>
 
+type SampleTrendDisplayQuery = 'barChart' | 'barChartValue' | 'pieChart' | 'boldNumber' | 'tableView'
+
+const TREND_DISPLAY_BASE = SAMPLE_TREND_QUERIES.basicPageviews
+
+const makeTrendDisplayQuery = (
+    display: 'ActionsBar' | 'ActionsBarValue' | 'ActionsPie' | 'BoldNumber' | 'ActionsTable'
+): InsightQuery => ({
+    ...TREND_DISPLAY_BASE,
+    source: { ...TREND_DISPLAY_BASE.source, trendsFilter: { display, showLegend: false } },
+})
+
+export const SAMPLE_TREND_DISPLAY_QUERIES = {
+    barChart: makeTrendDisplayQuery('ActionsBar'),
+    barChartValue: makeTrendDisplayQuery('ActionsBarValue'),
+    pieChart: makeTrendDisplayQuery('ActionsPie'),
+    boldNumber: makeTrendDisplayQuery('BoldNumber'),
+    tableView: makeTrendDisplayQuery('ActionsTable'),
+} as const satisfies Record<SampleTrendDisplayQuery, InsightQuery>
+
 type SampleFunnelQuery =
     | 'basicFunnel'
     | 'strictOrderFunnel'
