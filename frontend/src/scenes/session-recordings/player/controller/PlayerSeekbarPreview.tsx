@@ -2,6 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { MutableRefObject, memo, useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
+import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { colonDelimitedDuration } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
