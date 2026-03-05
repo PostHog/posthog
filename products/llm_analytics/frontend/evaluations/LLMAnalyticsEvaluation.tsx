@@ -81,7 +81,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                   ...searchParams,
                   source_evaluation_id: evaluation.id,
               }).url
-            : undefined
+            : null
 
     const isHog = evaluation.evaluation_type === 'hog'
     const configValid = isHog
@@ -132,16 +132,11 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    {evaluation.id ? (
+                    {openInPlaygroundUrl ? (
                         <LemonButton
                             type="secondary"
                             icon={<IconPlay />}
                             to={openInPlaygroundUrl}
-                            disabledReason={
-                                evaluation.evaluation_type !== 'llm_judge'
-                                    ? 'Only LLM-as-judge evaluations can be opened in the playground'
-                                    : undefined
-                            }
                             data-attr="llma-playground-open-from-evaluation"
                         >
                             Open in Playground

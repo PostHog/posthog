@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -542,15 +542,14 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         actions.setSourceNames(fetchedPrompt.name ?? null, null, promptId)
                         actions.setMessages([], promptId)
                         actions.setActivePromptId(promptId)
+                        const url = combineUrl(urls.llmAnalyticsPlayground(), {
+                            ...router.values.searchParams,
+                            source_prompt_id: payload.sourcePromptId,
+                        }).url
+                        router.actions.push(url)
                     } catch {
                         lemonToast.error('Error loading prompt for playground')
                     }
-                    const url = combineUrl(urls.llmAnalyticsPlayground(), {
-                        ...router.values.searchParams,
-                        source_prompt_id: payload.sourcePromptId,
-                        source_evaluation_id: payload.sourceEvaluationId,
-                    }).url
-                    router.actions.push(url)
                     return
                 }
 
@@ -576,14 +575,14 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         }
                         actions.setMessages([], promptId)
                         actions.setActivePromptId(promptId)
+                        const url = combineUrl(urls.llmAnalyticsPlayground(), {
+                            ...router.values.searchParams,
+                            source_evaluation_id: payload.sourceEvaluationId,
+                        }).url
+                        router.actions.push(url)
                     } catch {
                         lemonToast.error('Error loading evaluation for playground')
                     }
-                    const url = combineUrl(urls.llmAnalyticsPlayground(), {
-                        ...router.values.searchParams,
-                        source_evaluation_id: payload.sourceEvaluationId,
-                    }).url
-                    router.actions.push(url)
                     return
                 }
 
@@ -639,15 +638,25 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
 
                 actions.setMessages(conversationMessages, promptId)
                 actions.setActivePromptId(promptId)
-                const url = combineUrl(urls.llmAnalyticsPlayground(), {
-                    ...router.values.searchParams,
-                    source_prompt_id: payload.sourcePromptId,
-                    source_evaluation_id: payload.sourceEvaluationId,
-                }).url
-                router.actions.push(url)
+                router.actions.push(urls.llmAnalyticsPlayground())
             } finally {
                 actions.setSourceSetupLoading(false)
             }
         },
     })),
+
+    afterMount(({ actions }) => {
+        const { searchParams } = router.values
+        const sourcePromptId = typeof searchParams.source_prompt_id === 'string' ? searchParams.source_prompt_id : null
+        const sourceEvaluationId =
+            typeof searchParams.source_evaluation_id === 'string' ? searchParams.source_evaluation_id : null
+
+        if (sourcePromptId || sourceEvaluationId) {
+            actions.setupPlaygroundFromEvent({
+                sourceType: sourcePromptId ? 'prompt' : 'evaluation',
+                sourcePromptId: sourcePromptId ?? undefined,
+                sourceEvaluationId: sourceEvaluationId ?? undefined,
+            })
+        }
+    }),
 ])
