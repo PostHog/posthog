@@ -311,6 +311,35 @@ export function SourceFormComponent({
                     )}
                 </LemonField>
             )}
+            {showPrefix && isPostgresDirectQuery && (
+                <LemonField
+                    name="prefix"
+                    label="Name"
+                    help="Required. This name is shown in the query editor when selecting a Postgres connection."
+                >
+                    {({ value, onChange }) => {
+                        const validationError = value && !value.trim() ? 'Name cannot be empty whitespace' : ''
+                        const displayValue = value?.trim() || 'My Postgres database'
+                        return (
+                            <>
+                                <LemonInput
+                                    className="ph-ignore-input"
+                                    data-attr="prefix"
+                                    placeholder="e.g. Production database"
+                                    value={value}
+                                    onChange={onChange}
+                                    status={validationError ? 'danger' : undefined}
+                                />
+                                {validationError && <p className="text-danger text-xs mt-1">{validationError}</p>}
+                                <p className="mb-0">
+                                    Shown as:&nbsp;
+                                    <strong>{displayValue} (Postgres)</strong>
+                                </p>
+                            </>
+                        )
+                    }}
+                </LemonField>
+            )}
             {shouldShowDescription && (
                 <LemonField
                     name="description"
