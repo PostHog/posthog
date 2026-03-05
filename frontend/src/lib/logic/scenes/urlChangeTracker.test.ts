@@ -23,11 +23,9 @@ describe('extractUrlString', () => {
         expect(extractUrlString(input)).toBe(expected)
     })
 
-    it('detects [object Object] in searchParams', () => {
-        const badObject = {}
-        badObject.toString = () => '[object Object]'
-        const result = extractUrlString(['/web', { filter: badObject }])
-        expect(result).toContain('[object Object]')
+    it('serializes nested objects in searchParams via JSON.stringify', () => {
+        const result = extractUrlString(['/web', { filter: { nested: 'value' } }])
+        expect(result).toBe('/web?{"filter":{"nested":"value"}}')
     })
 })
 
@@ -113,7 +111,7 @@ describe('UrlChangeTracker', () => {
         it('cleans up old entries outside the time window', () => {
             tracker.recordChange('/web?v=1', 'webAnalyticsLogic', 'setFilters')
 
-            jest.advanceTimersByTime(1500) // Beyond default 1000ms window
+            jest.advanceTimersByTime(3500) // Beyond default 3000ms window
 
             tracker.recordChange('/web?v=2', 'webAnalyticsLogic', 'setFilters')
 
@@ -124,7 +122,7 @@ describe('UrlChangeTracker', () => {
         it('preserves entries within the time window', () => {
             tracker.recordChange('/web?v=1', 'webAnalyticsLogic', 'setFilters')
 
-            jest.advanceTimersByTime(500) // Within default 1000ms window
+            jest.advanceTimersByTime(2000) // Within default 3000ms window
 
             tracker.recordChange('/web?v=2', 'webAnalyticsLogic', 'setFilters')
 
@@ -135,8 +133,8 @@ describe('UrlChangeTracker', () => {
     describe('isRapidlyChanging', () => {
         it.each([
             { count: 3, expected: false },
-            { count: 5, expected: false },
-            { count: 6, expected: true },
+            { count: 4, expected: false },
+            { count: 5, expected: true },
             { count: 10, expected: true },
         ])('returns $expected when $count changes recorded', ({ count, expected }) => {
             for (let i = 0; i < count; i++) {
@@ -193,7 +191,7 @@ describe('UrlChangeTracker', () => {
             const info = tracker.getDebugInfo()
 
             expect(info.changeCount).toBe(2)
-            expect(info.windowMs).toBe(1000)
+            expect(info.windowMs).toBe(3000)
             expect(info.recentUrls).toHaveLength(2)
         })
 
