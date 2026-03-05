@@ -70,6 +70,15 @@ export function appendToolCallChunk(state: AggregatedToolCall[], toolCall: ToolC
     return updated
 }
 
+function formatToolCalls(toolCalls: AggregatedToolCall[]): string {
+    if (toolCalls.length === 0) {
+        return ''
+    }
+    return toolCalls
+        .map((tc) => JSON.stringify({ id: tc.id, name: tc.name, arguments: tc.arguments }, null, 2))
+        .join('\n\n')
+}
+
 function normalizeUsageFromStreamChunk(data: Record<string, unknown>): UsageSummary {
     const promptTokens = (data.input_tokens as number | undefined) ?? (data.prompt_tokens as number | undefined) ?? null
     const completionTokens =
@@ -126,56 +135,6 @@ export interface ComparisonItem {
 
 let activeAbortController: AbortController | null = null
 
-function parseToolArguments(
-    argumentsText: string
-): Record<string, unknown> | string | number | boolean | null | unknown[] {
-    try {
-        return JSON.parse(argumentsText)
-    } catch {
-        return {}
-    }
-}
-
-function buildToolRoundtripMessages(
-    pendingToolResults:
-        | {
-              id: string
-              name: string
-              arguments: string
-              result: string
-          }[]
-        | null
-): Record<string, unknown>[] {
-    if (!pendingToolResults || pendingToolResults.length === 0) {
-        return []
-    }
-
-    const normalized = pendingToolResults.filter((tool) => tool.result.trim().length > 0)
-    if (normalized.length === 0) {
-        return []
-    }
-
-    return [
-        {
-            role: 'assistant',
-            content: normalized.map((tool) => ({
-                type: 'tool_use',
-                id: tool.id,
-                name: tool.name || 'tool_call',
-                input: parseToolArguments(tool.arguments),
-            })),
-        },
-        {
-            role: 'user',
-            content: normalized.map((tool) => ({
-                type: 'tool_result',
-                tool_use_id: tool.id,
-                content: tool.result,
-            })),
-        },
-    ]
-}
-
 export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'playground', 'llmPlaygroundRunLogic']),
 
@@ -188,7 +147,6 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             llmProviderKeysLogic,
             ['providerKeys'],
         ],
-        actions: [llmPlaygroundPromptsLogic, ['clearPendingToolResults']],
     })),
 
     actions({
@@ -323,12 +281,9 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
 
                         const requestData: Record<string, unknown> = {
                             system: prompt.systemPrompt,
-                            messages: [
-                                ...messagesToSend
-                                    .filter((m: Message) => m.role === 'user' || m.role === 'assistant')
-                                    .map((m: Message) => ({ role: m.role, content: m.content })),
-                                ...buildToolRoundtripMessages(prompt.pendingToolResults),
-                            ],
+                            messages: messagesToSend
+                                .filter((m: Message) => m.role === 'user' || m.role === 'assistant')
+                                .map((m: Message) => ({ role: m.role, content: m.content })),
                             model: selectedModel.id,
                             provider: selectedModelProvider,
                             thinking: prompt.thinking,
@@ -368,7 +323,10 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                                             ttftMs = firstTokenTime - startTime
                                         }
                                         toolCalls = appendToolCallChunk(toolCalls, data)
+                                        const toolCallsText = formatToolCalls(toolCalls)
+                                        const separator = responseText.trim() && toolCallsText ? '\n\n' : ''
                                         actions.updateComparisonItem(liveItemId, {
+                                            response: responseText + separator + toolCallsText,
                                             toolCalls,
                                             ttftMs,
                                         })
@@ -423,9 +381,6 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         })
 
                         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunAiPlayground)
-                        if (!responseHasError) {
-                            actions.clearPendingToolResults(prompt.id)
-                        }
                     } catch (error) {
                         if (abortController.signal.aborted) {
                             responseAborted = true
@@ -451,6 +406,12 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
 
                     if (responseAborted && latencyMs === null) {
                         latencyMs = 0
+                    }
+
+                    const toolCallsText = formatToolCalls(toolCalls)
+                    if (toolCallsText) {
+                        const separator = responseText.trim() ? '\n\n' : ''
+                        responseText += separator + toolCallsText
                     }
                     upsertLiveItem()
                 })

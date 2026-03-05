@@ -88,41 +88,4 @@ describe('llmPlaygroundRunLogic', () => {
         logic.unmount()
         streamSpy.mockRestore()
     })
-
-    it('includes applied tool result round-trip messages in completion payload', async () => {
-        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
-            options.onMessage?.({ data: JSON.stringify({ type: 'text', text: 'ok' }) })
-        })
-
-        const logic = llmPlaygroundRunLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
-        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'run tools' }])
-        llmPlaygroundPromptsLogic.actions.setPendingToolResults([
-            {
-                id: 'call_1',
-                name: 'get_weather',
-                arguments: '{"city":"Nicosia"}',
-                result: '{"temperature_c": 24}',
-            },
-        ])
-
-        llmPlaygroundRunLogic.actions.submitPrompt()
-        await expectLogic(logic).toFinishAllListeners()
-
-        const messages = streamSpy.mock.calls[0][1]?.data?.messages
-        expect(messages[messages.length - 2]).toEqual({
-            role: 'assistant',
-            content: [{ type: 'tool_use', id: 'call_1', name: 'get_weather', input: { city: 'Nicosia' } }],
-        })
-        expect(messages[messages.length - 1]).toEqual({
-            role: 'user',
-            content: [{ type: 'tool_result', tool_use_id: 'call_1', content: '{"temperature_c": 24}' }],
-        })
-
-        logic.unmount()
-        streamSpy.mockRestore()
-    })
 })

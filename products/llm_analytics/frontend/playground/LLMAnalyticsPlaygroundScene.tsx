@@ -573,7 +573,7 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
 function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
     const { submitting } = useValues(llmPlaygroundRunLogic)
-    const { addMessage, clearPendingToolResults } = useActions(llmPlaygroundPromptsLogic)
+    const { addMessage } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-16" />
@@ -581,18 +581,6 @@ function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
 
     return (
         <div className="space-y-3">
-            {!!prompt.pendingToolResults?.length && (
-                <LemonBanner
-                    type="info"
-                    action={{
-                        children: 'Clear',
-                        onClick: () => clearPendingToolResults(promptId),
-                    }}
-                >
-                    {prompt.pendingToolResults.length} tool result
-                    {prompt.pendingToolResults.length === 1 ? '' : 's'} will be sent on the next run.
-                </LemonBanner>
-            )}
             <SystemMessageDisplay promptId={promptId} />
             {prompt.messages.map((message, index) => (
                 <MessageDisplay key={`${promptId}-${index}`} promptId={promptId} index={index} message={message} />

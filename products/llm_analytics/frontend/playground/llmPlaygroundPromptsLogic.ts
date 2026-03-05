@@ -28,14 +28,6 @@ export interface PromptConfig {
     thinking: boolean
     reasoningLevel: ReasoningLevel
     tools: Record<string, unknown>[] | null
-    pendingToolResults:
-        | {
-              id: string
-              name: string
-              arguments: string
-              result: string
-          }[]
-        | null
     messages: Message[]
 }
 
@@ -60,7 +52,6 @@ export function createPromptConfig(partial: Partial<PromptConfig> = {}): PromptC
         thinking: partial.thinking ?? false,
         reasoningLevel: partial.reasoningLevel ?? 'medium',
         tools: partial.tools ?? null,
-        pendingToolResults: partial.pendingToolResults ?? null,
         messages: partial.messages ?? [],
     }
 }
@@ -174,18 +165,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         setThinking: (thinking: boolean, promptId?: string) => ({ thinking, promptId }),
         setReasoningLevel: (reasoningLevel: ReasoningLevel, promptId?: string) => ({ reasoningLevel, promptId }),
         setTools: (tools: Record<string, unknown>[] | null, promptId?: string) => ({ tools, promptId }),
-        setPendingToolResults: (
-            pendingToolResults:
-                | {
-                      id: string
-                      name: string
-                      arguments: string
-                      result: string
-                  }[]
-                | null,
-            promptId?: string
-        ) => ({ pendingToolResults, promptId }),
-        clearPendingToolResults: (promptId?: string) => ({ promptId }),
         clearConversation: (promptId?: string) => ({ promptId }),
         setMessages: (messages: Message[], promptId?: string) => ({ messages, promptId }),
         deleteMessage: (index: number, promptId?: string) => ({ index, promptId }),
@@ -199,11 +178,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         ) => ({ target }),
         toggleCollapsed: (key: string) => ({ key }),
         setToolsJsonError: (promptId: string, error: string | null) => ({ promptId, error }),
-        setToolResultDraft: (toolCallId: string, value: string, promptId?: string) => ({
-            toolCallId,
-            value,
-            promptId,
-        }),
     }),
 
     reducers({
@@ -261,25 +235,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     state: PromptConfig[],
                     { tools, promptId }: { tools: Record<string, unknown>[] | null; promptId?: string }
                 ) => updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, tools })),
-                setPendingToolResults: (
-                    state: PromptConfig[],
-                    {
-                        pendingToolResults,
-                        promptId,
-                    }: {
-                        pendingToolResults:
-                            | {
-                                  id: string
-                                  name: string
-                                  arguments: string
-                                  result: string
-                              }[]
-                            | null
-                        promptId?: string
-                    }
-                ) => updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, pendingToolResults })),
-                clearPendingToolResults: (state: PromptConfig[], { promptId }: { promptId?: string }) =>
-                    updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, pendingToolResults: null })),
                 clearConversation: (state: PromptConfig[], { promptId }: { promptId?: string }) =>
                     updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, messages: [] })),
                 setMessages: (
@@ -407,53 +362,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 }),
             },
         ],
-        toolResultDraftsByPromptId: [
-            {} as Record<string, Record<string, string>>,
-            {
-                setToolResultDraft: (
-                    state: Record<string, Record<string, string>>,
-                    { toolCallId, value, promptId }: { toolCallId: string; value: string; promptId?: string }
-                ) => {
-                    const resolvedId = promptId ?? Object.keys(state)[0] ?? ''
-                    return {
-                        ...state,
-                        [resolvedId]: { ...state[resolvedId], [toolCallId]: value },
-                    }
-                },
-                setPendingToolResults: (
-                    state: Record<string, Record<string, string>>,
-                    {
-                        pendingToolResults,
-                        promptId,
-                    }: {
-                        pendingToolResults: { id: string; name: string; arguments: string; result: string }[] | null
-                        promptId?: string
-                    }
-                ) => {
-                    const resolvedId = promptId ?? Object.keys(state)[0] ?? ''
-                    const drafts: Record<string, string> = {}
-                    for (const tool of pendingToolResults ?? []) {
-                        drafts[tool.id] = tool.result
-                    }
-                    return { ...state, [resolvedId]: drafts }
-                },
-                clearPendingToolResults: (
-                    state: Record<string, Record<string, string>>,
-                    { promptId }: { promptId?: string }
-                ) => {
-                    const resolvedId = promptId ?? Object.keys(state)[0] ?? ''
-                    const { [resolvedId]: _, ...rest } = state
-                    return rest
-                },
-                removePromptConfig: (
-                    state: Record<string, Record<string, string>>,
-                    { promptId }: { promptId: string }
-                ) => {
-                    const { [promptId]: _, ...rest } = state
-                    return rest
-                },
-            },
-        ],
         toolsJsonErrorByPromptId: [
             {} as Record<string, string | null>,
             {
@@ -512,19 +420,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         tools: [
             (s) => [s.activePromptConfig],
             (activePromptConfig: PromptConfig): Record<string, unknown>[] | null => activePromptConfig.tools,
-        ],
-        pendingToolResults: [
-            (s) => [s.activePromptConfig],
-            (
-                activePromptConfig: PromptConfig
-            ):
-                | {
-                      id: string
-                      name: string
-                      arguments: string
-                      result: string
-                  }[]
-                | null => activePromptConfig.pendingToolResults,
         ],
         messages: [
             (s) => [s.activePromptConfig],
