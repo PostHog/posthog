@@ -54,6 +54,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
 
     const logic = funnelDataWarehouseStepDefinitionPopoverLogic({
         table: item as DataWarehouseTableForInsight,
+        group,
         taxonomicFilterLogicKey,
         insightProps,
     })
@@ -64,13 +65,10 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
         activeFieldOptions,
         activeFieldIsHogQL,
         dataWarehousePopoverFields,
-        localDefinition,
         isAggregatingByGroup,
         isAggregatingByHogQL,
     } = useValues(logic)
-    const { setActiveFieldKey, selectItem, setLocalDefinition } = useActions(logic)
-
-    const dataWarehouseLocalDefinition = localDefinition as Partial<DataWarehouseTableForInsight>
+    const { setActiveFieldKey, selectTable, setLocalDefinition } = useActions(logic)
 
     return (
         <div className="flex flex-col">
@@ -150,12 +148,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
             )}
 
             <div className="flex justify-end mt-4">
-                <LemonButton
-                    onClick={() => {
-                        selectItem(group, table.name, dataWarehouseLocalDefinition)
-                    }}
-                    type="primary"
-                >
+                <LemonButton onClick={selectTable} type="primary">
                     Select
                 </LemonButton>
             </div>

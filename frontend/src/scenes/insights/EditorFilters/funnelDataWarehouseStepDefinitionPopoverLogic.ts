@@ -1,22 +1,26 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import type { TaxonomicFilterGroup } from 'lib/components/TaxonomicFilter/types'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightLogicProps } from '~/types'
 
+import type { funnelDataWarehouseStepDefinitionPopoverLogicType } from './funnelDataWarehouseStepDefinitionPopoverLogicType'
+
 export type FunnelFieldKey = 'id_field' | 'timestamp_field' | 'distinct_id_field'
 
 export interface FunnelDataWarehouseStepDefinitionPopoverLogicProps {
     table: DataWarehouseTableForInsight
+    group: TaxonomicFilterGroup
     taxonomicFilterLogicKey: string
     insightProps: InsightLogicProps
 }
 
-export const funnelDataWarehouseStepDefinitionPopoverLogic = kea([
+export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWarehouseStepDefinitionPopoverLogicType>([
     props({} as FunnelDataWarehouseStepDefinitionPopoverLogicProps),
     key(
         (props) =>
@@ -41,6 +45,7 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea([
     })),
     actions(() => ({
         setActiveFieldKey: (activeFieldKey: FunnelFieldKey) => ({ activeFieldKey }),
+        selectTable: true,
     })),
     reducers({
         activeFieldKey: [
@@ -95,4 +100,9 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea([
                 Boolean(querySource?.funnelsFilter?.funnelAggregateByHogQL) && !isAggregatingByGroup,
         ],
     }),
+    listeners(({ actions, values, props }) => ({
+        selectTable: () => {
+            actions.selectItem(props.group, props.table.name, values.localDefinition)
+        },
+    })),
 ])
