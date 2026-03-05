@@ -9,12 +9,17 @@ import { Ticket } from '../../types'
 interface PreviousTicketsPanelProps {
     previousTickets: Ticket[]
     previousTicketsLoading?: boolean
+    currentTicketId?: string
 }
 
 export function PreviousTicketsPanel({
     previousTickets,
     previousTicketsLoading,
+    currentTicketId,
 }: PreviousTicketsPanelProps): JSX.Element {
+    const filteredTickets = currentTicketId
+        ? previousTickets.filter((ticket) => ticket.id !== currentTicketId)
+        : previousTickets
     return (
         <LemonCollapse
             className="bg-surface-primary"
@@ -24,8 +29,8 @@ export function PreviousTicketsPanel({
                     header: (
                         <>
                             Previous tickets
-                            {previousTickets.length > 0 && (
-                                <span className="text-muted-alt font-normal ml-1">({previousTickets.length})</span>
+                            {filteredTickets.length > 0 && (
+                                <span className="text-muted-alt font-normal ml-1">({filteredTickets.length})</span>
                             )}
                         </>
                     ),
@@ -33,11 +38,11 @@ export function PreviousTicketsPanel({
                         <div className="space-y-2">
                             {previousTicketsLoading ? (
                                 <div className="text-muted-alt text-xs">Loading previous tickets...</div>
-                            ) : previousTickets.length === 0 ? (
+                            ) : filteredTickets.length === 0 ? (
                                 <div className="text-muted-alt text-xs">No previous tickets found</div>
                             ) : (
                                 <div className="space-y-2 max-h-96 overflow-auto">
-                                    {previousTickets.map((ticket) => (
+                                    {filteredTickets.map((ticket) => (
                                         <Link
                                             key={ticket.id}
                                             to={urls.supportTicketDetail(ticket.ticket_number)}

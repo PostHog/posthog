@@ -369,6 +369,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <PreviousTicketsPanel
                                 previousTickets={previousTickets}
                                 previousTicketsLoading={previousTicketsLoading}
+                                currentTicketId={ticket?.id}
                             />
                         </>
                     )}
