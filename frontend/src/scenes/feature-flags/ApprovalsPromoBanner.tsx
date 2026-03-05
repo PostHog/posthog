@@ -37,7 +37,7 @@ export function ApprovalsPromoBanner(): JSX.Element | null {
     return (
         <LemonBanner type="info" hideIcon className="bg-transparent border-dashed border-2">
             <div className="flex items-center gap-8 w-full justify-center p-4">
-                <div className="w-40 shrink-0 hidden md:block">
+                <div className="w-30 shrink-0 hidden md:block">
                     <JudgeHog className="w-full h-full" />
                 </div>
                 <div className="flex-shrink max-w-140">
