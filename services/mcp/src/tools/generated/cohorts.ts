@@ -39,6 +39,11 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema> => ({
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts`,
         }
     },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort-list.html',
+        },
+    },
 })
 
 const CohortsCreateSchema = CohortsCreateBody.omit({
@@ -82,6 +87,11 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema> => ({
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort.html',
+        },
+    },
 })
 
 const CohortsRetrieveSchema = CohortsRetrieveParams.omit({ project_id: true })
@@ -99,6 +109,11 @@ const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema> => ({
             ...(result as any),
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort.html',
+        },
     },
 })
 
@@ -142,6 +157,11 @@ const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema> => 
             ...(result as any),
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort.html',
+        },
     },
 })
 

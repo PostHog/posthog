@@ -7,6 +7,8 @@ import type { Context } from '@/tools/types'
 import {
     ACTION_LIST_RESOURCE_URI,
     ACTION_RESOURCE_URI,
+    COHORT_LIST_RESOURCE_URI,
+    COHORT_RESOURCE_URI,
     DEBUG_RESOURCE_URI,
     QUERY_RESULTS_RESOURCE_URI,
 } from './ui-apps-constants'
@@ -15,6 +17,8 @@ import {
 // Each UI app has its own HTML file in ui-apps-dist/src/ui-apps/apps/<name>/
 import actionListHtml from '../../ui-apps-dist/src/ui-apps/apps/action-list/index.html'
 import actionHtml from '../../ui-apps-dist/src/ui-apps/apps/action/index.html'
+import cohortListHtml from '../../ui-apps-dist/src/ui-apps/apps/cohort-list/index.html'
+import cohortHtml from '../../ui-apps-dist/src/ui-apps/apps/cohort/index.html'
 import debugHtml from '../../ui-apps-dist/src/ui-apps/apps/debug/index.html'
 import queryResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/query-results/index.html'
 
@@ -35,6 +39,9 @@ const UI_APPS: Array<{ name: string; uri: string; description: string; html: str
     // Actions
     { name: 'Action', uri: ACTION_RESOURCE_URI, description: 'Action detail view', html: actionHtml },
     { name: 'Action list', uri: ACTION_LIST_RESOURCE_URI, description: 'Action list view', html: actionListHtml },
+    // Cohorts
+    { name: 'Cohort', uri: COHORT_RESOURCE_URI, description: 'Cohort detail view', html: cohortHtml },
+    { name: 'Cohort list', uri: COHORT_LIST_RESOURCE_URI, description: 'Cohort list view', html: cohortListHtml },
 ]
 
 /**

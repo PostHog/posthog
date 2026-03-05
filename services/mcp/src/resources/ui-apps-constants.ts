@@ -38,3 +38,15 @@ export const ACTION_RESOURCE_URI = 'ui://posthog/action.html'
  * Used by: actions-get-all
  */
 export const ACTION_LIST_RESOURCE_URI = 'ui://posthog/action-list.html'
+
+/**
+
+ * Cohort detail visualization.
+ * Used by: cohorts-retrieve, cohorts-create, cohorts-partial-update
+ */
+export const COHORT_RESOURCE_URI = 'ui://posthog/cohort.html'
+/**
+ * Cohort list visualization.
+ * Used by: cohorts-list
+ */
+export const COHORT_LIST_RESOURCE_URI = 'ui://posthog/cohort-list.html'
