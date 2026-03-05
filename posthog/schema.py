@@ -3748,7 +3748,8 @@ class SessionSegmentClusterSignalExtra(BaseModel):
     actionable: bool
     label_title: str
     metrics: SessionSegmentClusterMetrics
-    segments: list[SessionReplaySegment]
+    segment_ids: list[str] | None = None
+    segments: list[SessionReplaySegment] | None = None
 
 
 class SessionSegmentClusterSignalInput(BaseModel):

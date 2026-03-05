@@ -30742,6 +30742,7 @@
         },
         "SessionReplaySegment": {
             "additionalProperties": false,
+            "deprecated": "Legacy shape — new signals use `segment_ids` instead",
             "properties": {
                 "content": {
                     "type": "string"
@@ -30790,14 +30791,21 @@
                 "metrics": {
                     "$ref": "#/definitions/SessionSegmentClusterMetrics"
                 },
+                "segment_ids": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "segments": {
+                    "deprecated": "Legacy field — kept for backward compat with existing signals in ClickHouse",
                     "items": {
                         "$ref": "#/definitions/SessionReplaySegment"
                     },
                     "type": "array"
                 }
             },
-            "required": ["label_title", "actionable", "segments", "metrics"],
+            "required": ["label_title", "actionable", "metrics"],
             "type": "object"
         },
         "SessionSegmentClusterSignalInput": {

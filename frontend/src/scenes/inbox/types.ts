@@ -32,6 +32,15 @@ export interface SignalReportArtefactResponse {
     count: number
 }
 
+export interface SessionReplaySegmentDetail {
+    document_id: string
+    session_id: string
+    distinct_id: string
+    content: string
+    start_time: string
+    end_time: string
+}
+
 export interface SignalSourceConfig {
     id: string
     source_product: SignalSourceProduct

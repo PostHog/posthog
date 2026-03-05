@@ -1,8 +1,9 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronRight, IconExternal } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
@@ -17,6 +18,8 @@ import type {
     SessionSegmentClusterSignalExtra,
     ZendeskTicketSignalExtra,
 } from '~/queries/schema/schema-signals'
+
+import { inboxSceneLogic } from './inboxSceneLogic'
 
 export function SignalCard({ signal }: { signal: SignalNode }): JSX.Element {
     if (isSessionReplayExtra(signal.extra)) {
@@ -34,6 +37,42 @@ export function SignalCard({ signal }: { signal: SignalNode }): JSX.Element {
     return <GenericSignalCard signal={signal} />
 }
 
+/** Unified segment shape used for rendering, regardless of legacy vs new format */
+interface RenderableSegment {
+    key: string
+    session_id: string
+    distinct_id: string
+    content: string
+    start_time: string
+    end_time: string
+}
+
+function useResolvedSegments(extra: SessionSegmentClusterSignalExtra): {
+    segments: RenderableSegment[]
+    loading: boolean
+} {
+    const { segmentDetails, segmentDetailsLoading } = useValues(inboxSceneLogic)
+
+    if (extra.segments && extra.segments.length > 0) {
+        return {
+            segments: extra.segments.map((s, i) => ({ key: `legacy-${i}`, ...s })),
+            loading: false,
+        }
+    }
+
+    if (extra.segment_ids && extra.segment_ids.length > 0) {
+        const resolved = extra.segment_ids
+            .map((id) => {
+                const detail = segmentDetails[id]
+                return detail ? { key: detail.document_id, ...detail } : null
+            })
+            .filter(Boolean) as RenderableSegment[]
+        return { segments: resolved, loading: segmentDetailsLoading && resolved.length === 0 }
+    }
+
+    return { segments: [], loading: false }
+}
+
 function SessionReplaySignalCard({
     signal,
     extra,
@@ -41,9 +80,10 @@ function SessionReplaySignalCard({
     signal: SignalNode
     extra: SessionSegmentClusterSignalExtra
 }): JSX.Element {
+    const { segments, loading } = useResolvedSegments(extra)
     const [showAllSegments, setShowAllSegments] = useState(false)
     const maxVisible = 3
-    const visibleSegments = showAllSegments ? extra.segments : extra.segments.slice(0, maxVisible)
+    const visibleSegments = showAllSegments ? segments : segments.slice(0, maxVisible)
 
     return (
         <div className="border rounded p-3 bg-surface-primary">
@@ -69,14 +109,18 @@ function SessionReplaySignalCard({
                 </LemonTag>
             </div>
 
-            {extra.segments.length > 0 && (
+            {loading ? (
+                <div className="flex items-center gap-2 text-xs text-tertiary py-2 border-t mt-2">
+                    <Spinner className="size-3" /> Loading segments...
+                </div>
+            ) : segments.length > 0 ? (
                 <>
                     <div className="border-t pt-2 mt-2">
                         <span className="text-xs font-medium text-tertiary">Session segments</span>
                     </div>
                     <div className="space-y-2 mt-2">
-                        {visibleSegments.map((segment, i) => (
-                            <div key={i} className="border rounded p-2 bg-surface-secondary">
+                        {visibleSegments.map((segment) => (
+                            <div key={segment.key} className="border rounded p-2 bg-surface-secondary">
                                 <div className="flex items-start gap-2">
                                     <LemonMarkdown className="text-sm text-secondary flex-1 line-clamp-2">
                                         {segment.content}
@@ -101,18 +145,18 @@ function SessionReplaySignalCard({
                             </div>
                         ))}
                     </div>
-                    {extra.segments.length > maxVisible && (
+                    {segments.length > maxVisible && (
                         <LemonButton
                             size="xsmall"
                             type="tertiary"
                             className="mt-1"
                             onClick={() => setShowAllSegments(!showAllSegments)}
                         >
-                            {showAllSegments ? 'Show fewer' : `Show all ${extra.segments.length} segments`}
+                            {showAllSegments ? 'Show fewer' : `Show all ${segments.length} segments`}
                         </LemonButton>
                     )}
                 </>
-            )}
+            ) : null}
         </div>
     )
 }
@@ -249,7 +293,10 @@ function SignalCardHeader({ signal, label }: { signal: SignalNode; label?: strin
 function isSessionReplayExtra(
     extra: Record<string, unknown>
 ): extra is Record<string, unknown> & SessionSegmentClusterSignalExtra {
-    return 'segments' in extra && Array.isArray(extra.segments)
+    return (
+        ('segment_ids' in extra && Array.isArray(extra.segment_ids)) ||
+        ('segments' in extra && Array.isArray(extra.segments))
+    )
 }
 
 function isGithubIssueExtra(extra: Record<string, unknown>): extra is Record<string, unknown> & GithubIssueSignalExtra {

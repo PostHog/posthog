@@ -10,11 +10,19 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { hogqlQuery } from '~/queries/query'
+import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
 import { signalSourcesLogic } from './signalSourcesLogic'
-import { SignalReport, SignalReportArtefact, SignalReportArtefactResponse, SignalReportStatus } from './types'
+import {
+    SessionReplaySegmentDetail,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportArtefactResponse,
+    SignalReportStatus,
+} from './types'
 
 const REPORTS_PAGE_SIZE = 200
 
@@ -83,6 +91,36 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 loadReportSignals: async ({ reportId }: { reportId: string }) => {
                     const response = await api.signalReports.getReportSignals(reportId)
                     return { ...values.reportSignals, [reportId]: response.signals }
+                },
+            },
+        ],
+        segmentDetails: [
+            {} as Record<string, SessionReplaySegmentDetail>,
+            {
+                loadSegmentDetails: async ({ segmentIds }: { segmentIds: string[] }) => {
+                    if (segmentIds.length === 0) {
+                        return values.segmentDetails
+                    }
+                    const newIds = segmentIds.filter((id) => !(id in values.segmentDetails))
+                    if (newIds.length === 0) {
+                        return values.segmentDetails
+                    }
+                    const response = await hogqlQuery(
+                        hogql`SELECT document_id, content, metadata
+                            FROM document_embeddings
+                            WHERE model_name = 'text-embedding-3-large-3072'
+                              AND document_id IN ${newIds}
+                              AND product = 'session-replay'
+                              AND document_type = 'video-segment'`
+                    )
+                    const newDetails = { ...values.segmentDetails }
+                    for (const row of response.results || []) {
+                        const detail = parseSegmentRow(row)
+                        if (detail) {
+                            newDetails[detail.document_id] = detail
+                        }
+                    }
+                    return newDetails
                 },
             },
         ],
@@ -194,6 +232,25 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.loadReportSignals({ reportId: values.selectedReportId })
             }
         },
+        loadReportSignalsSuccess: () => {
+            const reportId = values.selectedReportId
+            if (!reportId) {
+                return
+            }
+            const signals = values.reportSignals[reportId]
+            if (!signals) {
+                return
+            }
+            const allSegmentIds: string[] = []
+            for (const signal of signals) {
+                if ('segment_ids' in signal.extra && Array.isArray(signal.extra.segment_ids)) {
+                    allSegmentIds.push(...(signal.extra.segment_ids as string[]))
+                }
+            }
+            if (allSegmentIds.length > 0) {
+                actions.loadSegmentDetails({ segmentIds: allSegmentIds })
+            }
+        },
         deleteReport: async ({ reportId }) => {
             try {
                 await api.signalReports.delete(reportId)
@@ -264,3 +321,30 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
     })),
 ])
+
+function relativeTimeToSeconds(timeStr: string): number {
+    const parts = timeStr.split(':').map(Number)
+    let seconds = 0
+    for (let i = parts.length - 1; i >= 0; i--) {
+        seconds += parts[i] * Math.pow(60, parts.length - 1 - i)
+    }
+    return seconds
+}
+
+function parseSegmentRow(row: any[]): SessionReplaySegmentDetail | null {
+    try {
+        const [documentId, content, metadataStr] = row
+        const metadata = typeof metadataStr === 'string' ? JSON.parse(metadataStr) : metadataStr
+        const sessionStart = new Date(metadata.session_start_time).getTime()
+        return {
+            document_id: documentId,
+            session_id: metadata.session_id,
+            distinct_id: metadata.distinct_id,
+            content,
+            start_time: new Date(sessionStart + relativeTimeToSeconds(metadata.start_time) * 1000).toISOString(),
+            end_time: new Date(sessionStart + relativeTimeToSeconds(metadata.end_time) * 1000).toISOString(),
+        }
+    } catch {
+        return null
+    }
+}
