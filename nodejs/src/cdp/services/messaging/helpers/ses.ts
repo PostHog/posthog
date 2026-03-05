@@ -314,7 +314,9 @@ export class SesWebhookHandler {
             invocationId?: string
             actionId?: string
             parentRunId?: string
+            distinctId?: string
             metricName: MinimalAppMetric['metric_name']
+            properties?: Record<string, any>
         }[]
         optOutRecipients?: {
             teamId?: string
@@ -368,7 +370,9 @@ export class SesWebhookHandler {
             invocationId?: string
             actionId?: string
             parentRunId?: string
+            distinctId?: string
             metricName: MinimalAppMetric['metric_name']
+            properties?: Record<string, any>
         }[] = []
         const optOutRecipients: {
             teamId?: string
@@ -378,7 +382,7 @@ export class SesWebhookHandler {
         for (const rec of records) {
             logger.info('[SesWebhookHandler] processing record', { rec })
             const tags = rec.mail.tags
-            const { functionId, invocationId, teamId, actionId, parentRunId } =
+            const { functionId, invocationId, teamId, actionId, parentRunId, distinctId } =
                 parseEmailTrackingCode(tags?.ph_id?.[0] || '') || {}
 
             if (!functionId && !invocationId) {
@@ -388,7 +392,15 @@ export class SesWebhookHandler {
 
             const metricName = EVENT_TYPE_TO_METRIC_NAME[rec.eventType]
             if (metricName) {
-                metrics.push({ functionId, invocationId, actionId, parentRunId, metricName })
+                const properties: Record<string, any> = {
+                    $email_to: rec.mail.destination?.[0],
+                }
+
+                if ('click' in rec && rec.click) {
+                    properties.$link_url = rec.click.link
+                }
+
+                metrics.push({ functionId, invocationId, actionId, parentRunId, distinctId, metricName, properties })
             }
 
             // Opt out recipients on permanent bounces

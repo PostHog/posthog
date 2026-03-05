@@ -61,6 +61,7 @@ export interface CdpCoreServices {
     recipientPreferencesService: RecipientPreferencesService
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    capturedEventsService: CapturedEventsService
     /** Fans `CyclotronJobInvocationResult` batches across monitoring / warehouse / captured-events. */
     invocationResultsService: InvocationResultsService
     nativeDestinationExecutorService: NativeDestinationExecutorService
@@ -234,6 +235,7 @@ export function createCdpCoreServices(
         recipientPreferencesService,
         hogFlowExecutor,
         hogFunctionMonitoringService,
+        capturedEventsService,
         invocationResultsService,
         nativeDestinationExecutorService,
         segmentDestinationExecutorService,

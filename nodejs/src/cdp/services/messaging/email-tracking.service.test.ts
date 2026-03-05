@@ -35,7 +35,6 @@ describe('EmailTrackingService', () => {
     })
 
     describe('api', () => {
-        // NOTE: These tests are done via the CdpApi router so we can get full coverage of the code
         let api: CdpApi
         let app: express.Application
         let hogFunction: HogFunctionType

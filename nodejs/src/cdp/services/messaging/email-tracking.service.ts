@@ -7,6 +7,7 @@ import { defaultConfig } from '~/config/config'
 import { parseJSON } from '~/utils/json-parse'
 
 import { logger } from '../../../utils/logger'
+import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
@@ -34,10 +35,24 @@ const emailTrackingErrorsCounter = new Counter({
     labelNames: ['error_type', 'source'],
 })
 
+const METRIC_NAME_TO_EVENT_NAME: Partial<Record<MinimalAppMetric['metric_name'], string>> = {
+    email_sent: '$messaging_email_sent',
+    email_failed: '$messaging_email_failed',
+    email_opened: '$messaging_email_opened',
+    email_link_clicked: '$messaging_email_link_clicked',
+    email_bounced: '$messaging_email_bounced',
+    email_blocked: '$messaging_email_blocked',
+    email_spam: '$messaging_email_spam',
+    email_unsubscribed: '$messaging_email_unsubscribed',
+}
+
+export { METRIC_NAME_TO_EVENT_NAME }
+
 export const generateTrackingRedirectUrl = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'> & {
         parentRunId?: string | null
         state?: { actionId?: string }
+        distinctId?: string
     },
     targetUrl: string
 ): string => {
@@ -45,11 +60,13 @@ export const generateTrackingRedirectUrl = (
 }
 
 export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocationHogFunction): string => {
-    const trackingUrl = generateEmailTrackingPixelUrl(invocation)
+    const distinctId = invocation.state?.globals?.event?.distinct_id
+    const trackingInvocation = { ...invocation, distinctId }
+    const trackingUrl = generateEmailTrackingPixelUrl(trackingInvocation)
 
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
         const href = d || s || u || ''
-        const tracked = generateTrackingRedirectUrl(invocation, href)
+        const tracked = generateTrackingRedirectUrl(trackingInvocation, href)
 
         // replace just the href in the original tag to preserve other attributes
         return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
@@ -67,6 +84,7 @@ export class EmailTrackingService {
         private hogFunctionManager: HogFunctionManagerService,
         private hogFlowManager: HogFlowManagerService,
         private hogFunctionMonitoringService: HogFunctionMonitoringService,
+        private capturedEventsService: CapturedEventsService,
         private recipientsManager: RecipientsManagerService
     ) {
         this.sesWebhookHandler = new SesWebhookHandler()
@@ -77,15 +95,19 @@ export class EmailTrackingService {
         invocationId,
         actionId,
         parentRunId,
+        distinctId,
         metricName,
         source,
+        properties,
     }: {
         functionId?: string
         invocationId?: string
         actionId?: string
         parentRunId?: string
+        distinctId?: string
         metricName: MinimalAppMetric['metric_name']
         source: 'direct' | 'ses'
+        properties?: Record<string, any>
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -130,6 +152,20 @@ export class EmailTrackingService {
             hogFlow ? 'hog_flow' : 'hog_function'
         )
 
+        if (distinctId) {
+            await this.capturedEventsService.queueEvent({
+                team_id: teamId,
+                event: METRIC_NAME_TO_EVENT_NAME[metricName] ?? `$messaging_${metricName}`,
+                distinct_id: distinctId,
+                properties: {
+                    $workflow_id: appSourceId,
+                    $messaging_source: source,
+                    ...properties,
+                },
+            })
+            await this.capturedEventsService.flush()
+        }
+
         await this.hogFunctionMonitoringService.flush()
 
         trackingEventsCounter.inc({ event_type: metricName, source })
@@ -158,8 +194,10 @@ export class EmailTrackingService {
                     invocationId: metric.invocationId,
                     actionId: metric.actionId,
                     parentRunId: metric.parentRunId,
+                    distinctId: metric.distinctId,
                     metricName: metric.metricName,
                     source: 'ses',
+                    properties: metric.properties,
                 })
             }
 
@@ -208,6 +246,7 @@ export class EmailTrackingService {
         invocationId?: string
         actionId?: string
         parentRunId?: string
+        distinctId?: string
     } {
         // Support both combined ph_id format and legacy separate params
         if (query.ph_id) {
@@ -217,6 +256,7 @@ export class EmailTrackingService {
                 invocationId: parsed?.invocationId,
                 actionId: parsed?.actionId,
                 parentRunId: parsed?.parentRunId,
+                distinctId: parsed?.distinctId,
             }
         }
         return {
