@@ -524,6 +524,21 @@
             "readOnlyHint": false
         }
     },
+    "evaluation-results": {
+        "description": "Query evaluation results for a specific generation or evaluation. Returns the verdict (pass/fail), reasoning, and whether the evaluation was applicable. Filter by evaluationId to see all results for one evaluation, or by generationId to see all evaluation results for a specific AI generation. Optionally filter by result status (pass/fail/na).",
+        "category": "LLM analytics",
+        "feature": "llm-analytics",
+        "summary": "Get evaluation results for a generation or evaluation.",
+        "title": "Get evaluation results",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "evaluation-run": {
         "description": "Trigger an evaluation run on a specific $ai_generation event. This executes the evaluation (either LLM judge or Hog code) against the target event asynchronously via a background workflow. The run is async — it returns a workflow_id and status 'started'. Results are written as '$ai_evaluation' events once complete. To check results after triggering a run, query events with: SELECT properties.$ai_evaluation_result as result, properties.$ai_evaluation_reasoning as reasoning FROM events WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<evaluation_uuid>' AND properties.$ai_target_event_id = '<generation_event_uuid>' ORDER BY timestamp DESC LIMIT 1.",
         "category": "LLM analytics",
