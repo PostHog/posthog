@@ -386,7 +386,9 @@ def custom_postprocessing_hook(result, generator, request, public):
                 path,
             )
             if match:
-                definition["tags"].append(match.group("one"))
+                tag = match.group("one")
+                if tag not in definition["tags"]:
+                    definition["tags"].append(tag)
             for tag in definition["tags"]:
                 all_tags.append(tag)
 
