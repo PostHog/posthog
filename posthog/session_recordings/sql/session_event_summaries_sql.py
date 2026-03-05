@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     session_id String,
     event LowCardinality(String),
     event_count SimpleAggregateFunction(sum, Int64),
-    distinct_hosts SimpleAggregateFunction(groupUniqArrayArray, Array(LowCardinality(String))),
+    distinct_hosts SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
     distinct_emails SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
     min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
     max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
