@@ -20,10 +20,25 @@ SERVICES+=("$@")
 # instead of actual service startup.  Wait for any running compose
 # process to finish first so the timeout only measures health-check time.
 COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
-if pgrep -f "docker compose.*up" >/dev/null 2>&1; then
+# Match only actual `docker` processes running `compose up`, not shell wrappers.
+# mprocs spawns `/bin/sh -c "... docker compose up -d && docker compose logs ..."`,
+# whose command string matches "docker compose.*up" even after `up` has finished.
+_docker_compose_up_running() {
+    local pids pid comm
+    pids=$(pgrep -f "docker compose.*up" 2>/dev/null) || return 1
+    for pid in $pids; do
+        comm=$(ps -p "$pid" -o comm= 2>/dev/null) || continue
+        case "${comm##*/}" in
+            sh|bash|zsh|fish) ;;
+            *) return 0 ;;
+        esac
+    done
+    return 1
+}
+if _docker_compose_up_running; then
     echo "docker compose is still running (likely pulling images) — waiting for it to finish…"
     compose_wait_start=$SECONDS
-    while pgrep -f "docker compose.*up" >/dev/null 2>&1; do
+    while _docker_compose_up_running; do
         if [ $(( SECONDS - compose_wait_start )) -ge "$COMPOSE_WAIT_TIMEOUT" ]; then
             echo "Timed out after ${COMPOSE_WAIT_TIMEOUT}s waiting for docker compose to finish. Proceeding anyway."
             break
