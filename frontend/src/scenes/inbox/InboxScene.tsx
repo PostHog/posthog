@@ -11,6 +11,7 @@ import {
     IconGear,
     IconInfo,
     IconNotification,
+    IconRefresh,
     IconSearch,
     IconSparkles,
     IconWarning,
@@ -653,8 +654,8 @@ function ReportDetailPane(): JSX.Element {
 }
 
 export function InboxScene(): JSX.Element {
-    const { isRunningSessionAnalysis } = useValues(inboxSceneLogic)
-    const { runSessionAnalysis } = useActions(inboxSceneLogic)
+    const { isRunningSessionAnalysis, reportsLoading } = useValues(inboxSceneLogic)
+    const { runSessionAnalysis, loadReports } = useActions(inboxSceneLogic)
     const { enabledSourcesCount } = useValues(signalSourcesLogic)
     const { openSourcesModal } = useActions(signalSourcesLogic)
     const { isDev } = useValues(preflightLogic)
@@ -673,6 +674,14 @@ export function InboxScene(): JSX.Element {
                 resourceType={{ type: 'inbox' }}
                 actions={
                     <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconRefresh />}
+                            loading={reportsLoading}
+                            onClick={() => loadReports()}
+                            tooltip="Refresh reports"
+                        />
                         {isDev && (
                             <Tooltip title="Analyze the last 7 days of sessions">
                                 <LemonButton

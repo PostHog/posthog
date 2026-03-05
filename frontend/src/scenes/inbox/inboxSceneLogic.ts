@@ -197,15 +197,24 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
         deleteReport: async ({ reportId }) => {
             try {
-                await api.signalReports.delete(reportId)
-                lemonToast.success('Report deleted')
+                // Optimistically remove from list
+                if (values.reportsResponse) {
+                    actions.loadReportsSuccess({
+                        ...values.reportsResponse,
+                        results: values.reportsResponse.results.filter((r) => r.id !== reportId),
+                        count: values.reportsResponse.count - 1,
+                    })
+                }
                 if (values.selectedReportId === reportId) {
                     actions.setSelectedReportId(null)
                 }
-                actions.loadReports()
+                await api.signalReports.delete(reportId)
+                lemonToast.success('Report deleted')
             } catch (error: any) {
                 const errorMessage = error?.detail || error?.message || 'Failed to delete report'
                 lemonToast.error(errorMessage)
+                // Re-fetch to restore correct state on failure
+                actions.loadReports()
             }
         },
         reingestReport: async ({ reportId }) => {
