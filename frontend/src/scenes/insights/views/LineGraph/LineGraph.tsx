@@ -677,6 +677,7 @@ export function LineGraph_({
                         borderWidth: 2,
                         borderRadius: 4,
                         borderColor: 'white',
+                        clamp: true,
                     },
                     legend: legend,
                     annotation: {
@@ -947,6 +948,8 @@ export function LineGraph_({
             } else if (type === GraphType.Line) {
                 if (hideXAxis || hideYAxis) {
                     options.layout = { padding: 20 }
+                } else if (showValuesOnSeries) {
+                    options.layout = { padding: { right: 30 } }
                 }
                 const allDatasetsHaveSingleDataPoint =
                     processedDatasets.length > 0 &&
