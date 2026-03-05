@@ -235,12 +235,13 @@ def EVENTS_TABLE_JSON_MV_SQL(
     mv_name="events_json_mv",
     kafka_table="kafka_events_json",
     target_table=None,
+    on_cluster=True,
 ):
     if target_table is None:
         target_table = WRITABLE_EVENTS_DATA_TABLE()
 
     return """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} ON CLUSTER '{cluster}'
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
 TO {database}.{target_table}
 AS SELECT
 uuid,
@@ -282,7 +283,7 @@ FROM {database}.{kafka_table}
         kafka_table=kafka_table,
         target_table=target_table,
         dynamically_materialized_columns=MV_DYNAMICALLY_MATERIALIZED_COLUMNS(),
-        cluster=settings.CLICKHOUSE_CLUSTER,
+        on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
     )
 

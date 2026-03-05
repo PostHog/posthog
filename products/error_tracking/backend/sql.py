@@ -274,9 +274,10 @@ def KAFKA_ERROR_TRACKING_EVENTS_TEST_TABLE_SQL(on_cluster=True):
     )
 
 
-def ERROR_TRACKING_EVENTS_TEST_MV_SQL():
+def ERROR_TRACKING_EVENTS_TEST_MV_SQL(on_cluster=True):
     return EVENTS_TABLE_JSON_MV_SQL(
         mv_name=ERROR_TRACKING_EVENTS_TEST_MV,
         kafka_table=ERROR_TRACKING_EVENTS_TEST_KAFKA_TABLE,
         target_table=ERROR_TRACKING_EVENTS_TEST_TABLE,
+        on_cluster=on_cluster,
     )
