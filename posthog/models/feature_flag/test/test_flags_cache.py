@@ -1614,12 +1614,8 @@ class TestManagementCommands(BaseTest):
         from django.core.management import call_command
 
         # Create additional teams with flags so they appear in the scoped queryset
-        teams = [self.team]
         for i in range(5):
             team = Team.objects.create(organization=self.organization, name=f"Team {i}")
-            teams.append(team)
-
-        for team in teams:
             FeatureFlag.objects.create(
                 team=team,
                 key="test-flag",
