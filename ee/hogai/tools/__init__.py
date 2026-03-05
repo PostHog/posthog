@@ -12,6 +12,7 @@ from .read_data_warehouse_schema.mcp_tool import ReadDataWarehouseSchemaMCPTool 
 from .read_taxonomy.mcp_tool import ReadTaxonomyMCPTool  # noqa: F401
 from .read_taxonomy.tool import ReadTaxonomyTool
 from .recommend_products import RecommendProductsTool
+from .replay.mcp_tool import SummarizeSessionMCPTool  # noqa: F401
 from .search import SearchTool
 from .switch_mode import SwitchModeTool
 from .task import TaskTool
