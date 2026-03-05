@@ -488,6 +488,7 @@ export function PropertiesTable({
                                 icon={<IconTrash />}
                                 status="danger"
                                 size="small"
+                                data-attr="delete-prop-button"
                                 onClick={() => onClickDelete(item[0])}
                             />
                         )
