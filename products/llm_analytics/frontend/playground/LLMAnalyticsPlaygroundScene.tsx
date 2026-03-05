@@ -831,6 +831,7 @@ function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: Prompt
             onSubmit: async ({ name }) => {
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
+                    lemonToast.error('Could not determine team')
                     return
                 }
                 try {
@@ -894,6 +895,7 @@ function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: Prompt
         }
         const teamId = teamLogic.values.currentTeamId
         if (!teamId) {
+            lemonToast.error('Could not determine team')
             return
         }
         try {

@@ -556,21 +556,23 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 if (payload.sourceEvaluationId) {
                     try {
                         const teamId = teamLogic.values.currentTeamId
-                        if (teamId) {
-                            const fetchedEvaluation = await api.get(
-                                `/api/environments/${teamId}/evaluations/${payload.sourceEvaluationId}/`
+                        if (!teamId) {
+                            lemonToast.error('Could not determine team')
+                            return
+                        }
+                        const fetchedEvaluation = await api.get(
+                            `/api/environments/${teamId}/evaluations/${payload.sourceEvaluationId}/`
+                        )
+                        actions.setSourceNames(null, fetchedEvaluation?.name ?? null, promptId)
+                        if (fetchedEvaluation?.evaluation_type === 'llm_judge') {
+                            actions.setSystemPrompt(
+                                fetchedEvaluation.evaluation_config?.prompt || DEFAULT_SYSTEM_PROMPT,
+                                promptId
                             )
-                            actions.setSourceNames(null, fetchedEvaluation?.name ?? null, promptId)
-                            if (fetchedEvaluation?.evaluation_type === 'llm_judge') {
-                                actions.setSystemPrompt(
-                                    fetchedEvaluation.evaluation_config?.prompt || DEFAULT_SYSTEM_PROMPT,
-                                    promptId
-                                )
-                                const model = fetchedEvaluation.model_configuration?.model
-                                const providerKeyId = fetchedEvaluation.model_configuration?.provider_key_id
-                                if (typeof model === 'string' && model.length > 0) {
-                                    actions.setModel(model, providerKeyId ?? undefined, promptId)
-                                }
+                            const model = fetchedEvaluation.model_configuration?.model
+                            const providerKeyId = fetchedEvaluation.model_configuration?.provider_key_id
+                            if (typeof model === 'string' && model.length > 0) {
+                                actions.setModel(model, providerKeyId ?? undefined, promptId)
                             }
                         }
                         actions.setMessages([], promptId)
