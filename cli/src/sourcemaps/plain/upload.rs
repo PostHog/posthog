@@ -97,18 +97,23 @@ pub fn upload(args: &Args) -> Result<()> {
     );
 
     let started_at = Instant::now();
-    symbol_sets::upload_with_retry(uploads, args.batch_size, args.release.skip_release_on_fail)?;
+    let upload_result =
+        symbol_sets::upload_with_retry(uploads, args.batch_size, args.release.skip_release_on_fail);
     let duration_ms = started_at.elapsed().as_millis();
 
-    context().capture_event(
-        "error_tracking_cli_sourcemaps_upload_finished",
-        vec![
-            ("type", json!("plain")),
-            ("file_count", json!(file_count)),
-            ("total_bytes", json!(total_bytes)),
-            ("duration_ms", json!(duration_ms)),
-        ],
-    );
+    let mut props = vec![
+        ("type", json!("plain")),
+        ("file_count", json!(file_count)),
+        ("total_bytes", json!(total_bytes)),
+        ("duration_ms", json!(duration_ms)),
+        ("success", json!(upload_result.is_ok())),
+    ];
+    if let Err(ref e) = upload_result {
+        props.push(("error", json!(format!("{:#}", e))));
+    }
+    context().capture_event("error_tracking_cli_sourcemaps_upload_finished", props);
+
+    upload_result?;
 
     if args.delete_after {
         delete_files(sourcemap_paths).context("While deleting sourcemaps")?;
