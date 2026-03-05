@@ -59,9 +59,8 @@ async def run_review(prompt: str, branch: str = "master") -> str:
     full_description = _build_description(prompt, branch)
     task, task_run = await _create_task_and_trigger(full_description)
     logger.info("review_hog: started task=%s run=%s", task.id, task_run.id)
-    final_status = await _poll_until_terminal(task_run)
+    final_status, last_message = await _poll_until_done(task_run)
     logger.info("review_hog: finished run=%s status=%s", task_run.id, final_status)
-    last_message = await sync_to_async(_read_last_agent_message)(task_run)
     if not last_message:
         return f"[review_hog] Run completed with status={final_status} but no agent message found."
     return last_message
@@ -105,7 +104,13 @@ async def _create_task_and_trigger(description: str):
     return task, task_run
 
 
-async def _poll_until_terminal(task_run) -> str:
+async def _poll_until_done(task_run) -> tuple[str, str | None]:
+    """Poll logs for agent completion, fall back to TaskRun status.
+
+    Returns (status, last_agent_message). The agent emits a log entry with
+    stopReason=end_turn when it finishes — we detect that instead of waiting
+    for the Temporal workflow's 5-min inactivity timeout.
+    """
     from products.tasks.backend.models import TaskRun
 
     elapsed = 0
@@ -113,26 +118,32 @@ async def _poll_until_terminal(task_run) -> str:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
 
+        finished, last_message = await sync_to_async(_check_logs)(task_run)
+        if finished:
+            return "completed", last_message
+
         refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
         if refreshed.status in {
             TaskRun.Status.COMPLETED,
             TaskRun.Status.FAILED,
             TaskRun.Status.CANCELLED,
         }:
-            return refreshed.status
+            _, last_message = await sync_to_async(_check_logs)(task_run)
+            return refreshed.status, last_message
 
-    return "timeout"
+    return "timeout", None
 
 
-def _read_last_agent_message(task_run) -> str | None:
-    """Read S3 logs and extract the last agent_message text."""
+def _check_logs(task_run) -> tuple[bool, str | None]:
+    """Parse S3 logs. Returns (agent_finished, last_agent_message)."""
     from posthog.storage import object_storage
 
     log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
     if not log_content.strip():
-        return None
+        return False, None
 
     latest_text: str | None = None
+    agent_finished = False
 
     for line in log_content.strip().split("\n"):
         line = line.strip()
@@ -144,7 +155,14 @@ def _read_last_agent_message(task_run) -> str | None:
             continue
 
         notification = entry.get("notification")
-        if not isinstance(notification, dict) or notification.get("method") != "session/update":
+        if not isinstance(notification, dict):
+            continue
+
+        result = notification.get("result")
+        if isinstance(result, dict) and result.get("stopReason") == "end_turn":
+            agent_finished = True
+
+        if notification.get("method") != "session/update":
             continue
 
         params = notification.get("params")
@@ -159,7 +177,7 @@ def _read_last_agent_message(task_run) -> str | None:
         if text:
             latest_text = text
 
-    return latest_text
+    return agent_finished, latest_text
 
 
 def _extract_text(update: dict) -> str | None:
