@@ -2402,6 +2402,7 @@ const api = {
                     ActivityScope.TAG,
                     ActivityScope.ENDPOINT,
                     ActivityScope.PRODUCT_TOUR,
+                    ActivityScope.TICKET,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {

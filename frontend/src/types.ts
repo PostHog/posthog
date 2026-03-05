@@ -5253,6 +5253,7 @@ export enum ActivityScope {
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     PRODUCT_TOUR = 'ProductTour',
+    TICKET = 'Ticket',
 }
 
 export type CommentType = {
