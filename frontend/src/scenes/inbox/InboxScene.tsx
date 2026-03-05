@@ -245,7 +245,7 @@ function ReportListPane(): JSX.Element {
         reportsHasMore,
     } = useValues(inboxSceneLogic)
     const { hasNoSources } = useValues(signalSourcesLogic)
-    const { setSearchQuery, loadMoreReports } = useActions(inboxSceneLogic)
+    const { setSearchQuery, loadMoreReports, loadReports } = useActions(inboxSceneLogic)
     const { openSourcesModal } = useActions(signalSourcesLogic)
     const scrollRef = useRef<HTMLDivElement>(null)
     const [isScrollable, setIsScrollable] = useState(false)
@@ -293,6 +293,14 @@ function ReportListPane(): JSX.Element {
                             }
                         />
                         <StatusFilter />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconRefresh />}
+                            loading={reportsLoading}
+                            onClick={() => loadReports()}
+                            tooltip="Refresh reports"
+                        />
                     </div>
                     {hasNoSources && filteredReports.length > 0 && (
                         <LemonBanner
@@ -654,8 +662,8 @@ function ReportDetailPane(): JSX.Element {
 }
 
 export function InboxScene(): JSX.Element {
-    const { isRunningSessionAnalysis, reportsLoading } = useValues(inboxSceneLogic)
-    const { runSessionAnalysis, loadReports } = useActions(inboxSceneLogic)
+    const { isRunningSessionAnalysis } = useValues(inboxSceneLogic)
+    const { runSessionAnalysis } = useActions(inboxSceneLogic)
     const { enabledSourcesCount } = useValues(signalSourcesLogic)
     const { openSourcesModal } = useActions(signalSourcesLogic)
     const { isDev } = useValues(preflightLogic)
@@ -674,14 +682,6 @@ export function InboxScene(): JSX.Element {
                 resourceType={{ type: 'inbox' }}
                 actions={
                     <div className="flex items-center gap-2">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconRefresh />}
-                            loading={reportsLoading}
-                            onClick={() => loadReports()}
-                            tooltip="Refresh reports"
-                        />
                         {isDev && (
                             <Tooltip title="Analyze the last 7 days of sessions">
                                 <LemonButton
