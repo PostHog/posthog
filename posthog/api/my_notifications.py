@@ -69,9 +69,9 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             )
             my_feature_flags = list(
-                FeatureFlag.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
-                    "id", flat=True
-                )
+                FeatureFlag.objects_including_soft_deleted.filter(
+                    created_by=user, team__project_id=self.team.project_id
+                ).values_list("id", flat=True)
             )
             my_notebooks = list(
                 Notebook.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(

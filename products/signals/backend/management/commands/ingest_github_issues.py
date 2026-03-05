@@ -43,12 +43,13 @@ def _build_description(issue: dict) -> str:
 def _build_extra(issue: dict) -> dict:
     """Extract useful metadata into the extra dict."""
     return {
-        "url": issue.get("html_url", ""),
-        "author": issue.get("user", {}).get("login", ""),
+        "html_url": issue.get("html_url", ""),
+        "number": issue.get("number", 0),
         "labels": [lbl["name"] for lbl in issue.get("labels", []) if isinstance(lbl, dict)],
-        "comments": issue.get("comments", 0),
         "created_at": issue.get("created_at", ""),
         "updated_at": issue.get("updated_at", ""),
+        "locked": issue.get("locked", False),
+        "state": issue.get("state", ""),
     }
 
 
@@ -110,7 +111,7 @@ class Command(BaseCommand):
                 await emit_signal(
                     team=team,
                     source_product="github",
-                    source_type="open_issue",
+                    source_type="issue",
                     source_id=source_id,
                     description=_build_description(issue),
                     weight=weight,

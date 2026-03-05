@@ -204,6 +204,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "$session_id": "my-session-id",
                     "source": "web",
                     "was_impersonated": False,
+                    "mcp_user_agent": None,
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
                 },
                 groups=ANY,
             )
@@ -241,6 +245,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "$session_id": "my-session-id",
                     "source": "web",
                     "was_impersonated": False,
+                    "mcp_user_agent": None,
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
                 },
                 groups=ANY,
             )

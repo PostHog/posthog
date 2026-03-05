@@ -5,13 +5,16 @@ export interface ClientMapping {
     eu_client_id: string
     us_client_secret?: string
     eu_client_secret?: string
+    redirect_uris?: string[]
     created_at: number
 }
 
 const CLIENT_PREFIX = 'client:'
 const REGION_PREFIX = 'region:'
+const CALLBACK_PREFIX = 'callback:'
 
 const REGION_SELECTION_TTL = 3600
+const CALLBACK_TTL = 3600
 
 export async function getClientMapping(kv: KVNamespace, proxyClientId: string): Promise<ClientMapping | null> {
     const data = await kv.get(`${CLIENT_PREFIX}${proxyClientId}`, 'json')
@@ -34,4 +37,12 @@ export async function putRegionSelection(kv: KVNamespace, key: string, region: R
     await kv.put(`${REGION_PREFIX}${key}`, region, {
         expirationTtl: REGION_SELECTION_TTL,
     })
+}
+
+export async function putCallbackRedirectUri(kv: KVNamespace, key: string, redirectUri: string): Promise<void> {
+    await kv.put(`${CALLBACK_PREFIX}${key}`, redirectUri, { expirationTtl: CALLBACK_TTL })
+}
+
+export async function getCallbackRedirectUri(kv: KVNamespace, key: string): Promise<string | null> {
+    return kv.get(`${CALLBACK_PREFIX}${key}`)
 }

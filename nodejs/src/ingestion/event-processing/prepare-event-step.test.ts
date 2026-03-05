@@ -15,13 +15,11 @@ import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
-import { processAiEvent } from '../ai'
 import { PipelineResultType } from '../pipelines/results'
 import { createPrepareEventStep } from './prepare-event-step'
 
 jest.mock('../../worker/ingestion/process-event')
 jest.mock('../../worker/ingestion/timestamps')
-jest.mock('../ai')
 
 const createTestPreIngestionEvent = (overrides: Partial<PreIngestionEvent> = {}): PreIngestionEvent => ({
     eventUuid: 'test-uuid',
@@ -146,53 +144,6 @@ describe('createPrepareEventStep', () => {
         if (result.type === PipelineResultType.OK) {
             expect('normalizedEvent' in result.value).toBe(false)
         }
-    })
-
-    it('should process AI events through processAiEvent', async () => {
-        const aiEvent = createTestPluginEvent({ event: '$ai_generation' })
-        const transformedEvent = createTestPluginEvent({ event: '$ai_generation', properties: { enriched: true } })
-        jest.mocked(processAiEvent).mockReturnValue(transformedEvent)
-        mockProcessEvent.mockResolvedValue(createTestPreIngestionEvent())
-
-        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
-            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
-        })
-        await step(createInput({ normalizedEvent: aiEvent }))
-
-        expect(processAiEvent).toHaveBeenCalledWith(aiEvent)
-        expect(mockProcessEvent).toHaveBeenCalledWith(
-            expect.anything(),
-            transformedEvent,
-            expect.anything(),
-            expect.anything(),
-            expect.anything(),
-            expect.anything(),
-            expect.anything()
-        )
-    })
-
-    it('should swallow processAiEvent errors and use original event', async () => {
-        const aiEvent = createTestPluginEvent({ event: '$ai_generation' })
-        jest.mocked(processAiEvent).mockImplementation(() => {
-            throw new Error('AI processing failed')
-        })
-        mockProcessEvent.mockResolvedValue(createTestPreIngestionEvent())
-
-        const step = createPrepareEventStep<TestInput>(mockTeamManager, mockGroupTypeManager, mockGroupStore, {
-            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
-        })
-        const result = await step(createInput({ normalizedEvent: aiEvent }))
-
-        expect(result.type).toBe(PipelineResultType.OK)
-        expect(mockProcessEvent).toHaveBeenCalledWith(
-            expect.anything(),
-            aiEvent,
-            expect.anything(),
-            expect.anything(),
-            expect.anything(),
-            expect.anything(),
-            expect.anything()
-        )
     })
 
     it('should return timestamp parsing warnings as pipeline warnings', async () => {

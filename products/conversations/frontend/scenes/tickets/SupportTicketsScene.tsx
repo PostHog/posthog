@@ -260,7 +260,7 @@ export function SupportTicketsScene(): JSX.Element {
                             : undefined,
                 }}
                 onRow={(ticket) => {
-                    const ticketUrl = urls.supportTicketDetail(ticket.id)
+                    const ticketUrl = urls.supportTicketDetail(ticket.ticket_number)
                     return {
                         onClick: (e: React.MouseEvent) => {
                             if (e.metaKey || e.ctrlKey) {

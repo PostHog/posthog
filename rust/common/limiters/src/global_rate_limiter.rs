@@ -145,6 +145,9 @@ pub struct GlobalRateLimiterConfig {
     pub channel_capacity: usize,
     /// Per-key custom limits. Overrides the default limit for specific *more granular* keys.
     pub custom_keys: HashMap<String, u64>,
+    /// Tag value applied to all metrics emitted by this limiter instance.
+    /// Allows distinguishing multiple limiter instances in the same process.
+    pub metrics_scope: String,
 }
 
 impl GlobalRateLimiterConfig {
@@ -176,6 +179,7 @@ impl Default for GlobalRateLimiterConfig {
             local_cache_max_entries: 300_000,
             channel_capacity: 1_000_000,
             custom_keys: HashMap::new(),
+            metrics_scope: "default".to_string(),
         }
     }
 }
@@ -326,6 +330,7 @@ pub struct GlobalRateLimiterImpl {
     cache: Cache<String, CacheEntry>,
     update_tx: Option<mpsc::Sender<UpdateRequest>>,
     pending_sync: Arc<DashSet<String>>,
+    scope: &'static str,
 }
 
 #[async_trait]
@@ -382,15 +387,24 @@ impl GlobalRateLimiterImpl {
 
         let (update_tx, update_rx) = mpsc::channel(config.channel_capacity);
         let pending_sync = Arc::new(DashSet::new());
+        let scope: &'static str = Box::leak(config.metrics_scope.clone().into_boxed_str());
 
         let limiter = Self {
             config: config.clone(),
             cache: cache.clone(),
             update_tx: Some(update_tx),
             pending_sync: pending_sync.clone(),
+            scope,
         };
 
-        Self::spawn_background_task(config, redis_instances, update_rx, cache, pending_sync);
+        Self::spawn_background_task(
+            config,
+            redis_instances,
+            update_rx,
+            cache,
+            pending_sync,
+            scope,
+        );
 
         Ok(limiter)
     }
@@ -429,7 +443,7 @@ impl GlobalRateLimiterImpl {
 
             // Record staleness for observability
             let staleness_ms = now_instant.duration_since(entry.synced_at).as_millis() as f64;
-            metrics::histogram!(GLOBAL_RATE_LIMITER_SYNC_STALENESS_HISTOGRAM).record(staleness_ms);
+            metrics::histogram!(GLOBAL_RATE_LIMITER_SYNC_STALENESS_HISTOGRAM, "scope" => self.scope).record(staleness_ms);
 
             // Check if sync is needed based on pressure tier
             let current_pressure = level / threshold as f64;
@@ -439,20 +453,20 @@ impl GlobalRateLimiterImpl {
             {
                 if now_instant.duration_since(entry.synced_at) > tier_interval {
                     self.pending_sync.insert(key.to_string());
-                    metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "result" => "sync_queued")
+                    metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "sync_queued")
                         .increment(1);
                 } else {
-                    metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "result" => "hit")
+                    metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "hit")
                         .increment(1);
                 }
             } else {
                 // Idle tier: only queue sync if local traffic has pushed us above idle threshold
                 if current_pressure >= 0.1 {
                     self.pending_sync.insert(key.to_string());
-                    metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "result" => "sync_queued")
+                    metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "sync_queued")
                         .increment(1);
                 } else {
-                    metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "result" => "hit")
+                    metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "hit")
                         .increment(1);
                 }
             }
@@ -465,7 +479,7 @@ impl GlobalRateLimiterImpl {
             (level, true)
         } else {
             // Cache miss: no prior data, allow through and queue sync
-            metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "result" => "miss").increment(1);
+            metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "miss").increment(1);
 
             // Insert a fresh entry so subsequent requests have local_pending tracked
             let entry = CacheEntry {
@@ -483,7 +497,7 @@ impl GlobalRateLimiterImpl {
         // Determine if key is rate limited
         let is_limited = entry_exists && level >= threshold as f64;
         if is_limited {
-            metrics::counter!(GLOBAL_RATE_LIMITER_EVAL_COUNTER, "result" => "limited").increment(1);
+            metrics::counter!(GLOBAL_RATE_LIMITER_EVAL_COUNTER, "scope" => self.scope, "result" => "limited").increment(1);
 
             EvalResult::Limited(GlobalRateLimitResponse {
                 key: key.to_string(),
@@ -494,7 +508,7 @@ impl GlobalRateLimiterImpl {
                 is_custom_limited: mode == CheckMode::Custom,
             })
         } else {
-            metrics::counter!(GLOBAL_RATE_LIMITER_EVAL_COUNTER, "result" => "allowed").increment(1);
+            metrics::counter!(GLOBAL_RATE_LIMITER_EVAL_COUNTER, "scope" => self.scope, "result" => "allowed").increment(1);
 
             EvalResult::Allowed
         }
@@ -511,6 +525,7 @@ impl GlobalRateLimiterImpl {
         if let Some(Err(e)) = self.update_tx.as_ref().map(|tx| tx.try_send(update)) {
             metrics::counter!(
                 GLOBAL_RATE_LIMITER_ERROR_COUNTER,
+                "scope" => self.scope,
                 "step" => "enqueue_update",
                 "result" => "error",
                 "cause" => "channel_full",
@@ -538,6 +553,7 @@ impl GlobalRateLimiterImpl {
         mut update_rx: mpsc::Receiver<UpdateRequest>,
         cache: Cache<String, CacheEntry>,
         pending_sync: Arc<DashSet<String>>,
+        scope: &'static str,
     ) {
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(config.tick_interval);
@@ -557,7 +573,7 @@ impl GlobalRateLimiterImpl {
                                 if !write_batch.is_empty() {
                                     Self::tick(
                                         &config, &redis_instances, &cache,
-                                        &pending_sync, &mut write_batch,
+                                        &pending_sync, &mut write_batch, scope,
                                     ).await;
                                 }
                                 break;
@@ -567,7 +583,7 @@ impl GlobalRateLimiterImpl {
                     _ = tick.tick() => {
                         Self::tick(
                             &config, &redis_instances, &cache,
-                            &pending_sync, &mut write_batch,
+                            &pending_sync, &mut write_batch, scope,
                         ).await;
                     }
                 }
@@ -585,6 +601,7 @@ impl GlobalRateLimiterImpl {
         cache: &Cache<String, CacheEntry>,
         pending_sync: &Arc<DashSet<String>>,
         write_batch: &mut HashMap<(String, i64), u64>,
+        scope: &'static str,
     ) {
         let tick_start = Instant::now();
 
@@ -602,22 +619,32 @@ impl GlobalRateLimiterImpl {
             return;
         }
 
-        metrics::histogram!(GLOBAL_RATE_LIMITER_PIPELINE_SIZE_HISTOGRAM, "op" => "read")
+        metrics::histogram!(GLOBAL_RATE_LIMITER_PIPELINE_SIZE_HISTOGRAM, "scope" => scope, "op" => "read")
             .record(read_count as f64);
-        metrics::histogram!(GLOBAL_RATE_LIMITER_PIPELINE_SIZE_HISTOGRAM, "op" => "write")
+        metrics::histogram!(GLOBAL_RATE_LIMITER_PIPELINE_SIZE_HISTOGRAM, "scope" => scope, "op" => "write")
             .record(write_count as f64);
-        metrics::gauge!(GLOBAL_RATE_LIMITER_PENDING_SYNC_SIZE_GAUGE).set(read_count as f64);
+        metrics::gauge!(GLOBAL_RATE_LIMITER_PENDING_SYNC_SIZE_GAUGE, "scope" => scope)
+            .set(read_count as f64);
 
         // Partition work by Redis instance
         // For simplicity with single-instance (common case), skip partitioning
         if redis_instances.len() == 1 {
-            Self::tick_single_instance(config, &redis_instances[0], 0, cache, &sync_keys, &writes)
-                .await;
+            Self::tick_single_instance(
+                config,
+                &redis_instances[0],
+                0,
+                cache,
+                &sync_keys,
+                &writes,
+                scope,
+            )
+            .await;
         } else {
-            Self::tick_multi_instance(config, redis_instances, cache, &sync_keys, &writes).await;
+            Self::tick_multi_instance(config, redis_instances, cache, &sync_keys, &writes, scope)
+                .await;
         }
 
-        metrics::histogram!(GLOBAL_RATE_LIMITER_TICK_HISTOGRAM)
+        metrics::histogram!(GLOBAL_RATE_LIMITER_TICK_HISTOGRAM, "scope" => scope)
             .record(tick_start.elapsed().as_micros() as f64 / 1000.0);
     }
 
@@ -629,6 +656,7 @@ impl GlobalRateLimiterImpl {
         cache: &Cache<String, CacheEntry>,
         sync_keys: &[String],
         writes: &HashMap<(String, i64), u64>,
+        scope: &'static str,
     ) {
         let redis_idx_str = redis_idx.to_string();
         let now = Utc::now();
@@ -656,12 +684,14 @@ impl GlobalRateLimiterImpl {
                 Ok(Ok(_)) => {
                     metrics::counter!(
                         GLOBAL_RATE_LIMITER_RECORDS_COUNTER,
+                        "scope" => scope,
                         "op" => "redis_write",
                         "redis_idx" => redis_idx_str.clone(),
                     )
                     .increment(write_count as u64);
                     metrics::histogram!(
                         GLOBAL_RATE_LIMITER_PIPELINE_HISTOGRAM,
+                        "scope" => scope,
                         "redis_idx" => redis_idx_str.clone(),
                     )
                     .record(pipeline_start.elapsed().as_micros() as f64 / 1000.0);
@@ -669,6 +699,7 @@ impl GlobalRateLimiterImpl {
                 Ok(Err(e)) => {
                     metrics::counter!(
                         GLOBAL_RATE_LIMITER_ERROR_COUNTER,
+                        "scope" => scope,
                         "step" => "pipeline",
                         "cause" => "redis_write",
                         "redis_idx" => redis_idx_str.clone(),
@@ -679,6 +710,7 @@ impl GlobalRateLimiterImpl {
                 Err(_) => {
                     metrics::counter!(
                         GLOBAL_RATE_LIMITER_ERROR_COUNTER,
+                        "scope" => scope,
                         "step" => "pipeline",
                         "cause" => "timeout",
                         "redis_idx" => redis_idx_str.clone(),
@@ -709,21 +741,24 @@ impl GlobalRateLimiterImpl {
                 Ok(Ok(results)) => {
                     metrics::counter!(
                         GLOBAL_RATE_LIMITER_RECORDS_COUNTER,
+                        "scope" => scope,
                         "op" => "redis_read",
                         "redis_idx" => redis_idx_str.clone(),
                     )
                     .increment(results.len() as u64);
                     metrics::histogram!(
                         GLOBAL_RATE_LIMITER_PIPELINE_HISTOGRAM,
+                        "scope" => scope,
                         "redis_idx" => redis_idx_str.clone(),
                     )
                     .record(pipeline_start.elapsed().as_micros() as f64 / 1000.0);
 
-                    Self::process_read_results(config, cache, sync_keys, &results, now);
+                    Self::process_read_results(config, cache, sync_keys, &results, now, scope);
                 }
                 Ok(Err(e)) => {
                     metrics::counter!(
                         GLOBAL_RATE_LIMITER_ERROR_COUNTER,
+                        "scope" => scope,
                         "step" => "pipeline",
                         "cause" => "redis_error",
                         "redis_idx" => redis_idx_str.clone(),
@@ -734,6 +769,7 @@ impl GlobalRateLimiterImpl {
                 Err(_) => {
                     metrics::counter!(
                         GLOBAL_RATE_LIMITER_ERROR_COUNTER,
+                        "scope" => scope,
                         "step" => "pipeline",
                         "cause" => "timeout",
                         "redis_idx" => redis_idx_str.clone(),
@@ -756,6 +792,7 @@ impl GlobalRateLimiterImpl {
         cache: &Cache<String, CacheEntry>,
         sync_keys: &[String],
         writes: &HashMap<(String, i64), u64>,
+        scope: &'static str,
     ) {
         // Partition reads by Redis instance
         let mut read_partitions: Vec<Vec<String>> = vec![Vec::new(); redis_instances.len()];
@@ -794,6 +831,7 @@ impl GlobalRateLimiterImpl {
                         &cache,
                         &reads,
                         &writes_partition,
+                        scope,
                     )
                     .await;
                 }
@@ -812,6 +850,7 @@ impl GlobalRateLimiterImpl {
         sync_keys: &[String],
         results: &[Option<Vec<u8>>],
         now: DateTime<Utc>,
+        scope: &'static str,
     ) {
         let now_instant = Instant::now();
 
@@ -837,7 +876,8 @@ impl GlobalRateLimiterImpl {
                 let leak_rate = config.leak_rate_for(threshold);
                 let local_estimate = effective_level(&old_entry, leak_rate, now_instant);
                 let drift = (local_estimate - estimated).abs() / threshold as f64;
-                metrics::histogram!(GLOBAL_RATE_LIMITER_ESTIMATE_DRIFT_HISTOGRAM).record(drift);
+                metrics::histogram!(GLOBAL_RATE_LIMITER_ESTIMATE_DRIFT_HISTOGRAM, "scope" => scope)
+                    .record(drift);
             }
             let pressure = estimated / threshold as f64;
 
@@ -848,6 +888,7 @@ impl GlobalRateLimiterImpl {
                 if old_tier != new_tier {
                     metrics::counter!(
                         GLOBAL_RATE_LIMITER_TIER_TRANSITIONS_COUNTER,
+                        "scope" => scope,
                         "from" => old_tier.as_str(),
                         "to" => new_tier.as_str(),
                     )
@@ -881,13 +922,13 @@ impl GlobalRateLimiterImpl {
                 PressureTier::Hot => tier_counts[3] += 1,
             }
         }
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "tier" => "idle")
+        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "idle")
             .set(tier_counts[0] as f64);
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "tier" => "low")
+        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "low")
             .set(tier_counts[1] as f64);
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "tier" => "normal")
+        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "normal")
             .set(tier_counts[2] as f64);
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "tier" => "hot")
+        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "hot")
             .set(tier_counts[3] as f64);
     }
 }
@@ -921,6 +962,7 @@ mod tests {
             custom_keys: HashMap::new(),
             global_read_timeout: Duration::from_millis(5),
             global_write_timeout: Duration::from_millis(10),
+            metrics_scope: "test".to_string(),
         }
     }
 
@@ -1087,6 +1129,7 @@ mod tests {
         assert_eq!(config.local_cache_max_entries, 300_000);
         assert_eq!(config.channel_capacity, 1_000_000);
         assert!(config.custom_keys.is_empty());
+        assert_eq!(config.metrics_scope, "default");
     }
 
     #[test]
@@ -1580,7 +1623,9 @@ mod tests {
         let results: Vec<Option<Vec<u8>>> = vec![Some(b"7".to_vec()), Some(b"3".to_vec())];
 
         let now = DateTime::from_timestamp(90, 0).unwrap(); // progress = 0.5 in 60s window
-        GlobalRateLimiterImpl::process_read_results(&config, &cache, &sync_keys, &results, now);
+        GlobalRateLimiterImpl::process_read_results(
+            &config, &cache, &sync_keys, &results, now, "test",
+        );
 
         let entry = cache.get("entity_a").unwrap();
         // weighted = 3 * 0.5 + 7 = 8.5
@@ -1622,7 +1667,9 @@ mod tests {
         let sync_keys = vec!["custom_entity".to_string()];
         let results: Vec<Option<Vec<u8>>> = vec![Some(b"7".to_vec()), Some(b"3".to_vec())];
         let now = DateTime::from_timestamp(90, 0).unwrap();
-        GlobalRateLimiterImpl::process_read_results(&config, &cache, &sync_keys, &results, now);
+        GlobalRateLimiterImpl::process_read_results(
+            &config, &cache, &sync_keys, &results, now, "test",
+        );
 
         let entry = cache.get("custom_entity").unwrap();
         assert!(
@@ -1663,7 +1710,9 @@ mod tests {
 
             let sync_keys = vec!["key".to_string()];
             let results: Vec<Option<Vec<u8>>> = vec![Some(b"5".to_vec()), Some(b"2".to_vec())];
-            GlobalRateLimiterImpl::process_read_results(&config, &cache, &sync_keys, &results, now);
+            GlobalRateLimiterImpl::process_read_results(
+                &config, &cache, &sync_keys, &results, now, "test",
+            );
 
             let entry = cache.get("key").unwrap();
             assert_eq!(

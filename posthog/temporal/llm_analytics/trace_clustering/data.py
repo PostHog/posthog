@@ -10,6 +10,7 @@ from datetime import datetime
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -26,6 +27,12 @@ from posthog.temporal.llm_analytics.trace_clustering.models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# ClickHouse max_execution_time for clustering queries (seconds).
+# Default HogQL timeout is 60s which is too tight for generation-level
+# queries with filters on high-volume teams (nested subqueries on events table).
+# These run in background Temporal activities with their own 120s timeout.
+CLUSTERING_QUERY_MAX_EXECUTION_TIME = 120
 
 # AI event types to query for trace filtering (same as TracesQueryRunner)
 AI_EVENT_TYPES = ("$ai_span", "$ai_generation", "$ai_embedding", "$ai_metric", "$ai_feedback", "$ai_trace")
@@ -194,6 +201,7 @@ def fetch_item_embeddings_for_clustering(
             query=query,
             placeholders=placeholders,
             team=team,
+            settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 
     rows = result.results or []
@@ -303,6 +311,7 @@ def fetch_item_summaries(
                 "max_rows": ast.Constant(value=max_rows),
             },
             team=team,
+            settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 
     rows = result.results or []
