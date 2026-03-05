@@ -91,7 +91,16 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
     "project_events": SentryEndpointConfig(
         name="project_events",
         path="/projects/{organization_slug}/{project_slug}/events/",
-        incremental_fields=[],
+        incremental_fields=[
+            {
+                "label": "dateCreated",
+                "type": IncrementalFieldType.DateTime,
+                "field": "dateCreated",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="dateCreated",
+        partition_key="dateCreated",
         primary_key=["project_id", "eventID"],
         is_project_fanout=True,
     ),
@@ -119,7 +128,16 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
     "issue_events": SentryEndpointConfig(
         name="issue_events",
         path="/organizations/{organization_slug}/issues/{issue_id}/events/",
-        incremental_fields=[],
+        incremental_fields=[
+            {
+                "label": "dateCreated",
+                "type": IncrementalFieldType.DateTime,
+                "field": "dateCreated",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="dateCreated",
+        partition_key="dateCreated",
         primary_key=["issue_id", "eventID"],
         is_issue_fanout=True,
     ),

@@ -165,9 +165,7 @@ def _iter_issue_tag_values_rows(
     )
 
     for issue in issues:
-        issue_id = str(issue.get("id", ""))
-        if not issue_id:
-            continue
+        issue_id = str(issue["id"])
 
         tags = list(
             _iter_endpoint_rows(
@@ -330,6 +328,8 @@ def _build_dependent_source(
     resolve_field: str,
     include_from_parent: list[str],
     row_mapper: Callable[[dict[str, Any]], dict[str, Any]],
+    should_use_incremental_field: bool = False,
+    incremental_field: str | None = None,
 ) -> SourceResponse:
     """Build a dependent-resource config where ``parent_name`` is the parent
     and the child endpoint resolves one path placeholder from each parent row.
@@ -358,23 +358,37 @@ def _build_dependent_source(
 
     child_path = child_config.path.replace("{organization_slug}", organization_slug)
 
+    child_endpoint_config: dict[str, Any] = {
+        "path": child_path,
+        "params": {
+            resolve_param: {
+                "type": "resolve",
+                "resource": parent_name,
+                "field": resolve_field,
+            },
+            "limit": child_config.page_size,
+        },
+    }
+    if (
+        should_use_incremental_field
+        and child_config.incremental_fields
+        and (incremental_field or child_config.default_incremental_field)
+    ):
+        cursor = incremental_field or child_config.default_incremental_field
+        child_endpoint_config["incremental"] = {
+            "cursor_path": cursor,
+            "start_param": "start",
+            "initial_value": "1970-01-01T00:00:00Z",
+        }
+
+    use_merge = bool(should_use_incremental_field and child_config.incremental_fields)
     child_resource: EndpointResource = {
         "name": child_endpoint,
         "table_name": child_endpoint,
         "primary_key": child_config.primary_key,
-        "write_disposition": "replace",
+        "write_disposition": ({"disposition": "merge", "strategy": "upsert"} if use_merge else "replace"),
         "include_from_parent": include_from_parent,
-        "endpoint": {
-            "path": child_path,
-            "params": {
-                resolve_param: {
-                    "type": "resolve",
-                    "resource": parent_name,
-                    "field": resolve_field,
-                },
-                "limit": child_config.page_size,
-            },
-        },
+        "endpoint": child_endpoint_config,
         "table_format": "delta",
     }
 
@@ -426,6 +440,8 @@ def sentry_source(
         "team_id": team_id,
         "job_id": job_id,
         "db_incremental_field_last_value": db_incremental_field_last_value,
+        "should_use_incremental_field": should_use_incremental_field,
+        "incremental_field": incremental_field,
     }
 
     # --- Project fan-out (parent=projects, resolve project_slug) ---
@@ -490,5 +506,6 @@ def sentry_source(
     }
 
     resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-    assert len(resources) == 1
+    if len(resources) != 1:
+        raise ValueError(f"Expected 1 resource for endpoint '{endpoint}', got {len(resources)}")
     return _make_source_response(endpoint_config, lambda: resources[0])
