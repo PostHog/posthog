@@ -207,7 +207,7 @@ def capture_legacy_api_call(request: request.Request, team: Team) -> None:
         }
 
         report_user_action(
-            request.user,
+            cast(User, request.user),
             "legacy insight endpoint called",
             properties,
             team=team,
