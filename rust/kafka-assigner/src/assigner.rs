@@ -140,6 +140,19 @@ impl Assigner {
             });
         }
 
+        // Periodic cleanup loop: catches timed-out handoffs that the
+        // event-driven watch loops miss (e.g. when the system is quiescent
+        // and no consumer/handoff events are firing).
+        {
+            let store = Arc::clone(&self.store);
+            let strategy = Arc::clone(&self.strategy);
+            let handoff_timeout = self.config.handoff_timeout;
+            let token = cancel.child_token();
+            tasks.spawn(async move {
+                Self::periodic_cleanup_loop(store, strategy, handoff_timeout, token).await
+            });
+        }
+
         let result = tokio::select! {
             _ = cancel.cancelled() => Ok(()),
             Some(result) = tasks.join_next() => {
@@ -235,6 +248,38 @@ impl Assigner {
                     // After processing all events, check if all handoffs have
                     // completed. If so, re-trigger rebalancing to pick up any
                     // consumer changes that were deferred.
+                    if store.list_handoffs().await?.is_empty() {
+                        Self::handle_consumer_change_static(&store, strategy.as_ref(), handoff_timeout).await?;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Periodically clean up timed-out handoffs and re-trigger rebalancing.
+    ///
+    /// The watch-based loops only run cleanup when events arrive. If the
+    /// system is quiescent (no consumer changes, no handoff updates), stale
+    /// handoffs can block rebalancing indefinitely. This loop runs every
+    /// `handoff_timeout / 2` to catch those cases.
+    async fn periodic_cleanup_loop(
+        store: Arc<KafkaAssignerStore>,
+        strategy: Arc<dyn AssignmentStrategy>,
+        handoff_timeout: Duration,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        // Check at half the timeout interval so we catch stale handoffs
+        // reasonably soon after they expire.
+        let interval = handoff_timeout / 2;
+
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                _ = tokio::time::sleep(interval) => {
+                    let consumers = store.list_consumers().await?;
+                    let active = active_consumer_names(&consumers);
+                    Self::cleanup_stale_handoffs(&store, &active, handoff_timeout).await?;
+
                     if store.list_handoffs().await?.is_empty() {
                         Self::handle_consumer_change_static(&store, strategy.as_ref(), handoff_timeout).await?;
                     }

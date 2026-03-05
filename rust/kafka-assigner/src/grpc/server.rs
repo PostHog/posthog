@@ -12,7 +12,9 @@ use tonic::{Request, Response, Status};
 use crate::consumer_registry::{ConsumerConnection, ConsumerRegistry};
 use crate::grpc::convert;
 use crate::store::KafkaAssignerStore;
-use crate::types::{AssignmentEvent, ConsumerStatus, RegisteredConsumer, TopicConfig};
+use crate::types::{
+    AssignmentEvent, ConsumerStatus, HandoffPhase, RegisteredConsumer, TopicConfig,
+};
 
 /// Kafka connection settings for admin metadata lookups.
 #[derive(Clone)]
@@ -210,6 +212,48 @@ impl KafkaAssigner for KafkaAssignerService {
                 .send(initial)
                 .await
                 .map_err(|_| Status::internal("failed to send initial assignment"))?;
+        }
+
+        // Replay pending handoffs that involve this consumer.
+        // The relay only forwards etcd watch events, so if a handoff was
+        // created or advanced while this consumer was disconnected (e.g.
+        // during a rolling restart), the command was never delivered.
+        let handoffs = self
+            .store
+            .list_handoffs()
+            .await
+            .map_err(|e| Status::internal(format!("failed to list handoffs: {e}")))?;
+        let pending_warms: Vec<_> = handoffs
+            .iter()
+            .filter(|h| h.phase == HandoffPhase::Warming && h.new_owner == consumer_name)
+            .cloned()
+            .collect();
+        let pending_releases: Vec<_> = handoffs
+            .iter()
+            .filter(|h| h.phase == HandoffPhase::Complete && h.old_owner == consumer_name)
+            .cloned()
+            .collect();
+        if !pending_warms.is_empty() {
+            tracing::info!(
+                consumer = %consumer_name,
+                count = pending_warms.len(),
+                "replaying pending Warming handoffs on reconnect"
+            );
+            event_tx
+                .send(AssignmentEvent::Warm(pending_warms))
+                .await
+                .map_err(|_| Status::internal("failed to send pending warms"))?;
+        }
+        if !pending_releases.is_empty() {
+            tracing::info!(
+                consumer = %consumer_name,
+                count = pending_releases.len(),
+                "replaying pending Complete handoffs (releases) on reconnect"
+            );
+            event_tx
+                .send(AssignmentEvent::Release(pending_releases))
+                .await
+                .map_err(|_| Status::internal("failed to send pending releases"))?;
         }
 
         // Register in the local consumer registry.
