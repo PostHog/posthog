@@ -951,11 +951,14 @@ export function LineGraph_({
                 } else if (showValuesOnSeries) {
                     options.layout = { padding: { right: 30 } }
                 }
+                const allDatasetsHaveSingleDataPoint =
+                    processedDatasets.length > 0 &&
+                    processedDatasets.every((d) => Array.isArray(d.data) && d.data.length === 1)
                 options.scales = {
                     x: {
                         display: !hideXAxis,
                         beginAtZero: true,
-                        offset: true,
+                        offset: allDatasetsHaveSingleDataPoint,
                         ticks: {
                             ...tickOptions,
                             ...(xAxisTickCallback
