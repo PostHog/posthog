@@ -25,8 +25,6 @@ from posthog.schema import (
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
-    RevenueAnalyticsEventItem,
-    SubscriptionDropoffMode,
 )
 
 from posthog.models.utils import uuid7
@@ -61,10 +59,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     issue_one_fingerprint = "issue_one_fingerprint"
     issue_two_fingerprint = "issue_two_fingerprint"
     issue_three_fingerprint = "issue_three_fingerprint"
-
-    PURCHASE_EVENT_NAME = "purchase"
-    REVENUE_PROPERTY = "revenue"
-    SUBSCRIPTION_PROPERTY = "subscription_id"
 
     def override_fingerprint(self, fingerprint, issue_id, version=1):
         update_error_tracking_issue_fingerprints(team_id=self.team.pk, issue_id=issue_id, fingerprints=[fingerprint])
@@ -160,8 +154,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         searchQuery=None,
         filterGroup=None,
         orderBy="last_seen",
-        revenueEntity=None,
-        revenuePeriod=None,
         status=None,
         volumeResolution=1,
         withAggregations=False,
@@ -182,8 +174,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     searchQuery=searchQuery,
                     filterGroup=filterGroup,
                     orderBy=orderBy,
-                    revenueEntity=revenueEntity,
-                    revenuePeriod=revenuePeriod,
                     status=status,
                     volumeResolution=volumeResolution,
                     withFirstEvent=withFirstEvent,
@@ -718,94 +708,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         first_aggregations = results[0]["aggregations"]
         self.assertEqual(sum(first_aggregations["volumeRange"]), 24 * 5)
         self.assertEqual(first_aggregations["volumeRange"], [60, 60, 0, 0])
-
-    @freeze_time("2020-01-12")
-    @snapshot_clickhouse_queries
-    def test_sorting_by_revenue(self):
-        self.team.revenue_analytics_config.events = [
-            RevenueAnalyticsEventItem(
-                eventName=self.PURCHASE_EVENT_NAME,
-                revenueProperty=self.REVENUE_PROPERTY,
-            )
-        ]
-
-        _create_event(
-            event=self.PURCHASE_EVENT_NAME,
-            team=self.team,
-            distinct_id=self.distinct_id_one,
-            timestamp=now() - relativedelta(hours=1),
-            properties={self.REVENUE_PROPERTY: 25042, "$group_0": self.group0_id},
-        )
-
-        _create_event(
-            event=self.PURCHASE_EVENT_NAME,
-            team=self.team,
-            distinct_id=self.distinct_id_two,
-            timestamp=now() - relativedelta(hours=1),
-            properties={self.REVENUE_PROPERTY: 12500, "$group_1": self.group1_id},
-        )
-
-        _create_event(
-            event=self.PURCHASE_EVENT_NAME,
-            team=self.team,
-            distinct_id=self.distinct_id_two,
-            timestamp=now() - relativedelta(hours=1),
-            properties={self.REVENUE_PROPERTY: 10000, "$group_0": self.group0_id, "$group_1": self.group1_id},
-        )
-
-        flush_persons_and_events()
-
-        results = self._calculate(orderBy="revenue")["results"]
-
-        self.assertEqual(len(results), 3)
-        self.assertEqual([r["revenue"] for r in results], [47542.0, 25042.0, 22500.0])
-
-    @freeze_time("2020-01-12")
-    @snapshot_clickhouse_queries
-    def test_sorting_by_mrr(self):
-        self.team.revenue_analytics_config.events = [
-            RevenueAnalyticsEventItem(
-                eventName=self.PURCHASE_EVENT_NAME,
-                revenueProperty=self.REVENUE_PROPERTY,
-                subscriptionProperty=self.SUBSCRIPTION_PROPERTY,
-                subscriptionDropoffMode=SubscriptionDropoffMode.AFTER_DROPOFF_PERIOD,
-            )
-        ]
-
-        # Recurring event for user one (contributes to MRR)
-        _create_event(
-            event=self.PURCHASE_EVENT_NAME,
-            team=self.team,
-            distinct_id=self.distinct_id_one,
-            timestamp=now() - relativedelta(hours=1),
-            properties={self.REVENUE_PROPERTY: 25042, self.SUBSCRIPTION_PROPERTY: "sub_1"},
-        )
-
-        # One-time event for user two (does NOT contribute to MRR)
-        _create_event(
-            event=self.PURCHASE_EVENT_NAME,
-            team=self.team,
-            distinct_id=self.distinct_id_two,
-            timestamp=now() - relativedelta(hours=1),
-            properties={self.REVENUE_PROPERTY: 12500},
-        )
-
-        # Recurring event for user two (contributes to MRR)
-        _create_event(
-            event=self.PURCHASE_EVENT_NAME,
-            team=self.team,
-            distinct_id=self.distinct_id_two,
-            timestamp=now() - relativedelta(hours=1),
-            properties={self.REVENUE_PROPERTY: 10000, self.SUBSCRIPTION_PROPERTY: "sub_2"},
-        )
-
-        flush_persons_and_events()
-
-        results = self._calculate(orderBy="revenue", revenuePeriod="mrr")["results"]
-
-        # MRR: user_1 = 25042 (sub_1), user_2 = 10000 (sub_2), issue_three has no MRR
-        self.assertEqual(len(results), 3)
-        self.assertEqual([r["revenue"] for r in results], [35042, 25042, 10000])
 
 
 class TestSearchTokenizer(TestCase):

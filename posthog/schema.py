@@ -1385,7 +1385,6 @@ class OrderBy1(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
-    REVENUE = "revenue"
 
 
 class OrderDirection1(StrEnum):
@@ -16929,8 +16928,6 @@ class ErrorTrackingQuery(BaseModel):
     orderDirection: OrderDirection1 | None = None
     personId: str | None = None
     response: ErrorTrackingQueryResponse | None = None
-    revenueEntity: RevenueEntity | None = None
-    revenuePeriod: RevenuePeriod | None = None
     searchQuery: str | None = None
     status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
     tags: QueryLogTags | None = None
