@@ -325,6 +325,8 @@ jobs:
 
             - name: Start Docker services
               run: docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
+              env:
+                  COMPOSE_PROFILES: capture
 
             - name: Wait for Docker services
               run: bin/wait-for-docker capture
