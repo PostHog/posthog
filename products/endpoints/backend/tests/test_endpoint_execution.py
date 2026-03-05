@@ -1263,6 +1263,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 any(p.get("key") == "$browser" and p.get("value") == "Chrome" for p in filter_props),
                 "Breakdown property filter should be applied",
             )
+
     # =========================================================================
     # OFFSET-BASED PAGINATION
     # =========================================================================
