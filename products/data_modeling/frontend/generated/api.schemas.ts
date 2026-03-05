@@ -47,6 +47,8 @@ export interface NodeApi {
     /** @maxLength 2048 */
     name: string
     type?: NodeTypeEnumApi
+    /** @maxLength 1024 */
+    description?: string
     /** @maxLength 256 */
     dag_id_text?: string
     /** @nullable */
