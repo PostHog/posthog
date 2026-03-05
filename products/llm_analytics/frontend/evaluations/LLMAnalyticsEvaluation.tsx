@@ -139,9 +139,10 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             to={openInPlaygroundUrl}
                             disabledReason={
                                 evaluation.evaluation_type !== 'llm_judge'
-                                    ? 'Only LLM-as-judge evaluations can open in playground'
+                                    ? 'Only LLM-as-judge evaluations can be opened in the playground'
                                     : undefined
                             }
+                            data-attr="llma-playground-open-from-evaluation"
                         >
                             Open in Playground
                         </LemonButton>
