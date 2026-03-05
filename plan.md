@@ -55,4 +55,6 @@ We would then rewrite queries to use pure ClickHouse.
 
 # Questions for the ClickHouse team
 
+- Does this sound reasonable?
+- Anything we should keep in mind while doing this?
 - What is the delay between emitting something to the Kafka queue and having it available in ClickHouse reads? We want to avoid situations where a user changes an issue's status, goes back to the listing page, and the old status is still showing because the change hasn't propagated yet. Something sub-1s would be ideal.
