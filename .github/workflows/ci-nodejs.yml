@@ -281,6 +281,9 @@ jobs:
                   # Run Rust migrations for test databases
                   cd nodejs && pnpm run setup:test:rust
 
+                  # Create dedicated persons database for postgres-parity tests
+                  pnpm run setup:test:persons-parity
+
                   # Set up ClickHouse test database and schema
                   cd .. && TEST=1 SECRET_KEY='abcdef' python manage.py setup_test_environment --only-clickhouse
 
@@ -291,7 +294,10 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-              run: pnpm --filter=@posthog/nodejs setup:test
+              run: |
+                  pnpm --filter=@posthog/nodejs setup:test
+                  # Create dedicated persons database for postgres-parity tests
+                  cd nodejs && pnpm run setup:test:persons-parity
 
             - name: Test with Jest
               env:
@@ -308,6 +314,18 @@ jobs:
                   # Enable localstack integration tests for DynamoDB/KMS
                   LOCALSTACK_ENABLED: '1'
               run: bin/turbo run test --filter=@posthog/nodejs
+
+            - name: Test postgres-parity (isolated DB)
+              if: (success() || failure()) && matrix.shard == 1
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_parity'
+                  PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_parity'
+                  REDIS_URL: 'redis://localhost'
+                  NODE_OPTIONS: '--max_old_space_size=4096'
+                  LOG_LEVEL: info
+              run: cd nodejs && pnpm run test:postgres-parity
 
             - name: Output logs on failure
               if: failure()
