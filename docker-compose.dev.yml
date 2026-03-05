@@ -93,18 +93,20 @@ services:
         extends:
             file: docker-compose.base.yml
             service: capture
+        restart: on-failure
         ports:
             - '3307:3000'
         depends_on:
             kafka:
-                condition: service_started
+                condition: service_healthy
             redis7:
                 condition: service_healthy
         healthcheck:
             test: ['CMD', 'curl', '-f', 'http://localhost:3000/_liveness']
             interval: 5s
             timeout: 5s
-            retries: 12
+            retries: 24
+            start_period: 10s
         profiles:
             - capture
 
