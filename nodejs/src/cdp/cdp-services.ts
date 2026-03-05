@@ -106,7 +106,7 @@ export function createCdpCoreServices(
     })
 
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
-    const hogFlowManager = new HogFlowManagerService(deps.postgres, deps.pubSub)
+    const hogFlowManager = new HogFlowManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
 
     const hogWatcher = new HogWatcherService(
         deps.teamManager,

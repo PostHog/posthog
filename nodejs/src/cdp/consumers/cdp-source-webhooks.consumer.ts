@@ -114,7 +114,12 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 hogFlow.trigger?.type === 'manual' ||
                 hogFlow.trigger?.type === 'schedule')
         ) {
-            const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, hogFlow.trigger)
+            const triggerAction = hogFlow.actions?.find((a) => a.type === 'trigger')
+            const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(
+                hogFlow,
+                hogFlow.trigger,
+                triggerAction?.id
+            )
 
             return { hogFlow, hogFunction }
         }

@@ -24,7 +24,7 @@ describe('HogFlowManager', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        manager = new HogFlowManagerService(hub.postgres, hub.pubSub)
+        manager = new HogFlowManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
 
         const team = await getTeam(hub, 2)
 

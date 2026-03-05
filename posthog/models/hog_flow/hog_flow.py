@@ -6,7 +6,9 @@ from django.dispatch.dispatcher import receiver
 
 import structlog
 
+from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
+from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
@@ -76,9 +78,93 @@ class HogFlow(UUIDTModel):
     # Contains only billable action types: 'function', 'function_email', 'function_sms', 'function_push'
     billable_action_types = models.JSONField(default=list, null=True, blank=True)
 
+    # Encrypted storage for secret inputs across all function actions, keyed by action ID
+    encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
+
     # Draft storage for active workflows: stores pending edits separately from live config
     draft = models.JSONField(null=True, blank=True)
     draft_updated_at = models.DateTimeField(null=True, blank=True)
+
+    FUNCTION_ACTION_TYPES: Final = {"function", "function_email", "function_sms", "function_push"}
+
+    def move_secret_inputs(self) -> None:
+        """
+        For each function action, separates secret inputs (based on the template's
+        inputs_schema) from actions[].config.inputs into encrypted_inputs[action_id].
+        """
+        actions = self.actions
+        if not actions or not isinstance(actions, list):
+            return
+
+        encrypted_inputs = self.encrypted_inputs or {}
+        if not isinstance(encrypted_inputs, dict):
+            encrypted_inputs = {}
+
+        trigger = self.trigger or {}
+        trigger_is_function = trigger.get("type") in ("webhook", "manual", "tracking_pixel", "schedule")
+
+        for action in actions:
+            action_type = action.get("type", "")
+            config = action.get("config", {})
+            action_id = action.get("id", "")
+
+            is_function_action = action_type in self.FUNCTION_ACTION_TYPES
+            is_function_trigger = action_type == "trigger" and trigger_is_function
+
+            if not (is_function_action or is_function_trigger):
+                continue
+
+            template_id = config.get("template_id", "")
+            if not template_id:
+                continue
+
+            template = HogFunctionTemplate.get_template(template_id)
+            if not template or not template.inputs_schema:
+                continue
+
+            raw_inputs = config.get("inputs", {}) or {}
+            existing_encrypted = encrypted_inputs.get(action_id, {}) or {}
+
+            final_inputs = {}
+            final_encrypted = {}
+
+            for schema in template.inputs_schema:
+                key = schema.get("key", "")
+                if not key:
+                    continue
+                value = raw_inputs.get(key)
+                encrypted_value = existing_encrypted.get(key)
+
+                # Treat the {"secret": True} marker from the API as "unchanged"
+                is_secret_marker = isinstance(value, dict) and value.get("secret") is True and len(value) == 1
+
+                if not schema.get("secret"):
+                    if value is not None:
+                        final_inputs[key] = value
+                else:
+                    if value and not is_secret_marker:
+                        final_encrypted[key] = value
+                    elif encrypted_value:
+                        final_encrypted[key] = encrypted_value
+
+            # Keep any non-secret inputs that aren't in the schema (e.g. mappings-derived)
+            for key, value in raw_inputs.items():
+                if key not in final_inputs and not any(
+                    s.get("key") == key and s.get("secret") for s in template.inputs_schema
+                ):
+                    final_inputs[key] = value
+
+            config["inputs"] = final_inputs
+            if final_encrypted:
+                encrypted_inputs[action_id] = final_encrypted
+            elif action_id in encrypted_inputs:
+                del encrypted_inputs[action_id]
+
+        self.encrypted_inputs = encrypted_inputs if encrypted_inputs else None
+
+    def save(self, *args, **kwargs):
+        self.move_secret_inputs()
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"HogFlow {self.id}/{self.version}: {self.name}"

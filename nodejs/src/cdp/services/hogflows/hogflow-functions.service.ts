@@ -21,7 +21,11 @@ export class HogFlowFunctionsService {
         private hogFunctionExecutor: HogExecutorService
     ) {}
 
-    async buildHogFunction(hogFlow: HogFlow, configuration: Action['config']): Promise<HogFunctionType> {
+    async buildHogFunction(
+        hogFlow: HogFlow,
+        configuration: Action['config'],
+        actionId?: string
+    ): Promise<HogFunctionType> {
         const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(configuration.template_id)
 
         if (!template) {
@@ -29,6 +33,9 @@ export class HogFlowFunctionsService {
         }
 
         const { inputs, mappings, ...config } = configuration
+
+        // Look up encrypted inputs for this action from the hogflow
+        const encrypted_inputs = actionId ? hogFlow.encrypted_inputs?.[actionId] : undefined
 
         const hogFunction: HogFunctionType = {
             id: hogFlow.id,
@@ -40,6 +47,7 @@ export class HogFlowFunctionsService {
             hog: '<<TEMPLATE>>',
             bytecode: template.bytecode,
             inputs,
+            encrypted_inputs: encrypted_inputs ?? undefined,
             inputs_schema: template.inputs_schema,
             template_id: template.template_id,
             mappings,
