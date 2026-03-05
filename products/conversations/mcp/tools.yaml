@@ -84,8 +84,8 @@ tools:
             idempotent: true
         title: Update support ticket
         description: >
-            Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium, high),
-            assignee, or SLA due date.
+            Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium,
+            high), assignee, or SLA due date.
     conversations-tickets-destroy:
         operation: conversations_tickets_destroy
         enabled: false
