@@ -79,6 +79,10 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea([
                       ]
                     : columnOptions,
         ],
+        activeFieldIsHogQL: [
+            (s, p) => [s.activeFieldValue, p.table],
+            (activeFieldValue, table) => !Object.values(table.fields).some((field) => field.name === activeFieldValue),
+        ],
         isAggregatingByGroup: [
             (s) => [s.querySource, s.activeFieldKey],
             (querySource, activeFieldKey) =>
@@ -86,9 +90,9 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea([
                 querySource?.aggregation_group_type_index !== null,
         ],
         isAggregatingByHogQL: [
-            (s) => [s.querySource, s.isGroupAggregationTarget],
-            (querySource, isGroupAggregationTarget) =>
-                Boolean(querySource?.funnelsFilter?.funnelAggregateByHogQL) && !isGroupAggregationTarget,
+            (s) => [s.querySource, s.isAggregatingByGroup],
+            (querySource, isAggregatingByGroup) =>
+                Boolean(querySource?.funnelsFilter?.funnelAggregateByHogQL) && !isAggregatingByGroup,
         ],
     }),
 ])

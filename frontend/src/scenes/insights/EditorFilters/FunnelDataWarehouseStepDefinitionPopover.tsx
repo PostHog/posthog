@@ -15,13 +15,6 @@ import {
     funnelDataWarehouseStepDefinitionPopoverLogic,
 } from './funnelDataWarehouseStepDefinitionPopoverLogic'
 
-function isUsingHogQLExpression(fieldValue: string | undefined, table: DataWarehouseTableForInsight): boolean {
-    if (fieldValue === undefined) {
-        return false
-    }
-    return !Object.values(table.fields).some((field) => field.name === fieldValue)
-}
-
 type EditableFieldProps = { shortExplanation: string }
 
 const EDITABLE_FIELD_ORDER: FunnelFieldKey[] = ['distinct_id_field', 'timestamp_field', 'id_field']
@@ -69,6 +62,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
         activeField,
         activeFieldValue,
         activeFieldOptions,
+        activeFieldIsHogQL,
         dataWarehousePopoverFields,
         localDefinition,
         isAggregatingByGroup,
@@ -77,8 +71,6 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
     const { setActiveFieldKey, selectItem, setLocalDefinition } = useActions(logic)
 
     const dataWarehouseLocalDefinition = localDefinition as Partial<DataWarehouseTableForInsight>
-
-    const activeFieldIsHogQL = isUsingHogQLExpression(activeFieldValue, table)
 
     return (
         <div className="flex flex-col">
