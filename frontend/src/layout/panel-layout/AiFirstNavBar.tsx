@@ -13,6 +13,7 @@ import {
     IconNotification,
     IconSearch,
     IconSparkles,
+    IconStar,
 } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
@@ -138,8 +139,8 @@ export function AiFirstNavBar({ children }: { children?: React.ReactNode }): JSX
         },
         {
             identifier: 'Shortcuts',
-            label: 'Recents',
-            icon: <IconClock />,
+            label: 'Starred',
+            icon: <IconStar />,
         },
     ]
 

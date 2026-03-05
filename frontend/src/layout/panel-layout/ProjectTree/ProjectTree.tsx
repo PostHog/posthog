@@ -716,7 +716,7 @@ export function ProjectTree({
                                             'text-primary': selectMode === 'multi',
                                         })}
                                     />
-                                    Add shortcut
+                                    {isAIFirst ? 'Add to starred' : 'Add shortcut'}
                                 </>
                             ),
                         }),

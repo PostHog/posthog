@@ -1,12 +1,14 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 interface NavLinkProps {
     to: string
@@ -17,8 +19,11 @@ interface NavLinkProps {
 
 export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Element {
     const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
+    const { pathname } = useValues(panelLayoutLogic)
 
     const isHomePage = to === urls.projectHomepage()
+    const currentPath = removeProjectIdIfPresent(pathname)
+    const isActive = currentPath === to
 
     return (
         <ButtonGroupPrimitive
@@ -30,6 +35,7 @@ export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Ele
                     menuItem: !isCollapsed,
                     iconOnly: isCollapsed,
                     className: 'group',
+                    active: isActive,
                     hasSideActionRight: isHomePage,
                 }}
                 to={to}

@@ -211,9 +211,7 @@ export function HomepageInput(): JSX.Element {
                 <div className="flex flex-col items-center gap-3">
                     <Intro forceHeadline={`Hello ${user?.first_name || 'there'}`} forceSubheadline="POSTHOG ONLY" />
                     <IdleInput />
-                    <div className="mt-2">
-                        <SuggestionMenubar />
-                    </div>
+                    <SuggestionMenubar />
 
                     <p className="w-full flex justify-center text-xs text-tertiary m-0 grow">
                         PostHog AI can make mistakes. Please double-check responses
