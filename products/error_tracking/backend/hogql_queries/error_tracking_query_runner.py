@@ -138,7 +138,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                         expr=ast.Call(
                             name="count",
                             distinct=True,
-                            args=[ast.Field(chain=["distinct_id"])],
+                            args=[ast.Field(chain=["person_id"])],
                         ),
                     ),
                     ast.Alias(
