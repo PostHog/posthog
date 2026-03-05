@@ -31,7 +31,7 @@ hogli build:openapi
 ## Before you scaffold: fix the backend first
 
 The codegen pipeline can only generate correct tools if the Django backend exposes correct types.
-Read the [type system guide](docs/published/handbook/engineering/type-system.md) for the full picture.
+Read the [type system guide](../../../docs/published/handbook/engineering/type-system.md) for the full picture.
 
 Before scaffolding YAML, verify:
 
