@@ -43,6 +43,8 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     date_from: datetime.datetime
     date_to: datetime.datetime
 
+    CACHE_VERSION = 2
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.paginator = HogQLHasMorePaginator.from_limit_context(
@@ -61,6 +63,11 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
         if self.query.withLastEvent is None:
             self.query.withLastEvent = False
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        payload["error_tracking_cache_version"] = self.CACHE_VERSION
+        return payload
 
     @classmethod
     def parse_relative_date_from(cls, date: str | None) -> datetime.datetime:
