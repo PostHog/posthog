@@ -11,7 +11,8 @@ Read the full guide at [docs/published/handbook/engineering/ai/implementing-mcp-
 
 ```sh
 # 1. Scaffold a starter YAML with all operations disabled
-pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product
+pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
+    --output ../../products/your_product/mcp/tools.yaml
 
 # 2. Configure the YAML — enable tools, add scopes, annotations, descriptions
 #    Place in products/<product>/mcp/*.yaml (preferred) or services/mcp/definitions/*.yaml
