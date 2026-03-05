@@ -76,6 +76,7 @@ export class PluginServer {
 
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
+    private kafkaMetricsProducer?: KafkaProducerWrapper
     private postgres?: PostgresRouter
     private redisPool?: RedisPool
     private posthogRedisPool?: RedisPool
@@ -186,7 +187,7 @@ export class PluginServer {
                       pubSub: this.pubsub!,
                       encryptedFields: ingestionCdpServices!.encryptedFields,
                       integrationManager: ingestionCdpServices!.integrationManager,
-                      kafkaProducer: this.kafkaProducer!,
+                      kafkaProducer: this.kafkaMetricsProducer!,
                       teamManager,
                       internalCaptureService: ingestionCdpServices!.internalCaptureService,
                   }
@@ -201,6 +202,7 @@ export class PluginServer {
                     postgres: this.postgres!,
                     redisPool: this.redisPool!,
                     kafkaProducer: this.kafkaProducer!,
+                    kafkaMetricsProducer: this.kafkaMetricsProducer!,
                     teamManager,
                     groupTypeManager: ingestionServices!.groupTypeManager,
                     groupRepository: ingestionCdpServices!.groupRepository,
@@ -239,6 +241,7 @@ export class PluginServer {
                     postgres: this.postgres!,
                     redisPool: this.redisPool!,
                     kafkaProducer: this.kafkaProducer!,
+                    kafkaMetricsProducer: this.kafkaMetricsProducer!,
                     teamManager,
                     groupTypeManager: ingestionServices!.groupTypeManager,
                     groupRepository: ingestionCdpServices!.groupRepository,
@@ -479,6 +482,7 @@ export class PluginServer {
 
         logger.info('🤔', 'Connecting to Kafka...')
         this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
+        this.kafkaMetricsProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
         logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to ingestion Redis...')
@@ -663,6 +667,7 @@ export class PluginServer {
         logger.info('💤', ' Shutting down infrastructure...')
         await Promise.allSettled([
             this.kafkaProducer?.disconnect(),
+            this.kafkaMetricsProducer?.disconnect(),
             this.redisPool?.drain(),
             this.posthogRedisPool?.drain(),
             this.cookielessRedisPool?.drain(),

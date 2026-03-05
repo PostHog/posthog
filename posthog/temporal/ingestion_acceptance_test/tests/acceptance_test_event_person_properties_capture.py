@@ -1,6 +1,5 @@
 """Event properties capture test - verifies $set, $set_once, and $unset person properties."""
 
-import time
 import uuid
 
 import structlog
@@ -17,13 +16,10 @@ class TestPersonPropertiesCapture(AcceptanceTest):
         """Capture an event with $set person properties and verify they appear on person."""
         event_name = "$set_person_properties"
         distinct_id = str(uuid.uuid4())
-        timestamp = time.time()
         expected_person_props = {"email": "test@example.com", "name": "Test User"}
 
         logger.info("test_set_person_properties: capturing event", distinct_id=distinct_id)
-        event_uuid = self.client.capture_event(
-            event_name, distinct_id, {"$set": {**expected_person_props, "$test_timestamp": timestamp}}
-        )
+        event_uuid = self.client.capture_event(event_name, distinct_id, {"$set": expected_person_props})
 
         logger.info("test_set_person_properties: querying for event", event_uuid=event_uuid)
         found_event = self.client.query_event_by_uuid(event_uuid)
@@ -46,9 +42,8 @@ class TestPersonPropertiesCapture(AcceptanceTest):
 
         # First event: set initial values with $set_once
         logger.info("test_set_once: capturing first event", distinct_id=distinct_id)
-        first_timestamp = time.time()
         first_event_uuid = self.client.capture_event(
-            event_name, distinct_id, {"$set_once": initial_props, "$set": {"$test_timestamp": first_timestamp}}
+            event_name, distinct_id, {"$set_once": initial_props, "$set": {"$test_version": 1}}
         )
 
         logger.info("test_set_once: querying for first event", event_uuid=first_event_uuid)
@@ -62,13 +57,12 @@ class TestPersonPropertiesCapture(AcceptanceTest):
 
         # Second event: try to overwrite with $set_once (should not change existing)
         logger.info("test_set_once: capturing second event", distinct_id=distinct_id)
-        second_timestamp = time.time()
         second_props = {
             "$set_once": {
                 "initial_referrer": "facebook",  # should NOT overwrite
                 "new_property": "should_be_set",  # should be set
             },
-            "$set": {"$test_timestamp": second_timestamp},
+            "$set": {"$test_version": 2},
         }
         second_event_uuid = self.client.capture_event(event_name, distinct_id, second_props)
 
@@ -77,7 +71,7 @@ class TestPersonPropertiesCapture(AcceptanceTest):
         self.assert_event(found_second, second_event_uuid, event_name, distinct_id)
 
         logger.info("test_set_once: querying for person after second event", distinct_id=distinct_id)
-        person_after = self.client.query_person_by_distinct_id(distinct_id, min_timestamp=second_timestamp)
+        person_after = self.client.query_person_by_distinct_id(distinct_id, min_version=2)
         assert person_after is not None, "Person updates not found within time budget"
         # Original values preserved, new property added
         expected_props = {"initial_referrer": "google", "new_property": "should_be_set"}
@@ -95,9 +89,8 @@ class TestPersonPropertiesCapture(AcceptanceTest):
 
         # First event: set initial properties
         logger.info("test_unset: capturing first event", distinct_id=distinct_id)
-        first_timestamp = time.time()
         first_event_uuid = self.client.capture_event(
-            event_name, distinct_id, {"$set": {**initial_props, "$test_timestamp": first_timestamp}}
+            event_name, distinct_id, {"$set": {**initial_props, "$test_version": 1}}
         )
 
         logger.info("test_unset: querying for first event", event_uuid=first_event_uuid)
@@ -111,9 +104,8 @@ class TestPersonPropertiesCapture(AcceptanceTest):
 
         # Second event: unset specific properties
         logger.info("test_unset: capturing second event with $unset", distinct_id=distinct_id)
-        second_timestamp = time.time()
         second_event_uuid = self.client.capture_event(
-            event_name, distinct_id, {"$unset": ["temporary_flag"], "$set": {"$test_timestamp": second_timestamp}}
+            event_name, distinct_id, {"$unset": ["temporary_flag"], "$set": {"$test_version": 2}}
         )
 
         logger.info("test_unset: querying for second event", event_uuid=second_event_uuid)
@@ -122,7 +114,7 @@ class TestPersonPropertiesCapture(AcceptanceTest):
 
         # Verify properties are removed, others remain
         logger.info("test_unset: querying for person after $unset", distinct_id=distinct_id)
-        person_after = self.client.query_person_by_distinct_id(distinct_id, min_timestamp=second_timestamp)
+        person_after = self.client.query_person_by_distinct_id(distinct_id, min_version=2)
         assert person_after is not None, "$unset event not propagated within time budget"
         assert person_after.properties.get("temporary_flag") is None, "$unset should remove the property"
         expected_remaining = {"email": "test@example.com", "name": "Test User"}
@@ -135,9 +127,8 @@ class TestPersonPropertiesCapture(AcceptanceTest):
 
         # First event: set initial properties
         logger.info("test_combined: capturing first event", distinct_id=distinct_id)
-        first_timestamp = time.time()
         first_props = {
-            "$set": {"plan": "free", "to_remove": "temporary", "$test_timestamp": first_timestamp},
+            "$set": {"plan": "free", "to_remove": "temporary", "$test_version": 1},
             "$set_once": {"first_plan": "free"},
         }
         first_event_uuid = self.client.capture_event(event_name, distinct_id, first_props)
@@ -154,9 +145,8 @@ class TestPersonPropertiesCapture(AcceptanceTest):
 
         # Second event: combine all three operations
         logger.info("test_combined: capturing second event", distinct_id=distinct_id)
-        second_timestamp = time.time()
         second_props = {
-            "$set": {"plan": "enterprise", "$test_timestamp": second_timestamp},
+            "$set": {"plan": "enterprise", "$test_version": 2},
             "$set_once": {"first_plan": "should_not_change"},
             "$unset": ["to_remove"],
         }
@@ -167,7 +157,7 @@ class TestPersonPropertiesCapture(AcceptanceTest):
         self.assert_event(found_second, second_event_uuid, event_name, distinct_id)
 
         logger.info("test_combined: querying for person after combined operations", distinct_id=distinct_id)
-        person_after = self.client.query_person_by_distinct_id(distinct_id, min_timestamp=second_timestamp)
+        person_after = self.client.query_person_by_distinct_id(distinct_id, min_version=2)
         assert person_after is not None, "Combined $set/$set_once/$unset not propagated within time budget"
 
         # $set overwrites, $set_once preserves existing + adds new, $unset removes

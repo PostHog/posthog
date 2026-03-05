@@ -25,7 +25,6 @@ import { SentimentBar } from './components/SentimentTag'
 import { TraceSummary, llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
-import { flattenGenerationMessages } from './sentimentUtils'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
 const LLMASessionFeedbackDisplay = lazy(() =>
@@ -73,7 +72,7 @@ function SessionTraceSentimentBar({ traceId }: { traceId: string }): JSX.Element
             label={cached?.label ?? 'neutral'}
             score={cached?.score ?? 0}
             loading={loading || cached === undefined}
-            messages={cached ? flattenGenerationMessages(cached.generations) : undefined}
+            messages={cached?.messages}
         />
     )
 }

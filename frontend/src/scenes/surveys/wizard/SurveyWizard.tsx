@@ -87,6 +87,10 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         setPreviewPageIndex((current) => (current > maxPreviewIndex ? Math.max(0, maxPreviewIndex) : current))
     }, [maxPreviewIndex])
 
+    const handleCustomizeMore = (): void => {
+        router.actions.push(urls.survey(id) + (isEditing ? '?edit=true' : '#fromTemplate=true'))
+    }
+
     // Show loading state while loading existing survey
     if (isEditing && surveyLoading) {
         return (
@@ -109,7 +113,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                             Surveys
                         </LemonButton>
                     </div>
-                    <TemplateStep />
+                    <TemplateStep handleCustomizeMore={handleCustomizeMore} />
                 </div>
             </div>
         )
@@ -119,10 +123,6 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         ...survey,
         id,
     } as NewSurvey
-
-    const handleCustomizeMore = (): void => {
-        router.actions.push(urls.survey(id) + (isEditing ? '?edit=true' : '#fromTemplate=true'))
-    }
 
     const getConditionsSummary = (): string[] => {
         const conditions = survey.conditions

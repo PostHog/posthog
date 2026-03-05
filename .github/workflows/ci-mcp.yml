@@ -165,8 +165,8 @@ jobs:
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
 
-                          if docker compose -f docker-compose.dev.yml --profile '*' down && \
-                            docker compose -f docker-compose.dev.yml up -d; then
+                          if docker compose -f docker-compose.dev.yml down && \
+                            docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d; then
                               echo "Stack started successfully"
                               exit 0
                           fi
@@ -254,7 +254,7 @@ jobs:
 
             - name: Start Docker services
               shell: bash
-              run: docker compose -f docker-compose.dev.yml up -d
+              run: docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
 
             - name: Wait for Docker services
               shell: bash

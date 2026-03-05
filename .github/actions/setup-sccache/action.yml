@@ -1,0 +1,74 @@
+name: Setup sccache
+description: |
+    Installs sccache and configures it as the Rust compiler wrapper.
+    Uses actions/cache to avoid repeated downloads from GitHub's releases CDN.
+    The sccache binary is pinned to a specific version for reproducibility.
+
+inputs:
+    version:
+        description: 'sccache version to install (e.g. 0.14.0)'
+        required: false
+        default: '0.14.0'
+
+runs:
+    using: composite
+    steps:
+        - name: Restore sccache binary from cache
+          id: cache-sccache
+          uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          with:
+              path: ${{ runner.temp }}/sccache
+              key: sccache-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+        - name: Download sccache on cache miss
+          if: steps.cache-sccache.outputs.cache-hit != 'true'
+          shell: bash
+          env:
+              SCCACHE_VERSION: ${{ inputs.version }}
+          run: |
+              set -euo pipefail
+              echo "Cache miss — downloading sccache v$SCCACHE_VERSION"
+
+              # Map runner arch to sccache archive naming
+              case "$RUNNER_ARCH" in
+                X64)  ARCH="x86_64" ;;
+                ARM64) ARCH="aarch64" ;;
+                *) echo "::error::Unsupported architecture: $RUNNER_ARCH"; exit 1 ;;
+              esac
+
+              case "$RUNNER_OS" in
+                Linux) OS="unknown-linux-musl" ;;
+                *) echo "::error::Unsupported OS: $RUNNER_OS (only Linux is supported)"; exit 1 ;;
+              esac
+
+              TARBALL="sccache-v${SCCACHE_VERSION}-${ARCH}-${OS}.tar.gz"
+              URL="https://github.com/mozilla/sccache/releases/download/v${SCCACHE_VERSION}/${TARBALL}"
+
+              curl -fsSL --retry 10 --retry-delay 30 --retry-all-errors \
+                -o "$RUNNER_TEMP/${TARBALL}" "$URL"
+
+              if [ ! -s "$RUNNER_TEMP/${TARBALL}" ]; then
+                echo "::error::Downloaded sccache archive is empty"
+                exit 1
+              fi
+              echo "Downloaded $(du -h "$RUNNER_TEMP/${TARBALL}" | cut -f1) archive"
+
+              mkdir -p "$RUNNER_TEMP/sccache"
+              tar -xzf "$RUNNER_TEMP/${TARBALL}" -C "$RUNNER_TEMP/sccache" --strip-components=1
+              rm "$RUNNER_TEMP/${TARBALL}"
+              chmod +x "$RUNNER_TEMP/sccache/sccache"
+
+        - name: Save sccache binary to cache
+          if: steps.cache-sccache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
+          uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          with:
+              path: ${{ runner.temp }}/sccache
+              key: sccache-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+        - name: Configure sccache
+          shell: bash
+          run: |
+              echo "$RUNNER_TEMP/sccache" >> "$GITHUB_PATH"
+              echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+              "$RUNNER_TEMP/sccache/sccache" --start-server
+              "$RUNNER_TEMP/sccache/sccache" --version

@@ -79,6 +79,7 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
+import { SessionSummarizationProgress } from './messages/SessionSummarizationProgress'
 import {
     RecordingsWidget,
     SummarizeSessionsWidget,
@@ -1552,6 +1553,9 @@ export const getToolCallDescriptionAndWidget = (
                 switch (displayFormatterResult[1]?.widget) {
                     case 'recordings':
                         widget = <RecordingsWidget toolCallId={toolCall.id} filters={displayFormatterResult[1].args} />
+                        break
+                    case 'session_summarization':
+                        widget = <SessionSummarizationProgress updates={displayFormatterResult[1].args.updates} />
                         break
                     default:
                         break
