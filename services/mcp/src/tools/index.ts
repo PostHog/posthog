@@ -14,8 +14,8 @@ import getDashboard from './dashboards/get'
 import getAllDashboards from './dashboards/getAll'
 import reorderDashboardTiles from './dashboards/reorderTiles'
 import updateDashboard from './dashboards/update'
-// Demo
-import demoMcpUiApps from './demo/demoMcpUiApps'
+// Debug
+import debugMcpUiApps from './debug/debugMcpUiApps'
 // Documentation
 import searchDocs from './documentation/searchDocs'
 // Error Tracking
@@ -168,8 +168,8 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Search
     'entity-search': entitySearch,
 
-    // Demo
-    'demo-mcp-ui-apps': demoMcpUiApps,
+    // Debug
+    'debug-mcp-ui-apps': debugMcpUiApps,
 
     // PostHog AI tools
     'execute-sql': executeSql,
