@@ -584,6 +584,13 @@ class InsightSerializer(InsightBasicSerializer):
                 self._update_insight_dashboards(dashboards, instance)
 
         updated_insight = super().update(instance, validated_data)
+
+        # Backfill the annotation so to_representation reports the correct value without
+        # an extra DB query — super().update() returns a plain model instance, not an
+        # annotated queryset row.
+        if favorited_value is not None and not request_user.is_anonymous:
+            updated_insight.is_favorited = bool(favorited_value)
+
         if not updated_insight.are_alerts_supported:
             instance.alertconfiguration_set.all().delete()
 
