@@ -796,6 +796,14 @@ def filter_element(
             params[param_key] = f'{optional_flag}({key}="{value}")'
             combination_conditions.append(f"match(elements_chain, %({param_key})s)")
 
+    elif key == "attr_id":
+        ok_values = process_ok_values(value, operator)
+        for idx, value in enumerate(ok_values):
+            optional_flag = "(?i)" if operator.endswith("icontains") else ""
+            param_key = f"{prepend}_attr_id_{idx}_attributes_regex"
+            params[param_key] = f'{optional_flag}(id="{value}")'
+            combination_conditions.append(f"match(elements_chain, %({param_key})s)")
+
     else:
         raise ValueError(f'Invalid element filtering key "{key}"')
 

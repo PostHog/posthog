@@ -978,6 +978,21 @@ def property_to_expr(
                 },
             )
 
+        if property.key == "attr_id":
+            return parse_expr(
+                "arrayExists(id -> {compare}, elements_chain_ids)",
+                {
+                    "compare": _expr_to_compare_op(
+                        expr=ast.Field(chain=["id"]),
+                        value=value,
+                        operator=operator,
+                        team=team,
+                        property=property,
+                        is_json_field=False,
+                    )
+                },
+            )
+
         raise NotImplementedError(f"property_to_expr for type element not implemented for key {property.key}")
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:

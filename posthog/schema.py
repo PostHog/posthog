@@ -1188,6 +1188,7 @@ class Key(StrEnum):
     TEXT = "text"
     HREF = "href"
     SELECTOR = "selector"
+    ATTR_ID = "attr_id"
 
 
 class ElementType(BaseModel):

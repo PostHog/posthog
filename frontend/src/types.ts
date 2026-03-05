@@ -991,7 +991,7 @@ export interface ErrorTrackingIssueFilter extends BasePropertyFilter {
 /** Sync with nodejs/src/types.ts */
 export interface ElementPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Element
-    key: 'tag_name' | 'text' | 'href' | 'selector'
+    key: 'tag_name' | 'text' | 'href' | 'selector' | 'attr_id'
     operator: PropertyOperator
 }
 

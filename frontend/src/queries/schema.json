@@ -11808,7 +11808,7 @@
             "description": "Sync with nodejs/src/types.ts",
             "properties": {
                 "key": {
-                    "enum": ["tag_name", "text", "href", "selector"],
+                    "enum": ["tag_name", "text", "href", "selector", "attr_id"],
                     "type": "string"
                 },
                 "label": {

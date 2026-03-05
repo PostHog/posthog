@@ -1108,7 +1108,7 @@ export interface DataWarehousePersonPropertyFilter extends PropertyFilterWithOpe
 /** Sync with posthog/frontend/src/types.ts */
 export interface ElementPropertyFilter extends PropertyFilterWithOperator {
     type: 'element'
-    key: 'tag_name' | 'text' | 'href' | 'selector'
+    key: 'tag_name' | 'text' | 'href' | 'selector' | 'attr_id'
     value: string | string[]
 }
 

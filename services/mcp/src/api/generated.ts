@@ -101,7 +101,7 @@ export namespace Schemas {
         type?: string | undefined
         value?: (Array<string | number | boolean> | string | number | boolean | null) | undefined
     }
-    export type Key = 'tag_name' | 'text' | 'href' | 'selector'
+    export type Key = 'tag_name' | 'text' | 'href' | 'selector' | 'attr_id'
     export type ElementPropertyFilter = {
         key: Key
         label?: (string | null) | undefined

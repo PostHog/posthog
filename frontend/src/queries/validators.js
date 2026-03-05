@@ -698,7 +698,7 @@ const schema20 = {
     additionalProperties: false,
     description: 'Sync with nodejs/src/types.ts',
     properties: {
-        key: { enum: ['tag_name', 'text', 'href', 'selector'], type: 'string' },
+        key: { enum: ['tag_name', 'text', 'href', 'selector', 'attr_id'], type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
         type: { const: 'element', type: 'string' },
@@ -769,7 +769,7 @@ function validate19(data, { instancePath = '', parentData, parentDataProperty, r
                             ]
                             return false
                         }
-                        if (!(data0 === 'tag_name' || data0 === 'text' || data0 === 'href' || data0 === 'selector')) {
+                        if (!(data0 === 'tag_name' || data0 === 'text' || data0 === 'href' || data0 === 'selector' || data0 === 'attr_id')) {
                             validate19.errors = [
                                 {
                                     instancePath: instancePath + '/key',

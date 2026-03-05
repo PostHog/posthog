@@ -283,8 +283,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "selector": {
             "label": "CSS selector",
-            "description": "Select any element by CSS selector.",
-            "examples": ["div > a", "table td:nth-child(2)", ".my-class"],
+            "description": "Select any element by CSS selector. Supports attribute selectors for filtering by data-* attributes and other HTML attributes.",
+            "examples": ["div > a", "table td:nth-child(2)", ".my-class", "[data-testid='submit-btn']", "button[data-attr='click-me']"],
         },
         "text": {
             "label": "Text",
@@ -294,6 +294,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Target (href)",
             "description": "Filter on the `href` attribute of the element.",
             "examples": ["https://posthog.com/about"],
+        },
+        "attr_id": {
+            "label": "Element ID",
+            "description": "Filter on the `id` attribute of the HTML element.",
+            "examples": ["submit-button", "main-nav", "search-input"],
         },
     },
     "metadata": {
