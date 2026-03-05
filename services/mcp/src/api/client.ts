@@ -242,8 +242,17 @@ export class ApiClient {
                     }
 
                     if (errorData.type === 'validation_error' && errorData.code) {
-                        console.error(`[API] Validation error on ${method} ${url}: ${errorData.code}`)
-                        throw new Error(`Validation error: ${errorData.code}`)
+                        const stringify = (v: unknown): string =>
+                            typeof v === 'object' ? JSON.stringify(v) : String(v)
+                        const parts = [`Validation error: ${stringify(errorData.code)}`]
+                        if (errorData.attr) {
+                            parts.push(`field: ${stringify(errorData.attr)}`)
+                        }
+                        if (errorData.detail) {
+                            parts.push(`detail: ${stringify(errorData.detail)}`)
+                        }
+                        console.error(`[API] ${parts.join(', ')} on ${method} ${url}`)
+                        throw new Error(parts.join('\n'))
                     }
 
                     console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)

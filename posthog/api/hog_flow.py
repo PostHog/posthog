@@ -523,7 +523,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         status = data.get("status", instance.status if instance else "draft")
         if status == "active" and instance and instance.status != "active" and "actions" not in data:
             action_serializer = HogFlowActionSerializer(data=instance.actions, many=True, context=self.context)
-            action_serializer.is_valid(raise_exception=True)
+            if not action_serializer.is_valid():
+                # ListSerializer errors are a list of dicts (one per action index).
+                # exceptions_hog can't flatten this list format into useful error fields,
+                # so we extract the first real error and re-raise it with a dict path
+                # like {"actions__1__template_id": "..."} that produces a clean response.
+                for idx, action_errors in enumerate(action_serializer.errors):
+                    if action_errors:
+                        for field, messages in action_errors.items():
+                            msg = messages[0] if isinstance(messages, list) else messages
+                            raise serializers.ValidationError({f"actions__{idx}__{field}": msg})
+                raise serializers.ValidationError({"actions": "Validation failed"})
             actions = action_serializer.validated_data
 
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
