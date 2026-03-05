@@ -10,7 +10,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { INTENT_KEYS, INTENT_METADATA, TEMPLATE_NAMES, TemplateKey } from './featureFlagTemplateConstants'
-import { featureFlagTemplatesSceneLogic, SelectedTemplate } from './featureFlagTemplatesSceneLogic'
+import { featureFlagTemplatesSceneLogic, navigateToNewFlag, SelectedTemplate } from './featureFlagTemplatesSceneLogic'
 
 export const scene: SceneExport = {
     component: FeatureFlagTemplatesScene,
@@ -45,17 +45,6 @@ const TEMPLATES: FeatureFlagTemplate[] = [
         icon: <IconFlask className="w-6 h-6 text-primary-3000" />,
     },
 ]
-
-function navigateToNewFlag(searchParams: Record<string, any>, template?: SelectedTemplate, intent?: FlagIntent): void {
-    const params: Record<string, any> = { ...searchParams }
-    if (template && template !== 'blank') {
-        params.template = template
-    }
-    if (intent) {
-        params.intent = intent
-    }
-    router.actions.push(combineUrl(urls.featureFlag('new'), params).url)
-}
 
 interface TemplateCardProps {
     template: FeatureFlagTemplate | 'blank'
@@ -202,22 +191,11 @@ function IntentStep({ template }: { template: SelectedTemplate }): JSX.Element {
 }
 
 export function FeatureFlagTemplatesScene(): JSX.Element {
-    const { searchParams } = useValues(router)
     const { featureFlagsV2Enabled, intentsEnabled, selectedTemplate } = useValues(featureFlagTemplatesSceneLogic)
-    const { setSelectedTemplate } = useActions(featureFlagTemplatesSceneLogic)
+    const { selectTemplate } = useActions(featureFlagTemplatesSceneLogic)
 
     if (!featureFlagsV2Enabled) {
         return <></>
-    }
-
-    const handleTemplateSelect = (key: SelectedTemplate): void => {
-        posthog.capture('feature flag template selected', { template_key: key })
-
-        if (intentsEnabled) {
-            setSelectedTemplate(key)
-        } else {
-            navigateToNewFlag(searchParams, key)
-        }
     }
 
     return (
@@ -226,7 +204,7 @@ export function FeatureFlagTemplatesScene(): JSX.Element {
                 {selectedTemplate && intentsEnabled ? (
                     <IntentStep template={selectedTemplate} />
                 ) : (
-                    <TemplateStep onSelect={handleTemplateSelect} />
+                    <TemplateStep onSelect={selectTemplate} />
                 )}
             </div>
         </div>
