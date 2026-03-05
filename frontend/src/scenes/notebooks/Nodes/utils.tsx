@@ -239,8 +239,10 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
         const newParsedAttrs = Object.keys(props.node.attrs).reduce<Record<string, any>>((acc, key) => {
             const val = props.node.attrs[key]
             if (previousNodeAttrs.current?.[key] !== val) {
+                // If changed, set it whilst trying to parse
                 acc[key] = tryJsonParse(val, val)
             } else if (parsedAttrs.current) {
+                // Otherwise use the old value to preserve object equality
                 acc[key] = parsedAttrs.current[key]
             }
             return acc

@@ -3,7 +3,7 @@ import { CapturedNetworkRequest } from 'posthog-js'
 import { eventWithTime } from '@posthog/rrweb-types'
 
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
-import { humanizeBytes, isKeyOf } from 'lib/utils'
+import { assignField, humanizeBytes, isKeyOf } from 'lib/utils'
 
 import { PerformanceEvent } from '~/types'
 
@@ -127,10 +127,6 @@ export const RRWebPerformanceEventReverseMapping: Record<string, keyof Performan
     responseBody: 'response_body',
     method: 'method',
     endTime: 'end_time',
-}
-
-function assignField<T, K extends keyof T>(obj: T, key: K, value: unknown): void {
-    obj[key] = value as T[K]
 }
 
 export function initiatorTypeToColor(type: NonNullable<PerformanceEvent['initiator_type']>): string {
