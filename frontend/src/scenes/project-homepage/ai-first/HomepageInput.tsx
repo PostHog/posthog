@@ -1,10 +1,14 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconSearch, IconSparkles } from '@posthog/icons'
 
+import { uuid } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
+import { Intro } from 'scenes/max/Intro'
 import { maxLogic } from 'scenes/max/maxLogic'
+import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -119,57 +123,6 @@ function IdleInput(): JSX.Element {
     )
 }
 
-function AiInput(): JSX.Element {
-    const [input, setInput] = useState('')
-    const { setQuestion, askMax } = useActions(maxLogic({ tabId: HOMEPAGE_TAB_ID }))
-    const inputRef = useRef<HTMLInputElement>(null)
-
-    useEffect(() => {
-        inputRef.current?.focus()
-    }, [])
-
-    const handleSubmit = (): void => {
-        const trimmed = input.trim()
-        if (!trimmed) {
-            return
-        }
-        setQuestion(trimmed)
-        askMax(trimmed)
-        setInput('')
-    }
-
-    return (
-        <label
-            htmlFor="homepage-ai-input"
-            className="group input-like flex gap-1 items-center w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2"
-        >
-            <IconSparkles className="size-4 shrink-0 text-tertiary group-focus-within:text-ai" />
-            <input
-                ref={inputRef}
-                id="homepage-ai-input"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault()
-                        handleSubmit()
-                    }
-                }}
-                placeholder="Ask a follow-up..."
-                className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
-                autoFocus
-            />
-            {input.trim() && (
-                <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-tertiary whitespace-nowrap flex items-center gap-1 hover:text-ai">
-                        <KeyboardShortcut enter /> Send
-                    </span>
-                </div>
-            )}
-        </label>
-    )
-}
-
 function SearchInput(): JSX.Element {
     const { query } = useValues(aiFirstHomepageLogic)
     const { setQuery } = useActions(aiFirstHomepageLogic)
@@ -198,13 +151,34 @@ function SearchInput(): JSX.Element {
     )
 }
 
+function HomepageAiInput(): JSX.Element {
+    const { threadLogicKey, conversation } = useValues(maxLogic)
+
+    const threadProps: MaxThreadLogicProps = {
+        tabId: HOMEPAGE_TAB_ID,
+        conversationId: threadLogicKey || uuid(),
+        conversation,
+    }
+
+    return (
+        <BindLogic logic={maxThreadLogic} props={threadProps}>
+            <SidebarQuestionInput />
+        </BindLogic>
+    )
+}
+
 export function HomepageInput(): JSX.Element {
     const { mode } = useValues(aiFirstHomepageLogic)
 
     return (
-        <div className="w-full max-w-[640px] mx-auto px-4 py-2">
-            {mode === 'idle' && <IdleInput />}
-            {mode === 'ai' && <AiInput />}
+        <div className="w-full max-w-180 mx-auto px-4 py-2">
+            {mode === 'idle' && (
+                <div className="flex flex-col items-center gap-3">
+                    <Intro />
+                    <IdleInput />
+                </div>
+            )}
+            {mode === 'ai' && <HomepageAiInput />}
             {mode === 'search' && <SearchInput />}
         </div>
     )
