@@ -48,6 +48,7 @@ class PublicHogFunctionTemplateViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
+    scope_object = "hog_function"
     permission_classes = [permissions.AllowAny]
     serializer_class = HogFunctionTemplateSerializer
     queryset = HogFunctionTemplate.objects.all()

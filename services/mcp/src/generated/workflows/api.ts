@@ -345,8 +345,12 @@ export const HogFlowsCreateBody = zod.object({
                             .describe('Cohort percentage splits, each with a percentage and optional name.'),
                     }),
                     zod.object({
-                        type: zod.enum(['function', 'function_email', 'function_sms']).optional(),
-                        template_id: zod.string().describe('HogFunction template ID.'),
+                        type: zod.enum(['function', 'function_email', 'function_sms', 'function_push']),
+                        template_id: zod
+                            .string()
+                            .describe(
+                                'HogFunction template ID. Use the hog_function_templates endpoints to discover available templates.'
+                            ),
                         inputs: zod
                             .record(zod.string(), zod.unknown())
                             .optional()
@@ -587,8 +591,12 @@ export const HogFlowsRetrieveResponse = zod.object({
                             .describe('Cohort percentage splits, each with a percentage and optional name.'),
                     }),
                     zod.object({
-                        type: zod.enum(['function', 'function_email', 'function_sms']).optional(),
-                        template_id: zod.string().describe('HogFunction template ID.'),
+                        type: zod.enum(['function', 'function_email', 'function_sms', 'function_push']),
+                        template_id: zod
+                            .string()
+                            .describe(
+                                'HogFunction template ID. Use the hog_function_templates endpoints to discover available templates.'
+                            ),
                         inputs: zod
                             .record(zod.string(), zod.unknown())
                             .optional()
@@ -804,8 +812,12 @@ export const HogFlowsPartialUpdateBody = zod.object({
                                 .describe('Cohort percentage splits, each with a percentage and optional name.'),
                         }),
                         zod.object({
-                            type: zod.enum(['function', 'function_email', 'function_sms']).optional(),
-                            template_id: zod.string().describe('HogFunction template ID.'),
+                            type: zod.enum(['function', 'function_email', 'function_sms', 'function_push']),
+                            template_id: zod
+                                .string()
+                                .describe(
+                                    'HogFunction template ID. Use the hog_function_templates endpoints to discover available templates.'
+                                ),
                             inputs: zod
                                 .record(zod.string(), zod.unknown())
                                 .optional()
@@ -1034,8 +1046,12 @@ export const HogFlowsPartialUpdateResponse = zod.object({
                             .describe('Cohort percentage splits, each with a percentage and optional name.'),
                     }),
                     zod.object({
-                        type: zod.enum(['function', 'function_email', 'function_sms']).optional(),
-                        template_id: zod.string().describe('HogFunction template ID.'),
+                        type: zod.enum(['function', 'function_email', 'function_sms', 'function_push']),
+                        template_id: zod
+                            .string()
+                            .describe(
+                                'HogFunction template ID. Use the hog_function_templates endpoints to discover available templates.'
+                            ),
                         inputs: zod
                             .record(zod.string(), zod.unknown())
                             .optional()
