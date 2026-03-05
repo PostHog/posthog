@@ -481,6 +481,34 @@ describe('featureFlagIntentWarningLogic', () => {
         })
     })
 
+    describe('co-occurrence', () => {
+        it('unreachable groups and intent issues are produced simultaneously', async () => {
+            enableIntentsFeatureFlag()
+
+            flagLogic.actions.setFlagIntent('local-eval')
+            flagLogic.actions.setFeatureFlag({
+                ...NEW_FLAG,
+                filters: {
+                    ...NEW_FLAG.filters,
+                    groups: [
+                        { properties: [], rollout_percentage: 100, variant: null },
+                        {
+                            properties: [
+                                { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.IsNotSet },
+                            ] as AnyPropertyFilter[],
+                            rollout_percentage: 50,
+                            variant: null,
+                        },
+                    ],
+                },
+            })
+
+            expect(warningLogic.values.unreachableGroups.has(1)).toBe(true)
+            expect(warningLogic.values.intentIssues.length).toBeGreaterThanOrEqual(1)
+            expect(warningLogic.values.intentIssues.some((s) => s.includes('"is not set"'))).toBe(true)
+        })
+    })
+
     describe('feature flag gate', () => {
         it('unreachable conditions shown regardless of intents feature flag', async () => {
             flagLogic.actions.setFeatureFlag({
@@ -506,6 +534,32 @@ describe('featureFlagIntentWarningLogic', () => {
             })
 
             expect(warningLogic.values.unreachableGroups.has(1)).toBe(true)
+        })
+
+        it('invalid intent string produces no issues', async () => {
+            enableIntentsFeatureFlag()
+
+            // Simulate setting an invalid intent directly — parseUrlIntent would return undefined,
+            // so flagIntent stays null and no issues are produced
+            flagLogic.actions.setFeatureFlag({
+                ...NEW_FLAG,
+                filters: {
+                    ...NEW_FLAG.filters,
+                    groups: [
+                        {
+                            properties: [
+                                { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.IsNotSet },
+                            ] as AnyPropertyFilter[],
+                            rollout_percentage: 100,
+                            variant: null,
+                        },
+                    ],
+                },
+            })
+
+            // flagIntent is null (no valid intent set), so no issues despite problematic properties
+            expect(warningLogic.values.flagIntent).toBeNull()
+            expect(warningLogic.values.intentIssues).toEqual([])
         })
 
         it('intent issues suppressed when intents feature flag is off', async () => {
