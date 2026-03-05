@@ -199,12 +199,14 @@ jobs:
               continue-on-error: true
 
             - name: Setup main repo and dependencies
+              env:
+                  COMPOSE_FILES: -f ../docker-compose.dev.yml -f ../docker-compose.profiles.yml --profile etcd
               run: |
-                  docker compose -f ../docker-compose.dev.yml down
+                  docker compose $COMPOSE_FILES down
 
                   # Retry docker compose up with exponential backoff to handle transient registry errors
                   for i in 1 2 3; do
-                    if docker compose -f ../docker-compose.dev.yml up -d; then
+                    if docker compose $COMPOSE_FILES up -d; then
                       echo "Docker compose up succeeded"
                       break
                     else

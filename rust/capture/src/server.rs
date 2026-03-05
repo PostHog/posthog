@@ -34,6 +34,7 @@ use crate::router;
 use crate::router::BATCH_BODY_SIZE;
 use crate::sinks::fallback::FallbackSink;
 use crate::sinks::kafka::KafkaSink;
+use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
 use crate::sinks::Event;
@@ -202,6 +203,16 @@ async fn create_sink(
             .await;
 
         Ok(Box::new(PrintSink {}))
+    } else if config.noop_sink {
+        info!("NoOpSink enabled, events will be silently dropped");
+        // NoOpSink is used for mirror traffic when we don't need to evaluate the output
+        // events and don't want to waste cost on MSK for nothing. The 12 hour period on
+        // the liveness check is unimportant as the sink does nothing. This is safer than
+        // nerfing the liveness check entirely when NoOpSink is enabled
+        let sink_liveness = liveness
+            .register("noop_sink".to_string(), Duration::from_secs(60 * 60 * 12))
+            .await;
+        Ok(Box::new(NoOpSink::new(sink_liveness).await))
     } else {
         let sink_liveness = liveness
             .register("rdkafka".to_string(), Duration::from_secs(30))
@@ -315,15 +326,16 @@ where
         .expect("failed to create redis client"),
     );
 
-    let global_rate_limiter = if config.global_rate_limit_enabled {
-        Some(Arc::new(
-            GlobalRateLimiter::try_from_config(&config, redis_client.clone())
-                .await
-                .expect("failed to create global rate limiter"),
-        ))
-    } else {
-        None
-    };
+    let (global_rate_limiter_token_distinctid, global_rate_limiter_token) =
+        if config.global_rate_limit_enabled {
+            let (td_limiter, token_limiter) =
+                GlobalRateLimiter::try_from_config(&config, redis_client.clone())
+                    .await
+                    .expect("failed to create global rate limiters");
+            (Some(Arc::new(td_limiter)), Some(Arc::new(token_limiter)))
+        } else {
+            (None, None)
+        };
 
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
@@ -416,7 +428,8 @@ where
         liveness,
         sink,
         redis_client,
-        global_rate_limiter,
+        global_rate_limiter_token_distinctid,
+        global_rate_limiter_token,
         quota_limiter,
         token_dropper,
         event_restriction_service,

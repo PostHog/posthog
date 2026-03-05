@@ -27,19 +27,21 @@ def build_trace_result(
     pending: list[PendingClassification],
     classification_results: list,
     pending_offset: int,
-) -> tuple[TraceResult, int]:
+) -> tuple[TraceResult, dict[str, dict[str, Any]], int]:
     """Build a single trace's sentiment result from classified pending items.
 
-    Returns (TraceResult, count_consumed) where count_consumed is how many
-    items from classification_results were used.
+    Returns (TraceResult, per_generation_dicts, count_consumed).
+    per_generation_dicts is keyed by gen_uuid and contains the same shape as
+    generation-level results — used for dual-write caching.
     """
     trace_pending = [p for p in pending if p.trace_id == trace_id]
     trace_results = classification_results[pending_offset : pending_offset + len(trace_pending)]
 
     if not trace_pending:
-        return TraceResult.neutral(trace_id), 0
+        return TraceResult.neutral(), {}, 0
 
     gen_messages: dict[str, dict[str, dict[str, Any]]] = {}
+    flat_messages: dict[str, dict[str, Any]] = {}
     all_scores: list[dict[str, float]] = []
 
     for item, result in zip(trace_pending, trace_results):
@@ -49,31 +51,81 @@ def build_trace_result(
             "scores": result.scores,
         }
         gen_messages.setdefault(item.gen_uuid, {})[str(item.msg_index)] = msg_dict
+        flat_messages[f"{item.gen_uuid}:{item.msg_index}"] = msg_dict
         all_scores.append(result.scores)
 
-    generations: dict[str, Any] = {}
+    per_gen: dict[str, dict[str, Any]] = {}
     for gen_uuid, msgs in gen_messages.items():
         gen_scores = average_scores(list(msgs.values()))
         gen_label = max(gen_scores, key=gen_scores.get)  # type: ignore
-        generations[gen_uuid] = {
+        per_gen[gen_uuid] = {
             "label": gen_label,
             "score": gen_scores[gen_label],
             "scores": gen_scores,
             "messages": msgs,
+            "message_count": len(msgs),
         }
 
     trace_scores = average_score_dicts(all_scores)
     trace_label = max(trace_scores, key=trace_scores.get)  # type: ignore
 
-    return TraceResult(
-        trace_id=trace_id,
-        label=trace_label,
-        score=round(trace_scores[trace_label], 4),
-        scores=trace_scores,
-        generations=generations,
-        generation_count=len(generations),
-        message_count=len(trace_pending),
-    ), len(trace_pending)
+    return (
+        TraceResult(
+            label=trace_label,
+            score=round(trace_scores[trace_label], 4),
+            scores=trace_scores,
+            messages=flat_messages,
+            message_count=len(trace_pending),
+        ),
+        per_gen,
+        len(trace_pending),
+    )
+
+
+def build_generation_result(
+    gen_uuid: str,
+    pending: list[PendingClassification],
+    classification_results: list,
+) -> dict[str, Any]:
+    """Build a single generation's sentiment dict from classified pending items.
+
+    Returns the same shape as a generation entry in TraceResult.generations:
+    {label, score, scores, messages}.
+    """
+    gen_pending = [p for p in pending if p.gen_uuid == gen_uuid]
+    gen_results = classification_results[: len(gen_pending)]
+
+    if not gen_pending:
+        return {
+            "label": "neutral",
+            "score": 0.0,
+            "scores": {"positive": 0.0, "neutral": 0.0, "negative": 0.0},
+            "messages": {},
+            "message_count": 0,
+        }
+
+    messages: dict[str, dict[str, Any]] = {}
+    all_scores: list[dict[str, float]] = []
+
+    for item, result in zip(gen_pending, gen_results):
+        msg_dict = {
+            "label": result.label,
+            "score": result.score,
+            "scores": result.scores,
+        }
+        messages[str(item.msg_index)] = msg_dict
+        all_scores.append(result.scores)
+
+    gen_scores = average_score_dicts(all_scores)
+    gen_label = max(gen_scores, key=gen_scores.get)  # type: ignore
+
+    return {
+        "label": gen_label,
+        "score": gen_scores[gen_label],
+        "scores": gen_scores,
+        "messages": messages,
+        "message_count": len(gen_pending),
+    }
 
 
 def collect_pending(

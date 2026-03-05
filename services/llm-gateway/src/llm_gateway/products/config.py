@@ -68,6 +68,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,
         allow_api_keys=True,
     ),
+    "slack-twig": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+    ),
     "growth": ProductConfig(
         allowed_application_ids=None,
         allowed_models=None,
