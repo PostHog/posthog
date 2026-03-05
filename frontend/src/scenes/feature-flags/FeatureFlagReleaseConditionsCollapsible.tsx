@@ -28,11 +28,13 @@ import { clamp } from 'lib/utils'
 import {
     AnyPropertyFilter,
     FeatureFlagBucketingIdentifier,
+    FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     MultivariateFlagVariant,
     PropertyFilterType,
 } from '~/types'
 
+import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
@@ -44,6 +46,7 @@ interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleas
     isDisabled?: boolean
     bucketingIdentifier?: FeatureFlagBucketingIdentifier | null
     onBucketingIdentifierChange?: (value: FeatureFlagBucketingIdentifier | null) => void
+    evaluationRuntime?: FeatureFlagEvaluationRuntime
 }
 
 function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
@@ -189,6 +192,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     isDisabled,
     bucketingIdentifier,
     onBucketingIdentifierChange,
+    evaluationRuntime,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -207,6 +211,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         filters: releaseFilters,
         groupTypes,
         openConditions,
+        properties,
     } = useValues(releaseConditionsLogic)
     const {
         updateConditionSet,
@@ -296,6 +301,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                     it.
                 </LemonBanner>
             )}
+
+            <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
 
             {/* Match by selector */}
             {(showGroupsOptions || onBucketingIdentifierChange) && (
