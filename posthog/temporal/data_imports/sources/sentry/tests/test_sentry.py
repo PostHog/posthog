@@ -32,7 +32,12 @@ def _response(payload, status_code: int = 200, link_header: str = "") -> Mock:
 
 
 class _FakeDltResource:
-    """Lightweight stand-in for a DltResource returned by rest_api_resources."""
+    """Lightweight stand-in for a DltResource returned by rest_api_resources.
+
+    ``process_parent_data_item`` injects parent fields as
+    ``_<parent_resource>_<field>`` (see ``make_parent_key_name``), so test
+    data should include those prefixed keys to exercise the row mappers.
+    """
 
     def __init__(self, name: str, rows: list[dict]) -> None:
         self.name = name
@@ -195,25 +200,23 @@ class TestSentryTransport:
         assert resp.primary_keys == ["id"]
         assert resp.partition_mode == "datetime"
 
+    # ----- Project fan-out (dependent resources) -----
+
     @parameterized.expand(
         [
-            ("project_issues", "/projects/acme/web/issues/", {"id": "iss-1"}),
-            ("project_events", "/projects/acme/web/events/", {"eventID": "evt-1"}),
-            ("project_users", "/projects/acme/web/users/", {"id": "usr-1"}),
-            ("project_client_keys", "/projects/acme/web/keys/", {"id": "key-1"}),
-            ("project_service_hooks", "/projects/acme/web/hooks/", {"id": "hook-1"}),
+            ("project_issues", {"id": "iss-1", "_projects_id": "1", "_projects_slug": "web"}),
+            ("project_events", {"eventID": "evt-1", "_projects_id": "1", "_projects_slug": "web"}),
+            ("project_users", {"id": "usr-1", "_projects_id": "1", "_projects_slug": "web"}),
+            ("project_client_keys", {"id": "key-1", "_projects_id": "1", "_projects_slug": "web"}),
+            ("project_service_hooks", {"id": "hook-1", "_projects_id": "1", "_projects_slug": "web"}),
         ]
     )
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.external_requests.get")
-    def test_project_fanout_endpoint_row_format(self, endpoint, child_path, child_row, mock_get) -> None:
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/projects/"):
-                return _response([{"id": "1", "slug": "web"}])
-            if url.endswith(child_path):
-                return _response([child_row])
-            return _response([])
-
-        mock_get.side_effect = side_effect
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resources")
+    def test_project_fanout_row_format(self, endpoint, child_row, mock_rest_api_resources) -> None:
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource("projects", [{"id": "1", "slug": "web"}]),
+            _FakeDltResource(endpoint, [child_row]),
+        ]
 
         resp = sentry_source(
             auth_token="token",
@@ -227,9 +230,42 @@ class TestSentryTransport:
         rows = list(resp.items())
         assert len(rows) == 1
         row = rows[0]
-        assert isinstance(row, dict)
-        assert row["project_slug"] == "web"
         assert row["project_id"] == "1"
+        assert row["project_slug"] == "web"
+        assert "_projects_id" not in row
+        assert "_projects_slug" not in row
+
+    # ----- Issue fan-out: dependent resources (issue_events, issue_hashes) -----
+
+    @parameterized.expand(
+        [
+            ("issue_events", {"eventID": "evt-1", "_issues_id": "100"}),
+            ("issue_hashes", {"id": "hash-1", "hash": "abc", "_issues_id": "100"}),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resources")
+    def test_issue_fanout_dependent_resource_row_format(self, endpoint, child_row, mock_rest_api_resources) -> None:
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource("issues", [{"id": "100"}]),
+            _FakeDltResource(endpoint, [child_row]),
+        ]
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint=endpoint,
+            team_id=123,
+            job_id="job-id",
+        )
+
+        rows = list(resp.items())
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["issue_id"] == "100"
+        assert "_issues_id" not in row
+
+    # ----- Issue fan-out: custom iterator (issue_tag_values) -----
 
     @patch("posthog.temporal.data_imports.sources.sentry.sentry.external_requests.get")
     def test_issue_tag_values_custom_fanout_row_format(self, mock_get) -> None:
@@ -256,37 +292,73 @@ class TestSentryTransport:
         rows = list(resp.items())
         assert len(rows) == 1
         row = rows[0]
-        assert isinstance(row, dict)
         assert row["issue_id"] == "100"
         assert row["tag_key"] == "browser"
 
-    @parameterized.expand(
-        [
-            ("issue_events", [{"id": "100", "eventID": "evt-1", "message": "boom"}]),
-            ("issue_hashes", [{"id": "hash-1", "issue_id": "100", "hash": "abc"}]),
-        ]
-    )
+    # ----- rest_api_resources config assertions -----
+
     @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resources")
-    def test_issue_fanout_dependent_resource_row_format(self, endpoint, child_rows, mock_rest_api_resources) -> None:
+    def test_project_dependent_source_config(self, mock_rest_api_resources) -> None:
+        """Verify the config passed to rest_api_resources for project fan-out."""
         mock_rest_api_resources.return_value = [
-            _FakeDltResource("issues", [{"id": "100"}]),
-            _FakeDltResource(endpoint, child_rows),
+            _FakeDltResource("projects", []),
+            _FakeDltResource("project_issues", []),
         ]
 
-        resp = sentry_source(
+        sentry_source(
             auth_token="token",
             organization_slug="acme",
             api_base_url="https://sentry.io",
-            endpoint=endpoint,
+            endpoint="project_issues",
             team_id=123,
             job_id="job-id",
         )
 
-        rows = list(resp.items())
-        assert len(rows) == 1
-        row = rows[0]
-        assert isinstance(row, dict)
-        assert row["issue_id"] == "100"
+        config = mock_rest_api_resources.call_args[0][0]
+        parent, child = config["resources"]
+
+        assert parent["name"] == "projects"
+        assert parent["endpoint"]["path"] == "/organizations/acme/projects/"
+
+        assert child["name"] == "project_issues"
+        assert child["include_from_parent"] == ["id", "slug"]
+        # {organization_slug} pre-formatted, {project_slug} left for resolution
+        assert "{project_slug}" in child["endpoint"]["path"]
+        assert "{organization_slug}" not in child["endpoint"]["path"]
+        assert child["endpoint"]["params"]["project_slug"]["type"] == "resolve"
+        assert child["endpoint"]["params"]["project_slug"]["resource"] == "projects"
+        assert child["endpoint"]["params"]["project_slug"]["field"] == "slug"
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resources")
+    def test_issue_dependent_source_config(self, mock_rest_api_resources) -> None:
+        """Verify the config passed to rest_api_resources for issue fan-out."""
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource("issues", []),
+            _FakeDltResource("issue_events", []),
+        ]
+
+        sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_events",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        config = mock_rest_api_resources.call_args[0][0]
+        parent, child = config["resources"]
+
+        assert parent["name"] == "issues"
+        assert parent["endpoint"]["path"] == "/organizations/acme/issues/"
+
+        assert child["name"] == "issue_events"
+        assert child["include_from_parent"] == ["id"]
+        assert "{issue_id}" in child["endpoint"]["path"]
+        assert "{organization_slug}" not in child["endpoint"]["path"]
+        assert child["endpoint"]["params"]["issue_id"]["type"] == "resolve"
+        assert child["endpoint"]["params"]["issue_id"]["resource"] == "issues"
+        assert child["endpoint"]["params"]["issue_id"]["field"] == "id"
 
 
 class TestHelpers:
