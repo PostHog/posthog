@@ -49,13 +49,17 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
 }: Omit<DefinitionPopoverRendererProps, 'defaultView'>): JSX.Element {
     const table = item as DataWarehouseTableForInsight
 
-    const { taxonomicFilterLogicKey } = useValues(taxonomicFilterLogic)
+    // :FIXME: ideally, we'd want to connect() these, but i couldn't make it work
+    const { dataWarehousePopoverFields } = useValues(taxonomicFilterLogic)
+    const { selectItem } = useActions(taxonomicFilterLogic)
+
     const { insightProps } = useValues(insightLogic)
 
     const logic = funnelDataWarehouseStepDefinitionPopoverLogic({
-        table: item as DataWarehouseTableForInsight,
+        table,
         group,
-        taxonomicFilterLogicKey,
+        dataWarehousePopoverFields,
+        onSelectItem: selectItem,
         insightProps,
     })
     const {
@@ -64,7 +68,6 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
         activeFieldValue,
         activeFieldOptions,
         activeFieldIsHogQL,
-        dataWarehousePopoverFields,
         isAggregatingByGroup,
         isAggregatingByHogQL,
     } = useValues(logic)
