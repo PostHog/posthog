@@ -18,7 +18,7 @@ interface NavLinkProps {
 export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Element {
     const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
 
-    const isHomePage = to === urls.projectRoot()
+    const isHomePage = to === urls.projectHomepage()
 
     return (
         <ButtonGroupPrimitive
