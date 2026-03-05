@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import * as libUtils from 'lib/utils'
 import { entityFilterLogic, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
@@ -145,6 +146,62 @@ describe('entityFilterLogic', () => {
             expect(newFilters).toHaveLength(2)
             expect(originalUuids).toContain(newFilters[0].uuid)
             expect(originalUuids).toContain(newFilters[1].uuid)
+        })
+    })
+
+    describe('updateFilterMath preserves math_property_type', () => {
+        it('keeps math_property_type when updating math', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.updateFilterMath({
+                    index: 0,
+                    type: 'events',
+                    math: 'median',
+                    math_property: '$session_duration',
+                    math_property_type: TaxonomicFilterGroupType.SessionProperties,
+                })
+            }).toDispatchActions(['updateFilterMath', 'setFilters'])
+
+            expect(logic.props.setFilters).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    events: expect.arrayContaining([
+                        expect.objectContaining({
+                            math: 'median',
+                            math_property: '$session_duration',
+                            math_property_type: TaxonomicFilterGroupType.SessionProperties,
+                        }),
+                    ]),
+                })
+            )
+        })
+
+        it('clears math_property_type when math is cleared', async () => {
+            logic.actions.updateFilterMath({
+                index: 0,
+                type: 'events',
+                math: 'median',
+                math_property: '$session_duration',
+                math_property_type: TaxonomicFilterGroupType.SessionProperties,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.updateFilterMath({
+                    index: 0,
+                    type: 'events',
+                    math: undefined,
+                    math_property: undefined,
+                    math_property_type: undefined,
+                })
+            }).toDispatchActions(['updateFilterMath', 'setFilters'])
+
+            expect(logic.props.setFilters).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    events: expect.arrayContaining([
+                        expect.objectContaining({
+                            math_property_type: undefined,
+                        }),
+                    ]),
+                })
+            )
         })
     })
 
