@@ -444,7 +444,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </div>
                 )}
             </div>
-            <p className="w-full flex text-xs text-muted mt-1">
+            <p className="w-full flex text-xs text-muted mt-1 bg-[var(--scene-layout-background)]">
                 <span className="mx-auto">PostHog AI can make mistakes. Please double-check responses.</span>
             </p>
         </div>
