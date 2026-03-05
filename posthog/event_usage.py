@@ -326,6 +326,7 @@ def report_user_action(
     organization: Optional[Organization] = None,
     request: Optional["Request"] = None,
 ):
+    # isinstance works through Django's SimpleLazyObject because it proxies __class__
     if not isinstance(user, User) or not user.distinct_id:
         return
     if properties is None:
@@ -354,6 +355,7 @@ def report_user_or_team_action(
     if request is not None:
         properties = {**get_request_analytics_properties(request), **properties}
 
+    # isinstance works through Django's SimpleLazyObject because it proxies __class__
     real_user = user if isinstance(user, User) else None
 
     distinct_id = None
