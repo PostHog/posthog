@@ -158,6 +158,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
         try:
             for chunk in client.stream(request_obj):
                 if not http_request.META.get("SERVER_NAME"):  # Client disconnected
+                    if on_error:
+                        on_error(Exception("Client disconnected"), perf_counter() - started)
                     return
                 yield chunk.to_sse().encode()
             if on_complete:
