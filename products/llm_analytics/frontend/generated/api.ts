@@ -23,11 +23,13 @@ import type {
     EvaluationsListParams,
     LLMProviderKeyApi,
     LlmAnalyticsClusteringJobsListParams,
+    LlmAnalyticsEvaluationResultsListParams,
     LlmAnalyticsProviderKeysListParams,
     PaginatedClusteringJobListApi,
     PaginatedDatasetItemListApi,
     PaginatedDatasetListApi,
     PaginatedEvaluationListApi,
+    PaginatedEvaluationResultListApi,
     PaginatedLLMProviderKeyListApi,
     PatchedClusteringJobApi,
     PatchedDatasetApi,
@@ -352,6 +354,45 @@ export const llmAnalyticsEvaluationConfigSetActiveKeyCreate = async (
     return apiMutator<void>(getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+/**
+ * Query evaluation results ($ai_evaluation events).
+
+GET /api/environments/:id/llm_analytics/evaluation_results/
+    ?evaluation_id=<uuid>       Filter by evaluation UUID
+    &generation_id=<uuid>       Filter by generation event UUID
+    &result=pass|fail|na        Filter by result status
+    &limit=50                   Max results (default 50, max 200)
+ */
+export const getLlmAnalyticsEvaluationResultsListUrl = (
+    projectId: string,
+    params?: LlmAnalyticsEvaluationResultsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_analytics/evaluation_results/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_analytics/evaluation_results/`
+}
+
+export const llmAnalyticsEvaluationResultsList = async (
+    projectId: string,
+    params?: LlmAnalyticsEvaluationResultsListParams,
+    options?: RequestInit
+): Promise<PaginatedEvaluationResultListApi> => {
+    return apiMutator<PaginatedEvaluationResultListApi>(getLlmAnalyticsEvaluationResultsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
