@@ -120,3 +120,11 @@ class TestEvaluationResultsAPI(APIBaseTest):
         call_kwargs = mock_query.call_args
         placeholders = call_kwargs.kwargs.get("placeholders", {})
         assert placeholders["limit"].value == 200
+
+    def test_invalid_limit_returns_400(self):
+        response = self.client.get(
+            self.url,
+            {"evaluation_id": str(self.evaluation.id), "limit": "abc"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "limit" in response.data["error"]

@@ -51,7 +51,10 @@ class EvaluationResultsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         evaluation_id = request.query_params.get("evaluation_id")
         generation_id = request.query_params.get("generation_id")
         result_filter = request.query_params.get("result")
-        limit = min(int(request.query_params.get("limit", DEFAULT_LIMIT)), MAX_LIMIT)
+        try:
+            limit = min(int(request.query_params.get("limit", DEFAULT_LIMIT)), MAX_LIMIT)
+        except (ValueError, TypeError):
+            return Response({"error": "limit must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
 
         if not evaluation_id and not generation_id:
             return Response(
@@ -85,6 +88,17 @@ class EvaluationResultsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             )
 
+        not_na_guard = ast.Or(
+            exprs=[
+                ast.Call(name="isNull", args=[ast.Field(chain=["properties", "$ai_evaluation_applicable"])]),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=["properties", "$ai_evaluation_applicable"]),
+                    right=ast.Constant(value=False),
+                ),
+            ]
+        )
+
         if result_filter == "pass":
             where_conditions.append(
                 ast.CompareOperation(
@@ -93,6 +107,7 @@ class EvaluationResultsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     right=ast.Constant(value=True),
                 )
             )
+            where_conditions.append(not_na_guard)
         elif result_filter == "fail":
             where_conditions.append(
                 ast.CompareOperation(
@@ -101,6 +116,7 @@ class EvaluationResultsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     right=ast.Constant(value=False),
                 )
             )
+            where_conditions.append(not_na_guard)
         elif result_filter == "na":
             where_conditions.append(
                 ast.CompareOperation(
@@ -142,7 +158,7 @@ class EvaluationResultsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         results = [
             {
-                "uuid": str(row[0]) if row[0] else "",
+                "uuid": str(row[0]),
                 "timestamp": row[1],
                 "evaluation_id": str(row[2]) if row[2] else "",
                 "evaluation_name": row[3] or "",
