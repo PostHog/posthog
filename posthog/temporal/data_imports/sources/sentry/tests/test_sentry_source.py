@@ -61,7 +61,6 @@ class TestSentrySource:
             "environments",
             "monitors",
             "issues",
-            "project_issues",
             "project_events",
             "project_users",
             "project_client_keys",

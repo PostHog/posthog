@@ -86,13 +86,6 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
         partition_key="lastSeen",
         sort_mode="desc",
     ),
-    "project_issues": SentryEndpointConfig(
-        name="project_issues",
-        path="/projects/{organization_slug}/{project_slug}/issues/",
-        incremental_fields=[],
-        primary_key=["project_id", "id"],
-        is_project_fanout=True,
-    ),
     "project_events": SentryEndpointConfig(
         name="project_events",
         path="/projects/{organization_slug}/{project_slug}/events/",

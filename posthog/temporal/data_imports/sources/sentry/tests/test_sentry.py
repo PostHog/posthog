@@ -136,7 +136,6 @@ class TestSentryTransport:
 
     @parameterized.expand(
         [
-            ("project_issues",),
             ("project_events",),
             ("project_users",),
             ("project_client_keys",),
@@ -203,7 +202,6 @@ class TestSentryTransport:
 
     @parameterized.expand(
         [
-            ("project_issues", {"id": "iss-1", "_projects_id": "1", "_projects_slug": "web"}),
             ("project_events", {"eventID": "evt-1", "_projects_id": "1", "_projects_slug": "web"}),
             ("project_users", {"id": "usr-1", "_projects_id": "1", "_projects_slug": "web"}),
             ("project_client_keys", {"id": "key-1", "_projects_id": "1", "_projects_slug": "web"}),
@@ -301,14 +299,14 @@ class TestSentryTransport:
         """Verify the config passed to rest_api_resources for project fan-out."""
         mock_rest_api_resources.return_value = [
             _FakeDltResource("projects", []),
-            _FakeDltResource("project_issues", []),
+            _FakeDltResource("project_events", []),
         ]
 
         sentry_source(
             auth_token="token",
             organization_slug="acme",
             api_base_url="https://sentry.io",
-            endpoint="project_issues",
+            endpoint="project_events",
             team_id=123,
             job_id="job-id",
         )
@@ -319,7 +317,7 @@ class TestSentryTransport:
         assert parent["name"] == "projects"
         assert parent["endpoint"]["path"] == "/organizations/acme/projects/"
 
-        assert child["name"] == "project_issues"
+        assert child["name"] == "project_events"
         assert child["include_from_parent"] == ["id", "slug"]
         # {organization_slug} pre-formatted, {project_slug} left for resolution
         assert "{project_slug}" in child["endpoint"]["path"]
