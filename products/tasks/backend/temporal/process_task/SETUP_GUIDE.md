@@ -17,9 +17,10 @@ Optional: Issues (R/W), Workflows (R/W).
 Steps:
 
 1. GitHub -> Settings -> Developer Settings -> GitHub Apps -> New GitHub App
-2. Set the permissions above
-3. Generate and download a private key
-4. Install the app on your test repositories
+2. Set the **Setup URL** to `http://localhost:8010/integrations/github/callback`
+3. Set the permissions above
+4. Generate and download a private key
+5. Install the app on your test repositories
 
 Add to your `.env`:
 
