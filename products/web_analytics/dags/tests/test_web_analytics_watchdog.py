@@ -207,7 +207,7 @@ class TestWebAnalyticsWatchdogAsset:
         with pytest.raises(dagster.Failure, match="All partition checks failed") as exc_info:
             web_analytics_watchdog(context)
 
-        failure = exc_info.value
+        failure: Any = exc_info.value
         assert failure.metadata["total_checked"].value == 0
         assert failure.metadata["error_count"].value == 2
         assert len(failure.metadata["errors"].value) == 2
