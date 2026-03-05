@@ -1,8 +1,11 @@
 import { JSONContent } from '@tiptap/core'
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
@@ -399,6 +402,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             try {
                 const ticket = await api.conversationsTickets.get(props.id.toString())
+
+                // If accessed via UUID, redirect to ticket_number URL for cleaner URLs
+                const isUuid = props.id.toString().includes('-')
+                if (isUuid && ticket.ticket_number) {
+                    router.actions.replace(urls.supportTicketDetail(ticket.ticket_number))
+                    return
+                }
+
                 actions.setTicket(ticket)
                 actions.loadMessages()
 
@@ -456,14 +467,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
         },
         loadMessages: async () => {
-            if (props.id === 'new') {
+            if (props.id === 'new' || !values.ticket?.id) {
                 actions.setMessages([])
                 return
             }
             try {
                 const response = await api.comments.list({
                     scope: 'conversations_ticket',
-                    item_id: props.id.toString(),
+                    item_id: values.ticket.id,
                 })
                 // Reverse to show oldest first (bottom = newest)
                 actions.setMessages((response.results || []).reverse())
@@ -474,7 +485,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         },
         loadOlderMessages: async () => {
             const currentMessages = values.messages
-            if (props.id === 'new' || currentMessages.length === 0 || !values.hasMoreMessages) {
+            if (props.id === 'new' || !values.ticket?.id || currentMessages.length === 0 || !values.hasMoreMessages) {
                 actions.setOlderMessagesLoading(false)
                 actions.setHasMoreMessages(false)
                 return
@@ -484,7 +495,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const oldestMessage = currentMessages[0]
                 const response = await api.comments.list({
                     scope: 'conversations_ticket',
-                    item_id: props.id.toString(),
+                    item_id: values.ticket.id,
                 })
 
                 const allMessages = response.results || []
@@ -524,7 +535,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
         },
         sendMessage: async ({ content, richContent, isPrivate, onSuccess }) => {
-            if (props.id === 'new') {
+            if (props.id === 'new' || !values.ticket?.id) {
                 actions.setMessageSending(false)
                 return
             }
@@ -534,7 +545,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         content,
                         rich_content: richContent,
                         scope: 'conversations_ticket',
-                        item_id: props.id.toString(),
+                        item_id: values.ticket.id,
                         item_context: {
                             author_type: 'support',
                             is_private: isPrivate,

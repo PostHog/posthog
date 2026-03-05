@@ -372,7 +372,7 @@
             "type": "string"
         },
         "AggregationAxisFormat": {
-            "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled", "currency"],
+            "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled", "currency", "short"],
             "type": "string"
         },
         "AlertCalculationInterval": {
@@ -1727,7 +1727,6 @@
                 "settings",
                 "sqlEditor",
                 "surveys",
-                "surveyTemplates",
                 "toolbarLaunch",
                 "webAnalytics",
                 "webAnalyticsWebVitals",
@@ -8238,7 +8237,7 @@
                     "type": "string"
                 },
                 "style": {
-                    "enum": ["none", "number", "percent"],
+                    "enum": ["none", "number", "short", "percent"],
                     "type": "string"
                 },
                 "suffix": {

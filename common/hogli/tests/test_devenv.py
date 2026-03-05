@@ -345,6 +345,10 @@ class TestDockerProfiles:
         result = resolver.resolve(["session_replay"])
         assert "replay" in result.docker_profiles
 
+        # feature_flags needs etcd (coordination)
+        result = resolver.resolve(["feature_flags"])
+        assert "etcd" in result.docker_profiles
+
 
 class TestIntentMapLoading:
     """Test intent map loading from YAML."""
@@ -385,6 +389,7 @@ class TestIntentMapLoading:
         assert intent_map.capabilities["replay_storage"].docker_profiles == ["replay"]
         assert intent_map.capabilities["observability"].docker_profiles == ["observability"]
         assert intent_map.capabilities["dev_tools"].docker_profiles == ["dev_tools"]
+        assert intent_map.capabilities["coordination"].docker_profiles == ["etcd"]
 
 
 class TestMprocsRegistry:

@@ -7,6 +7,7 @@ from datetime import timedelta
 
 from django.db import transaction
 from django.db.models import Prefetch, Q, QuerySet, Sum
+from django.http import Http404
 from django.utils import timezone
 
 import structlog
@@ -241,6 +242,36 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             order_by = "-updated_at"
 
         return queryset.order_by(order_by)
+
+    def safely_get_object(self, queryset):
+        """
+        Support looking up tickets by either UUID or ticket_number.
+        This allows URLs like /tickets/123/ (ticket_number) alongside /tickets/<uuid>/ for backward compatibility.
+        """
+        lookup_value: str | None = self.kwargs.get("pk")
+
+        if not lookup_value:
+            raise Http404("Ticket not found")
+
+        # Try to parse as UUID first
+        try:
+            uuid.UUID(lookup_value)
+            # It's a valid UUID - look up by id
+            try:
+                return queryset.get(id=lookup_value)
+            except Ticket.DoesNotExist:
+                raise Http404("Ticket not found")
+        except (ValueError, AttributeError):
+            # Not a UUID - try as ticket_number (integer)
+            try:
+                ticket_num = int(lookup_value)
+                try:
+                    return queryset.get(ticket_number=ticket_num)
+                except Ticket.DoesNotExist:
+                    raise Http404("Ticket not found")
+            except (ValueError, TypeError):
+                # Neither UUID nor integer
+                raise Http404("Ticket not found")
 
     def get_serializer_context(self):
         context = super().get_serializer_context()

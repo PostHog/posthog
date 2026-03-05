@@ -128,6 +128,16 @@ def record_inference_time_ms(duration_ms: float) -> None:
     ).record(dt.timedelta(milliseconds=duration_ms))
 
 
+def record_generations_classified(count: int) -> None:
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter()
+    meter.create_counter(
+        "llma_sentiment_generations_classified",
+        "Individual generations classified for sentiment",
+    ).add(count)
+
+
 def increment_errors(error_type: str) -> None:
     if not activity.in_activity() and not workflow.in_workflow():
         return
