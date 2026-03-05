@@ -40,6 +40,10 @@ env:
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
     CLICKHOUSE_DATABASE: posthog_test
+    # Database names passed to the plugins Docker service via env var substitution
+    POSTHOG_DB_NAME: posthog_e2e_test
+    POSTHOG_PERSONS_DB_NAME: posthog_persons_e2e_test
+    PLUGIN_SERVER_MODE: ingestion-v2
     PGHOST: localhost
     PGUSER: posthog
     PGPASSWORD: posthog
@@ -198,8 +202,8 @@ jobs:
                     while [ $attempt -le $max_attempts ]; do
                         echo "Attempt $attempt of $max_attempts to start stack..."
 
-                        if docker compose -f docker-compose.dev.yml --profile capture down && \
-                          docker compose -f docker-compose.dev.yml --profile capture up -d; then
+                        if docker compose -f docker-compose.dev.yml --profile capture --profile ingestion down && \
+                          docker compose -f docker-compose.dev.yml --profile capture --profile ingestion up -d; then
                             echo "Stack started successfully"
                             exit 0
                         fi
@@ -320,10 +324,10 @@ jobs:
                   bin/turbo --filter=@posthog/frontend prepare
 
             - name: Start Docker services
-              run: docker compose -f docker-compose.dev.yml --profile capture up -d
+              run: docker compose -f docker-compose.dev.yml --profile capture --profile ingestion up -d
 
             - name: Wait for Docker services
-              run: bin/wait-for-docker
+              run: bin/wait-for-docker capture
 
             - name: Build frontend
               run: |
@@ -372,19 +376,11 @@ jobs:
                   source ./bin/celery-queues.env
                   echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
 
-            - name: Install Node.js ingestion dependencies
-              run: |
-                  pnpm --filter=@posthog/nodejs... install --frozen-lockfile
-                  pnpm --filter=@posthog/cyclotron package
-
-            - name: Start PostHog web, Celery worker & Node.js ingestion
+            - name: Start PostHog web & Celery worker
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
                   # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
-                  # Node.js ingestion pipeline — processes $set/$unset events from Kafka into person properties.
-                  # PERSONS_DATABASE_URL is needed because the Node.js config key differs from PERSONS_DB_WRITER_URL.
-                  cd nodejs && PLUGIN_SERVER_MODE=ingestion-v2 NODE_ENV=dev PERSONS_DATABASE_URL="$PERSONS_DB_WRITER_URL" npx tsx src/index.ts &> /tmp/ingestion.log &
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -398,33 +394,8 @@ jobs:
                   interval: 2000
                   verbose: true
 
-            - name: Wait for capture service to be ready
-              run: |
-                  echo "Waiting for capture service on port 3307..."
-                  for i in $(seq 1 60); do
-                    if curl -sf http://localhost:3307/_liveness > /dev/null 2>&1; then
-                      echo "Capture service ready after ${i}s"
-                      exit 0
-                    fi
-                    sleep 1
-                  done
-                  echo "Capture service not ready after 60s"
-                  docker logs posthog-capture-1 2>&1 | tail -20
-                  exit 1
-
-            - name: Wait for Node.js ingestion service to be ready
-              run: |
-                  echo "Waiting for ingestion service on port 6738..."
-                  for i in $(seq 1 60); do
-                    if curl -sf http://localhost:6738/_ready > /dev/null 2>&1; then
-                      echo "Ingestion service ready after ${i}s"
-                      exit 0
-                    fi
-                    sleep 1
-                  done
-                  echo "Ingestion service not ready after 60s"
-                  tail -50 /tmp/ingestion.log 2>&1
-                  exit 1
+            - name: Wait for ingestion service to be ready
+              run: bin/wait-for-docker plugins
 
             - name: Run Playwright tests
               id: playwright-tests
@@ -519,6 +490,7 @@ jobs:
               run: |
                   docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
                   docker logs posthog-capture-1 > playwright/test-results/docker-capture.log 2>&1 || echo "No capture container" > playwright/test-results/docker-capture.log
+                  docker logs posthog-plugins-1 > playwright/test-results/docker-plugins.log 2>&1 || echo "No plugins container" > playwright/test-results/docker-plugins.log
 
             - name: Archive test artifacts
               if: always()
@@ -532,7 +504,6 @@ jobs:
                       playwright/test-results-attempt-*/
                       /tmp/celery.log
                       /tmp/server.log
-                      /tmp/ingestion.log
                       /tmp/playwright-output-attempt-*.log
                   retention-days: 30
                   if-no-files-found: ignore
