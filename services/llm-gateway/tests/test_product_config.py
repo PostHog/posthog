@@ -3,6 +3,8 @@ from fastapi import HTTPException
 
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
+    POSTHOG_CODE_EU_APP_ID,
+    POSTHOG_CODE_US_APP_ID,
     PRODUCT_ALIASES,
     PRODUCTS,
     TWIG_EU_APP_ID,
@@ -35,11 +37,11 @@ class TestCheckProductAccess:
             ("llm_gateway", "personal_api_key", None, "claude-3-opus", True, None),
             ("llm_gateway", "oauth_access_token", "any-app-id", "gpt-4o", True, None),
             ("llm_gateway", "personal_api_key", None, None, True, None),
-            # twig requires OAuth with valid app ID
-            ("twig", "personal_api_key", None, None, False, "requires OAuth"),
-            ("twig", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
-            ("twig", "oauth_access_token", TWIG_US_APP_ID, None, True, None),
-            ("twig", "oauth_access_token", TWIG_EU_APP_ID, None, True, None),
+            # posthog_code requires OAuth with valid app ID
+            ("posthog_code", "personal_api_key", None, None, False, "requires OAuth"),
+            ("posthog_code", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
+            ("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, None, True, None),
+            ("posthog_code", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, None, True, None),
             # wizard allows API keys and OAuth with valid app ID
             ("wizard", "personal_api_key", None, "claude-3-opus", True, None),
             ("wizard", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
@@ -85,8 +87,8 @@ class TestCheckProductAccess:
             "gpt-5-mini",
         ],
     )
-    def test_array_allows_restricted_models_with_valid_app_id(self, model: str):
-        allowed, error = check_product_access("array", "oauth_access_token", TWIG_US_APP_ID, model)
+    def test_posthog_code_allows_restricted_models_with_valid_app_id(self, model: str):
+        allowed, error = check_product_access("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
         assert allowed is True
         assert error is None
 
@@ -100,8 +102,8 @@ class TestCheckProductAccess:
             "o1",
         ],
     )
-    def test_array_rejects_non_allowed_models(self, model: str):
-        allowed, error = check_product_access("array", "oauth_access_token", TWIG_US_APP_ID, model)
+    def test_posthog_code_rejects_non_allowed_models(self, model: str):
+        allowed, error = check_product_access("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
         assert allowed is False
         assert error is not None
         assert "not allowed" in error
@@ -120,26 +122,57 @@ class TestCheckProductAccess:
             "claude-opus-4-5-20260101",
         ],
     )
-    def test_twig_allows_configured_models_with_valid_app_id(self, model: str):
-        allowed, error = check_product_access("twig", "oauth_access_token", TWIG_US_APP_ID, model)
+    def test_posthog_code_allows_configured_models_with_dated_variants(self, model: str):
+        allowed, error = check_product_access("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
         assert allowed is True
         assert error is None
 
     @pytest.mark.parametrize(
-        "model",
-        [
-            "gpt-4o",
-            "gpt-4o-mini",
-            "claude-3-5-haiku-20241022",
-            "claude-3-opus",
-            "o1",
-        ],
+        "alias",
+        ["twig", "array"],
     )
-    def test_twig_rejects_unconfigured_models(self, model: str):
-        allowed, error = check_product_access("twig", "oauth_access_token", TWIG_US_APP_ID, model)
+    def test_legacy_aliases_resolve_to_posthog_code(self, alias: str):
+        allowed, error = check_product_access(alias, "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-4-5")
+        assert allowed is True
+        assert error is None
+
+    @pytest.mark.parametrize(
+        "alias",
+        ["twig", "array"],
+    )
+    def test_legacy_aliases_reject_non_allowed_models(self, alias: str):
+        allowed, error = check_product_access(alias, "oauth_access_token", POSTHOG_CODE_US_APP_ID, "gpt-4o")
         assert allowed is False
         assert error is not None
         assert "not allowed" in error
+
+
+class TestBackwardsCompatibility:
+    def test_twig_app_id_constants_are_aliases(self):
+        assert TWIG_US_APP_ID == POSTHOG_CODE_US_APP_ID
+        assert TWIG_EU_APP_ID == POSTHOG_CODE_EU_APP_ID
+
+    @pytest.mark.parametrize(
+        "alias,target",
+        [
+            ("twig", "posthog_code"),
+            ("array", "posthog_code"),
+        ],
+    )
+    def test_aliases_resolve_to_posthog_code(self, alias: str, target: str):
+        assert resolve_product_alias(alias) == target
+
+    def test_twig_alias_returns_same_config_as_posthog_code(self):
+        assert get_product_config("twig") is get_product_config("posthog_code")
+
+    def test_array_alias_returns_same_config_as_posthog_code(self):
+        assert get_product_config("array") is get_product_config("posthog_code")
+
+    def test_twig_alias_validates_to_posthog_code(self):
+        assert validate_product("twig") == "posthog_code"
+
+    def test_array_alias_validates_to_posthog_code(self):
+        assert validate_product("array") == "posthog_code"
 
 
 class TestValidateProduct:
@@ -161,7 +194,8 @@ class TestValidateProduct:
         assert validate_product(alias) == target
 
     def test_resolve_product_alias_returns_alias_target(self):
-        assert resolve_product_alias("array") == "twig"
+        assert resolve_product_alias("array") == "posthog_code"
+        assert resolve_product_alias("twig") == "posthog_code"
 
     def test_resolve_product_alias_returns_input_if_not_aliased(self):
         assert resolve_product_alias("wizard") == "wizard"
