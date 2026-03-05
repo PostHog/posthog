@@ -306,6 +306,13 @@ impl Assigner {
         // Clean up handoffs targeting consumers that are no longer active.
         Self::cleanup_stale_handoffs(store, &active_consumers, handoff_timeout).await?;
 
+        // No consumers: delete all assignments so stale keys don't linger.
+        if active_consumers.is_empty() {
+            tracing::info!("no active consumers, clearing all assignments");
+            store.delete_all_assignments().await?;
+            return Ok(());
+        }
+
         // Skip rebalancing while handoffs are in flight to prevent
         // overlapping rebalances. watch_handoffs_loop re-triggers
         // rebalancing once all handoffs complete.
