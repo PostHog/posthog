@@ -344,6 +344,8 @@ async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
     except ApplicationError:
         raise
+    except (ConnectionError, TimeoutError, OSError):
+        raise
     except Exception as e:
         raise NonRetriableException(f"Unknown exception in wait_for_cloudflare_certificate: {e}") from e
 
@@ -530,7 +532,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 await temporalio.workflow.execute_activity(
                     wait_for_cloudflare_certificate,
                     cloudflare_inputs,
-                    schedule_to_close_timeout=dt.timedelta(minutes=15),
+                    schedule_to_close_timeout=dt.timedelta(minutes=60),
                     start_to_close_timeout=dt.timedelta(seconds=10),
                     retry_policy=temporalio.common.RetryPolicy(
                         backoff_coefficient=1.1,

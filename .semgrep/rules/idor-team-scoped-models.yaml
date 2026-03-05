@@ -66,6 +66,7 @@ rules:
                               |BatchImport
                               |ChangeRequest
                               |ClusteringConfig
+                              |ClusteringJob
                               |Cohort
                               |Comment
                               |Conversation
@@ -232,6 +233,7 @@ rules:
                         |BatchImport
                         |ChangeRequest
                         |ClusteringConfig
+                        |ClusteringJob
                         |Cohort
                         |Comment
                         |Conversation

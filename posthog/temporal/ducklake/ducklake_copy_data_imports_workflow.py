@@ -193,7 +193,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 source_schema_name=schema.name,
                 source_normalized_name=normalized_name,
                 source_table_uri=source_table_uri,
-                ducklake_schema_name="posthog_data_imports",
+                ducklake_schema_name=f"posthog_data_imports_team_{inputs.team_id}",
                 ducklake_table_name=sanitize_ducklake_identifier(
                     f"{source_type}_{schema.source.prefix}_{normalized_name}"
                     if schema.source.prefix
