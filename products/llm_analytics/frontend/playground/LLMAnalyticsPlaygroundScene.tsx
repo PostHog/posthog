@@ -108,7 +108,6 @@ export const scene: SceneExport = {
 
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
     useMountedLogic(llmPlaygroundRunLogic)
-    usePlaygroundSourceFromSearchParams()
 
     return (
         <SceneContent className="h-full">
@@ -123,36 +122,6 @@ export function LLMAnalyticsPlaygroundScene(): JSX.Element {
             </div>
         </SceneContent>
     )
-}
-
-function usePlaygroundSourceFromSearchParams(): void {
-    const { searchParams } = useValues(router)
-    const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
-    const handledSourceKey = React.useRef<string | null>(null)
-
-    const sourcePromptId = typeof searchParams.source_prompt_id === 'string' ? searchParams.source_prompt_id : null
-    const sourceEvaluationId =
-        typeof searchParams.source_evaluation_id === 'string' ? searchParams.source_evaluation_id : null
-
-    React.useEffect(() => {
-        if (!sourcePromptId && !sourceEvaluationId) {
-            handledSourceKey.current = null
-            return
-        }
-
-        const sourceKey = `${sourcePromptId ?? ''}::${sourceEvaluationId ?? ''}`
-        if (handledSourceKey.current === sourceKey) {
-            return
-        }
-
-        setupPlaygroundFromEvent({
-            sourceType: sourcePromptId ? 'prompt' : sourceEvaluationId ? 'evaluation' : undefined,
-            sourcePromptId: sourcePromptId ?? undefined,
-            sourceEvaluationId: sourceEvaluationId ?? undefined,
-        })
-
-        handledSourceKey.current = sourceKey
-    }, [setupPlaygroundFromEvent, sourceEvaluationId, sourcePromptId])
 }
 
 function PlaygroundHeaderActions(): JSX.Element {
