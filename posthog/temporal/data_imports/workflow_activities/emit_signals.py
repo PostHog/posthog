@@ -13,6 +13,7 @@ from google.genai import types
 from posthoganalytics.ai.gemini import AsyncClient, genai
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -107,9 +108,10 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
             emitter=config.emitter,
         )
         if not outputs and error_count > 0:
-            raise RuntimeError(
+            raise ApplicationError(
                 f"All {len(records)} records failed emitter for {inputs.source_type}/{inputs.schema_name} "
-                f"({error_count} errors)"
+                f"({error_count} errors)",
+                non_retryable=True,
             )
         log.info(
             f"Built {len(outputs)} signal outputs from {len(records)} records for {inputs.source_type}/{inputs.schema_name}",
