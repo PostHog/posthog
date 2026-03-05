@@ -428,6 +428,7 @@ class Display(StrEnum):
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
+    BOX_PLOT = "BoxPlot"
 
 
 class YAxisScaleType(StrEnum):
@@ -617,6 +618,20 @@ class BingAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
+class BoxPlotDatum(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: str
+    label: str
+    max: float
+    mean: float
+    median: float
+    min: float
+    p25: float
+    p75: float
+
+
 class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
@@ -702,6 +717,7 @@ class ChartDisplayType(StrEnum):
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
+    BOX_PLOT = "BoxPlot"
 
 
 class DisplayType(StrEnum):
@@ -2328,6 +2344,35 @@ class LifecycleToggle(StrEnum):
     RESURRECTING = "resurrecting"
     RETURNING = "returning"
     DORMANT = "dormant"
+
+
+class LinearIssueSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    identifier: str
+    labels: list[str]
+    number: float
+    priority: float
+    priority_label: str
+    state_name: str | None = None
+    state_type: str | None = None
+    team_name: str | None = None
+    updated_at: str
+    url: str
+
+
+class LinearIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LinearIssueSignalExtra
+    source_id: str
+    source_product: Literal["linear"] = "linear"
+    source_type: Literal["issue"] = "issue"
+    weight: float
 
 
 class LinkedinAdsDefaultSources(StrEnum):
@@ -4432,10 +4477,10 @@ class ZendeskTicketSignalExtra(BaseModel):
         extra="forbid",
     )
     created_at: str
-    priority: str
+    priority: str | None = None
     status: str
     tags: list[str]
-    type: str
+    type: str | None = None
     url: str
 
 
@@ -6669,12 +6714,20 @@ class SessionsTimelineQueryResponse(BaseModel):
 
 class SignalInput(
     RootModel[
-        SessionSegmentClusterSignalInput | LlmEvaluationSignalInput | ZendeskTicketSignalInput | GithubIssueSignalInput
+        SessionSegmentClusterSignalInput
+        | LlmEvaluationSignalInput
+        | ZendeskTicketSignalInput
+        | GithubIssueSignalInput
+        | LinearIssueSignalInput
     ]
 ):
     root: (
-        SessionSegmentClusterSignalInput | LlmEvaluationSignalInput | ZendeskTicketSignalInput | GithubIssueSignalInput
-    ) = Field(..., discriminator="source_type")
+        SessionSegmentClusterSignalInput
+        | LlmEvaluationSignalInput
+        | ZendeskTicketSignalInput
+        | GithubIssueSignalInput
+        | LinearIssueSignalInput
+    ) = Field(..., discriminator="source_product")
 
 
 class SourceFieldFileUploadConfig(BaseModel):
@@ -7071,6 +7124,9 @@ class TrendsFilter(BaseModel):
 class TrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    boxplot_data: list[BoxPlotDatum] | None = Field(
+        default=None, description="Box plot data when display type is BoxPlot"
     )
     error: str | None = Field(
         default=None,
@@ -9457,6 +9513,9 @@ class CachedTracesQueryResponse(BaseModel):
 class CachedTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    boxplot_data: list[BoxPlotDatum] | None = Field(
+        default=None, description="Box plot data when display type is BoxPlot"
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -13686,6 +13745,9 @@ class QueryResponseAlternative64(BaseModel):
 class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    boxplot_data: list[BoxPlotDatum] | None = Field(
+        default=None, description="Box plot data when display type is BoxPlot"
     )
     error: str | None = Field(
         default=None,
