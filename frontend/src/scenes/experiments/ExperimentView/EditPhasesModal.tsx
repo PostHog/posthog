@@ -474,6 +474,7 @@ export function EditPhasesModal(): JSX.Element | null {
             isOpen={isEditPhasesModalOpen}
             onClose={handleDiscardChanges}
             title="Manage phases"
+            description="Split your experiment into phases to isolate results when you make significant changes, like adjusting rollout percentage or modifying targeting."
             closable={false}
             width="50rem"
             hasUnsavedInput={hasPendingChanges || !!editing || !!addingNewPhase}
