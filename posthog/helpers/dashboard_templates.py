@@ -471,8 +471,10 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
             source["series"] = [{"kind": "ActionsNode", "id": action.pk, "name": "Pageview or screen"}]
         elif kind == "RetentionQuery":
             entity = {"id": action.pk, "type": "actions", "name": "Pageview or screen"}
-            source["retentionFilter"]["targetEntity"] = entity
-            source["retentionFilter"]["returningEntity"] = entity
+            retention_filter = source.get("retentionFilter", {})
+            retention_filter["targetEntity"] = entity
+            retention_filter["returningEntity"] = entity
+            source["retentionFilter"] = retention_filter
 
     create_from_template(dashboard, template)
 

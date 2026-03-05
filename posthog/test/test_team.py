@@ -232,6 +232,7 @@ class TestTeam(BaseTest):
             dashboard=team.primary_dashboard,
             insight__name="Growth accounting",
         )
+        assert lifecycle_tile.insight is not None
         source = lifecycle_tile.insight.query["source"]
         assert source["kind"] == "LifecycleQuery"
         assert source["series"] == [{"kind": "ActionsNode", "id": action.pk, "name": "Pageview or screen"}]
@@ -244,6 +245,7 @@ class TestTeam(BaseTest):
             dashboard=team.primary_dashboard,
             insight__name="Retention",
         )
+        assert retention_tile.insight is not None
         source = retention_tile.insight.query["source"]
         expected_entity = {"id": action.pk, "type": "actions", "name": "Pageview or screen"}
         assert source["kind"] == "RetentionQuery"
@@ -262,7 +264,9 @@ class TestTeam(BaseTest):
             dashboard=team.primary_dashboard,
             insight__name=tile_name,
         )
+        assert tile.insight is not None
         series = tile.insight.query["source"]["series"]
         assert len(series) == 1
         assert series[0]["kind"] == "GroupNode"
         assert {n["event"] for n in series[0]["nodes"]} == {"$pageview", "$screen"}
+
