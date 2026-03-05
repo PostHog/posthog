@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { LemonButton, LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
@@ -61,41 +60,25 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
     const { insightProps } = useValues(insightLogic)
 
     const logic = funnelDataWarehouseStepDefinitionPopoverLogic({
-        tableName: table.name,
+        table: item as DataWarehouseTableForInsight,
         taxonomicFilterLogicKey,
         insightProps,
     })
-    const { activeFieldKey, dataWarehousePopoverFields, localDefinition, querySource } = useValues(logic)
+    const {
+        activeFieldKey,
+        activeField,
+        activeFieldValue,
+        activeFieldOptions,
+        dataWarehousePopoverFields,
+        localDefinition,
+        isAggregatingByGroup,
+        isAggregatingByHogQL,
+    } = useValues(logic)
     const { setActiveFieldKey, selectItem, setLocalDefinition } = useActions(logic)
 
     const dataWarehouseLocalDefinition = localDefinition as Partial<DataWarehouseTableForInsight>
 
-    const activeField = dataWarehousePopoverFields.find((f) => f.key === activeFieldKey)
-    const activeFieldValue = dataWarehouseLocalDefinition[activeFieldKey]
-
-    const columnOptions = useMemo(
-        () =>
-            Object.values(table.fields).map((column) => ({
-                label: `${column.name} (${column.type})`,
-                value: column.name,
-                type: column.type,
-            })),
-        [table.fields]
-    )
-    const activeFieldOptions = useMemo(() => {
-        return [
-            ...columnOptions.filter((column) => !activeField.type || column.type === activeField.type),
-            ...(activeField.allowHogQL ? [{ label: 'SQL Expression', value: '' }] : []),
-        ]
-    }, [activeField, columnOptions])
-
     const activeFieldIsHogQL = isUsingHogQLExpression(activeFieldValue, table)
-
-    const isGroupAggregationTarget =
-        querySource?.aggregation_group_type_index !== undefined && querySource?.aggregation_group_type_index !== null
-    const isCustomAggregationTarget =
-        Boolean(querySource?.funnelsFilter?.funnelAggregateByHogQL) && !isGroupAggregationTarget
-    const aggregationTargetIdLabel = isGroupAggregationTarget ? 'group ID' : 'person ID'
 
     return (
         <div className="flex flex-col">
@@ -113,11 +96,11 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                 onChange={(value) => setActiveFieldKey(value as FunnelFieldKey)}
                 options={EDITABLE_FIELD_ORDER.map((key) => ({
                     value: key,
-                    label: dataWarehousePopoverFields.find((f) => f.key === key).label,
+                    label: dataWarehousePopoverFields.find((f) => f.key === key)?.label ?? key,
                 }))}
             />
 
-            <span className="label-text font-semibold mt-3 mb-1">{activeField.label}</span>
+            <span className="label-text font-semibold mt-3 mb-1">{activeField?.label}</span>
             <div className="text-secondary text-xs mb-3">{EDITABLE_FIELD_MAP[activeFieldKey].shortExplanation}</div>
 
             <LemonSelect
@@ -131,7 +114,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                 }
             />
 
-            {activeField.allowHogQL && activeFieldIsHogQL && (
+            {activeField?.allowHogQL && activeFieldIsHogQL && (
                 <HogQLDropdown
                     className="mt-2"
                     hogQLValue={activeFieldValue || ''}
@@ -146,7 +129,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
 
             {activeFieldKey === 'distinct_id_field' && (
                 <div className="text-secondary text-xs mt-2">
-                    {isCustomAggregationTarget ? (
+                    {isAggregatingByHogQL ? (
                         <span>
                             Current aggregation target is custom. The selected field needs to match the custom
                             aggregation value.
@@ -154,9 +137,9 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                     ) : (
                         <>
                             <div>
-                                Current aggregation target is set to{' '}
-                                <b>{isGroupAggregationTarget ? 'group' : 'person'}</b>, so the selected field needs to
-                                match the <b>{aggregationTargetIdLabel}</b>.
+                                Current aggregation target is set to <b>{isAggregatingByGroup ? 'group' : 'person'}</b>,
+                                so the selected field needs to match the{' '}
+                                <b>{isAggregatingByGroup ? 'group ID' : 'person ID'}</b>.
                             </div>
                             <div className="mt-1">
                                 If this field is not directly available on the table, add it by joining in{' '}
