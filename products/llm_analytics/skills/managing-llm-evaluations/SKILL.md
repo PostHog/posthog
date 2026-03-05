@@ -88,9 +88,9 @@ Quick pass rate check:
 
 ```sql
 SELECT
-    countIf(properties.$ai_evaluation_result = true) as pass_count,
-    countIf(properties.$ai_evaluation_result = false) as fail_count,
-    round(pass_count / (pass_count + fail_count) * 100, 1) as pass_rate
+    countIf(properties.$ai_evaluation_result = true AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as pass_count,
+    countIf(properties.$ai_evaluation_result = false AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as fail_count,
+    round(if(pass_count + fail_count = 0, null, pass_count / (pass_count + fail_count) * 100), 1) as pass_rate
 FROM events
 WHERE event = '$ai_evaluation'
     AND properties.$ai_evaluation_id = '<evaluation_uuid>'
@@ -111,6 +111,7 @@ FROM events
 WHERE event = '$ai_evaluation'
     AND properties.$ai_evaluation_id = '<evaluation_uuid>'
     AND properties.$ai_evaluation_result = false
+    AND timestamp > now() - interval 7 day
 ORDER BY timestamp DESC
 LIMIT 20
 ```

@@ -6,14 +6,14 @@ Use `print()` to add reasoning — printed output is captured as the evaluation 
 
 ## Available globals
 
-| Global              | Type          | Description                                        |
-| ------------------- | ------------- | -------------------------------------------------- |
-| `input`             | string/object | LLM input (prompt or messages array)               |
-| `output`            | string/object | LLM output (response or choices)                   |
-| `properties`        | object        | All event properties (access any `$ai_*` property) |
-| `event.uuid`        | string        | Event UUID                                         |
-| `event.event`       | string        | Event name                                         |
-| `event.distinct_id` | string        | Distinct ID                                        |
+| Global              | Type   | Description                                                                             |
+| ------------------- | ------ | --------------------------------------------------------------------------------------- |
+| `input`             | string | LLM input — always a string (objects are JSON-serialized; use `jsonParse()` if needed)  |
+| `output`            | string | LLM output — always a string (objects are JSON-serialized; use `jsonParse()` if needed) |
+| `properties`        | object | All event properties (access any `$ai_*` property)                                      |
+| `event.uuid`        | string | Event UUID                                                                              |
+| `event.event`       | string | Event name                                                                              |
+| `event.distinct_id` | string | Distinct ID                                                                             |
 
 ## Important Hog syntax notes
 

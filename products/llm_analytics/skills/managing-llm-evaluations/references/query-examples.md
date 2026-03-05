@@ -10,7 +10,7 @@ SELECT
     countIf(properties.$ai_evaluation_result = true AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as pass_count,
     countIf(properties.$ai_evaluation_result = false AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as fail_count,
     countIf(properties.$ai_evaluation_applicable = false) as na_count,
-    round(pass_count / (pass_count + fail_count) * 100, 1) as pass_rate
+    round(if(pass_count + fail_count = 0, null, pass_count / (pass_count + fail_count) * 100), 1) as pass_rate
 FROM events
 WHERE event = '$ai_evaluation'
     AND properties.$ai_evaluation_id = '<evaluation_uuid>'
@@ -24,7 +24,7 @@ SELECT
     g.properties.$ai_model as model,
     countIf(e.properties.$ai_evaluation_result = true) as pass_count,
     countIf(e.properties.$ai_evaluation_result = false) as fail_count,
-    round(pass_count / (pass_count + fail_count) * 100, 1) as pass_rate
+    round(if(pass_count + fail_count = 0, null, pass_count / (pass_count + fail_count) * 100), 1) as pass_rate
 FROM events e
 JOIN events g ON g.uuid = e.properties.$ai_target_event_id
 WHERE e.event = '$ai_evaluation'
@@ -42,7 +42,7 @@ SELECT
     toDate(timestamp) as day,
     countIf(properties.$ai_evaluation_result = true) as pass_count,
     countIf(properties.$ai_evaluation_result = false) as fail_count,
-    round(pass_count / (pass_count + fail_count) * 100, 1) as pass_rate
+    round(if(pass_count + fail_count = 0, null, pass_count / (pass_count + fail_count) * 100), 1) as pass_rate
 FROM events
 WHERE event = '$ai_evaluation'
     AND properties.$ai_evaluation_id = '<evaluation_uuid>'
@@ -91,7 +91,7 @@ SELECT
     count() as total_runs,
     countIf(properties.$ai_evaluation_result = true) as pass_count,
     countIf(properties.$ai_evaluation_result = false) as fail_count,
-    round(pass_count / (pass_count + fail_count) * 100, 1) as pass_rate
+    round(if(pass_count + fail_count = 0, null, pass_count / (pass_count + fail_count) * 100), 1) as pass_rate
 FROM events
 WHERE event = '$ai_evaluation'
     AND timestamp > now() - interval 7 day
