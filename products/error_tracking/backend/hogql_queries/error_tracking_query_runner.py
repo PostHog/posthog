@@ -138,7 +138,24 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                         expr=ast.Call(
                             name="count",
                             distinct=True,
-                            args=[ast.Field(chain=["person_id"])],
+                            args=[
+                                ast.Call(
+                                    name="coalesce",
+                                    args=[
+                                        ast.Call(
+                                            name="nullIf",
+                                            args=[
+                                                ast.Call(
+                                                    name="toString",
+                                                    args=[ast.Field(chain=["person_id"])],
+                                                ),
+                                                ast.Constant(value="00000000-0000-0000-0000-000000000000"),
+                                            ],
+                                        ),
+                                        ast.Field(chain=["distinct_id"]),
+                                    ],
+                                )
+                            ],
                         ),
                     ),
                     ast.Alias(
