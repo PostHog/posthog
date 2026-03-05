@@ -1,9 +1,7 @@
 import { Counter } from 'prom-client'
 
-import { PluginsServerConfig } from '../../types'
 import { shadowFetchContext } from '../services/hog-executor.service'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
-import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 const shadowInvocationsProcessed = new Counter({
@@ -22,16 +20,6 @@ const shadowInvocationsProcessed = new Counter({
  */
 export class CdpCyclotronShadowWorker extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronShadowWorker'
-
-    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
-        const shadowConfig: PluginsServerConfig = {
-            ...config,
-            CYCLOTRON_DATABASE_URL: config.CYCLOTRON_SHADOW_DATABASE_URL,
-            CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'shadow',
-            CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:postgres',
-        }
-        super(shadowConfig, deps)
-    }
 
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         return shadowFetchContext.run(true, () => super.processInvocations(invocations))

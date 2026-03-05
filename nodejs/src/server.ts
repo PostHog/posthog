@@ -47,7 +47,7 @@ import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
 import { PostgresRouter } from './utils/db/postgres'
 import { createRedisPoolFromConfig } from './utils/db/redis'
-import { isTestEnv } from './utils/env-utils'
+import { isDevEnv, isTestEnv } from './utils/env-utils'
 import { GeoIPService } from './utils/geoip'
 import { logger } from './utils/logger'
 import { NodeInstrumentation } from './utils/node-instrumentation'
@@ -365,35 +365,39 @@ export class PluginServer {
             }
 
             if (capabilities.cdpCyclotronShadowWorker) {
-                // Only start the shadow worker if CYCLOTRON_SHADOW_DATABASE_URL is explicitly configured
-                // (not just using the default value). This prevents crashes in hobby/dev deployments
-                // that don't have the shadow database set up.
-                if (process.env.CYCLOTRON_SHADOW_DATABASE_URL) {
-                    serviceLoaders.push(async () => {
-                        const worker = new CdpCyclotronShadowWorker(this.config, cdpDeps!)
-                        await worker.start()
-                        return worker.service
-                    })
-                } else {
-                    logger.info(
-                        '⏭️',
-                        'Skipping CdpCyclotronShadowWorker - CYCLOTRON_SHADOW_DATABASE_URL not configured'
-                    )
+                // Shadow worker is purely for testing so we only enable if in dev or test mode with an explicit env
+                // if not dev mode then we fully trust env vars instead
+
+                const config = { ...this.config }
+                if (isDevEnv()) {
+                    // On cloud we use the standard values but locally we likely want to test both the shadow and main in parallel
+                    // so we map it here manually
+                    config.CYCLOTRON_DATABASE_URL = config.CYCLOTRON_SHADOW_DATABASE_URL!
+                    // We also want to force the job queue to _only_ write to postgres so we don't mix up the data2
+                    // We allow remotely this to be overridden for postgres-v2
+                    config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:postgres'
                 }
+
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronShadowWorker(config, cdpDeps!)
+                    await worker.start()
+                    return worker.service
+                })
             }
 
             if (capabilities.cdpCyclotronV2Janitor) {
-                if (this.config.CYCLOTRON_NODE_DATABASE_URL) {
-                    serviceLoaders.push(async () => {
-                        const janitor = new CyclotronV2JanitorService({
-                            pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
-                        })
-                        await janitor.start()
-                        return janitor.service
-                    })
-                } else {
-                    logger.info('⏭️', 'Skipping CyclotronV2JanitorService - CYCLOTRON_NODE_DATABASE_URL not configured')
+                if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
+                    throw new Error(
+                        'CYCLOTRON_NODE_DATABASE_URL not configured but required for CyclotronV2JanitorService'
+                    )
                 }
+                serviceLoaders.push(async () => {
+                    const janitor = new CyclotronV2JanitorService({
+                        pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL! },
+                    })
+                    await janitor.start()
+                    return janitor.service
+                })
             }
 
             if (capabilities.cdpCyclotronWorkerHogFlow) {

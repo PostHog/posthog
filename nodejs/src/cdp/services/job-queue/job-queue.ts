@@ -161,9 +161,9 @@ export class CyclotronJobQueue {
         // The consumer always needs the producers as well
         await this.startAsProducer()
 
-        if (this.consumerMode === 'postgres' || this.consumerMode === 'shadow') {
+        if (this.consumerMode === 'postgres') {
             await this.jobQueuePostgres.startAsConsumer(queue, (invocations) =>
-                this.consumeBatch(invocations, this.consumerMode === 'shadow' ? 'shadow' : 'postgres')
+                this.consumeBatch(invocations, 'postgres')
             )
         } else if (this.consumerMode === 'postgres-v2') {
             if (!this.jobQueuePostgresV2) {

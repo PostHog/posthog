@@ -256,11 +256,15 @@ export function getDefaultConfig(): PluginsServerConfig {
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
         CYCLOTRON_SHADOW_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
-            : 'postgres://posthog:posthog@localhost:5432/cyclotron_shadow',
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5432/cyclotron_shadow'
+              : undefined,
         CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: false,
         CYCLOTRON_NODE_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
-            : 'postgres://posthog:posthog@localhost:5432/cyclotron_node',
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5432/cyclotron_node'
+              : undefined,
         CDP_CYCLOTRON_TEST_SEEK_LATENCY: false,
         CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 50_000_000,
         CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 500,
