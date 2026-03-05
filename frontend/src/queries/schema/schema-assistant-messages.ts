@@ -3,6 +3,7 @@ import type { MaxUIContext } from 'scenes/max/maxTypes'
 
 import type { Category, InsightShortId, NotebookInfo } from '~/types'
 
+// eslint-disable-next-line import/no-cycle
 import { DocumentBlock } from './schema-assistant-artifacts'
 import type {
     AssistantFunnelsQuery,
@@ -503,7 +504,6 @@ export enum AssistantNavigateUrl {
     Settings = 'settings',
     SqlEditor = 'sqlEditor',
     Surveys = 'surveys',
-    SurveyTemplates = 'surveyTemplates',
     ToolbarLaunch = 'toolbarLaunch',
     WebAnalytics = 'webAnalytics',
     WebAnalyticsWebVitals = 'webAnalyticsWebVitals',

@@ -1,4 +1,5 @@
 import * as PartialJSON from 'partial-json'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -503,6 +504,99 @@ export function isGeminiAudioMessage(input: unknown): input is GeminiAudioMessag
     )
 }
 
+interface OTelPart {
+    type: string
+    [key: string]: unknown
+}
+
+interface OTelPartsMessage {
+    role: string
+    parts: OTelPart[]
+    [key: string]: unknown
+}
+
+export function isOTelPartsMessage(input: unknown): input is OTelPartsMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'role' in input &&
+        typeof input.role === 'string' &&
+        'parts' in input &&
+        Array.isArray(input.parts)
+    )
+}
+
+function parseOTelToolCallArguments(args: unknown): Record<string, unknown> | string {
+    if (typeof args === 'string') {
+        try {
+            return JSON.parse(args)
+        } catch {
+            return args
+        }
+    }
+    return (args ?? {}) as Record<string, unknown>
+}
+
+function normalizeOTelPartsMessage(message: OTelPartsMessage, role: string): CompatMessage[] {
+    const { role: _role, parts, ...rest } = message
+
+    const textParts: string[] = []
+    const toolCalls: CompatToolCall[] = []
+    const toolResponses: CompatMessage[] = []
+
+    for (const part of parts) {
+        if (part.type === 'text' && typeof part.content === 'string') {
+            textParts.push(part.content)
+        } else if (part.type === 'tool_call' && typeof part.name === 'string') {
+            toolCalls.push({
+                type: 'function',
+                id: typeof part.id === 'string' ? part.id : undefined,
+                function: {
+                    name: part.name,
+                    arguments: parseOTelToolCallArguments(part.arguments),
+                },
+            })
+        } else if (part.type === 'tool_call_response') {
+            let resultContent: string
+            if (typeof part.result === 'string') {
+                resultContent = part.result
+            } else {
+                try {
+                    resultContent = JSON.stringify(part.result)
+                } catch {
+                    resultContent = String(part.result)
+                }
+            }
+            toolResponses.push({
+                role: 'tool',
+                content: resultContent,
+                tool_call_id: typeof part.id === 'string' ? part.id : undefined,
+            })
+        }
+    }
+
+    if (textParts.length === 0 && toolCalls.length === 0 && toolResponses.length > 0) {
+        return toolResponses
+    }
+
+    const content: CompatMessage['content'] =
+        textParts.length === 1
+            ? textParts[0]
+            : textParts.length > 1
+              ? textParts.map((text) => ({ type: 'text' as const, text }))
+              : ''
+
+    return [
+        {
+            ...rest,
+            role,
+            content,
+            ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+        },
+        ...toolResponses,
+    ]
+}
+
 export function isLiteLLMChoice(input: unknown): input is LiteLLMChoice {
     return (
         !!input &&
@@ -744,8 +838,17 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
             },
         ]
     }
+    // OTel parts format (from OpenTelemetry AI semantic conventions)
+    if (isOTelPartsMessage(rawMessage)) {
+        return normalizeOTelPartsMessage(rawMessage, roleToUse)
+    }
+
     // Unsupported message.
     console.warn("AI message isn't in a shape of any known AI provider", rawMessage)
+    posthog.capture('llma message normalization failed', {
+        message_keys: typeof rawMessage === 'object' && rawMessage !== null ? Object.keys(rawMessage) : [],
+        message_type: typeof rawMessage,
+    })
     let cajoledContent: string // Let's do what we can
     if (typeof rawMessage === 'string') {
         cajoledContent = rawMessage

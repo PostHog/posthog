@@ -777,11 +777,13 @@ export function SavedInsights(): JSX.Element {
                 )
             },
             align: 'right',
+            defaultSortOrder: -1,
             sorter: (a, b) => dayjs(a.created_at || 0).diff(b.created_at || 0),
         },
         {
             title: 'Last modified',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_modified_at',
             render: function renderLastModified(last_modified_at: string) {
                 return (
@@ -792,6 +794,7 @@ export function SavedInsights(): JSX.Element {
         {
             title: 'Last viewed',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_viewed_at',
             render: function renderLastViewed(last_viewed_at: string | null) {
                 return (

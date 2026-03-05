@@ -29,6 +29,8 @@ jobs:
                   filters: |
                       proto:
                         - 'proto/**'
+                        - 'posthog/personhog_client/proto/generated/**'
+                        - 'bin/generate_personhog_proto.sh'
                         - '.github/workflows/ci-proto.yml'
 
     lint:
@@ -69,8 +71,39 @@ jobs:
             - name: Check for breaking changes
               run: buf breaking proto/ --against 'https://github.com/PostHog/posthog.git#branch=master,subdir=proto'
 
+    python-codegen:
+        name: Check Python proto stubs are up to date
+        needs: changes
+        if: needs.changes.outputs.proto == 'true'
+        runs-on: depot-ubuntu-22.04-4
+
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  clean: false
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: '3.12'
+
+            - name: Install codegen tools
+              run: pip install grpcio-tools protoletariat ruff
+
+            - name: Regenerate Python proto stubs
+              run: bash bin/generate_personhog_proto.sh
+
+            - name: Check for diff
+              run: |
+                  if ! git diff --exit-code posthog/personhog_client/proto/generated/; then
+                    echo ""
+                    echo "ERROR: Generated Python proto stubs are out of date."
+                    echo "Run 'bash bin/generate_personhog_proto.sh' and commit the result."
+                    exit 1
+                  fi
+                  echo "Generated Python proto stubs are up to date."
+
     proto_checks:
-        needs: [changes, lint, breaking]
+        needs: [changes, lint, breaking, python-codegen]
         name: Proto Checks Pass
         runs-on: ubuntu-latest
         if: always()
@@ -94,6 +127,11 @@ jobs:
 
                   if [[ "${{ needs.breaking.result }}" != "success" && "${{ needs.breaking.result }}" != "skipped" ]]; then
                     echo "Proto breaking change check failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.python-codegen.result }}" != "success" && "${{ needs.python-codegen.result }}" != "skipped" ]]; then
+                    echo "Python proto codegen staleness check failed."
                     exit 1
                   fi
 

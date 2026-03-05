@@ -1714,6 +1714,7 @@ export const AggregationAxisFormatApi = {
     Percentage: 'percentage',
     PercentageScaled: 'percentage_scaled',
     Currency: 'currency',
+    Short: 'short',
 } as const
 
 export type DetailedResultsAggregationTypeApi =
@@ -1874,6 +1875,8 @@ export interface TrendsFilterApi {
     goalLines?: GoalLineApi[] | null
     /** @nullable */
     hiddenLegendIndexes?: number[] | null
+    /** @nullable */
+    hideWeekends?: boolean | null
     /** @nullable */
     minDecimalPlaces?: number | null
     /** @nullable */

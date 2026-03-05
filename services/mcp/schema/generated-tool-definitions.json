@@ -133,5 +133,35 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "workflows-list": {
+        "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
+        "category": "Workflows",
+        "feature": "hog_flows",
+        "summary": "List workflows",
+        "title": "List workflows",
+        "required_scopes": ["hog_flow:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-get": {
+        "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, and variables.",
+        "category": "Workflows",
+        "feature": "hog_flows",
+        "summary": "Get workflow",
+        "title": "Get workflow",
+        "required_scopes": ["hog_flow:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     }
 }

@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconArrowLeft, IconEye, IconPlus, IconShield, IconTarget, IconThumbsUp, IconWarning } from '@posthog/icons'
+import { IconArrowLeft, IconCode, IconEye, IconPlus, IconTarget, IconThumbsUp, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { JudgeHog } from 'lib/components/hedgehogs'
@@ -26,12 +26,12 @@ function getTemplateIcon(icon: EvaluationTemplate['icon']): JSX.Element {
             return <IconTarget className={iconClass} />
         case 'thumbs-up':
             return <IconThumbsUp className={iconClass} />
-        case 'shield':
-            return <IconShield className={iconClass} />
         case 'eye':
             return <IconEye className={iconClass} />
         case 'alert-triangle':
             return <IconWarning className={iconClass} />
+        case 'code':
+            return <IconCode className={iconClass} />
         default: {
             const exhaustiveCheck: never = icon
             return exhaustiveCheck
@@ -72,8 +72,8 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
                             {isBlank ? 'Create from scratch' : template.name}
                         </h3>
                         {!isBlank && (
-                            <LemonTag type="default" size="small">
-                                Template
+                            <LemonTag type={template.evaluation_type === 'hog' ? 'option' : 'caution'} size="small">
+                                {template.evaluation_type === 'hog' ? 'Hog' : 'LLM judge'}
                             </LemonTag>
                         )}
                     </div>

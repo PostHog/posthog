@@ -541,6 +541,24 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                 </>
                                                             )
                                                         })()}
+                                                        {releaseFilters.aggregation_group_type_index == null && (
+                                                            <Tooltip
+                                                                title={
+                                                                    <>
+                                                                        A user may have{' '}
+                                                                        <Link
+                                                                            to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
+                                                                            target="_blank"
+                                                                        >
+                                                                            multiple profiles
+                                                                        </Link>
+                                                                    </>
+                                                                }
+                                                                interactive
+                                                            >
+                                                                <IconInfo className="text-muted text-xs ml-0.5" />
+                                                            </Tooltip>
+                                                        )}
                                                     </div>
                                                 ) : (
                                                     <div className="text-xs text-muted mt-2 flex items-center gap-1">

@@ -817,6 +817,21 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ast.SelectQuery(select=[ast.Constant(value=1)]),
             )
             self.assertEqual(
+                self._select("select total: 1 + 2"),
+                ast.SelectQuery(
+                    select=[
+                        ast.Alias(
+                            alias="total",
+                            expr=ast.ArithmeticOperation(
+                                op=ast.ArithmeticOperationOp.Add,
+                                left=ast.Constant(value=1),
+                                right=ast.Constant(value=2),
+                            ),
+                        )
+                    ]
+                ),
+            )
+            self.assertEqual(
                 self._select("select 1, 4, 'string'"),
                 ast.SelectQuery(
                     select=[
@@ -1500,6 +1515,34 @@ def parser_test_factory(backend: HogQLParserBackend):
                         for query in (
                             ast.SelectQuery(select=[ast.Constant(value=2)]),
                             ast.SelectQuery(select=[ast.Constant(value=3)]),
+                        )
+                    ],
+                ),
+            )
+
+        def test_select_intersect_all(self):
+            self.assertEqual(
+                self._select("select 1 intersect all select 2"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            set_operator="INTERSECT ALL",
+                            select_query=ast.SelectQuery(select=[ast.Constant(value=2)]),
+                        )
+                    ],
+                ),
+            )
+
+        def test_select_except_all(self):
+            self.assertEqual(
+                self._select("select 1 except all select 2"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            set_operator="EXCEPT ALL",
+                            select_query=ast.SelectQuery(select=[ast.Constant(value=2)]),
                         )
                     ],
                 ),

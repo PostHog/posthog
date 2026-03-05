@@ -103,6 +103,7 @@ export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof Integr
 
 export const IntegrationKindApi = {
     Slack: 'slack',
+    SlackTwig: 'slack-twig',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',

@@ -48,6 +48,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "can_create_org": False,
             "email_service_available": False,
             "slack_service": {"available": False, "client_id": None},
+            "twig_slack_service": {"available": False, "client_id": None},
             "object_storage": False,
             "public_egress_ip_addresses": [],
             **options,
@@ -79,7 +80,12 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         """
         self.client.logout()
         with self.is_cloud(False):
-            with self.settings(OBJECT_STORAGE_ENABLED=False):
+            with self.settings(
+                OBJECT_STORAGE_ENABLED=False,
+                SLACK_TWIG_CLIENT_ID="",
+                SLACK_TWIG_CLIENT_SECRET="",
+                SLACK_TWIG_SIGNING_SECRET="",
+            ):
                 response = self.client.get("/_preflight/")
 
         assert response.status_code == status.HTTP_200_OK
@@ -90,6 +96,9 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             with self.settings(
                 INSTANCE_PREFERENCES=self.instance_preferences(debug_queries=True),
                 OBJECT_STORAGE_ENABLED=False,
+                SLACK_TWIG_CLIENT_ID="",
+                SLACK_TWIG_CLIENT_SECRET="",
+                SLACK_TWIG_SIGNING_SECRET="",
             ):
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
@@ -107,6 +116,9 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             with self.settings(
                 INSTANCE_PREFERENCES=self.instance_preferences(debug_queries=True),
                 OBJECT_STORAGE_ENABLED=True,
+                SLACK_TWIG_CLIENT_ID="",
+                SLACK_TWIG_CLIENT_SECRET="",
+                SLACK_TWIG_SIGNING_SECRET="",
             ):
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
@@ -124,7 +136,12 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         self.client.logout()  # make sure it works anonymously
 
         with self.is_cloud(True):
-            with self.settings(OBJECT_STORAGE_ENABLED=False):
+            with self.settings(
+                OBJECT_STORAGE_ENABLED=False,
+                SLACK_TWIG_CLIENT_ID="",
+                SLACK_TWIG_CLIENT_SECRET="",
+                SLACK_TWIG_SIGNING_SECRET="",
+            ):
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
 
@@ -146,7 +163,13 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     @pytest.mark.ee
     def test_cloud_preflight_request(self):
         with self.is_cloud(True):
-            with self.settings(SITE_URL="https://app.posthog.com", OBJECT_STORAGE_ENABLED=False):
+            with self.settings(
+                SITE_URL="https://app.posthog.com",
+                OBJECT_STORAGE_ENABLED=False,
+                SLACK_TWIG_CLIENT_ID="",
+                SLACK_TWIG_CLIENT_SECRET="",
+                SLACK_TWIG_SIGNING_SECRET="",
+            ):
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
                 response = response.json()
@@ -189,6 +212,9 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
                 INSTANCE_PREFERENCES=self.instance_preferences(disable_paid_fs=True),
                 OBJECT_STORAGE_ENABLED=False,
+                SLACK_TWIG_CLIENT_ID="",
+                SLACK_TWIG_CLIENT_SECRET="",
+                SLACK_TWIG_SIGNING_SECRET="",
             ):
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
@@ -221,7 +247,13 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     def test_demo(self):
         self.client.logout()  # make sure it works anonymously
 
-        with self.settings(DEMO=True, OBJECT_STORAGE_ENABLED=False):
+        with self.settings(
+            DEMO=True,
+            OBJECT_STORAGE_ENABLED=False,
+            SLACK_TWIG_CLIENT_ID="",
+            SLACK_TWIG_CLIENT_SECRET="",
+            SLACK_TWIG_SIGNING_SECRET="",
+        ):
             response = self.client.get("/_preflight/")
 
         assert response.status_code == status.HTTP_200_OK
