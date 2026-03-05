@@ -351,6 +351,70 @@ describe('HogFunctionHandler', () => {
         expect(billableMetrics).toHaveLength(0)
     })
 
+    it('should include encrypted_inputs from hogflow in the executed function', async () => {
+        const secretTemplate = await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-test-secret-dest',
+            name: 'Secret Destination',
+            code: `fetch('http://localhost/test', { 'method': 'POST', 'headers': { 'Authorization': inputs.api_key }, 'body': inputs.url })`,
+            inputs_schema: [
+                { key: 'url', type: 'string', required: true },
+                { key: 'api_key', type: 'string', required: true, secret: true },
+            ],
+        })
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withWorkflow({
+                actions: {
+                    function: {
+                        type: 'function',
+                        config: {
+                            template_id: secretTemplate.template_id,
+                            inputs: {
+                                url: { value: 'https://example.com/webhook' },
+                            },
+                        },
+                    },
+                    exit: {
+                        type: 'exit',
+                        config: {},
+                    },
+                },
+                edges: [{ from: 'function', to: 'exit', type: 'continue' }],
+            })
+            .build()
+
+        hogFlow.encrypted_inputs = {
+            function: { api_key: { value: 'sk-secret-key-123' } },
+        }
+
+        const secretAction = findActionByType(hogFlow, 'function')!
+        const secretInvocation = createExampleHogFlowInvocation(hogFlow)
+        secretInvocation.state.currentAction = {
+            id: secretAction.id,
+            startedAtTimestamp: DateTime.utc().toMillis(),
+        }
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(secretInvocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({
+            invocation: secretInvocation,
+            action: secretAction,
+            result: invocationResult,
+        })
+
+        expect(mockFetch).toHaveBeenCalledTimes(1)
+        const [url, fetchOptions] = mockFetch.mock.calls[0]
+        expect(url).toBe('http://localhost/test')
+        expect(fetchOptions.headers).toMatchObject({
+            Authorization: 'sk-secret-key-123',
+        })
+        expect(fetchOptions.body).toContain('https://example.com/webhook')
+    })
+
     it('should not emit a billable_invocation metric when recipient opts out', async () => {
         ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(true)
 

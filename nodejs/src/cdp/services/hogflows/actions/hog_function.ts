@@ -75,7 +75,11 @@ export class HogFunctionHandler implements ActionHandler {
         action: Action,
         hogExecutorOptions?: HogExecutorExecuteAsyncOptions
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & { skipped?: boolean }> {
-        const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config)
+        const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(
+            invocation.hogFlow,
+            action.config,
+            action.id
+        )
         const hogFunctionInvocation = await this.hogFlowFunctionsService.buildHogFunctionInvocation(
             invocation,
             hogFunction,

@@ -116,12 +116,18 @@ class HogFlowActionSerializer(serializers.Serializer):
                 input_schema = template.inputs_schema
                 inputs = data.get("config", {}).get("inputs", {})
 
+                # Look up encrypted inputs for this specific action so the
+                # InputsSerializer can validate secret fields without their
+                # plaintext values being present in the draft data.
+                all_encrypted = self.context.get("encrypted_inputs") or {}
+                action_encrypted = all_encrypted.get(data.get("id", "")) or None
+
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
                         "inputs_schema": input_schema,
                         "inputs": inputs,
                     },
-                    context={"function_type": template.type},
+                    context={"function_type": template.type, "encrypted_inputs": action_encrypted},
                 )
 
                 if is_draft:
@@ -219,6 +225,73 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "draft_updated_at",
         ]
         read_only_fields = fields
+
+    def _mask_secret_inputs_in_actions(self, actions: list, encrypted_inputs: dict) -> list:
+        """Replace secret input values with {"secret": True} markers in action configs."""
+        trigger_type = None
+        for act in actions:
+            if act.get("type") == "trigger":
+                trigger_type = act.get("config", {}).get("type")
+                break
+
+        for act in actions:
+            action_type = act.get("type", "")
+            config = act.get("config", {})
+            action_id = act.get("id", "")
+
+            is_function_action = action_type in HogFlow.FUNCTION_ACTION_TYPES
+            is_function_trigger = action_type == "trigger" and trigger_type in (
+                "webhook",
+                "manual",
+                "tracking_pixel",
+                "schedule",
+            )
+
+            if not (is_function_action or is_function_trigger):
+                continue
+
+            template_id = config.get("template_id", "")
+            if not template_id:
+                continue
+
+            template = HogFunctionTemplate.get_template(template_id)
+            if not template or not template.inputs_schema:
+                continue
+
+            inputs = config.get("inputs", {}) or {}
+            action_encrypted = encrypted_inputs.get(action_id, {}) or {}
+
+            for schema in template.inputs_schema:
+                if not schema.get("secret"):
+                    continue
+                key = schema.get("key", "")
+                has_value = action_encrypted.get(key) or inputs.get(key)
+                if has_value:
+                    inputs[key] = {"secret": True}
+
+            config["inputs"] = inputs
+        return actions
+
+    def to_representation(self, instance):
+        is_model = isinstance(instance, HogFlow)
+        encrypted_inputs = instance.encrypted_inputs or {} if is_model else {}
+        draft_encrypted_inputs = instance.draft_encrypted_inputs or {} if is_model else {}
+        data = super().to_representation(instance)
+
+        if encrypted_inputs:
+            actions = data.get("actions") or []
+            if actions:
+                data["actions"] = self._mask_secret_inputs_in_actions(actions, encrypted_inputs)
+
+        # Draft actions use draft_encrypted_inputs (falling back to encrypted_inputs for unchanged actions)
+        draft = data.get("draft") or {}
+        draft_actions = draft.get("actions") if isinstance(draft, dict) else None
+        if draft_actions:
+            merged_for_draft = {**encrypted_inputs, **draft_encrypted_inputs}
+            if merged_for_draft:
+                draft["actions"] = self._mask_secret_inputs_in_actions(draft_actions, merged_for_draft)
+
+        return data
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
@@ -556,8 +629,27 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         existing_draft = hog_flow.draft or {}
         merged_draft = {**existing_draft, **serializer.validated_data}
 
+        update_kwargs: dict = {"draft": merged_draft, "draft_updated_at": now}
+        draft_actions = merged_draft.get("actions")
+        if draft_actions and isinstance(draft_actions, list):
+            trigger_actions = [a for a in draft_actions if a.get("type") == "trigger"]
+            draft_trigger = trigger_actions[0]["config"] if trigger_actions else hog_flow.trigger or {}
+
+            # Extract secrets into draft_encrypted_inputs, isolated from live encrypted_inputs.
+            # For secret markers, fall back to draft_encrypted_inputs first, then encrypted_inputs.
+            existing_draft_encrypted = {
+                **(hog_flow.encrypted_inputs or {}),
+                **(hog_flow.draft_encrypted_inputs or {}),
+            }
+            draft_actions, new_draft_encrypted = HogFlow.extract_secret_inputs(
+                draft_actions, draft_trigger, existing_draft_encrypted
+            )
+            merged_draft["actions"] = draft_actions
+            update_kwargs["draft"] = merged_draft
+            update_kwargs["draft_encrypted_inputs"] = new_draft_encrypted
+
         # Bypass post_save signal so draft edits don't affect live workers
-        HogFlow.objects.filter(pk=hog_flow.pk).update(draft=merged_draft, draft_updated_at=now)
+        HogFlow.objects.filter(pk=hog_flow.pk).update(**update_kwargs)
 
         hog_flow.refresh_from_db()
         return Response(HogFlowSerializer(hog_flow, context=self.get_serializer_context()).data)
@@ -569,23 +661,30 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         if not hog_flow.draft:
             raise exceptions.ValidationError("No draft to publish.")
 
+        # Merge draft_encrypted_inputs into encrypted_inputs before publishing.
+        # The draft secrets become the live secrets for actions that were edited.
+        if hog_flow.draft_encrypted_inputs:
+            merged = {**(hog_flow.encrypted_inputs or {}), **hog_flow.draft_encrypted_inputs}
+            hog_flow.encrypted_inputs = merged if merged else None
+
         # Apply draft data through the full serializer with strict (active) validation
         update_data = {**hog_flow.draft}
         # Remove draft-only fields that don't belong on the workflow model
         update_data.pop("deleted_action_ids", None)
         update_data["status"] = "active"
+
         serializer = HogFlowSerializer(
             instance=hog_flow,
             data=update_data,
             partial=True,
-            context=self.get_serializer_context(),
+            context={**self.get_serializer_context(), "encrypted_inputs": hog_flow.encrypted_inputs},
         )
         serializer.is_valid(raise_exception=True)
-        # serializer.save() triggers post_save signal for worker reload
+        # serializer.save() calls extract_secret_inputs and triggers post_save signal
         serializer.save()
 
-        # Clear draft after successful publish
-        HogFlow.objects.filter(pk=hog_flow.pk).update(draft=None, draft_updated_at=None)
+        # Clear draft and draft_encrypted_inputs after successful publish
+        HogFlow.objects.filter(pk=hog_flow.pk).update(draft=None, draft_updated_at=None, draft_encrypted_inputs=None)
         hog_flow.refresh_from_db()
 
         return Response(HogFlowSerializer(hog_flow, context=self.get_serializer_context()).data)
@@ -595,7 +694,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         hog_flow = self.get_object()
 
         # Bypass post_save signal - clearing draft doesn't affect live config
-        HogFlow.objects.filter(pk=hog_flow.pk).update(draft=None, draft_updated_at=None)
+        HogFlow.objects.filter(pk=hog_flow.pk).update(draft=None, draft_updated_at=None, draft_encrypted_inputs=None)
 
         hog_flow.refresh_from_db()
         return Response(HogFlowSerializer(hog_flow, context=self.get_serializer_context()).data)

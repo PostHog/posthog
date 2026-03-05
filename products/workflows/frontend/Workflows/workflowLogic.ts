@@ -735,9 +735,12 @@ export const workflowLogic = kea<workflowLogicType>([
                     draft: originalWorkflow.draft,
                     draft_updated_at: originalWorkflow.draft_updated_at,
                 }
-                actions.resetWorkflow(hydrated)
+                // Deep-clone so the form doesn't share object references with originalWorkflow.
+                // Without this, mutations (e.g. sanitizeWorkflow) would modify both sides,
+                // making change detection (configsEqual) unable to detect edits.
+                actions.resetWorkflow(structuredClone(hydrated))
             } else {
-                actions.resetWorkflow(originalWorkflow)
+                actions.resetWorkflow(structuredClone(originalWorkflow))
             }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
@@ -784,7 +787,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(tasksToMarkAsCompleted)
             }
 
-            actions.resetWorkflow(originalWorkflow)
+            actions.resetWorkflow(structuredClone(originalWorkflow))
         },
         discardChanges: () => {
             if (!values.originalWorkflow) {
@@ -796,7 +799,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 description: 'Are you sure?',
                 primaryButton: {
                     children: 'Discard',
-                    onClick: () => actions.resetWorkflow(values.originalWorkflow ?? NEW_WORKFLOW),
+                    onClick: () => actions.resetWorkflow(structuredClone(values.originalWorkflow ?? NEW_WORKFLOW)),
                 },
                 secondaryButton: {
                     children: 'Cancel',

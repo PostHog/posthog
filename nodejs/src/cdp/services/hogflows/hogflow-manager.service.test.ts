@@ -24,7 +24,7 @@ describe('HogFlowManager', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        manager = new HogFlowManagerService(hub.postgres, hub.pubSub)
+        manager = new HogFlowManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
 
         const team = await getTeam(hub, 2)
 
@@ -67,6 +67,19 @@ describe('HogFlowManager', () => {
         )
     })
 
+    const setEncryptedInputs = async (
+        flowId: string,
+        encryptedInputs: Record<string, Record<string, any>>
+    ): Promise<void> => {
+        const encryptedValue = hub.encryptedFields.encrypt(JSON.stringify(encryptedInputs))
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogflow SET encrypted_inputs = $1 WHERE id = $2`,
+            [encryptedValue, flowId],
+            'setEncryptedInputs'
+        )
+    }
+
     afterEach(async () => {
         await closeHub(hub)
     })
@@ -100,6 +113,38 @@ describe('HogFlowManager', () => {
         expect(items.find((item) => item.id === hogFlows[0].id)).toMatchObject({
             id: hogFlows[0].id,
             name: 'Test Hog Flow team 1 updated',
+        })
+    })
+
+    describe('encrypted_inputs', () => {
+        it('decrypts encrypted_inputs when fetching a hog flow', async () => {
+            const encryptedInputs = {
+                action_1: { api_key: { value: 'sk-secret-123' } },
+            }
+            await setEncryptedInputs(hogFlows[0].id, encryptedInputs)
+
+            manager['onHogFlowsReloaded'](teamId1, [hogFlows[0].id])
+            const flow = await manager.getHogFlow(hogFlows[0].id)
+
+            expect(flow!.encrypted_inputs).toEqual(encryptedInputs)
+        })
+
+        it('returns null encrypted_inputs when none are set', async () => {
+            const flow = await manager.getHogFlow(hogFlows[0].id)
+            expect(flow!.encrypted_inputs).toBeFalsy()
+        })
+
+        it('decrypts encrypted_inputs with multiple action IDs', async () => {
+            const encryptedInputs = {
+                action_1: { api_key: { value: 'sk-first' } },
+                action_2: { token: { value: 'tok-second' } },
+            }
+            await setEncryptedInputs(hogFlows[0].id, encryptedInputs)
+
+            manager['onHogFlowsReloaded'](teamId1, [hogFlows[0].id])
+            const flow = await manager.getHogFlow(hogFlows[0].id)
+
+            expect(flow!.encrypted_inputs).toEqual(encryptedInputs)
         })
     })
 

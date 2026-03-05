@@ -94,7 +94,7 @@ describe('RecipientPreferencesService', () => {
             {} as Record<string, any>
         )
 
-        return createExampleInvocation(hogFlow, { inputs })
+        return createExampleInvocation(hogFlow as any, { inputs })
     }
 
     describe('shouldSkipAction', () => {

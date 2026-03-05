@@ -185,13 +185,8 @@ function HogFlowEditorToolbarNode({
     )
 }
 
-// For now we only want to show destinations that do not have secrets and not coming soon
 const customFilterFunction = (template: HogFunctionTemplateType): boolean => {
     if (template.type !== 'destination' || TEMPLATE_IDS_AT_TOP_LEVEL.includes(template.id)) {
-        return false
-    }
-
-    if (template.type === 'destination' && template.inputs_schema?.some((input) => input.secret)) {
         return false
     }
 

@@ -213,6 +213,7 @@ export const HogFlowSchema = z.object({
     version: z.number(),
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
+    encrypted_inputs: z.record(z.record(CyclotronInputSchema)).optional().nullable(),
     trigger: HogFlowTriggerSchema,
     // Optional masking config for the trigger, allows HogFlows to be rate limited per distinct ID or other property
     trigger_masking: z

@@ -1,6 +1,8 @@
+import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { HogFlow } from '~/schema/hogflow'
 import { Team } from '~/types'
 import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
+import { parseJSON } from '~/utils/json-parse'
 import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
 import { PubSub } from '~/utils/pubsub'
@@ -23,6 +25,7 @@ const HOG_FLOW_FIELDS = [
     'actions',
     'abort_action',
     'billable_action_types',
+    'encrypted_inputs',
 ]
 
 export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
@@ -33,7 +36,8 @@ export class HogFlowManagerService {
 
     constructor(
         private postgres: PostgresRouter,
-        private pubSub: PubSub
+        private pubSub: PubSub,
+        private encryptedFields: EncryptedFields
     ) {
         this.lazyLoaderByTeam = new LazyLoader({
             name: 'hog_flow_manager_by_team',
@@ -163,6 +167,25 @@ export class HogFlowManagerService {
                     }
                 }
             }
+
+            // Decrypt encrypted_inputs if present
+            const encryptedInputs = item.encrypted_inputs
+            if (typeof encryptedInputs === 'string') {
+                try {
+                    const decrypted = this.encryptedFields.decrypt(encryptedInputs)
+                    if (decrypted) {
+                        item.encrypted_inputs = parseJSON(decrypted)
+                    }
+                } catch (error) {
+                    if (encryptedInputs) {
+                        logger.warn('[HogFlowManager]', 'Could not decrypt encrypted_inputs', {
+                            hogFlowId: item.id,
+                            error: error instanceof Error ? error.message : 'Unknown error',
+                        })
+                    }
+                }
+            }
+
             acc[item.id] = item
             return acc
         }, {})
