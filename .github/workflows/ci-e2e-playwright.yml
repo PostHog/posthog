@@ -328,6 +328,8 @@ jobs:
 
             - name: Wait for Docker services
               run: bin/wait-for-docker capture
+              env:
+                  COMPOSE_PROFILES: capture
 
             - name: Build frontend
               run: |
@@ -398,6 +400,8 @@ jobs:
 
             - name: Wait for ingestion service to be ready
               run: bin/wait-for-docker plugins
+              env:
+                  COMPOSE_PROFILES: capture,ingestion
 
             - name: Run Playwright tests
               id: playwright-tests
