@@ -89,7 +89,9 @@ class TestHogFlow(TestCase):
             ],
         )
 
-        flow.move_secret_inputs()
+        flow.actions, flow.encrypted_inputs = HogFlow.extract_secret_inputs(
+            flow.actions, flow.trigger, flow.encrypted_inputs
+        )
 
         assert flow.actions[1]["config"]["inputs"] == {"url": {"value": "https://example.com"}}
         assert flow.encrypted_inputs == {"action_1": {"api_key": {"value": "sk-12345"}}}
@@ -113,7 +115,9 @@ class TestHogFlow(TestCase):
             ],
         )
 
-        flow.move_secret_inputs()
+        flow.actions, flow.encrypted_inputs = HogFlow.extract_secret_inputs(
+            flow.actions, flow.trigger, flow.encrypted_inputs
+        )
 
         assert flow.actions[1]["config"]["inputs"] == {"url": {"value": "https://example.com"}}
         assert flow.encrypted_inputs is None
@@ -141,7 +145,9 @@ class TestHogFlow(TestCase):
             ],
         )
 
-        flow.move_secret_inputs()
+        flow.actions, flow.encrypted_inputs = HogFlow.extract_secret_inputs(
+            flow.actions, flow.trigger, flow.encrypted_inputs
+        )
 
         assert "api_key" not in flow.actions[1]["config"]["inputs"]
         assert flow.encrypted_inputs == {"action_1": {"api_key": {"value": "sk-original"}}}
@@ -172,7 +178,9 @@ class TestHogFlow(TestCase):
             ],
         )
 
-        flow.move_secret_inputs()
+        flow.actions, flow.encrypted_inputs = HogFlow.extract_secret_inputs(
+            flow.actions, flow.trigger, flow.encrypted_inputs
+        )
 
         assert flow.actions[1]["config"]["inputs"] == {"api_key": {"value": "sk-12345"}}
         assert flow.encrypted_inputs is None
@@ -195,7 +203,9 @@ class TestHogFlow(TestCase):
             ],
         )
 
-        flow.move_secret_inputs()
+        flow.actions, flow.encrypted_inputs = HogFlow.extract_secret_inputs(
+            flow.actions, flow.trigger, flow.encrypted_inputs
+        )
 
         assert flow.actions[1]["config"]["inputs"] == {"api_key": {"value": "sk-12345"}}
         assert flow.encrypted_inputs is None
@@ -217,7 +227,9 @@ class TestHogFlow(TestCase):
             ],
         )
 
-        flow.move_secret_inputs()
+        flow.actions, flow.encrypted_inputs = HogFlow.extract_secret_inputs(
+            flow.actions, flow.trigger, flow.encrypted_inputs
+        )
 
         assert flow.actions[1]["config"]["inputs"] == {"api_key": {"value": "sk-12345"}}
         assert flow.encrypted_inputs is None
@@ -255,7 +267,9 @@ class TestHogFlow(TestCase):
             ],
         )
 
-        flow.move_secret_inputs()
+        flow.actions, flow.encrypted_inputs = HogFlow.extract_secret_inputs(
+            flow.actions, flow.trigger, flow.encrypted_inputs
+        )
 
         assert flow.actions[1]["config"]["inputs"] == {"url": {"value": "https://first.com"}}
         assert flow.actions[2]["config"]["inputs"] == {"url": {"value": "https://second.com"}}
@@ -292,7 +306,9 @@ class TestHogFlow(TestCase):
             ],
         )
 
-        flow.move_secret_inputs()
+        flow.actions, flow.encrypted_inputs = HogFlow.extract_secret_inputs(
+            flow.actions, flow.trigger, flow.encrypted_inputs
+        )
 
         assert flow.actions[0]["config"]["inputs"] == {"url": {"value": "https://hook.example.com"}}
         assert flow.encrypted_inputs == {"trigger_node": {"api_key": {"value": "sk-trigger-secret"}}}
@@ -316,7 +332,9 @@ class TestHogFlow(TestCase):
             ],
         )
 
-        flow.move_secret_inputs()
+        flow.actions, flow.encrypted_inputs = HogFlow.extract_secret_inputs(
+            flow.actions, flow.trigger, flow.encrypted_inputs
+        )
 
         assert flow.actions[0]["config"]["inputs"] == {"api_key": {"value": "sk-should-stay"}}
         assert flow.encrypted_inputs is None
@@ -344,7 +362,9 @@ class TestHogFlow(TestCase):
             ],
         )
 
-        flow.move_secret_inputs()
+        flow.actions, flow.encrypted_inputs = HogFlow.extract_secret_inputs(
+            flow.actions, flow.trigger, flow.encrypted_inputs
+        )
 
         assert flow.actions[1]["config"]["inputs"] == {
             "url": {"value": "https://example.com"},

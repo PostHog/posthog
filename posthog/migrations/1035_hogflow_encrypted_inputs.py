@@ -14,4 +14,9 @@ class Migration(migrations.Migration):
             name="encrypted_inputs",
             field=posthog.helpers.encrypted_fields.EncryptedJSONStringField(blank=True, null=True),
         ),
+        migrations.AddField(
+            model_name="hogflow",
+            name="draft_encrypted_inputs",
+            field=posthog.helpers.encrypted_fields.EncryptedJSONStringField(blank=True, null=True),
+        ),
     ]

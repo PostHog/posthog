@@ -78,8 +78,11 @@ class HogFlow(UUIDTModel):
     # Contains only billable action types: 'function', 'function_email', 'function_sms', 'function_push'
     billable_action_types = models.JSONField(default=list, null=True, blank=True)
 
-    # Encrypted storage for secret inputs across all function actions, keyed by action ID
+    # Encrypted storage for secret inputs across all function actions, keyed by action ID.
+    # encrypted_inputs holds secrets for the live (published) actions.
+    # draft_encrypted_inputs holds secrets for draft actions, keeping them isolated from live.
     encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
+    draft_encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
 
     # Draft storage for active workflows: stores pending edits separately from live config
     draft = models.JSONField(null=True, blank=True)
@@ -87,28 +90,32 @@ class HogFlow(UUIDTModel):
 
     FUNCTION_ACTION_TYPES: Final = {"function", "function_email", "function_sms", "function_push"}
 
-    def move_secret_inputs(self) -> None:
+    @staticmethod
+    def extract_secret_inputs(
+        actions: list,
+        trigger: dict,
+        existing_encrypted: dict | None,
+    ) -> tuple[list, dict | None]:
         """
         For each function action, separates secret inputs (based on the template's
-        inputs_schema) from actions[].config.inputs into encrypted_inputs[action_id].
+        inputs_schema) from actions[].config.inputs into a dict keyed by action ID.
+
+        Returns (modified_actions, encrypted_inputs_dict_or_none).
+        Does not mutate the existing_encrypted dict.
         """
-        actions = self.actions
         if not actions or not isinstance(actions, list):
-            return
+            return actions, existing_encrypted
 
-        encrypted_inputs = self.encrypted_inputs or {}
-        if not isinstance(encrypted_inputs, dict):
-            encrypted_inputs = {}
+        encrypted_inputs = dict(existing_encrypted) if existing_encrypted else {}
 
-        trigger = self.trigger or {}
-        trigger_is_function = trigger.get("type") in ("webhook", "manual", "tracking_pixel", "schedule")
+        trigger_is_function = (trigger or {}).get("type") in ("webhook", "manual", "tracking_pixel", "schedule")
 
         for action in actions:
             action_type = action.get("type", "")
             config = action.get("config", {})
             action_id = action.get("id", "")
 
-            is_function_action = action_type in self.FUNCTION_ACTION_TYPES
+            is_function_action = action_type in HogFlow.FUNCTION_ACTION_TYPES
             is_function_trigger = action_type == "trigger" and trigger_is_function
 
             if not (is_function_action or is_function_trigger):
@@ -123,7 +130,7 @@ class HogFlow(UUIDTModel):
                 continue
 
             raw_inputs = config.get("inputs", {}) or {}
-            existing_encrypted = encrypted_inputs.get(action_id, {}) or {}
+            action_encrypted = encrypted_inputs.get(action_id, {}) or {}
 
             final_inputs = {}
             final_encrypted = {}
@@ -133,7 +140,7 @@ class HogFlow(UUIDTModel):
                 if not key:
                     continue
                 value = raw_inputs.get(key)
-                encrypted_value = existing_encrypted.get(key)
+                encrypted_value = action_encrypted.get(key)
 
                 # Treat the {"secret": True} marker from the API as "unchanged"
                 is_secret_marker = isinstance(value, dict) and value.get("secret") is True and len(value) == 1
@@ -160,10 +167,12 @@ class HogFlow(UUIDTModel):
             elif action_id in encrypted_inputs:
                 del encrypted_inputs[action_id]
 
-        self.encrypted_inputs = encrypted_inputs if encrypted_inputs else None
+        return actions, encrypted_inputs if encrypted_inputs else None
 
     def save(self, *args, **kwargs):
-        self.move_secret_inputs()
+        self.actions, self.encrypted_inputs = self.extract_secret_inputs(
+            self.actions, self.trigger or {}, self.encrypted_inputs
+        )
         return super().save(*args, **kwargs)
 
     def __str__(self):

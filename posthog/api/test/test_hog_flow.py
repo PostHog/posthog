@@ -1827,8 +1827,9 @@ class TestHogFlowEncryptedInputs(APIBaseTest):
         assert draft_resp.status_code == 200, draft_resp.json()
 
         flow = HogFlow.objects.get(pk=flow_id)
-        assert flow.encrypted_inputs is not None
-        assert flow.encrypted_inputs["action_2"]["api_key"]["value"] == "sk-draft-secret"
+        assert flow.encrypted_inputs is None
+        assert flow.draft_encrypted_inputs is not None
+        assert flow.draft_encrypted_inputs["action_2"]["api_key"]["value"] == "sk-draft-secret"
 
         draft_action_inputs = flow.draft["actions"][2]["config"]["inputs"]
         assert "api_key" not in draft_action_inputs
@@ -1902,6 +1903,84 @@ class TestHogFlowEncryptedInputs(APIBaseTest):
         draft_action_inputs = response.json()["draft"]["actions"][1]["config"]["inputs"]
         assert draft_action_inputs["api_key"] == {"secret": True}
         assert draft_action_inputs["url"]["value"] == "https://draft.example.com"
+
+    def test_publish_draft_with_secret_inputs_succeeds(self):
+        data = {
+            "name": "Secret Flow",
+            "status": "active",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {
+                        "type": "event",
+                        "filters": {
+                            "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                        },
+                    },
+                },
+                {
+                    "id": "action_1",
+                    "name": "secret_action",
+                    "type": "function",
+                    "config": {
+                        "template_id": TEMPLATE_WITH_SECRET_ID,
+                        "inputs": {
+                            "url": {"value": "https://example.com"},
+                            "api_key": {"value": "sk-original"},
+                        },
+                    },
+                },
+            ],
+        }
+        create_resp = self.client.post(f"/api/projects/{self.team.id}/hog_flows", data)
+        assert create_resp.status_code == 201, create_resp.json()
+        flow_id = create_resp.json()["id"]
+
+        # Save draft with a new secret value
+        draft_actions = [
+            {
+                "id": "trigger_node",
+                "name": "trigger_1",
+                "type": "trigger",
+                "config": {
+                    "type": "event",
+                    "filters": {
+                        "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                    },
+                },
+            },
+            {
+                "id": "action_1",
+                "name": "secret_action",
+                "type": "function",
+                "config": {
+                    "template_id": TEMPLATE_WITH_SECRET_ID,
+                    "inputs": {
+                        "url": {"value": "https://updated.example.com"},
+                        "api_key": {"value": "sk-updated"},
+                    },
+                },
+            },
+        ]
+        draft_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/draft",
+            {"actions": draft_actions},
+        )
+        assert draft_resp.status_code == 200, draft_resp.json()
+
+        # Publish should succeed even though apiKey is in draft_encrypted_inputs, not in draft actions
+        publish_resp = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish")
+        assert publish_resp.status_code == 200, publish_resp.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.draft is None
+        assert flow.draft_encrypted_inputs is None
+        assert flow.encrypted_inputs is not None
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "sk-updated"
+        assert flow.actions[1]["config"]["inputs"]["url"]["value"] == "https://updated.example.com"
+        assert "api_key" not in flow.actions[1]["config"]["inputs"]
 
     def test_flow_without_secret_template_has_no_encrypted_inputs(self):
         data = {
