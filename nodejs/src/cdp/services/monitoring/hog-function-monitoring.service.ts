@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
@@ -14,6 +15,7 @@ import {
     AppMetricType,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
+    HogFunctionCapturedEvent,
     LogEntry,
     LogEntrySerialized,
     MetricLogSource,
@@ -130,6 +132,25 @@ export class HogFunctionMonitoringService {
 
     queueAppMetrics(metrics: MinimalAppMetric[], source: MetricLogSource) {
         metrics.forEach((metric) => this.queueAppMetric(metric, source))
+    }
+
+    async queuePostHogEvent(event: Omit<HogFunctionCapturedEvent, 'timestamp'> & { timestamp?: string }) {
+        const team = await this.teamManager.getTeam(event.team_id)
+        if (!team) {
+            logger.error('[HogFunctionMonitoringService] queuePostHogEvent: Team not found', {
+                team_id: event.team_id,
+            })
+            return
+        }
+
+        this.eventsToCapture.push({
+            team_token: team.api_token,
+            event: event.event,
+            distinct_id: event.distinct_id,
+            timestamp: event.timestamp ?? DateTime.utc().toISO(),
+            properties: event.properties,
+        })
+        hogFunctionMonitoringPendingEvents.set(this.eventsToCapture.length)
     }
 
     queueLogs(logEntries: LogEntry[], source: MetricLogSource) {

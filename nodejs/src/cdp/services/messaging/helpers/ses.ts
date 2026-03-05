@@ -312,7 +312,9 @@ export class SesWebhookHandler {
         metrics?: {
             functionId?: string
             invocationId?: string
+            distinctId?: string
             metricName: MinimalAppMetric['metric_name']
+            properties?: Record<string, any>
         }[]
     }> {
         logger.info('[SesWebhookHandler] handleWebhook', { body: opts.body, headers: opts.headers })
@@ -360,13 +362,16 @@ export class SesWebhookHandler {
         const metrics: {
             functionId?: string
             invocationId?: string
+            distinctId?: string
             metricName: MinimalAppMetric['metric_name']
+            properties?: Record<string, any>
         }[] = []
 
         for (const rec of records) {
             logger.info('[SesWebhookHandler] processing record', { rec })
             const tags = rec.mail.tags
-            const { functionId, invocationId } = parseEmailTrackingCode(tags?.ph_id?.[0] || '') || {}
+            const trackingCode = parseEmailTrackingCode(tags?.ph_id?.[0] || '')
+            const { functionId, invocationId, distinctId } = trackingCode || {}
 
             if (!functionId && !invocationId) {
                 logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })
@@ -374,7 +379,15 @@ export class SesWebhookHandler {
             }
 
             const metricName = EVENT_TYPE_TO_METRIC_NAME[rec.eventType]
-            metrics.push({ functionId, invocationId, metricName })
+            const properties: Record<string, any> = {
+                $email_to: rec.mail.destination?.[0],
+            }
+
+            if ('click' in rec && rec.click) {
+                properties.$link_url = rec.click.link
+            }
+
+            metrics.push({ functionId, invocationId, distinctId, metricName, properties })
         }
 
         return { status: 200, body: { ok: true }, metrics }

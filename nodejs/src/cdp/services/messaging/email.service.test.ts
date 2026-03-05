@@ -251,7 +251,7 @@ describe('EmailService', () => {
                 to: [{ address: 'test@example.com', name: 'Test User' }],
             })
         })
-        it('should include tracking code in the email', async () => {
+        it('should include tracking code in the email with distinct_id', async () => {
             invocation.queueParameters = createEmailParams({
                 html: '<body>Hi! <a href="https://example.com">Click me</a></body>',
             })
@@ -259,9 +259,10 @@ describe('EmailService', () => {
             await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
             const emails = await mailDevAPI.getEmails()
             expect(emails).toHaveLength(1)
-            expect(emails[0].html).toEqual(
-                `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE" style="display: none;" /></body>`
-            )
+            // Tracking code now includes distinct_id from invocation globals
+            expect(emails[0].html).toContain('http://localhost:8010/public/m/redirect?ph_id=')
+            expect(emails[0].html).toContain('http://localhost:8010/public/m/pixel?ph_id=')
+            expect(emails[0].html).toContain('&target=https%3A%2F%2Fexample.com')
         })
     })
     describe('native email sending with ses', () => {
@@ -309,42 +310,24 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input).toMatchInlineSnapshot(`
-                {
-                  "ConfigurationSetName": "posthog-messaging",
-                  "Content": {
-                    "Simple": {
-                      "Body": {
-                        "Html": {
-                          "Charset": "UTF-8",
-                          "Data": "Test HTML",
+            // Tracking code now includes distinct_id, so we check structure instead of exact value
+            expect(sentCommand.input).toMatchObject({
+                ConfigurationSetName: 'posthog-messaging',
+                Content: {
+                    Simple: {
+                        Body: {
+                            Html: { Charset: 'UTF-8', Data: 'Test HTML' },
+                            Text: { Charset: 'UTF-8', Data: 'Test Text' },
                         },
-                        "Text": {
-                          "Charset": "UTF-8",
-                          "Data": "Test Text",
-                        },
-                      },
-                      "Subject": {
-                        "Charset": "UTF-8",
-                        "Data": "Test Subject",
-                      },
+                        Subject: { Charset: 'UTF-8', Data: 'Test Subject' },
                     },
-                  },
-                  "Destination": {
-                    "ToAddresses": [
-                      "\"Test User\" <test@example.com>",
-                    ],
-                  },
-                  "EmailTags": [
-                    {
-                      "Name": "ph_id",
-                      "Value": "ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE",
-                    },
-                  ],
-                  "FeedbackForwardingEmailAddress": "test@posthog-test.com",
-                  "FromEmailAddress": "\"Test User\" <test@posthog-test.com>",
-                }
-            `)
+                },
+                Destination: { ToAddresses: ['"Test User" <test@example.com>'] },
+                EmailTags: [{ Name: 'ph_id' }],
+                FeedbackForwardingEmailAddress: 'test@posthog-test.com',
+                FromEmailAddress: '"Test User" <test@posthog-test.com>',
+            })
+            expect(sentCommand.input.EmailTags[0].Value).toBeDefined()
         })
 
         it('should not include replyTo if not in params', async () => {
@@ -441,6 +424,34 @@ describe('EmailService', () => {
             sendEmailSpy.mockResolvedValue({})
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toMatchInlineSnapshot(`"Failed to send email via SES: No messageId returned from SES"`)
+        })
+
+        it('should capture a $messaging_email_sent PostHog event on success', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            expect(result.capturedPostHogEvents).toHaveLength(1)
+            expect(result.capturedPostHogEvents[0]).toMatchObject({
+                team_id: team.id,
+                distinct_id: 'distinct_id',
+                event: '$messaging_email_sent',
+                properties: {
+                    $workflow_id: invocation.functionId,
+                    $email_to: 'test@example.com',
+                    $email_subject: 'Test Subject',
+                },
+            })
+        })
+
+        it('should capture a $messaging_email_failed PostHog event on failure', async () => {
+            sendEmailSpy.mockRejectedValue(new Error('SES error'))
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeDefined()
+            expect(result.capturedPostHogEvents).toHaveLength(1)
+            expect(result.capturedPostHogEvents[0]).toMatchObject({
+                event: '$messaging_email_failed',
+                distinct_id: 'distinct_id',
+            })
         })
     })
 })

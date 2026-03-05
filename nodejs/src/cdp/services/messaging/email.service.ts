@@ -103,6 +103,21 @@ export class EmailService {
             count: 1,
         })
 
+        const distinctId = invocation.state?.globals?.event?.distinct_id
+        if (distinctId) {
+            result.capturedPostHogEvents.push({
+                team_id: invocation.teamId,
+                timestamp: new Date().toISOString(),
+                distinct_id: distinctId,
+                event: success ? '$messaging_email_sent' : '$messaging_email_failed',
+                properties: {
+                    $workflow_id: invocation.functionId,
+                    $email_to: params.to.email,
+                    $email_subject: params.subject,
+                },
+            })
+        }
+
         return result
     }
 
@@ -152,7 +167,8 @@ export class EmailService {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
-        const trackingCode = generateEmailTrackingCode(result.invocation)
+        const distinctId = result.invocation.state?.globals?.event?.distinct_id
+        const trackingCode = generateEmailTrackingCode(result.invocation, distinctId)
         const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
         const htmlWithTrackingAndPreheader = maybeAddPreheaderToEmail(htmlWithTracking, params.preheader)
 

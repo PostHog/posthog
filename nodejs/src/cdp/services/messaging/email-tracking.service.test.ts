@@ -16,6 +16,7 @@ import { UUIDT } from '~/utils/utils'
 
 import { Hub, Team } from '../../../types'
 import { PIXEL_GIF } from './email-tracking.service'
+import { generateEmailTrackingCode } from './helpers/tracking-code'
 
 describe('EmailTrackingService', () => {
     let hub: Hub
@@ -34,11 +35,11 @@ describe('EmailTrackingService', () => {
     })
 
     describe('api', () => {
-        // NOTE: These tests are done via the CdpApi router so we can get full coverage of the code
         let api: CdpApi
         let app: express.Application
         let hogFunction: HogFunctionType
         const invocationId = 'invocation-id'
+        const distinctId = 'test-user-distinct-id'
         let server: Server
 
         beforeEach(async () => {
@@ -55,10 +56,9 @@ describe('EmailTrackingService', () => {
         })
 
         describe('handleEmailTrackingRedirect', () => {
-            it('should redirect to the target url and track the click metric', async () => {
-                const res = await supertest(app).get(
-                    `/public/m/redirect?ph_fn_id=${hogFunction.id}&ph_inv_id=${invocationId}&target=https://example.com`
-                )
+            it('should redirect to the target url and track the click metric using ph_id', async () => {
+                const phId = generateEmailTrackingCode({ functionId: hogFunction.id, id: invocationId }, distinctId)
+                const res = await supertest(app).get(`/public/m/redirect?ph_id=${phId}&target=https://example.com`)
                 expect(res.status).toBe(302)
                 expect(res.headers.location).toBe('https://example.com')
 
@@ -72,6 +72,20 @@ describe('EmailTrackingService', () => {
                     metric_name: 'email_link_clicked',
                     team_id: team.id,
                     count: 1,
+                })
+            })
+
+            it('should support legacy ph_fn_id and ph_inv_id params', async () => {
+                const res = await supertest(app).get(
+                    `/public/m/redirect?ph_fn_id=${hogFunction.id}&ph_inv_id=${invocationId}&target=https://example.com`
+                )
+                expect(res.status).toBe(302)
+                expect(res.headers.location).toBe('https://example.com')
+
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(messages).toHaveLength(1)
+                expect(messages[0].value).toMatchObject({
+                    metric_name: 'email_link_clicked',
                 })
             })
 
@@ -95,10 +109,9 @@ describe('EmailTrackingService', () => {
         })
 
         describe('email tracking pixel', () => {
-            it('should return a 200 and a gif image, tracking the open metric', async () => {
-                const res = await supertest(app).get(
-                    `/public/m/pixel?ph_fn_id=${hogFunction.id}&ph_inv_id=${invocationId}`
-                )
+            it('should return a 200 and a gif image, tracking the open metric using ph_id', async () => {
+                const phId = generateEmailTrackingCode({ functionId: hogFunction.id, id: invocationId }, distinctId)
+                const res = await supertest(app).get(`/public/m/pixel?ph_id=${phId}`)
                 expect(res.status).toBe(200)
                 expect(res.headers['content-type']).toBe('image/gif')
                 expect(res.body).toEqual(PIXEL_GIF)
@@ -113,6 +126,21 @@ describe('EmailTrackingService', () => {
                     metric_name: 'email_opened',
                     team_id: team.id,
                     count: 1,
+                })
+            })
+
+            it('should support legacy ph_fn_id and ph_inv_id params', async () => {
+                const res = await supertest(app).get(
+                    `/public/m/pixel?ph_fn_id=${hogFunction.id}&ph_inv_id=${invocationId}`
+                )
+                expect(res.status).toBe(200)
+                expect(res.headers['content-type']).toBe('image/gif')
+                expect(res.body).toEqual(PIXEL_GIF)
+
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(messages).toHaveLength(1)
+                expect(messages[0].value).toMatchObject({
+                    metric_name: 'email_opened',
                 })
             })
 
