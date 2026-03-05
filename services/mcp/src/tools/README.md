@@ -191,7 +191,7 @@ describe('Feature Flags', () => {
       expect(flagData.key).toBe(params.key)
       expect(flagData.name).toBe(params.name)
       expect(flagData.active).toBe(params.active)
-      expect(flagData.url).toContain('/feature_flags/')
+      expect(flagData._posthogUrl).toContain('/feature_flags/')
 
       createdResources.featureFlags.push(flagData.id)
     })

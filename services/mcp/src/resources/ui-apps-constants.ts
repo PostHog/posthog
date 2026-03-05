@@ -13,7 +13,6 @@
  */
 
 /**
-
  * Action detail visualization.
  * Used by: action-get, action-create, action-update
  */
