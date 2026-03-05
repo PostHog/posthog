@@ -28,10 +28,20 @@ const errorTrackingIssuesList = (): ToolBase<
                 offset: params.offset,
             },
         })
+        const items = (result as any).results ?? result
         return {
             ...(result as any),
+            results: (items as any[]).map((item: any) => ({
+                ...item,
+                _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking/${item.id}`,
+            })),
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/error-issue-list.html',
+        },
     },
 })
 
@@ -49,7 +59,15 @@ const errorTrackingIssuesRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/`,
         })
-        return result
+        return {
+            ...(result as any),
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking/${(result as any).id}`,
+        }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/error-issue.html',
+        },
     },
 })
 
@@ -89,7 +107,15 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
             path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/`,
             body,
         })
-        return result
+        return {
+            ...(result as any),
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking/${(result as any).id}`,
+        }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/error-issue.html',
+        },
     },
 })
 
