@@ -37,7 +37,7 @@ export function ExperimentPhaseSelector(): JSX.Element | null {
     const selectedPhase = selectedPhaseIndex != null ? phases[selectedPhaseIndex] : null
     const effectivePhase = selectedPhase ?? phases[phases.length - 1]
     const effectiveIndex = selectedPhaseIndex ?? phases.length - 1
-    const selectedPhaseLabel = effectivePhase ? getPhaseName(effectivePhase, effectiveIndex) : 'No phases'
+    const selectedPhaseLabel = effectivePhase ? `${effectiveIndex + 1}` : 'No phases'
     const displayStartDate = effectivePhase?.start_date ?? experiment.start_date
     const displayEndDate = effectivePhase?.end_date ?? experiment.end_date
 
@@ -65,8 +65,7 @@ export function ExperimentPhaseSelector(): JSX.Element | null {
                 >
                     <LemonButton type="secondary" size="xsmall">
                         <span className="flex items-center gap-1.5">
-                            <span className="font-medium">{selectedPhaseLabel}</span>
-                            <span className="text-secondary">-</span>
+                            <span className="font-medium">{selectedPhaseLabel}:</span>
                             {displayStartDate ? (
                                 <TZLabel
                                     time={displayStartDate}
