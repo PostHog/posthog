@@ -4674,6 +4674,7 @@ dependencies = [
  "etcd-client",
  "kafka-assigner-proto",
  "prost 0.13.5",
+ "rdkafka",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
