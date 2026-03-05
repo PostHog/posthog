@@ -2,12 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonTabs } from '@posthog/lemon-ui'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
+
 import type { SceneTabKey } from '../../types'
 import { type SceneTabConfig, scenesTabsLogic } from './scenesTabsLogic'
 
 export function ScenesTabs(): JSX.Element {
     const { tabs, activeTab } = useValues(scenesTabsLogic)
     const { setTab } = useActions(scenesTabsLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <>
@@ -15,7 +18,11 @@ export function ScenesTabs(): JSX.Element {
                 type="info"
                 dismissKey="support-beta-banner"
                 className="mb-4"
-                action={{ children: 'Send feedback', id: 'support-feedback-button' }}
+                action={{
+                    children: 'Send feedback',
+                    id: 'support-feedback-button',
+                    onClick: () => openSupportForm({ kind: 'feedback' }),
+                }}
             >
                 <p>
                     Support is in private alpha. Please let us know what you'd like to see here and/or report any issues
