@@ -22,6 +22,8 @@ import {
     IconPlusSmall,
     IconRetention,
     IconRetentionHeatmap,
+    IconHeart,
+    IconHeartFilled,
     IconStar,
     IconStarFilled,
     IconStickiness,
@@ -694,6 +696,7 @@ export function SavedInsights(): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
     const showHomeTab = useFeatureFlag('PRODUCT_ANALYTICS_HOME_TAB')
+    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     const { tab } = filters
 
@@ -727,7 +730,13 @@ export function SavedInsights(): JSX.Element {
                                 onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
                                 icon={
                                     insight.favorited ? (
-                                        <IconStarFilled className="text-warning" />
+                                        isAIFirst ? (
+                                            <IconHeartFilled className="text-danger" />
+                                        ) : (
+                                            <IconStarFilled className="text-warning" />
+                                        )
+                                    ) : isAIFirst ? (
+                                        <IconHeart className="text-secondary" />
                                     ) : (
                                         <IconStar className="text-secondary" />
                                     )
@@ -777,11 +786,13 @@ export function SavedInsights(): JSX.Element {
                 )
             },
             align: 'right',
+            defaultSortOrder: -1,
             sorter: (a, b) => dayjs(a.created_at || 0).diff(b.created_at || 0),
         },
         {
             title: 'Last modified',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_modified_at',
             render: function renderLastModified(last_modified_at: string) {
                 return (
@@ -792,6 +803,7 @@ export function SavedInsights(): JSX.Element {
         {
             title: 'Last viewed',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_viewed_at',
             render: function renderLastViewed(last_viewed_at: string | null) {
                 return (

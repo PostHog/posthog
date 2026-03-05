@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY } from '~/toolbar/utils'
+import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
     Promise.resolve({
@@ -12,12 +12,23 @@ global.fetch = jest.fn(() =>
     } as any as Response)
 )
 
+function mockTokenExchangeSuccess(): void {
+    ;(global.fetch as jest.Mock).mockImplementation(() =>
+        Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 }),
+        })
+    )
+}
+
 describe('toolbar toolbarConfigLogic', () => {
     let mockOpen: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
         localStorage.clear()
+        sessionStorage.clear()
         ;(global.fetch as jest.Mock).mockClear()
         mockOpen = jest.spyOn(window, 'open').mockReturnValue({} as Window)
     })
@@ -97,11 +108,64 @@ describe('toolbar toolbarConfigLogic', () => {
 
     it('normalizes uiHost to not end with a slash', () => {
         const logic = toolbarConfigLogic.build({
-            posthog: { config: { ui_host: 'https://us.posthog.com/' } } as any,
+            posthog: { config: { ui_host: 'https://selfhosted.example.com/' } } as any,
         } as any)
         logic.mount()
-        expect(logic.values.uiHost.endsWith('/')).toBe(false)
-        expect(logic.values.uiHost).toBe('https://us.posthog.com')
+        expect(logic.values.uiHost).toBe('https://selfhosted.example.com')
+    })
+
+    describe('uiHost cloud region detection', () => {
+        it.each([
+            ['us', 'https://us.posthog.com'],
+            ['eu', 'https://eu.posthog.com'],
+        ])('uses canonical %s cloud URL from requestRouter.region', (region, expected) => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://should-not-be-used',
+                posthog: { requestRouter: { region }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe(expected)
+        })
+
+        it('uses cloud URL even when ui_host is misconfigured to ingestion domain', () => {
+            const logic = toolbarConfigLogic.build({
+                posthog: {
+                    requestRouter: { region: 'eu' },
+                    config: { ui_host: 'https://eu.i.posthog.com' },
+                } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://eu.posthog.com')
+        })
+
+        it('uses cloud URL even when apiURL is a reverse proxy', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://myproxy.example.com/ingest',
+                posthog: { requestRouter: { region: 'us' }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://us.posthog.com')
+        })
+
+        it('falls back to ui_host for custom region (self-hosted)', () => {
+            const logic = toolbarConfigLogic.build({
+                posthog: {
+                    requestRouter: { region: 'custom' },
+                    config: { ui_host: 'https://my-posthog.example.com' },
+                } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://my-posthog.example.com')
+        })
+
+        it('falls back to apiURL when region is custom and no ui_host', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://selfhosted.example.com',
+                posthog: { requestRouter: { region: 'custom' }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://selfhosted.example.com')
+        })
     })
 
     describe('OAuth localStorage restoration', () => {
@@ -239,12 +303,12 @@ describe('toolbar toolbarConfigLogic', () => {
 
         beforeEach(() => {
             replaceStateSpy = jest.spyOn(window.history, 'replaceState').mockImplementation(() => {})
-            sessionStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({ verifier: 'test-verifier', ts: Date.now() }))
+            const pkcePayload = JSON.stringify({ verifier: 'test-verifier', ts: Date.now() })
+            localStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
         })
 
         afterEach(() => {
             replaceStateSpy.mockRestore()
-            sessionStorage.clear()
             window.history.pushState({}, '', '/')
         })
 
@@ -261,6 +325,11 @@ describe('toolbar toolbarConfigLogic', () => {
                 '/#/dashboard&tab=1',
             ],
             ['handles percent-encoded delimiters', '#__posthog_toolbar=code%3Aabc%2Cclient_id%3Axyz', '/'],
+            [
+                'cleans hash with server-provided redirect_uri and token_endpoint',
+                '#__posthog_toolbar=code:abc,client_id:xyz,redirect_uri:https%3A%2F%2Fexample.com%2Fcallback,token_endpoint:https%3A%2F%2Fexample.com%2Ftoken',
+                '/',
+            ],
         ])('%s', (_label, hash, expectedUrl) => {
             window.history.pushState({}, '', `/${hash}`)
 
@@ -268,6 +337,172 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
 
             expect(replaceStateSpy).toHaveBeenCalledWith(null, '', expectedUrl)
+        })
+
+        it('uses server-provided token_endpoint and redirect_uri for token exchange', async () => {
+            const serverTokenEndpoint = 'https://internal.posthog.com/oauth/token/'
+            const serverRedirectUri = 'https://internal.posthog.com/toolbar_oauth/callback'
+            const encodedEndpoint = encodeURIComponent(serverTokenEndpoint)
+            const encodedRedirectUri = encodeURIComponent(serverRedirectUri)
+
+            window.history.pushState(
+                {},
+                '',
+                `/#__posthog_toolbar=code:abc,client_id:xyz,redirect_uri:${encodedRedirectUri},token_endpoint:${encodedEndpoint}`
+            )
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://external-proxy.com' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                accessToken: 'new-access',
+                isAuthenticated: true,
+            })
+
+            const fetchCall = (global.fetch as jest.Mock).mock.calls[0]
+            expect(fetchCall[0]).toBe(serverTokenEndpoint)
+            const body = new URLSearchParams(fetchCall[1].body)
+            expect(body.get('redirect_uri')).toBe(serverRedirectUri)
+        })
+
+        it('falls back to uiHost-derived URLs when server does not provide them', async () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({
+                posthog: { config: { ui_host: 'https://us.posthog.com' } } as any,
+            } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                accessToken: 'new-access',
+                isAuthenticated: true,
+            })
+
+            const fetchCall = (global.fetch as jest.Mock).mock.calls[0]
+            expect(fetchCall[0]).toBe('https://us.posthog.com/oauth/token/')
+            const body = new URLSearchParams(fetchCall[1].body)
+            expect(body.get('redirect_uri')).toBe('https://us.posthog.com/toolbar_oauth/callback')
+        })
+
+        it('does not trigger temporaryToken migration during code exchange', async () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                temporaryToken: 'old-temp-token',
+            })
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toNotHaveDispatchedActions(['tokenExpired'])
+        })
+
+        it('cleans up localStorage PKCE key after exchange', async () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0)
+
+            expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
+        })
+
+        it('aborts token exchange when PKCE verifier has expired', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            const expiredPayload = JSON.stringify({ verifier: 'test-verifier', ts: Date.now() - 11 * 60 * 1000 })
+            localStorage.setItem(PKCE_STORAGE_KEY, expiredPayload)
+
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0)
+
+            expect(warnSpy).toHaveBeenCalledWith('PostHog Toolbar: PKCE verifier expired')
+            expect(global.fetch).not.toHaveBeenCalled()
+            warnSpy.mockRestore()
+        })
+
+        it('aborts token exchange when PKCE data is corrupted', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.setItem(PKCE_STORAGE_KEY, 'not-valid-json{{{')
+
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0)
+
+            expect(warnSpy).toHaveBeenCalledWith('PostHog Toolbar: no PKCE verifier found, cannot exchange code')
+            expect(global.fetch).not.toHaveBeenCalled()
+            warnSpy.mockRestore()
+        })
+
+        it('aborts token exchange when no PKCE data exists', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.removeItem(PKCE_STORAGE_KEY)
+
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0)
+
+            expect(warnSpy).toHaveBeenCalledWith('PostHog Toolbar: no PKCE verifier found, cannot exchange code')
+            expect(global.fetch).not.toHaveBeenCalled()
+            warnSpy.mockRestore()
+        })
+    })
+
+    describe('cleanToolbarAuthHash', () => {
+        let replaceStateSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            replaceStateSpy = jest.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            replaceStateSpy.mockRestore()
+            window.history.pushState({}, '', '/')
+        })
+
+        it('returns code and clientId when hash has no server-provided URLs', () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            const result = cleanToolbarAuthHash()
+            expect(result).toEqual({ code: 'abc', clientId: 'xyz', redirectUri: undefined, tokenEndpoint: undefined })
+            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/')
+        })
+
+        it('parses redirect_uri and token_endpoint from hash', () => {
+            const redirectUri = encodeURIComponent('https://internal.example.com/toolbar_oauth/callback')
+            const tokenEndpoint = encodeURIComponent('https://internal.example.com/oauth/token/')
+            window.history.pushState(
+                {},
+                '',
+                `/#__posthog_toolbar=code:abc,client_id:xyz,redirect_uri:${redirectUri},token_endpoint:${tokenEndpoint}`
+            )
+            const result = cleanToolbarAuthHash()
+            expect(result).toEqual({
+                code: 'abc',
+                clientId: 'xyz',
+                redirectUri: 'https://internal.example.com/toolbar_oauth/callback',
+                tokenEndpoint: 'https://internal.example.com/oauth/token/',
+            })
+            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/')
+        })
+
+        it('returns null when hash does not match', () => {
+            window.history.pushState({}, '', '/#some-other-hash')
+            const result = cleanToolbarAuthHash()
+            expect(result).toBeNull()
+            expect(replaceStateSpy).not.toHaveBeenCalled()
         })
     })
 })

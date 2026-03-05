@@ -2396,7 +2396,8 @@
          "posthog_taggeditem"."property_definition_id",
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
-         "posthog_taggeditem"."experiment_saved_metric_id"
+         "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."insight_id" IN (1,
                                               2,
@@ -2416,6 +2417,7 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
