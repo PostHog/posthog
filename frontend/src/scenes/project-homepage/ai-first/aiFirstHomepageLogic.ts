@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { urls } from 'scenes/urls'
@@ -8,23 +8,38 @@ import type { aiFirstHomepageLogicType } from './aiFirstHomepageLogicType'
 export type HomepageMode = 'idle' | 'search' | 'ai'
 export type AnimationPhase = 'idle' | 'moving' | 'separator' | 'content'
 
+export interface LayoutState {
+    mode: HomepageMode
+    animationPhase: AnimationPhase
+}
+
 export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     path(['scenes', 'project-homepage', 'ai-first', 'aiFirstHomepageLogic']),
 
     actions({
-        setMode: (mode: HomepageMode) => ({ mode }),
-        setQuery: (query: string) => ({ query }),
         submitQuery: (mode: 'search' | 'ai') => ({ mode }),
+        setQuery: (query: string) => ({ query }),
         setAnimationPhase: (phase: AnimationPhase) => ({ phase }),
         returnToIdle: true,
     }),
 
     reducers({
-        mode: [
-            'idle' as HomepageMode,
+        // Single reducer for mode + phase so transitions are atomic
+        layoutState: [
+            { mode: 'idle', animationPhase: 'idle' } as LayoutState,
             {
-                setMode: (_, { mode }) => mode,
-                returnToIdle: () => 'idle' as HomepageMode,
+                submitQuery: (state, { mode }): LayoutState => {
+                    // Re-submit in the same mode with content already visible — no-op
+                    if (state.mode === mode && state.animationPhase === 'content') {
+                        return state
+                    }
+                    return { mode, animationPhase: 'moving' }
+                },
+                setAnimationPhase: (state, { phase }): LayoutState => ({
+                    ...state,
+                    animationPhase: phase,
+                }),
+                returnToIdle: (): LayoutState => ({ mode: 'idle', animationPhase: 'idle' }),
             },
         ],
         query: [
@@ -34,19 +49,19 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                 returnToIdle: () => '',
             },
         ],
-        animationPhase: [
-            'idle' as AnimationPhase,
-            {
-                setAnimationPhase: (_, { phase }) => phase,
-                returnToIdle: () => 'idle' as AnimationPhase,
-            },
-        ],
     }),
 
-    listeners(({ actions }) => ({
-        submitQuery: async ({ mode }, breakpoint) => {
-            actions.setMode(mode)
-            actions.setAnimationPhase('moving')
+    selectors({
+        mode: [(s) => [s.layoutState], (layoutState): HomepageMode => layoutState.mode],
+        animationPhase: [(s) => [s.layoutState], (layoutState): AnimationPhase => layoutState.animationPhase],
+    }),
+
+    listeners(({ actions, values }) => ({
+        submitQuery: async (_, breakpoint) => {
+            // Reducer kept phase as 'content' for same-mode re-submits — nothing to animate
+            if (values.animationPhase === 'content') {
+                return
+            }
 
             await breakpoint(300)
             actions.setAnimationPhase('separator')

@@ -9,30 +9,25 @@ import { Thread } from 'scenes/max/Thread'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 
-const HOMEPAGE_TAB_ID = 'homepage-ai'
+export const HOMEPAGE_TAB_ID = 'homepage-ai'
 
 export function HomepageThread(): JSX.Element {
     const { query } = useValues(aiFirstHomepageLogic)
     const { threadLogicKey, conversation } = useValues(maxLogic({ tabId: HOMEPAGE_TAB_ID }))
     const { askMax, setQuestion } = useActions(maxLogic({ tabId: HOMEPAGE_TAB_ID }))
 
-    const hasSubmitted = useRef(false)
+    // Send the initial query once on mount
+    const hasSentInitial = useRef(false)
 
     useEffect(() => {
-        if (query && !hasSubmitted.current) {
-            hasSubmitted.current = true
+        if (query && !hasSentInitial.current) {
+            hasSentInitial.current = true
             setQuestion(query)
-            // Small delay to ensure maxThreadLogic is mounted
             setTimeout(() => {
                 askMax(query)
             }, 100)
         }
-    }, [query, setQuestion, askMax])
-
-    // Reset submission tracking when query changes
-    useEffect(() => {
-        hasSubmitted.current = false
-    }, [query])
+    }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
     const threadProps: MaxThreadLogicProps = {
         tabId: HOMEPAGE_TAB_ID,

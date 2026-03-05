@@ -4,10 +4,12 @@ import { useEffect, useRef, useState } from 'react'
 import { IconSearch, IconSparkles } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
+import { maxLogic } from 'scenes/max/maxLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
+import { HOMEPAGE_TAB_ID } from './HomepageThread'
 
 const PLACEHOLDER_OPTIONS = [
     'insights...',
@@ -55,71 +57,155 @@ function useRotatingPlaceholder(isActive: boolean): { text: string; isVisible: b
     return { text: PLACEHOLDER_OPTIONS[index], isVisible }
 }
 
-export function HomepageInput(): JSX.Element {
-    const { query, mode } = useValues(aiFirstHomepageLogic)
+function IdleInput(): JSX.Element {
+    const { query } = useValues(aiFirstHomepageLogic)
     const { setQuery, submitQuery } = useActions(aiFirstHomepageLogic)
     const inputRef = useRef<HTMLInputElement>(null)
-    const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(mode === 'idle')
+    const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(true)
 
     useEffect(() => {
-        if (mode === 'idle') {
-            inputRef.current?.focus()
-        }
-    }, [mode])
+        inputRef.current?.focus()
+    }, [])
 
     return (
-        <div className="w-full max-w-[640px] mx-auto px-4">
-            <label
-                htmlFor="homepage-input"
-                className="group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2"
-            >
-                <IconSearch className="size-4 shrink-0 text-tertiary group-focus-within:text-primary" />
-                {!query && (
-                    <span className="text-tertiary pointer-events-none absolute left-8 top-1/2 -translate-y-1/2">
-                        <span className="text-tertiary">Ask AI or search </span>
-                        <span
-                            className="transition-opacity duration-200"
-                            style={{ opacity: placeholderVisible ? 1 : 0 }}
-                        >
-                            {placeholderText}
-                        </span>
+        <label
+            htmlFor="homepage-input"
+            className="group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2"
+        >
+            <IconSearch className="size-4 shrink-0 text-tertiary group-focus-within:text-primary" />
+            {!query && (
+                <span className="text-tertiary pointer-events-none absolute left-8 top-1/2 -translate-y-1/2">
+                    <span className="text-tertiary">Ask AI or search </span>
+                    <span className="transition-opacity duration-200" style={{ opacity: placeholderVisible ? 1 : 0 }}>
+                        {placeholderText}
                     </span>
-                )}
-                <input
-                    ref={inputRef}
-                    id="homepage-input"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' && query.trim()) {
-                            e.preventDefault()
-                            submitQuery('ai')
-                        }
-                        if (e.key === 'Tab' && query.trim()) {
-                            e.preventDefault()
-                            submitQuery('search')
-                        }
-                    }}
-                    className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
-                    autoFocus
-                />
-                {query.trim() && (
-                    <div className="flex items-center gap-2 shrink-0">
-                        <span
-                            className={cn(
-                                'text-xs text-tertiary whitespace-nowrap flex items-center gap-1',
-                                'hover:text-ai'
-                            )}
-                        >
-                            <IconSparkles className="size-3.5" />
-                            <KeyboardShortcut enter /> AI
-                        </span>
-                        <span className="text-xs text-tertiary whitespace-nowrap flex items-center gap-1">
-                            <KeyboardShortcut tab /> Search
-                        </span>
-                    </div>
-                )}
-            </label>
+                </span>
+            )}
+            <input
+                ref={inputRef}
+                id="homepage-input"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && query.trim()) {
+                        e.preventDefault()
+                        submitQuery('ai')
+                    }
+                    if (e.key === 'Tab' && query.trim()) {
+                        e.preventDefault()
+                        submitQuery('search')
+                    }
+                }}
+                className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
+                autoFocus
+            />
+            {query.trim() && (
+                <div className="flex items-center gap-2 shrink-0">
+                    <span
+                        className={cn(
+                            'text-xs text-tertiary whitespace-nowrap flex items-center gap-1',
+                            'hover:text-ai'
+                        )}
+                    >
+                        <IconSparkles className="size-3.5" />
+                        <KeyboardShortcut enter /> AI
+                    </span>
+                    <span className="text-xs text-tertiary whitespace-nowrap flex items-center gap-1">
+                        <KeyboardShortcut tab /> Search
+                    </span>
+                </div>
+            )}
+        </label>
+    )
+}
+
+function AiInput(): JSX.Element {
+    const [input, setInput] = useState('')
+    const { setQuestion, askMax } = useActions(maxLogic({ tabId: HOMEPAGE_TAB_ID }))
+    const inputRef = useRef<HTMLInputElement>(null)
+
+    useEffect(() => {
+        inputRef.current?.focus()
+    }, [])
+
+    const handleSubmit = (): void => {
+        const trimmed = input.trim()
+        if (!trimmed) {
+            return
+        }
+        setQuestion(trimmed)
+        askMax(trimmed)
+        setInput('')
+    }
+
+    return (
+        <label
+            htmlFor="homepage-ai-input"
+            className="group input-like flex gap-1 items-center w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2"
+        >
+            <IconSparkles className="size-4 shrink-0 text-tertiary group-focus-within:text-ai" />
+            <input
+                ref={inputRef}
+                id="homepage-ai-input"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleSubmit()
+                    }
+                }}
+                placeholder="Ask a follow-up..."
+                className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
+                autoFocus
+            />
+            {input.trim() && (
+                <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-tertiary whitespace-nowrap flex items-center gap-1 hover:text-ai">
+                        <KeyboardShortcut enter /> Send
+                    </span>
+                </div>
+            )}
+        </label>
+    )
+}
+
+function SearchInput(): JSX.Element {
+    const { query } = useValues(aiFirstHomepageLogic)
+    const { setQuery } = useActions(aiFirstHomepageLogic)
+    const inputRef = useRef<HTMLInputElement>(null)
+
+    useEffect(() => {
+        inputRef.current?.focus()
+    }, [])
+
+    return (
+        <label
+            htmlFor="homepage-search-input"
+            className="group input-like flex gap-1 items-center w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2"
+        >
+            <IconSearch className="size-4 shrink-0 text-tertiary group-focus-within:text-primary" />
+            <input
+                ref={inputRef}
+                id="homepage-search-input"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search..."
+                className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
+                autoFocus
+            />
+        </label>
+    )
+}
+
+export function HomepageInput(): JSX.Element {
+    const { mode } = useValues(aiFirstHomepageLogic)
+
+    return (
+        <div className="w-full max-w-[640px] mx-auto px-4 py-2">
+            {mode === 'idle' && <IdleInput />}
+            {mode === 'ai' && <AiInput />}
+            {mode === 'search' && <SearchInput />}
         </div>
     )
 }

@@ -29,7 +29,7 @@ export function HomepageSearchResults(): JSX.Element {
     const nonEmptyCategories = (allCategories as SearchCategory[]).filter((cat) => cat.items.length > 0)
 
     return (
-        <ScrollableShadows direction="vertical" styledScrollbars className="flex-1 overflow-y-auto max-h-[60vh]">
+        <ScrollableShadows direction="vertical" styledScrollbars className="flex-1 overflow-y-auto">
             <div className="max-w-[640px] mx-auto w-full py-3">
                 {isSearching && nonEmptyCategories.length === 0 && (
                     <div className="flex items-center justify-center py-8 gap-2 text-muted">
