@@ -16,8 +16,8 @@ class EndpointConfig:
 
 
 ENDPOINTS: dict[str, EndpointConfig] = {
-    "_channels": EndpointConfig(),
-    "_users": EndpointConfig(),
+    "$channels": EndpointConfig(),
+    "$users": EndpointConfig(),
 }
 
 
