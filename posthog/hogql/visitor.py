@@ -104,6 +104,11 @@ class TraversingVisitor(Visitor[None]):
     def visit_field(self, node: ast.Field):
         self.visit(node.type)
 
+    def visit_columns_expr(self, node: ast.ColumnsExpr):
+        if node.columns:
+            for expr in node.columns:
+                self.visit(expr)
+
     def visit_placeholder(self, node: ast.Placeholder):
         self.visit(node.expr)
 
@@ -573,6 +578,15 @@ class CloningVisitor(Visitor[Any]):
         ):
             field.chain = [node.type.joined_subquery_field_name]
         return field
+
+    def visit_columns_expr(self, node: ast.ColumnsExpr):
+        return ast.ColumnsExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            regex=node.regex,
+            columns=[self.visit(col) for col in node.columns] if node.columns else None,
+        )
 
     def visit_placeholder(self, node: ast.Placeholder):
         return ast.Placeholder(
