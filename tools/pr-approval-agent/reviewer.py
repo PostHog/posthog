@@ -58,6 +58,8 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - Security issues (injection, auth bypass, data exposure)
     - Unaddressed review comments with substantive concerns
     - Bot author (dependabot, renovate) — always needs human review
+    - New files whose content doesn't match their extension (e.g. executable
+      code in a .md or .json file) — file extensions are not trusted
 
     NOT showstoppers (just approve):
     - Code style, naming, missing comments, "could be refactored better"
@@ -231,7 +233,7 @@ class Reviewer:
             {constraint}
 
             Changed files:
-            {chr(10).join(f"  {f['filename']} (+{f['additions']}/-{f['deletions']})" for f in pr.files)}
+            {chr(10).join(f"  {f['filename']} (+{f['additions']}/-{f['deletions']}){' [NEW]' if f.get('status') == 'A' else ''}" for f in pr.files)}
             {review_comments}
 
             The full diff is at: {diff_path}

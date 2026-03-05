@@ -344,6 +344,7 @@ def assign_tier(
     deny_categories: list[str],
     allow_listed_only: bool,
     is_test_only: bool,
+    has_new_files: bool,
     lines_total: int,
     files_changed: int,
     breadth: str,
@@ -351,6 +352,8 @@ def assign_tier(
 ) -> str:
     if deny_categories:
         return "T2-never"
+    if has_new_files:
+        return "T1-agent"
     if allow_listed_only:
         return "T0-deterministic"
     if is_test_only:

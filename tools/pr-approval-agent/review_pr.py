@@ -164,6 +164,7 @@ class Pipeline:
             deny_categories=deny,
             allow_listed_only=allow_only,
             is_test_only=is_test,
+            has_new_files=pr.has_new_files,
             lines_total=pr.lines_total,
             files_changed=len(file_paths),
             breadth=breadth,

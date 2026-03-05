@@ -13,7 +13,9 @@ concurrency:
 
 jobs:
     review:
-        # Only run on the "stamphog" label, for non-draft PRs by org members
+        # Safety layers: only org members can apply labels (GitHub permission),
+        # and the author_association check below is defense-in-depth against
+        # external PRs. Do not weaken without security review.
         if: >-
             !github.event.pull_request.draft
             && contains(fromJSON('["MEMBER","OWNER"]'), github.event.pull_request.author_association)

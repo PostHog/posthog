@@ -46,6 +46,10 @@ class PRData:
     def lines_total(self) -> int:
         return self.lines_added + self.lines_deleted
 
+    @property
+    def has_new_files(self) -> bool:
+        return any(f.get("status") == "A" for f in self.files)
+
 
 def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
     cmd = ["gh", "api", endpoint]
@@ -61,19 +65,23 @@ def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
 
 
 def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path) -> list[dict]:
-    """Get changed files with line counts from the local checkout."""
-    result = subprocess.run(
-        ["git", "diff", "--numstat", f"{base_sha}...{head_sha}"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        cwd=repo_root,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"git diff --numstat failed: {result.stderr.strip()}")
+    """Get changed files with line counts and status from the local checkout."""
+    diff_range = f"{base_sha}...{head_sha}"
+    run_opts = {"capture_output": True, "text": True, "timeout": 30, "cwd": repo_root}
+
+    numstat = subprocess.run(["git", "diff", "--numstat", diff_range], **run_opts)
+    if numstat.returncode != 0:
+        raise RuntimeError(f"git diff --numstat failed: {numstat.stderr.strip()}")
+
+    name_status = subprocess.run(["git", "diff", "--name-status", diff_range], **run_opts)
+    status_map: dict[str, str] = {}
+    for line in name_status.stdout.strip().splitlines():
+        parts = line.split("\t", 1)
+        if len(parts) == 2:
+            status_map[parts[1]] = parts[0]
 
     files = []
-    for line in result.stdout.strip().splitlines():
+    for line in numstat.stdout.strip().splitlines():
         if not line:
             continue
         parts = line.split("\t", 2)
@@ -87,6 +95,7 @@ def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path) -> list[dict]
                 "additions": int(added) if not is_binary else 0,
                 "deletions": int(deleted) if not is_binary else 0,
                 "binary": is_binary,
+                "status": status_map.get(filename, "M"),
             }
         )
     return files
