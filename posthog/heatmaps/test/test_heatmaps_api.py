@@ -605,3 +605,25 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._create_heatmap_event("session_1", "scrolldepth", x=0, y=0)
 
         self._assert_heatmap_result_count({"date_from": "2023-03-08", "type": "scrolldepth"}, 1)
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_edge_margin_filters_left_edge_clicks(self) -> None:
+        # edge_margin=16 → scaled_margin=1 → filter x >= 1
+        # x=0: 0 >= 1 = False, filtered out
+        self._create_heatmap_event("session_1", "click", x=0, y=20)
+        # x=10: 10 >= 1 = True, kept
+        self._create_heatmap_event("session_2", "click", x=10, y=20)
+
+        self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "edge_margin": "16"}, 1)
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_edge_margin_zero_disables_filter(self) -> None:
+        self._create_heatmap_event("session_1", "click", x=1, y=100)
+
+        self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "edge_margin": "0"}, 1)
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_edge_margin_not_applied_to_scrolldepth(self) -> None:
+        self._create_heatmap_event("session_1", "scrolldepth", x=0, y=100)
+
+        self._assert_heatmap_result_count({"date_from": "2023-03-08", "type": "scrolldepth", "edge_margin": "100"}, 1)

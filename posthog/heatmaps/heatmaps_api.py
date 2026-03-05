@@ -106,6 +106,13 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     )
     filter_test_accounts = serializers.BooleanField(required=False, default=None, allow_null=True)
     hide_zero_coordinates = serializers.BooleanField(required=False, default=True)
+    edge_margin = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        max_value=500,
+        help_text="Filter clicks within this many pixels of the left edge (0 = disabled)",
+    )
 
     def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
         try:
@@ -236,6 +243,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         aggregation = request_serializer.validated_data.pop("aggregation")
         hide_zero_coordinates = request_serializer.validated_data.pop("hide_zero_coordinates", True)
+        edge_margin = request_serializer.validated_data.pop("edge_margin", 0)
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
         placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
@@ -247,6 +255,18 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         if hide_zero_coordinates and not is_scrolldepth_query:
             exprs.append(parse_expr("NOT (x = 0 AND y = 0)"))
+
+        if edge_margin > 0 and not is_scrolldepth_query:
+            # edge_margin is in real pixels, x is stored scaled by factor of 16
+            # Use >= to include events at exactly the margin boundary
+            scaled_margin = edge_margin // 16
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["x"]),
+                    right=Constant(value=scaled_margin),
+                )
+            )
 
         if request_serializer.validated_data.get("filter_test_accounts") is True:
             date_from: date = request_serializer.validated_data["date_from"]
@@ -367,6 +387,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         points = validated_data.pop("points")
         validated_data.pop("aggregation", None)
         validated_data.pop("hide_zero_coordinates", None)
+        validated_data.pop("edge_margin", None)
 
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in validated_data.items()}
         placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
