@@ -1,5 +1,8 @@
 import emojiRegex from 'emoji-regex'
 
+import { Dayjs } from 'lib/dayjs'
+import { shortTimeZone } from 'lib/utils'
+
 import {
     LegacyRecordingFilters,
     RecordingUniversalFilters,
@@ -8,6 +11,38 @@ import {
     UniversalFilterValue,
     UniversalFiltersGroup,
 } from '~/types'
+
+import { TimestampFormat } from './player/playerSettingsLogic'
+
+export function applyTimestampFormatTz(
+    timestamp: Dayjs,
+    timestampFormat: TimestampFormat,
+    projectTimezone?: string
+): Dayjs {
+    if (timestampFormat === TimestampFormat.UTC) {
+        return timestamp.tz('UTC')
+    }
+    if (timestampFormat === TimestampFormat.Project && projectTimezone) {
+        return timestamp.tz(projectTimezone)
+    }
+    return timestamp
+}
+
+export function applyTimestampFormatTzWithLabel(
+    timestamp: Dayjs,
+    timestampFormat: TimestampFormat,
+    projectTimezone?: string
+): { adjusted: Dayjs; timezoneLabel: string } {
+    if (timestampFormat === TimestampFormat.UTC) {
+        const adjusted = timestamp.tz('UTC')
+        return { adjusted, timezoneLabel: 'UTC' }
+    }
+    if (timestampFormat === TimestampFormat.Project && projectTimezone) {
+        const adjusted = timestamp.tz(projectTimezone)
+        return { adjusted, timezoneLabel: shortTimeZone(projectTimezone, adjusted.toDate()) ?? projectTimezone }
+    }
+    return { adjusted: timestamp, timezoneLabel: shortTimeZone(undefined, timestamp.toDate()) ?? '' }
+}
 
 export const TimestampFormatToLabel = {
     relative: 'Relative',

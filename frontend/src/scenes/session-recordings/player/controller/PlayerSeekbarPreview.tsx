@@ -7,6 +7,7 @@ import useIsHovering from 'lib/hooks/useIsHovering'
 import { colonDelimitedDuration } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { applyTimestampFormatTz } from '../../utils'
 import { PlayerFrame } from '../PlayerFrame'
 import { TimestampFormat } from '../playerSettingsLogic'
 import {
@@ -89,23 +90,12 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
     const { currentTeam } = useValues(teamLogic)
     const absoluteTime = startTime?.add(progressionSeconds, 'seconds')
 
-    const applyTz = (t: typeof absoluteTime): string => {
-        if (!t) {
-            return '00:00:00'
-        }
-        if (timestampFormat === TimestampFormat.UTC) {
-            return t.tz('UTC').format('HH:mm:ss')
-        }
-        if (timestampFormat === TimestampFormat.Project && currentTeam?.timezone) {
-            return t.tz(currentTeam.timezone).format('HH:mm:ss')
-        }
-        return t.format('HH:mm:ss')
-    }
-
     const content =
         timestampFormat === TimestampFormat.Relative
             ? colonDelimitedDuration(minMs / 1000 + progressionSeconds, fixedUnits)
-            : applyTz(absoluteTime)
+            : absoluteTime
+              ? applyTimestampFormatTz(absoluteTime, timestampFormat, currentTeam?.timezone).format('HH:mm:ss')
+              : '00:00:00'
 
     const isHovering = useIsHovering(seekBarRef)
 

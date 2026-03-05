@@ -11,16 +11,7 @@ import { playerInspectorLogic } from '../player/inspector/playerInspectorLogic'
 import { TimestampFormat } from '../player/playerSettingsLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../player/sessionRecordingPlayerLogic'
-
-function applyTimezone(timestamp: Dayjs, timestampFormat: TimestampFormat, projectTimezone?: string): Dayjs {
-    if (timestampFormat === TimestampFormat.UTC) {
-        return timestamp.tz('UTC')
-    }
-    if (timestampFormat === TimestampFormat.Project && projectTimezone) {
-        return timestamp.tz(projectTimezone)
-    }
-    return timestamp
-}
+import { applyTimestampFormatTz } from '../utils'
 
 export function ItemTimeDisplay({
     timestamp,
@@ -43,7 +34,7 @@ export function ItemTimeDisplay({
     return (
         <div className={cn('px-2 py-1 text-xs min-w-18 text-center', className)}>
             {timestampFormat !== TimestampFormat.Relative ? (
-                applyTimezone(timestamp, timestampFormat, currentTeam?.timezone).format(
+                applyTimestampFormatTz(timestamp, timestampFormat, currentTeam?.timezone).format(
                     `${formatLocalizedDate()}, HH:mm:ss`
                 )
             ) : (

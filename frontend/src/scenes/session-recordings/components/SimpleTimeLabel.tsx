@@ -3,9 +3,9 @@ import { useValues } from 'kea'
 import { memo } from 'react'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { shortTimeZone } from 'lib/utils'
 import { formatLocalizedDate } from 'lib/utils/dateTimeUtils'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { applyTimestampFormatTzWithLabel } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 function formattedReplayTime(
@@ -18,19 +18,9 @@ function formattedReplayTime(
         return timeOnly ? '00:00:00' : '--/--/----, 00:00:00'
     }
 
-    let d = dayjs(time)
-    let timezone: string
-    if (timestampFormat === TimestampFormat.UTC) {
-        d = d.tz('UTC')
-        timezone = 'UTC'
-    } else if (timestampFormat === TimestampFormat.Project && projectTimezone) {
-        d = d.tz(projectTimezone)
-        timezone = shortTimeZone(projectTimezone, d.toDate()) ?? projectTimezone
-    } else {
-        timezone = shortTimeZone(undefined, d.toDate()) ?? ''
-    }
-    const formatted = d.format(formatStringFor(d, timeOnly))
-    return `${formatted} ${timezone}`
+    const { adjusted, timezoneLabel } = applyTimestampFormatTzWithLabel(dayjs(time), timestampFormat, projectTimezone)
+    const formatted = adjusted.format(formatStringFor(adjusted, timeOnly))
+    return `${formatted} ${timezoneLabel}`
 }
 
 function formatStringFor(d: Dayjs, timeOnly?: boolean): string {

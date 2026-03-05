@@ -7,7 +7,7 @@ import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, colonDelimitedDuration, shortTimeZone } from 'lib/utils'
+import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { formatLocalizedDate } from 'lib/utils/dateTimeUtils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
@@ -15,6 +15,7 @@ import {
     ONE_SECOND_MS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { applyTimestampFormatTzWithLabel } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -38,19 +39,8 @@ function formatTimestampForTooltip(
     if (timestamp === undefined) {
         return '--:--:--'
     }
-    let d = dayjs(timestamp)
-    let timezone: string
-    if (format === TimestampFormat.UTC) {
-        d = d.tz('UTC')
-        timezone = 'UTC'
-    } else if (format === TimestampFormat.Project && projectTimezone) {
-        d = d.tz(projectTimezone)
-        timezone = shortTimeZone(projectTimezone, d.toDate()) ?? projectTimezone
-    } else {
-        timezone = shortTimeZone(undefined, d.toDate()) ?? ''
-    }
-    const formatted = d.format(`${formatLocalizedDate()}, HH:mm:ss`)
-    return `${formatted} ${timezone}`
+    const { adjusted, timezoneLabel } = applyTimestampFormatTzWithLabel(dayjs(timestamp), format, projectTimezone)
+    return `${adjusted.format(`${formatLocalizedDate()}, HH:mm:ss`)} ${timezoneLabel}`
 }
 
 function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Element {
