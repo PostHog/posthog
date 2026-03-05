@@ -28,11 +28,14 @@ import {
     LemonTextArea,
     Spinner,
     Link,
+    lemonToast,
 } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
@@ -40,6 +43,7 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -126,30 +130,9 @@ function usePlaygroundSourceFromSearchParams(): void {
     const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
     const handledSourceKey = React.useRef<string | null>(null)
 
-    const sourcePromptId =
-        typeof searchParams.source_prompt_id === 'string'
-            ? searchParams.source_prompt_id
-            : typeof searchParams.playground_source_prompt_id === 'string'
-              ? searchParams.playground_source_prompt_id
-              : null
-    const sourcePromptName =
-        typeof searchParams.source_prompt_name === 'string'
-            ? searchParams.source_prompt_name
-            : typeof searchParams.playground_source_prompt_name === 'string'
-              ? searchParams.playground_source_prompt_name
-              : null
+    const sourcePromptId = typeof searchParams.source_prompt_id === 'string' ? searchParams.source_prompt_id : null
     const sourceEvaluationId =
-        typeof searchParams.source_evaluation_id === 'string'
-            ? searchParams.source_evaluation_id
-            : typeof searchParams.playground_source_evaluation_id === 'string'
-              ? searchParams.playground_source_evaluation_id
-              : null
-    const sourceEvaluationName =
-        typeof searchParams.source_evaluation_name === 'string'
-            ? searchParams.source_evaluation_name
-            : typeof searchParams.playground_source_evaluation_name === 'string'
-              ? searchParams.playground_source_evaluation_name
-              : null
+        typeof searchParams.source_evaluation_id === 'string' ? searchParams.source_evaluation_id : null
 
     React.useEffect(() => {
         if (!sourcePromptId && !sourceEvaluationId) {
@@ -157,27 +140,19 @@ function usePlaygroundSourceFromSearchParams(): void {
             return
         }
 
-        const sourceKey = [
-            sourcePromptId ?? '',
-            sourcePromptName ?? '',
-            sourceEvaluationId ?? '',
-            sourceEvaluationName ?? '',
-        ].join('::')
+        const sourceKey = `${sourcePromptId ?? ''}::${sourceEvaluationId ?? ''}`
         if (handledSourceKey.current === sourceKey) {
             return
         }
 
-        const inferredSourceType = sourcePromptId ? 'prompt' : sourceEvaluationId ? 'evaluation' : undefined
         setupPlaygroundFromEvent({
-            sourceType: inferredSourceType,
+            sourceType: sourcePromptId ? 'prompt' : sourceEvaluationId ? 'evaluation' : undefined,
             sourcePromptId: sourcePromptId ?? undefined,
-            sourcePromptName: sourcePromptName ?? undefined,
             sourceEvaluationId: sourceEvaluationId ?? undefined,
-            sourceEvaluationName: sourceEvaluationName ?? undefined,
         })
 
         handledSourceKey.current = sourceKey
-    }, [setupPlaygroundFromEvent, sourceEvaluationId, sourceEvaluationName, sourcePromptId, sourcePromptName])
+    }, [setupPlaygroundFromEvent, sourceEvaluationId, sourcePromptId])
 }
 
 function PlaygroundHeaderActions(): JSX.Element {
@@ -817,190 +792,169 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
     )
 }
 
-function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
-    const prompt = usePromptConfig(promptId)
+function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: PromptConfig }): JSX.Element | null {
     const { effectiveModelOptions } = useValues(llmPlaygroundModelLogic)
-    const { promptConfigs, editModal, collapsedSections } = useValues(llmPlaygroundPromptsLogic)
+    const { linkedSource } = useValues(llmPlaygroundPromptsLogic)
+    const { clearLinkedSource } = useActions(llmPlaygroundPromptsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
-    const { setSystemPrompt, setEditModal, toggleCollapsed, clearLinkedSource } = useActions(llmPlaygroundPromptsLogic)
-    const { submitPrompt } = useActions(llmPlaygroundRunLogic)
 
-    if (!prompt) {
-        return <LemonSkeleton className="h-12" />
-    }
-
-    const showEditModal = editModal?.type === 'system' && editModal.promptId === promptId
-    const collapsed = !!collapsedSections[`system:${promptId}`]
-    const hasOtherPrompts = promptConfigs.length > 1
     const selectedModel = effectiveModelOptions.find((model) => model.id === prompt.model)
-    const linkedPromptIdFromUrl =
-        typeof searchParams.source_prompt_id === 'string'
-            ? searchParams.source_prompt_id
-            : typeof searchParams.playground_source_prompt_id === 'string'
-              ? searchParams.playground_source_prompt_id
-              : null
-    const linkedPromptNameFromUrl =
-        typeof searchParams.source_prompt_name === 'string'
-            ? searchParams.source_prompt_name
-            : typeof searchParams.playground_source_prompt_name === 'string'
-              ? searchParams.playground_source_prompt_name
-              : null
-    const linkedEvaluationIdFromUrl =
-        typeof searchParams.source_evaluation_id === 'string'
-            ? searchParams.source_evaluation_id
-            : typeof searchParams.playground_source_evaluation_id === 'string'
-              ? searchParams.playground_source_evaluation_id
-              : null
-    const linkedEvaluationNameFromUrl =
-        typeof searchParams.source_evaluation_name === 'string'
-            ? searchParams.source_evaluation_name
-            : typeof searchParams.playground_source_evaluation_name === 'string'
-              ? searchParams.playground_source_evaluation_name
-              : null
-    const linkedPromptId = prompt.sourcePromptId ?? linkedPromptIdFromUrl
-    const linkedPromptName = prompt.sourcePromptName ?? linkedPromptNameFromUrl
-    const linkedEvaluationId = prompt.sourceEvaluationId ?? linkedEvaluationIdFromUrl
     const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
     const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
     const isEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
+
+    const {
+        promptId: linkedPromptId,
+        promptName: linkedPromptName,
+        evaluationId: linkedEvaluationId,
+        evaluationName: linkedEvaluationName,
+    } = linkedSource
+    const hasLinkedSource = !!linkedPromptId || !!linkedEvaluationId
+
     const linkedPromptLabel = linkedPromptName ?? 'linked prompt'
-    const linkedEvaluationLabel = linkedEvaluationNameFromUrl
-        ? `evaluation "${linkedEvaluationNameFromUrl}"`
+    const linkedEvaluationLabel = linkedEvaluationName
+        ? `evaluation "${linkedEvaluationName}"`
         : linkedEvaluationId
           ? `evaluation ${linkedEvaluationId.slice(0, 8)}`
           : 'linked evaluation'
-    const linkedContextLabel =
-        linkedPromptId && linkedPromptName
-            ? `Editing prompt: ${linkedPromptName}`
-            : linkedEvaluationId && linkedEvaluationNameFromUrl
-              ? `Editing evaluation: ${linkedEvaluationNameFromUrl}`
-              : linkedEvaluationId
-                ? `Editing evaluation: ${linkedEvaluationId.slice(0, 8)}`
-                : null
-    const {
-        source_prompt_id: _sourcePromptId,
-        source_prompt_name: _sourcePromptName,
-        source_evaluation_id: _sourceEvaluationId,
-        source_evaluation_name: _sourceEvaluationName,
-        playground_source_prompt_id: _legacySourcePromptId,
-        playground_source_prompt_name: _legacySourcePromptName,
-        playground_source_evaluation_id: _legacySourceEvaluationId,
-        playground_source_evaluation_name: _legacySourceEvaluationName,
-        ...searchParamsWithoutLinkedSource
-    } = searchParams
 
-    const goToNewEvaluationEditor = (): void => {
-        const url = combineUrl(urls.llmAnalyticsEvaluation('new'), {
-            ...searchParams,
-            playground_name: 'Playground guardrail',
-            playground_description: `Created from playground on ${new Date().toLocaleString()}`,
-            playground_prompt: prompt.systemPrompt,
-            playground_model: prompt.model,
-            playground_provider: selectedModel?.provider,
-            playground_provider_key_id: prompt.selectedProviderKeyId,
-        }).url
-        router.actions.push(url)
+    const { source_prompt_id: _, source_evaluation_id: __, ...cleanSearchParams } = searchParams
+
+    const saveAsNewPrompt = (): void => {
+        LemonDialog.openForm({
+            title: 'Save as new prompt',
+            initialValues: { name: '' },
+            content: (
+                <LemonField name="name" label="Name">
+                    <LemonInput placeholder="Enter a name for this prompt" autoFocus />
+                </LemonField>
+            ),
+            errors: { name: (name) => (!name ? 'A name is required' : undefined) },
+            onSubmit: async ({ name }) => {
+                const saved = await api.llmPrompts.create({ name, prompt: prompt.systemPrompt })
+                lemonToast.success(
+                    <>
+                        Prompt saved.{' '}
+                        <Link to={urls.llmAnalyticsPrompt(saved.name)} className="font-semibold">
+                            View prompt
+                        </Link>
+                    </>
+                )
+            },
+        })
     }
 
-    const goToPromptsLibrary = (): void => {
-        router.actions.push(combineUrl(urls.llmAnalyticsPrompts(), searchParams).url)
+    const saveAsNewEvaluation = (): void => {
+        LemonDialog.openForm({
+            title: 'Save as new evaluation',
+            initialValues: { name: '' },
+            content: (
+                <LemonField name="name" label="Name">
+                    <LemonInput placeholder="Enter a name for this evaluation" autoFocus />
+                </LemonField>
+            ),
+            errors: { name: (name) => (!name ? 'A name is required' : undefined) },
+            onSubmit: async ({ name }) => {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+                const saved = await api.create(`/api/environments/${teamId}/evaluations/`, {
+                    name,
+                    evaluation_type: 'llm_judge',
+                    evaluation_config: { prompt: prompt.systemPrompt },
+                    model_configuration: selectedModel
+                        ? {
+                              model: prompt.model,
+                              provider: selectedModel.provider?.toLowerCase(),
+                              provider_key_id: prompt.selectedProviderKeyId ?? null,
+                          }
+                        : null,
+                    output_type: 'boolean',
+                    conditions: [],
+                    enabled: false,
+                })
+                lemonToast.success(
+                    <>
+                        Evaluation saved.{' '}
+                        <Link to={urls.llmAnalyticsEvaluation(saved.id)} className="font-semibold">
+                            View evaluation
+                        </Link>
+                    </>
+                )
+            },
+        })
     }
 
-    const goToEvaluationsLibrary = (): void => {
-        router.actions.push(combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url)
+    const saveToLinkedPrompt = async (): Promise<void> => {
+        if (!linkedPromptId) {
+            return
+        }
+        await api.llmPrompts.update(linkedPromptId, { prompt: prompt.systemPrompt })
+        lemonToast.success(`Prompt "${linkedPromptLabel}" updated`)
     }
 
-    const goToLinkedEvaluationEditor = (): void => {
+    const confirmSaveToLinkedPrompt = (): void => {
+        if (!linkedPromptId) {
+            return
+        }
+        LemonDialog.open({
+            title: `Save to prompt "${linkedPromptLabel}"?`,
+            description: 'This will overwrite the current prompt with the system prompt from the playground.',
+            primaryButton: { children: 'Save', type: 'primary', onClick: () => void saveToLinkedPrompt() },
+            secondaryButton: { children: 'Cancel', type: 'secondary' },
+        })
+    }
+
+    const saveToLinkedEvaluation = async (): Promise<void> => {
         if (!linkedEvaluationId) {
             return
         }
-
-        const url = combineUrl(urls.llmAnalyticsEvaluation(linkedEvaluationId), {
-            ...searchParams,
-            playground_prompt: prompt.systemPrompt,
-            playground_model: prompt.model,
-            playground_provider: selectedModel?.provider,
-            playground_provider_key_id: prompt.selectedProviderKeyId,
-        }).url
-        router.actions.push(url)
+        const teamId = teamLogic.values.currentTeamId
+        if (!teamId) {
+            return
+        }
+        await api.update(`/api/environments/${teamId}/evaluations/${linkedEvaluationId}/`, {
+            evaluation_config: { prompt: prompt.systemPrompt },
+            ...(selectedModel
+                ? {
+                      model_configuration: {
+                          model: prompt.model,
+                          provider: selectedModel.provider?.toLowerCase(),
+                          provider_key_id: prompt.selectedProviderKeyId ?? null,
+                      },
+                  }
+                : {}),
+        })
+        lemonToast.success(`Evaluation "${linkedEvaluationLabel}" updated`)
     }
 
     const confirmSaveToLinkedEvaluation = (): void => {
         if (!linkedEvaluationId) {
             return
         }
-
         LemonDialog.open({
             title: `Save to ${linkedEvaluationLabel}?`,
             description:
-                'This opens the existing evaluation with this system prompt prefilled. If you save there, it will overwrite the current evaluation.',
+                'This will overwrite the evaluation prompt and model configuration with the current playground state.',
             primaryButton: {
-                children: 'Continue',
+                children: 'Save',
                 type: 'primary',
-                onClick: goToLinkedEvaluationEditor,
+                onClick: () => void saveToLinkedEvaluation(),
             },
-            secondaryButton: {
-                children: 'Cancel',
-                type: 'secondary',
-            },
-        })
-    }
-
-    const goToNewPromptEditor = (): void => {
-        const url = combineUrl(urls.llmAnalyticsPrompt('new'), {
-            ...searchParams,
-            edit: 'true',
-            prefill_name: `playground_system_prompt_${Date.now()}`,
-            prefill_prompt: prompt.systemPrompt,
-        }).url
-        router.actions.push(url)
-    }
-
-    const goToLinkedPromptEditor = (): void => {
-        if (!linkedPromptName) {
-            return
-        }
-
-        const url = combineUrl(urls.llmAnalyticsPrompt(linkedPromptName), {
-            ...searchParams,
-            edit: 'true',
-            prefill_prompt: prompt.systemPrompt,
-            source_prompt_id: linkedPromptId,
-        }).url
-        router.actions.push(url)
-    }
-
-    const confirmSaveToLinkedPrompt = (): void => {
-        if (!linkedPromptName) {
-            return
-        }
-
-        LemonDialog.open({
-            title: `Save to prompt "${linkedPromptLabel}"?`,
-            description:
-                'This opens the existing prompt in edit mode with this system prompt prefilled. If you save there, it will overwrite the current prompt.',
-            primaryButton: {
-                children: 'Continue',
-                type: 'primary',
-                onClick: goToLinkedPromptEditor,
-            },
-            secondaryButton: {
-                children: 'Cancel',
-                type: 'secondary',
-            },
+            secondaryButton: { children: 'Cancel', type: 'secondary' },
         })
     }
 
     const clearLinkedSourceState = (): void => {
         clearLinkedSource(promptId)
-        router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), searchParamsWithoutLinkedSource).url)
+        router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), cleanSearchParams).url)
     }
 
     const linkedActions: JSX.Element[] = []
     const saveAsNewActions: JSX.Element[] = []
     const loadActions: JSX.Element[] = []
-    const hasLinkedSource = !!linkedPromptId || !!linkedEvaluationId
 
     if (linkedPromptId && linkedPromptName && isPromptManagementEnabled) {
         linkedActions.push(
@@ -1034,14 +988,9 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
             >
                 <span
                     className="block w-full whitespace-normal break-all text-left"
-                    title={
-                        linkedEvaluationNameFromUrl
-                            ? `Save to evaluation "${linkedEvaluationNameFromUrl}"`
-                            : `Save to evaluation ${linkedEvaluationId.slice(0, 8)}`
-                    }
+                    title={`Save to ${linkedEvaluationLabel}`}
                 >
-                    Save to evaluation{' '}
-                    {linkedEvaluationNameFromUrl ? `"${linkedEvaluationNameFromUrl}"` : linkedEvaluationId.slice(0, 8)}
+                    Save to {linkedEvaluationLabel}
                 </span>
             </LemonButton>
         )
@@ -1057,12 +1006,18 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
 
     if (isPromptManagementEnabled) {
         saveAsNewActions.push(
-            <LemonButton key="save-new-prompt" type="tertiary" size="small" fullWidth onClick={goToNewPromptEditor}>
+            <LemonButton key="save-new-prompt" type="tertiary" size="small" fullWidth onClick={saveAsNewPrompt}>
                 Save as new prompt
             </LemonButton>
         )
         loadActions.push(
-            <LemonButton key="load-prompt" type="tertiary" size="small" fullWidth onClick={goToPromptsLibrary}>
+            <LemonButton
+                key="load-prompt"
+                type="tertiary"
+                size="small"
+                fullWidth
+                onClick={() => router.actions.push(urls.llmAnalyticsPrompts())}
+            >
                 Load prompt
             </LemonButton>
         )
@@ -1070,35 +1025,79 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
 
     if (isEvaluationsEnabled) {
         saveAsNewActions.push(
-            <LemonButton
-                key="save-new-evaluation"
-                type="tertiary"
-                size="small"
-                fullWidth
-                onClick={goToNewEvaluationEditor}
-            >
+            <LemonButton key="save-new-evaluation" type="tertiary" size="small" fullWidth onClick={saveAsNewEvaluation}>
                 Save as new evaluation
             </LemonButton>
         )
         loadActions.push(
-            <LemonButton key="load-evaluation" type="tertiary" size="small" fullWidth onClick={goToEvaluationsLibrary}>
+            <LemonButton
+                key="load-evaluation"
+                type="tertiary"
+                size="small"
+                fullWidth
+                onClick={() => router.actions.push(urls.llmAnalyticsEvaluations())}
+            >
                 Load evaluation
             </LemonButton>
         )
     }
 
     const menuGroups = [linkedActions, saveAsNewActions, loadActions].filter((group) => group.length > 0)
+    if (menuGroups.length === 0) {
+        return null
+    }
 
-    const saveAsOverlay = (
-        <div className={`${hasLinkedSource ? 'w-72' : 'w-56'} p-1`}>
-            {menuGroups.map((group, groupIndex) => (
-                <React.Fragment key={`group-${groupIndex}`}>
-                    {groupIndex > 0 ? <LemonDivider className="my-1" /> : null}
-                    {group}
-                </React.Fragment>
-            ))}
-        </div>
+    return (
+        <LemonDropdown
+            overlay={
+                <div className={`${hasLinkedSource ? 'w-72' : 'w-56'} p-1`}>
+                    {menuGroups.map((group, groupIndex) => (
+                        <React.Fragment key={`group-${groupIndex}`}>
+                            {groupIndex > 0 ? <LemonDivider className="my-1" /> : null}
+                            {group}
+                        </React.Fragment>
+                    ))}
+                </div>
+            }
+            placement="bottom-end"
+        >
+            <LemonButton
+                size="small"
+                icon={<IconLlmPromptManagement className="text-warning" />}
+                tooltip={
+                    hasLinkedSource
+                        ? 'Save changes back to the linked item or create a new one'
+                        : 'Save this system prompt as a prompt or evaluation'
+                }
+                noPadding
+                data-attr="llma-playground-save-system-prompt"
+            />
+        </LemonDropdown>
     )
+}
+
+function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
+    const prompt = usePromptConfig(promptId)
+    const { promptConfigs, editModal, collapsedSections, linkedSource } = useValues(llmPlaygroundPromptsLogic)
+    const { setSystemPrompt, setEditModal, toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
+    const { submitPrompt } = useActions(llmPlaygroundRunLogic)
+
+    if (!prompt) {
+        return <LemonSkeleton className="h-12" />
+    }
+
+    const showEditModal = editModal?.type === 'system' && editModal.promptId === promptId
+    const collapsed = !!collapsedSections[`system:${promptId}`]
+    const hasOtherPrompts = promptConfigs.length > 1
+
+    const linkedContextLabel =
+        linkedSource.promptId && linkedSource.promptName
+            ? `Editing prompt: ${linkedSource.promptName}`
+            : linkedSource.evaluationId && linkedSource.evaluationName
+              ? `Editing evaluation: ${linkedSource.evaluationName}`
+              : linkedSource.evaluationId
+                ? `Editing evaluation: ${linkedSource.evaluationId.slice(0, 8)}`
+                : null
 
     const copySystemPromptToOtherPrompts = (): void => {
         if (!hasOtherPrompts) {
@@ -1116,21 +1115,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
         <>
             <div className="border rounded p-4 py-2 relative group border-l-4 border-l-[var(--color-purple-500)]">
                 <div className="absolute top-2 right-2 flex items-center gap-1">
-                    {menuGroups.length > 0 ? (
-                        <LemonDropdown overlay={saveAsOverlay} placement="bottom-end">
-                            <LemonButton
-                                size="small"
-                                icon={<IconLlmPromptManagement className="text-warning" />}
-                                tooltip={
-                                    linkedPromptId || linkedEvaluationId
-                                        ? 'Save changes back to the linked item or create a new one'
-                                        : 'Save this system prompt as a prompt or evaluation'
-                                }
-                                noPadding
-                                data-attr="playground-use-system-prompt"
-                            />
-                        </LemonDropdown>
-                    ) : null}
+                    <SaveAsDropdown promptId={promptId} prompt={prompt} />
                     <LemonButton
                         size="small"
                         icon={<IconCopy />}

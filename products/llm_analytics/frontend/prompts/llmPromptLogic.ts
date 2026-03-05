@@ -59,9 +59,7 @@ export enum PromptAnalyticsScope {
 export interface PromptLogicProps {
     promptName: string | 'new'
     mode?: PromptMode
-    selectedVersion?: number | null;
-    prefillName?: string;
-    prefillPrompt?: string
+    selectedVersion?: number | null
     tabId?: string
 }
 
@@ -152,10 +150,7 @@ function isNameFieldValidationError(error: unknown): error is { attr: 'name'; de
 export const llmPromptLogic = kea<llmPromptLogicType>([
     path(['scenes', 'llm-analytics', 'llmPromptLogic']),
     props({ promptName: 'new' } as PromptLogicProps),
-    key(
-        ({ promptName, selectedVersion, prefillName, prefillPrompt, mode, tabId }) =>
-            `prompt-${promptName}:${selectedVersion ?? 'latest'}::${prefillName ?? ''}::${prefillPrompt ?? ''}::${mode ?? PromptMode.View}::${tabId ?? 'default'}`
-    ),
+    key(({ promptName, selectedVersion, tabId }) => `prompt-${promptName}:${selectedVersion ?? 'latest'}::${tabId ?? 'default'}`),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
     })),
@@ -292,8 +287,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             combineUrl(urls.llmAnalyticsPrompt(props.promptName), {
                                 ...router.values.searchParams,
                                 edit: 'true',
-                                prefill_prompt: undefined,
-                                prefill_name: undefined,
                             }).url
                         )
 
@@ -670,10 +663,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             if (prompt && isPrompt(prompt)) {
                 const resolvedPrompt = prompt as LLMPrompt
                 const nextValues = getPromptFormDefaults(resolvedPrompt)
-                if (props.prefillPrompt) {
-                    nextValues.prompt = props.prefillPrompt
-                    actions.setMode(PromptMode.Edit)
-                }
                 actions.resetPromptForm()
                 actions.setPromptFormValues(nextValues)
             }
@@ -689,13 +678,9 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             versionsLoading: boolean
         } => {
             if (props.promptName === 'new') {
-                const prefillValues: PromptFormValues = {
-                    name: props.prefillName ?? DEFAULT_PROMPT_FORM_VALUES.name,
-                    prompt: props.prefillPrompt ?? DEFAULT_PROMPT_FORM_VALUES.prompt,
-                }
                 return {
-                    prompt: prefillValues,
-                    promptForm: prefillValues,
+                    prompt: DEFAULT_PROMPT_FORM_VALUES,
+                    promptForm: DEFAULT_PROMPT_FORM_VALUES,
                     versionsLoading: false,
                 }
             }
@@ -718,19 +703,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         }
     ),
 
-    afterMount(({ actions, props, values }) => {
+    afterMount(({ actions, values }) => {
         if (values.isNewPrompt) {
-            const prefillValues: PromptFormValues = {
-                name: props.prefillName ?? DEFAULT_PROMPT_FORM_VALUES.name,
-                prompt: props.prefillPrompt ?? DEFAULT_PROMPT_FORM_VALUES.prompt,
-            }
             actions.resetPromptForm(DEFAULT_PROMPT_FORM_VALUES)
-            actions.setPrompt(prefillValues)
-            actions.setPromptFormValues(prefillValues)
+            actions.setPrompt(DEFAULT_PROMPT_FORM_VALUES)
+            actions.setPromptFormValues(DEFAULT_PROMPT_FORM_VALUES)
         } else {
-            if (props.prefillPrompt) {
-                actions.setMode(PromptMode.Edit)
-            }
             actions.loadPrompt()
         }
     }),

@@ -79,7 +79,7 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                         icon={<IconPlay />}
                         onClick={handleTryInPlayground}
                         tooltip="Try this prompt in the playground"
-                        data-attr="try-in-playground-conversation"
+                        data-attr="llma-playground-try-in-playground-conversation"
                     >
                         Open in Playground
                     </LemonButton>

@@ -1,6 +1,8 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { isObject, uuid } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -30,10 +32,11 @@ export interface PromptConfig {
     thinking: boolean
     reasoningLevel: ReasoningLevel
     tools: Record<string, unknown>[] | null
-    sourceType: 'prompt' | 'evaluation' | null;
-    sourcePromptId: string | null;
-    sourcePromptName: string | null;
+    sourceType: 'prompt' | 'evaluation' | null
+    sourcePromptId: string | null
+    sourcePromptName: string | null
     sourceEvaluationId: string | null
+    sourceEvaluationName: string | null
     messages: Message[]
 }
 
@@ -44,9 +47,7 @@ export interface PlaygroundSetupPayload {
     systemPrompt?: string
     sourceType?: 'prompt' | 'evaluation'
     sourcePromptId?: string
-    sourcePromptName?: string
     sourceEvaluationId?: string
-    sourceEvaluationName?: string
     input?: unknown
     tools?: Record<string, unknown>[]
 }
@@ -69,6 +70,7 @@ export function createPromptConfig(partial: Partial<PromptConfig> = {}): PromptC
         sourcePromptId: partial.sourcePromptId ?? null,
         sourcePromptName: partial.sourcePromptName ?? null,
         sourceEvaluationId: partial.sourceEvaluationId ?? null,
+        sourceEvaluationName: partial.sourceEvaluationName ?? null,
         messages: partial.messages ?? [],
     }
 }
@@ -188,6 +190,11 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         addMessage: (message?: Partial<Message>, promptId?: string) => ({ message, promptId }),
         updateMessage: (index: number, payload: Partial<Message>, promptId?: string) => ({ index, payload, promptId }),
         clearLinkedSource: (promptId?: string) => ({ promptId }),
+        setSourceNames: (promptName: string | null, evaluationName: string | null, promptId?: string) => ({
+            promptName,
+            evaluationName,
+            promptId,
+        }),
         setupPlaygroundFromEvent: (payload: PlaygroundSetupPayload) => ({ payload }),
         setLocalToolsJson: (json: string | null, promptId?: string) => ({ json, promptId }),
         clearPendingTargetModel: true,
@@ -294,6 +301,20 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         sourcePromptId: null,
                         sourcePromptName: null,
                         sourceEvaluationId: null,
+                        sourceEvaluationName: null,
+                    })),
+                setSourceNames: (
+                    state: PromptConfig[],
+                    {
+                        promptName,
+                        evaluationName,
+                        promptId,
+                    }: { promptName: string | null; evaluationName: string | null; promptId?: string }
+                ) =>
+                    updatePromptConfigs(state, promptId, (prompt) => ({
+                        ...prompt,
+                        sourcePromptName: promptName,
+                        sourceEvaluationName: evaluationName,
                     })),
                 setupPlaygroundFromEvent: (state: PromptConfig[], { payload }: { payload: PlaygroundSetupPayload }) => {
                     const targetPrompt = state[0] ?? createPromptConfig({ id: INITIAL_PROMPT.id })
@@ -305,8 +326,9 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             selectedProviderKeyId: payload.providerKeyId ?? null,
                             sourceType: payload.sourceType ?? null,
                             sourcePromptId: payload.sourcePromptId ?? null,
-                            sourcePromptName: payload.sourcePromptName ?? null,
+                            sourcePromptName: null,
                             sourceEvaluationId: payload.sourceEvaluationId ?? null,
+                            sourceEvaluationName: null,
                         },
                     ]
                 },
@@ -463,6 +485,30 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             (s) => [s.activePromptConfig],
             (activePromptConfig: PromptConfig): Message[] => activePromptConfig.messages,
         ],
+        linkedSource: [
+            (s) => [s.promptConfigs],
+            (
+                promptConfigs: PromptConfig[]
+            ): {
+                type: 'prompt' | 'evaluation' | null
+                promptId: string | null
+                promptName: string | null
+                evaluationId: string | null
+                evaluationName: string | null
+            } => {
+                const first = promptConfigs[0]
+                if (!first) {
+                    return { type: null, promptId: null, promptName: null, evaluationId: null, evaluationName: null }
+                }
+                return {
+                    type: first.sourceType,
+                    promptId: first.sourcePromptId,
+                    promptName: first.sourcePromptName,
+                    evaluationId: first.sourceEvaluationId,
+                    evaluationName: first.sourceEvaluationName,
+                }
+            },
+        ],
         hasRunnablePrompts: [
             (s) => [s.promptConfigs],
             (promptConfigs: PromptConfig[]): boolean =>
@@ -493,31 +539,29 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     try {
                         const fetchedPrompt = await api.llmPrompts.get(payload.sourcePromptId)
                         actions.setSystemPrompt(fetchedPrompt.prompt || DEFAULT_SYSTEM_PROMPT, promptId)
+                        actions.setSourceNames(fetchedPrompt.name ?? null, null, promptId)
                         actions.setMessages([], promptId)
                         actions.setActivePromptId(promptId)
-                    } catch (error) {
-                        console.error('Error loading prompt for playground:', error)
+                    } catch {
+                        lemonToast.error('Error loading prompt for playground')
                     }
                     const url = combineUrl(urls.llmAnalyticsPlayground(), {
                         ...router.values.searchParams,
                         source_prompt_id: payload.sourcePromptId,
-                        source_prompt_name: payload.sourcePromptName,
                         source_evaluation_id: payload.sourceEvaluationId,
-                        source_evaluation_name: payload.sourceEvaluationName,
                     }).url
                     router.actions.push(url)
                     return
                 }
 
                 if (payload.sourceEvaluationId) {
-                    let resolvedSourceEvaluationName = payload.sourceEvaluationName
                     try {
                         const teamId = teamLogic.values.currentTeamId
                         if (teamId) {
                             const fetchedEvaluation = await api.get(
                                 `/api/environments/${teamId}/evaluations/${payload.sourceEvaluationId}/`
                             )
-                            resolvedSourceEvaluationName = resolvedSourceEvaluationName ?? fetchedEvaluation?.name
+                            actions.setSourceNames(null, fetchedEvaluation?.name ?? null, promptId)
                             if (fetchedEvaluation?.evaluation_type === 'llm_judge') {
                                 actions.setSystemPrompt(
                                     fetchedEvaluation.evaluation_config?.prompt || DEFAULT_SYSTEM_PROMPT,
@@ -532,15 +576,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         }
                         actions.setMessages([], promptId)
                         actions.setActivePromptId(promptId)
-                    } catch (error) {
-                        console.error('Error loading evaluation for playground:', error)
+                    } catch {
+                        lemonToast.error('Error loading evaluation for playground')
                     }
                     const url = combineUrl(urls.llmAnalyticsPlayground(), {
                         ...router.values.searchParams,
-                        source_prompt_id: payload.sourcePromptId,
-                        source_prompt_name: payload.sourcePromptName,
                         source_evaluation_id: payload.sourceEvaluationId,
-                        source_evaluation_name: resolvedSourceEvaluationName,
                     }).url
                     router.actions.push(url)
                     return
@@ -601,9 +642,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 const url = combineUrl(urls.llmAnalyticsPlayground(), {
                     ...router.values.searchParams,
                     source_prompt_id: payload.sourcePromptId,
-                    source_prompt_name: payload.sourcePromptName,
                     source_evaluation_id: payload.sourceEvaluationId,
-                    source_evaluation_name: payload.sourceEvaluationName,
                 }).url
                 router.actions.push(url)
             } finally {
