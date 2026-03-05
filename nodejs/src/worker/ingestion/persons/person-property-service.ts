@@ -40,7 +40,8 @@ export class PersonPropertyService {
 
     private eventHasGroupKeys(): boolean {
         for (let i = 0; i <= 4; i++) {
-            if (this.context.eventProperties[`$group_${i}`] !== undefined) {
+            const groupKey = this.context.eventProperties[`$group_${i}`]
+            if (groupKey !== undefined && groupKey !== null) {
                 return true
             }
         }
@@ -103,7 +104,7 @@ export class PersonPropertyService {
         // Extract group keys from $group_N event properties (set by addGroupProperties())
         for (let i = 0; i <= 4; i++) {
             const groupKey = this.context.eventProperties[`$group_${i}`]
-            if (groupKey !== undefined) {
+            if (groupKey !== undefined && groupKey !== null) {
                 const field = `group_${i}_key` as `group_${0 | 1 | 2 | 3 | 4}_key`
                 otherUpdates[field] = String(groupKey)
             }
