@@ -46,6 +46,8 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
               record: T,
               recordIndex: number
           ) => CSSProperties | undefined)
+    /** Initial sort direction when clicking an unsorted column. Defaults to ascending (1). Use -1 for columns like dates where descending is more natural. */
+    defaultSortOrder?: 1 | -1
     /** Column content alignment. Left by default. Set to right for numerical values (amounts, days ago etc.) */
     align?: 'left' | 'right' | 'center'
     /** TODO: Whether the column should be sticky when scrolling */
