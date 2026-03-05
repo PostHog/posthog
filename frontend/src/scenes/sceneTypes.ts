@@ -140,7 +140,6 @@ export enum Scene {
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
     Survey = 'Survey',
-    SurveyTemplates = 'SurveyTemplates',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
     Surveys = 'Surveys',
@@ -326,7 +325,6 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
-    [Scene.SurveyTemplates]: AccessControlResourceType.Survey,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,

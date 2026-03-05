@@ -1,1 +1,1 @@
-1030_add_last_calculation_duration_ms
+1031_team_data_attributes_allow_blank

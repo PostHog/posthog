@@ -798,7 +798,6 @@ export const productUrls = {
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
-    surveyTemplates: (): string => '/survey_templates',
     surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
     surveyWizard: (id: string = 'new', template?: string): string =>
         `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,

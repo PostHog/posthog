@@ -59,6 +59,9 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub print_sink: bool,
 
+    #[envconfig(default = "false")]
+    pub noop_sink: bool,
+
     #[envconfig(default = "127.0.0.1:3000")]
     pub address: SocketAddr,
 
