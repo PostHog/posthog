@@ -59,8 +59,8 @@ interface UrlChangeTrackerConfig {
 }
 
 const DEFAULT_CONFIG: UrlChangeTrackerConfig = {
-    maxChangesPerSecond: 5,
-    windowMs: 1000,
+    maxChangesPerSecond: 4,
+    windowMs: 3000,
     throttleWarningMs: 60000,
 }
 
@@ -142,7 +142,9 @@ export function captureRapidUrlChangeWarning(
     tracker.recordWarn()
 
     const debugInfo = tracker.getDebugInfo()
-    const sessionReplayUrl = posthog.get_session_replay_url?.({ withTimestamp: true })
+    const sessionReplayUrl = posthog.get_session_replay_url?.({
+        withTimestamp: true,
+    })
 
     // Console warning for local debugging
     // eslint-disable-next-line no-console
@@ -157,22 +159,29 @@ export function captureRapidUrlChangeWarning(
     // Capture exception to PostHog for monitoring
     const error = new Error('Rapid URL changes detected in kea router')
     posthog.captureException(error, {
-        tags: {
-            component: 'tabAwareActionToUrl',
-            severity: 'warning',
-        },
-        extra: {
-            currentUrl: currentUrl.substring(0, 500),
-            logicPath,
-            actionName,
-            ...debugInfo,
-            sessionReplayUrl,
-        },
+        tag: 'web_analytics_rapid_url_changes',
+        component: 'tabAwareActionToUrl',
+        severity: 'warning',
+        url: currentUrl,
+        logic_path: logicPath,
+        action_name: actionName,
+        change_count: debugInfo.changeCount,
+        session_replay_url: sessionReplayUrl,
     })
+
+    // Capture separate exception if serialization bug is present
+    if (containsSerializationBug(currentUrl)) {
+        posthog.captureException(new Error('URL contains [object Object] - serialization bug'), {
+            tag: 'web_analytics_url_serialization_bug',
+            url: currentUrl,
+            logic_path: logicPath,
+            action_name: actionName,
+        })
+    }
 
     // Capture as event for easier querying/alerting
     posthog.capture('kea_router_rapid_url_changes', {
-        url: currentUrl.substring(0, 500),
+        url: currentUrl,
         logic_path: logicPath,
         action_name: actionName,
         change_count: debugInfo.changeCount,
