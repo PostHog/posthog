@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from dlt.sources.helpers.requests import Request, Response
@@ -11,12 +11,19 @@ from posthog.temporal.data_imports.sources.common.rest_source.typing import Endp
 from posthog.temporal.data_imports.sources.klaviyo.settings import KLAVIYO_ENDPOINTS, KlaviyoEndpointConfig
 
 
+def _format_datetime_z(dt: datetime) -> str:
+    """Format a datetime as ISO 8601 with Z suffix, which Klaviyo's API requires."""
+
+    utc_dt = dt.astimezone(UTC)
+    return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
 def _format_incremental_value(value: Any) -> str:
     """Format incremental field value as ISO string for Klaviyo API filters."""
     if isinstance(value, datetime):
-        return value.isoformat()
+        return _format_datetime_z(value)
     if isinstance(value, date):
-        return datetime.combine(value, datetime.min.time()).isoformat()
+        return _format_datetime_z(datetime.combine(value, datetime.min.time()))
     return str(value)
 
 
