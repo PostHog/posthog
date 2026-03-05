@@ -12,6 +12,9 @@
             "~/*": ["src/*"],
             "public/*": ["public/*"],
             "products/*": ["../products/*"],
+            "@common/*": ["../common/*"],
+            "@posthog/mosaic": ["../common/mosaic/src/index.ts"],
+            "@posthog/mosaic/*": ["../common/mosaic/src/*"],
             // Needed to access the subpath since torph didn't set up types properly
             "torph/react": ["node_modules/torph/dist/react/index"]
         },
