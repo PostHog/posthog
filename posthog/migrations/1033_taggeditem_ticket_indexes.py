@@ -5,7 +5,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "1031_remove_taggeditem_exactly_one_related_object_and_more"),
+        ("posthog", "1032_remove_taggeditem_exactly_one_related_object_and_more"),
     ]
 
     operations = [
