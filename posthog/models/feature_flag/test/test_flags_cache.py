@@ -1613,9 +1613,19 @@ class TestManagementCommands(BaseTest):
 
         from django.core.management import call_command
 
-        # Create additional teams
+        # Create additional teams with flags so they appear in the scoped queryset
+        teams = [self.team]
         for i in range(5):
-            Team.objects.create(organization=self.organization, name=f"Team {i}")
+            team = Team.objects.create(organization=self.organization, name=f"Team {i}")
+            teams.append(team)
+
+        for team in teams:
+            FeatureFlag.objects.create(
+                team=team,
+                key="test-flag",
+                created_by=self.user,
+                filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            )
 
         mock_get_cache.return_value = []
         mock_batch_get_flags.return_value = {}
