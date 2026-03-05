@@ -7,6 +7,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.ducklake.common import get_duckgres_server_for_team, is_dev_mode
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
@@ -128,6 +129,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     )
 
     start_time = time.monotonic()
+    sql: str = ""
     try:
         sql = await database_sync_to_async(_compile_hogql_to_postgres_sql)(hogql_query, team.pk)
         await logger.adebug("Duckgres shadow SQL generated", sql=sql)
@@ -154,6 +156,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
         )
     except Exception as e:
         duration = time.monotonic() - start_time
+        capture_exception(e, {"sql": sql, "inputs": inputs})
         await logger.awarning(
             "Duckgres shadow materialization failed",
             node_name=node.name,

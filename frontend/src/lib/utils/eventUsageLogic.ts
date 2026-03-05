@@ -765,6 +765,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             totalDurationMs: number,
             queryDurations: { aggregate: number; openEnded: number }
         ) => ({ survey, totalDurationMs, queryDurations }),
+        reportSurveyEmptyStateViewed: true,
+        reportSurveyAiPromptSubmitted: (source: string) => ({ source }),
         reportProductTourViewed: (tour: ProductTour) => ({ tour }),
         reportProductTourCreated: (tour: ProductTour, creationSource?: 'app' | 'toolbar') => ({
             tour,
@@ -1851,6 +1853,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyTemplateClicked: ({ template, source }) => {
             posthog.capture('survey template clicked', {
                 template,
+                source,
+            })
+        },
+        reportSurveyEmptyStateViewed: () => {
+            posthog.capture('survey empty state viewed')
+        },
+        reportSurveyAiPromptSubmitted: ({ source }) => {
+            posthog.capture('survey AI prompt submitted', {
                 source,
             })
         },
