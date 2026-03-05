@@ -394,19 +394,6 @@ class TestCollectDeltaLogKeys:
                 ],
             ),
             (
-                "always_includes_last_checkpoint",
-                [
-                    "data/table/_delta_log/00000000000000000000.json",
-                    "data/table/_delta_log/00000000000000000005.json",
-                    "data/table/_delta_log/_last_checkpoint",
-                ],
-                0,
-                [
-                    "data/table/_delta_log/00000000000000000000.json",
-                    "data/table/_delta_log/_last_checkpoint",
-                ],
-            ),
-            (
                 "handles_multi_part_checkpoint",
                 [
                     "data/table/_delta_log/00000000000000000010.checkpoint.0000000001.0000000002.parquet",
@@ -429,7 +416,6 @@ class TestCollectDeltaLogKeys:
                 0,
                 [
                     "data/table/_delta_log/00000000000000000000.json",
-                    "data/table/_delta_log/_last_checkpoint",
                 ],
             ),
             (
@@ -549,7 +535,6 @@ class TestStageDeltaTable:
                 "__posthog_staging/data/table/_delta_log/00000000000000000000.json",
                 "__posthog_staging/data/table/_delta_log/00000000000000000001.json",
                 "__posthog_staging/data/table/_delta_log/00000000000000000002.json",
-                "__posthog_staging/data/table/_delta_log/_last_checkpoint",
             ]
         )
         assert copied_keys == expected

@@ -524,7 +524,10 @@ def _collect_delta_log_keys(
     - JSON commit files (``00000000000000000001.json``)
     - Checkpoint parquet files (``00000000000000000010.checkpoint.parquet``,
       multi-part variants like ``00000000000000000010.checkpoint.0000000001.0000000002.parquet``)
-    - ``_last_checkpoint`` (always included so readers can find the latest checkpoint)
+
+    ``_last_checkpoint`` is intentionally excluded — it may reference a
+    checkpoint newer than *max_version*.  Delta readers handle its absence
+    by scanning the log directory directly.
 
     Files whose 20-digit version prefix exceeds *max_version* are excluded.
     """
@@ -535,10 +538,6 @@ def _collect_delta_log_keys(
         for obj in page.get("Contents", []):
             key = obj["Key"]
             filename = key[len(log_prefix) :]
-
-            if filename == "_last_checkpoint":
-                keys.append(key)
-                continue
 
             m = _DELTA_LOG_VERSION_RE.match(filename)
             if m and int(m.group(1)) <= max_version:
