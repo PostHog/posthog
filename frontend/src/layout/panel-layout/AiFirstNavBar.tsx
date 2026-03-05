@@ -248,7 +248,7 @@ export function AiFirstNavBar({ children }: { children?: React.ReactNode }): JSX
                             </Collapsible.Trigger>
                             <Collapsible.Panel className={cn(isLayoutNavCollapsed && 'items-center')}>
                                 <NavLink
-                                    to={urls.projectRoot()}
+                                    to={urls.projectHomepage()}
                                     label="Home"
                                     icon={<IconHome />}
                                     isCollapsed={isLayoutNavCollapsed}

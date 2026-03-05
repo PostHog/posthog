@@ -1,9 +1,11 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { maxLogic } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
 import type { aiFirstHomepageLogicType } from './aiFirstHomepageLogicType'
+import { HOMEPAGE_TAB_ID } from './HomepageThread'
 
 export type HomepageMode = 'idle' | 'search' | 'ai'
 export type AnimationPhase = 'idle' | 'moving' | 'separator' | 'content'
@@ -15,6 +17,11 @@ export interface LayoutState {
 
 export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     path(['scenes', 'project-homepage', 'ai-first', 'aiFirstHomepageLogic']),
+
+    connect(() => ({
+        values: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['threadLogicKey']],
+        actions: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['openConversation']],
+    })),
 
     actions({
         submitQuery: (mode: 'search' | 'ai') => ({ mode }),
@@ -74,6 +81,14 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     actionToUrl(({ values }) => ({
         submitQuery: () => {
             const { mode, query } = values
+            if (mode === 'ai') {
+                return [
+                    urls.projectHomepage(),
+                    { mode, chat: values.threadLogicKey || undefined },
+                    undefined,
+                    { replace: false },
+                ]
+            }
             return [urls.projectHomepage(), { mode, q: query || undefined }, undefined, { replace: false }]
         },
         returnToIdle: () => {
@@ -85,13 +100,19 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         [urls.projectHomepage()]: (_, searchParams) => {
             const urlMode = (searchParams.mode as HomepageMode) || 'idle'
             const urlQuery = (searchParams.q as string) || ''
+            const urlChat = (searchParams.chat as string) || ''
 
             if (urlMode === 'idle' && values.mode !== 'idle') {
                 actions.returnToIdle()
-            } else if (urlMode !== 'idle' && urlMode !== values.mode) {
+            } else if (urlMode === 'ai' && values.mode !== 'ai') {
+                if (urlChat) {
+                    actions.openConversation(urlChat)
+                }
+                actions.submitQuery('ai')
+            } else if (urlMode === 'search' && values.mode !== 'search') {
                 actions.setQuery(urlQuery)
-                actions.submitQuery(urlMode as 'search' | 'ai')
-            } else if (urlQuery !== values.query) {
+                actions.submitQuery('search')
+            } else if (urlMode === 'search' && urlQuery !== values.query) {
                 actions.setQuery(urlQuery)
             }
         },
@@ -101,10 +122,16 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         const { searchParams } = router.values
         const urlMode = (searchParams.mode as HomepageMode) || 'idle'
         const urlQuery = (searchParams.q as string) || ''
+        const urlChat = (searchParams.chat as string) || ''
 
-        if (urlMode !== 'idle' && urlQuery) {
+        if (urlMode === 'ai') {
+            if (urlChat) {
+                actions.openConversation(urlChat)
+            }
+            actions.submitQuery('ai')
+        } else if (urlMode === 'search' && urlQuery) {
             actions.setQuery(urlQuery)
-            actions.submitQuery(urlMode as 'search' | 'ai')
+            actions.submitQuery('search')
         }
     }),
 ])
