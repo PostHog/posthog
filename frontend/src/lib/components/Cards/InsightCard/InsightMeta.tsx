@@ -390,12 +390,12 @@ export function InsightMeta({
                                             description:
                                                 'Are you sure you want to remove this insight from the dashboard?',
                                             primaryButton: {
-                                                children: 'Yes, remove insight',
+                                                children: 'Remove from dashboard',
                                                 status: 'danger',
                                                 onClick: removeFromDashboard,
                                             },
                                             secondaryButton: {
-                                                children: 'No, keep insight',
+                                                children: 'Cancel',
                                             },
                                         })
                                     }
