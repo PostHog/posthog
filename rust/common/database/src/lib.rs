@@ -132,16 +132,16 @@ pub fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sql
         options = options.after_connect(move |conn, _meta| {
             let pool_name = pool_name.clone();
             Box::pin(async move {
-                if let Some(name) = pool_name {
-                    metrics::counter!(DB_CONNECTION_CREATED_COUNTER, "pool" => name).increment(1);
-                }
-
                 if let Some(timeout_ms) = statement_timeout_ms {
                     // Note: SET statement_timeout does not support parameterized queries ($1),
                     // so we use format!(). This is safe because timeout_ms is typed as u64.
                     sqlx::query(&format!("SET statement_timeout = {timeout_ms}"))
                         .execute(&mut *conn)
                         .await?;
+                }
+
+                if let Some(name) = pool_name {
+                    metrics::counter!(DB_CONNECTION_CREATED_COUNTER, "pool" => name).increment(1);
                 }
 
                 Ok(())
