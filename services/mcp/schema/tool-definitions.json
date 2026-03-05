@@ -838,12 +838,12 @@
             "readOnlyHint": true
         }
     },
-    "demo-mcp-ui-apps": {
-        "description": "Demo tool for testing MCP Apps SDK integration. Returns sample data that is displayed in an interactive UI app. Use this to verify that MCP Apps are working correctly.",
-        "category": "Demo",
-        "feature": "demo",
-        "summary": "Demo tool for testing MCP Apps SDK.",
-        "title": "Demo MCP UI Apps",
+    "debug-mcp-ui-apps": {
+        "description": "Debug tool for testing MCP Apps SDK integration. Returns sample data displayed in an interactive UI app with component showcase. Use this to verify that MCP Apps are working correctly.",
+        "category": "Debug",
+        "feature": "debug",
+        "summary": "Debug tool for testing MCP Apps SDK.",
+        "title": "Debug MCP UI Apps",
         "required_scopes": [],
         "annotations": {
             "destructiveHint": false,

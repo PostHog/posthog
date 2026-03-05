@@ -150,6 +150,19 @@ function toCamelCase(str: string): string {
     return pascal.charAt(0).toLowerCase() + pascal.slice(1)
 }
 
+/**
+ * Parse enrich_url template into prefix and field.
+ * '{id}' → { prefix: '', field: 'id' }
+ * 'hog-{id}' → { prefix: 'hog-', field: 'id' }
+ */
+function parseEnrichUrl(enrichUrl: string): { prefix: string; field: string } {
+    const match = enrichUrl.match(/^(.*?)\{(\w+)\}$/)
+    if (!match) {
+        throw new Error(`Invalid enrich_url format: ${enrichUrl}`)
+    }
+    return { prefix: match[1]!, field: match[2]! }
+}
+
 /** Convert operationId (snake_case) to PascalCase for Orval schema names */
 function operationIdToPascal(operationId: string): string {
     return operationId
@@ -300,6 +313,53 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
 }
 
 // ------------------------------------------------------------------
+// Response enrichment templates
+// ------------------------------------------------------------------
+
+function buildEnrichment(config: ToolConfig, category: CategoryConfig): string {
+    const baseUrl = `\${context.api.getProjectBaseUrl(projectId)}${category.url_prefix}`
+
+    if (config.list && config.enrich_url) {
+        const { prefix, field } = parseEnrichUrl(config.enrich_url)
+        return [
+            `        const items = (result as any).results ?? result`,
+            `        return {`,
+            `            ...(result as any),`,
+            `            results: (items as any[]).map((item: any) => ({`,
+            `                ...item,`,
+            `                _posthogUrl: \`${baseUrl}/${prefix}\${item.${field}}\`,`,
+            `            })),`,
+            `            _posthogUrl: \`${baseUrl}\`,`,
+            `        }`,
+            ``,
+        ].join('\n')
+    }
+
+    if (config.list) {
+        return [
+            `        return {`,
+            `            ...(result as any),`,
+            `            _posthogUrl: \`${baseUrl}\`,`,
+            `        }`,
+            ``,
+        ].join('\n')
+    }
+
+    if (config.enrich_url) {
+        const { prefix, field } = parseEnrichUrl(config.enrich_url)
+        return [
+            `        return {`,
+            `            ...result as any,`,
+            `            _posthogUrl: \`${baseUrl}/${prefix}\${(result as any).${field}}\`,`,
+            `        }`,
+            ``,
+        ].join('\n')
+    }
+
+    return `        return result\n`
+}
+
+// ------------------------------------------------------------------
 // Code generation for a single tool
 // ------------------------------------------------------------------
 
@@ -350,22 +410,13 @@ function generateToolCode(
     }
     handlerBody += `        })\n`
 
-    // Response enrichment
-    if (config.list && config.enrich_url) {
-        const field = config.enrich_url.replace(/[{}]/g, '')
-        handlerBody += `        const items = (result as any).results ?? result\n`
-        handlerBody += `        return (items as any[]).map((item: any) => ({\n`
-        handlerBody += `            ...item,\n`
-        handlerBody += `            url: \`\${context.api.getProjectBaseUrl(projectId)}${category.url_prefix}/\${item.${field}}\`,\n`
-        handlerBody += `        }))\n`
-    } else if (config.enrich_url) {
-        const field = config.enrich_url.replace(/[{}]/g, '')
-        handlerBody += `        return {\n`
-        handlerBody += `            ...result as any,\n`
-        handlerBody += `            url: \`\${context.api.getProjectBaseUrl(projectId)}${category.url_prefix}/\${(result as any).${field}}\`,\n`
-        handlerBody += `        }\n`
-    } else {
-        handlerBody += `        return result\n`
+    // Response enrichment — adds _posthogUrl for "View in PostHog" links
+    handlerBody += buildEnrichment(config, category)
+
+    // Build optional _meta block for UI app visualization
+    let metaBlock = ''
+    if (config.ui_resource_uri) {
+        metaBlock = `    _meta: {\n        ui: {\n            resourceUri: '${config.ui_resource_uri}',\n        },\n    },\n`
     }
 
     const code = `
@@ -376,7 +427,7 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}> => ({
     schema: ${schemaName},
     handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
 ${handlerBody}    },
-})
+${metaBlock}})
 `
 
     return { code, orvalImports: composition.orvalImports }
