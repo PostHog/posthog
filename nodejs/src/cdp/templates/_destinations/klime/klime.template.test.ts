@@ -16,8 +16,8 @@ describe('klime template', () => {
         writeKey: 'test-write-key',
         action: 'automatic',
         userId: 'user-123',
-        groupId: '',
-        include_all_properties: false,
+        groupId: 'group-123',
+        include_all_properties: true,
         properties: {},
     }
 
@@ -53,10 +53,11 @@ describe('klime template', () => {
             messageId: 'event-uuid-001',
             timestamp: '2024-01-01T00:00:00Z',
             userId: 'user-123',
+            groupId: 'group-123',
             event: 'Button Clicked',
+            properties: { button: 'signup' },
             context: { library: { name: 'posthog-cdp', version: '1.0.0' } },
         })
-        expect(batchEvent.properties).toBeUndefined()
     })
 
     it.each([
@@ -99,9 +100,23 @@ describe('klime template', () => {
         expect(parseBatchEvent(response).type).toBe('track')
     })
 
-    it('includes non-$ event properties when include_all_properties is true for track', async () => {
+    it('excludes $ properties but includes non-$ event properties for track', async () => {
+        const response = await tester.invoke(defaultInputs, {
+            event: {
+                uuid: 'uuid-1',
+                event: 'Purchase',
+                properties: { $lib: 'web', amount: 99.99, currency: 'USD' },
+                timestamp: '2024-01-01T00:00:00Z',
+            },
+        })
+
+        expect(response.error).toBeUndefined()
+        expect(parseBatchEvent(response).properties).toEqual({ amount: 99.99, currency: 'USD' })
+    })
+
+    it('excludes event properties when include_all_properties is false for track', async () => {
         const response = await tester.invoke(
-            { ...defaultInputs, include_all_properties: true },
+            { ...defaultInputs, include_all_properties: false },
             {
                 event: {
                     uuid: 'uuid-1',
@@ -113,12 +128,12 @@ describe('klime template', () => {
         )
 
         expect(response.error).toBeUndefined()
-        expect(parseBatchEvent(response).properties).toEqual({ amount: 99.99, currency: 'USD' })
+        expect(parseBatchEvent(response).properties).toBeUndefined()
     })
 
-    it('includes non-$ person properties when include_all_properties is true for identify', async () => {
+    it('includes non-$ person properties for identify', async () => {
         const response = await tester.invoke(
-            { ...defaultInputs, action: 'identify', include_all_properties: true },
+            { ...defaultInputs, action: 'identify' },
             {
                 event: {
                     uuid: 'uuid-1',
@@ -136,9 +151,9 @@ describe('klime template', () => {
         expect(parseBatchEvent(response).traits).toEqual({ email: 'test@klime.com' })
     })
 
-    it('includes non-$ group_set properties when include_all_properties is true for group', async () => {
+    it('includes non-$ group_set properties for group', async () => {
         const response = await tester.invoke(
-            { ...defaultInputs, action: 'group', groupId: 'org-456', include_all_properties: true },
+            { ...defaultInputs, action: 'group', groupId: 'org-456' },
             {
                 event: {
                     uuid: 'uuid-1',
@@ -160,6 +175,7 @@ describe('klime template', () => {
     it('sends custom property mapping as properties on track events', async () => {
         const response = await tester.invoke({
             ...defaultInputs,
+            include_all_properties: false,
             properties: { plan: 'enterprise', source: 'posthog' },
         })
 

@@ -163,8 +163,9 @@ if (res.status >= 400) {
             key: 'groupId',
             type: 'string',
             label: 'Group ID',
-            description: 'Organization or account identifier. Required for group events.',
-            default: '',
+            description:
+                'Organization or account identifier. Required for group events. Defaults to your first PostHog group type ($group_0). If you use multiple group types, change to $group_1, $group_2, etc. You can also use a custom event property.',
+            default: '{event.properties.$group_0}',
             secret: false,
             required: false,
         },
@@ -174,7 +175,7 @@ if (res.status >= 400) {
             label: 'Include all properties',
             description:
                 'If set, all event properties (for track), person properties (for identify), or group properties (for group) will be included. Individual properties can be overridden below.',
-            default: false,
+            default: true,
             secret: false,
             required: true,
         },
