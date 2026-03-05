@@ -2,11 +2,11 @@ import { MarkerType, Position } from '@xyflow/react'
 import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, DataModelingEdge, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
+import { Breadcrumb, DataModelingEdge, DataModelingJob, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
 import { getFormattedNodes } from '../data-warehouse/scene/modeling/autolayout'
 import { Edge, Node, NodeHandle } from '../data-warehouse/scene/modeling/types'
@@ -31,7 +31,7 @@ const COMPACT_NODE_HEIGHT = 44
 
 function buildSubgraph(
     currentNodeId: string,
-    allNodes: DataModelingNode[],
+    _allNodes: DataModelingNode[],
     allEdges: DataModelingEdge[]
 ): { nodeIds: Set<string>; edges: DataModelingEdge[] } {
     const edgesBySource = new Map<string, DataModelingEdge[]>()
@@ -151,6 +151,17 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 },
             },
         ],
+        materializationJobs: [
+            null as PaginatedResponse<DataModelingJob> | null,
+            {
+                loadMaterializationJobs: async (savedQueryId: string) => {
+                    return await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(savedQueryId, 10, 0)
+                },
+                loadMaterializationJobsFromUrl: async (url: string) => {
+                    return await api.get(url)
+                },
+            },
+        ],
         lineageGraph: [
             null as LineageGraphPair | null,
             {
@@ -208,6 +219,34 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 {
                     key: Scene.Models,
                     name: 'Models',
+                    path: urls.models(),
+                },
+                {
+                    key: [Scene.NodeDetail, node?.id || 'loading'],
+                    name: node?.name || 'Loading...',
+                },
+            ],
+        ],
+        latestRowCount: [
+            (s) => [s.materializationJobs],
+            (jobs: PaginatedResponse<DataModelingJob> | null): number | null => {
+                const completed = jobs?.results?.find((j: DataModelingJob) => j.status === 'Completed')
+                return completed?.rows_materialized ?? null
+            },
+        ],
+        latestJobStatus: [
+            (s) => [s.materializationJobs],
+            (jobs: PaginatedResponse<DataModelingJob> | null): string | null => {
+                const latest = jobs?.results?.[0]
+                return latest?.status ?? null
+            },
+        ],
+    }),
+    listeners(({ actions }) => ({
+        loadNodeSuccess: ({ node }) => {
+            if (node?.saved_query_id) {
+                actions.loadSavedQuery(node.saved_query_id)
+            }
             actions.loadLineageGraph()
         },
     })),

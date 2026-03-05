@@ -14,16 +14,16 @@ import { useCallback, useMemo, useState } from 'react'
 
 import { IconExpand } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import type { DataModelingJobStatus } from '~/types'
 
 import { NodeCompact, NodeInner } from '../data-warehouse/scene/modeling/Node'
 import { Edge, Node, NodeData } from '../data-warehouse/scene/modeling/types'
-import type { DataModelingJobStatus } from '~/types'
 import { nodeDetailSceneLogic, NodeDetailSceneLogicProps } from './nodeDetailSceneLogic'
 
 function useNodeClick(nodeId: string, data: NodeData): () => void {
@@ -144,7 +144,14 @@ function LineageGraphContent({
     // Highlight the current node and inject its job status from materialization data
     const highlightedNodes = graph.nodes.map((n) =>
         n.id === node?.id
-            ? { ...n, data: { ...n.data, isSearchMatch: true, lastJobStatus: (latestJobStatus as DataModelingJobStatus) ?? n.data.lastJobStatus } }
+            ? {
+                  ...n,
+                  data: {
+                      ...n.data,
+                      isSearchMatch: true,
+                      lastJobStatus: (latestJobStatus as DataModelingJobStatus) ?? n.data.lastJobStatus,
+                  },
+              }
             : { ...n, data: { ...n.data, isSearchMatch: undefined } }
     )
 
