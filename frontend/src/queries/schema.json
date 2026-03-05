@@ -11683,6 +11683,21 @@
             ],
             "type": "string"
         },
+        "DetectorConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ZScoreDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ThresholdDetectorConfig"
+                }
+            ],
+            "description": "Detector configuration types"
+        },
+        "DetectorType": {
+            "enum": ["zscore", "mad", "iqr", "isolation_forest", "ecod", "copod", "knn", "threshold", "ensemble"],
+            "type": "string"
+        },
         "DocumentArtifactContent": {
             "additionalProperties": false,
             "properties": {
@@ -32786,6 +32801,25 @@
             ],
             "type": "object"
         },
+        "ThresholdDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "lower_bound": {
+                    "description": "Lower bound - values below this are anomalies",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "threshold",
+                    "type": "string"
+                },
+                "upper_bound": {
+                    "description": "Upper bound - values above this are anomalies",
+                    "type": "number"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "TikTokAdsDefaultSources": {
             "enum": ["tiktok"],
             "type": "string"
@@ -35708,6 +35742,25 @@
                     "type": "boolean"
                 }
             },
+            "type": "object"
+        },
+        "ZScoreDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "threshold": {
+                    "description": "Z-score threshold for anomaly detection (default: 3.0)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "zscore",
+                    "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size for calculating mean/std (default: 30)"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
         "ZendeskTicketSignalExtra": {
