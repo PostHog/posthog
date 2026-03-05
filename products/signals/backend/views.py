@@ -18,6 +18,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.schema import EmbeddingModelName
 
@@ -192,6 +193,8 @@ class SignalReportViewSet(
                 execution_timeout=timedelta(minutes=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
+        except WorkflowAlreadyStartedError:
+            return Response({"status": "already_running", "report_id": report_id}, status=status.HTTP_200_OK)
         except Exception:
             logger.exception("Failed to start deletion workflow for report %s", report_id)
             return Response(
@@ -199,7 +202,7 @@ class SignalReportViewSet(
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        return Response(status=status.HTTP_202_ACCEPTED)
+        return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
@@ -341,6 +344,8 @@ class SignalReportViewSet(
                 execution_timeout=timedelta(minutes=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
+        except WorkflowAlreadyStartedError:
+            return Response({"status": "already_running", "report_id": report_id}, status=status.HTTP_200_OK)
         except Exception:
             logger.exception("Failed to start reingestion workflow for report %s", report_id)
             return Response(
