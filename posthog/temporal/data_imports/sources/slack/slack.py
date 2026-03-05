@@ -60,10 +60,10 @@ class SlackCursorPaginator(BasePaginator):
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
-    if name == "_channels":
+    if name == "$channels":
         return {
-            "name": "_channels",
-            "table_name": "_channels",
+            "name": "$channels",
+            "table_name": "$channels",
             "primary_key": "id",
             "write_disposition": "replace",
             "endpoint": {
@@ -78,10 +78,10 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "table_format": "delta",
         }
 
-    if name == "_users":
+    if name == "$users":
         return {
-            "name": "_users",
-            "table_name": "_users",
+            "name": "$users",
+            "table_name": "$users",
             "primary_key": "id",
             "write_disposition": "replace",
             "endpoint": {
@@ -245,7 +245,7 @@ def slack_source(
     items: Callable[[], Iterable[Any]]
 
     if endpoint in ENDPOINTS:
-        # Metadata endpoints (_channels, _users) — served via REST
+        # Metadata endpoints ($channels, $users) — served via REST
         endpoint_config = ENDPOINTS[endpoint]
         config: RESTAPIConfig = {
             "client": {
