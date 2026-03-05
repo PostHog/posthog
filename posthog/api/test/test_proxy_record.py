@@ -155,15 +155,22 @@ class TestProxyRecordAPI(APIBaseTest):
         self.assertIsNone(record.message)
         mock_temporal.start_workflow.assert_called_once()
 
-    @patch("posthog.api.proxy_record.sync_connect")
-    @patch("posthoganalytics.capture")
-    def test_cannot_retry_valid_proxy_record(self, mock_capture, mock_sync_connect):
+    @parameterized.expand(
+        [
+            ("waiting", ProxyRecord.Status.WAITING),
+            ("issuing", ProxyRecord.Status.ISSUING),
+            ("valid", ProxyRecord.Status.VALID),
+            ("warning", ProxyRecord.Status.WARNING),
+            ("deleting", ProxyRecord.Status.DELETING),
+        ]
+    )
+    def test_cannot_retry_proxy_in_non_error_state(self, _name, initial_status):
         record = ProxyRecord.objects.create(
             organization=self.organization,
             created_by=self.user,
-            domain="valid.example.com",
+            domain="noretrystatus.example.com",
             target_cname="abc123.proxy.posthog.com",
-            status=ProxyRecord.Status.VALID,
+            status=initial_status,
         )
 
         response = self.client.post(
