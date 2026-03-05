@@ -18,6 +18,7 @@ import type {
     DatasetItemsListParams,
     DatasetsListParams,
     EvaluationApi,
+    EvaluationRunRequestApi,
     EvaluationSummaryRequestApi,
     EvaluationSummaryResponseApi,
     EvaluationsListParams,
@@ -68,10 +69,16 @@ export const getEvaluationRunsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/evaluation_runs/`
 }
 
-export const evaluationRunsCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+export const evaluationRunsCreate = async (
+    projectId: string,
+    evaluationRunRequestApi: EvaluationRunRequestApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getEvaluationRunsCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationRunRequestApi),
     })
 }
 

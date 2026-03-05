@@ -7,6 +7,22 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface EvaluationRunRequestApi {
+    /** UUID of the evaluation to run. */
+    evaluation_id: string
+    /** UUID of the $ai_generation event to evaluate. */
+    target_event_id: string
+    /** ISO 8601 timestamp of the target event (needed for efficient ClickHouse lookup). */
+    timestamp: string
+    /** Event name. Use "$ai_generation" for LLM generation events. */
+    event: string
+    /**
+     * Distinct ID of the event (optional, improves lookup performance).
+     * @nullable
+     */
+    distinct_id?: string | null
+}
+
 /**
  * * `llm_judge` - LLM as a judge
  * `hog` - Hog
