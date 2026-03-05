@@ -2,11 +2,11 @@ import { MarkerType, Position } from '@xyflow/react'
 import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, DataModelingEdge, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
+import { Breadcrumb, DataModelingEdge, DataModelingJob, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
 import { getFormattedNodes } from '../data-warehouse/scene/modeling/autolayout'
 import { Edge, Node, NodeHandle } from '../data-warehouse/scene/modeling/types'
@@ -21,62 +21,19 @@ export interface LineageGraph {
     edges: Edge[]
 }
 
-function buildSubgraph(
-    currentNodeId: string,
-    allNodes: DataModelingNode[],
-    allEdges: DataModelingEdge[]
-): { nodeIds: Set<string>; edges: DataModelingEdge[] } {
-    const edgesBySource = new Map<string, DataModelingEdge[]>()
-    const edgesByTarget = new Map<string, DataModelingEdge[]>()
-    for (const edge of allEdges) {
-        if (!edgesBySource.has(edge.source_id)) {
-            edgesBySource.set(edge.source_id, [])
-        }
-        edgesBySource.get(edge.source_id)!.push(edge)
-        if (!edgesByTarget.has(edge.target_id)) {
-            edgesByTarget.set(edge.target_id, [])
-        }
-        edgesByTarget.get(edge.target_id)!.push(edge)
-    }
-
-    // Traverse upstream (follow edges backward from current node)
-    const nodeIds = new Set<string>([currentNodeId])
-    const upstreamQueue = [currentNodeId]
-    while (upstreamQueue.length > 0) {
-        const id = upstreamQueue.shift()!
-        for (const edge of edgesByTarget.get(id) ?? []) {
-            if (!nodeIds.has(edge.source_id)) {
-                nodeIds.add(edge.source_id)
-                upstreamQueue.push(edge.source_id)
-            }
-        }
-    }
-
-    // Traverse downstream (follow edges forward from current node)
-    const downstreamQueue = [currentNodeId]
-    while (downstreamQueue.length > 0) {
-        const id = downstreamQueue.shift()!
-        for (const edge of edgesBySource.get(id) ?? []) {
-            if (!nodeIds.has(edge.target_id)) {
-                nodeIds.add(edge.target_id)
-                downstreamQueue.push(edge.target_id)
-            }
-        }
-    }
-
-    const subgraphEdges = allEdges.filter((e) => nodeIds.has(e.source_id) && nodeIds.has(e.target_id))
-    return { nodeIds, edges: subgraphEdges }
+export interface LineageGraphPair {
+    compact: LineageGraph
+    full: LineageGraph
 }
 
-function toReactFlowGraph(
-    currentNodeId: string,
-    allNodes: DataModelingNode[],
-    allEdges: DataModelingEdge[]
-): { nodes: Node[]; edges: Edge[] } {
-    const { nodeIds, edges: subgraphEdges } = buildSubgraph(currentNodeId, allNodes, allEdges)
-    const subgraphNodes = allNodes.filter((n) => nodeIds.has(n.id))
+const COMPACT_NODE_WIDTH = 180
+const COMPACT_NODE_HEIGHT = 44
 
-    const nodes: Node[] = subgraphNodes.map((node) => {
+function toReactFlowGraph(
+    apiNodes: DataModelingNode[],
+    apiEdges: DataModelingEdge[]
+): { nodes: Node[]; edges: Edge[] } {
+    const nodes: Node[] = apiNodes.map((node) => {
         const handles: NodeHandle[] = [
             { id: `target_${node.id}`, type: 'target', position: Position.Left },
             { id: `source_${node.id}`, type: 'source', position: Position.Right },
@@ -108,7 +65,7 @@ function toReactFlowGraph(
         }
     })
 
-    const edges: Edge[] = subgraphEdges.map((edge) => ({
+    const edges: Edge[] = apiEdges.map((edge) => ({
         id: `${edge.source_id}->${edge.target_id}`,
         source: edge.source_id,
         target: edge.target_id,
@@ -147,11 +104,8 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             null as LineageGraphPair | null,
             {
                 loadLineageGraph: async () => {
-                    const [nodesResponse, edgesResponse] = await Promise.all([
-                        api.dataModelingNodes.list(),
-                        api.dataModelingEdges.list(),
-                    ])
-                    const { nodes, edges } = toReactFlowGraph(props.id, nodesResponse.results, edgesResponse.results)
+                    const response = await api.dataModelingNodes.lineage(props.id)
+                    const { nodes, edges } = toReactFlowGraph(response.nodes, response.edges)
                     if (nodes.length === 0) {
                         return { compact: { nodes: [], edges: [] }, full: { nodes: [], edges: [] } }
                     }
@@ -166,12 +120,25 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 },
             },
         ],
+        materializationJobs: [
+            null as PaginatedResponse<DataModelingJob> | null,
+            {
+                loadMaterializationJobs: async (savedQueryId: string) => {
+                    return await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(savedQueryId, 10, 0)
+                },
+                loadMaterializationJobsFromUrl: async (url: string) => {
+                    return await api.get(url)
+                },
+            },
+        ],
     })),
     actions({
         openQueryModal: true,
         closeQueryModal: true,
         openLineageModal: true,
         closeLineageModal: true,
+        loadNextJobs: true,
+        loadPreviousJobs: true,
         updateNodeDescription: (description: string) => ({ description }),
     }),
     reducers({
@@ -223,12 +190,32 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, props, values }) => ({
+        updateNodeDescription: async ({ description }) => {
+            await api.dataModelingNodes.update(props.id, { description })
+        },
         loadNodeSuccess: ({ node }) => {
             if (node?.saved_query_id) {
                 actions.loadSavedQuery(node.saved_query_id)
             }
             actions.loadLineageGraph()
+        },
+        loadSavedQuerySuccess: ({ savedQuery }) => {
+            if (savedQuery?.is_materialized) {
+                actions.loadMaterializationJobs(savedQuery.id)
+            }
+        },
+        loadNextJobs: () => {
+            const nextUrl = values.materializationJobs?.next
+            if (nextUrl) {
+                actions.loadMaterializationJobsFromUrl(nextUrl)
+            }
+        },
+        loadPreviousJobs: () => {
+            const previousUrl = values.materializationJobs?.previous
+            if (previousUrl) {
+                actions.loadMaterializationJobsFromUrl(previousUrl)
+            }
         },
     })),
     afterMount(({ actions }) => {
