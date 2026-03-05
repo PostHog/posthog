@@ -67,7 +67,7 @@ function ensureSortKeys(
 ): FeatureFlagFilters & { groups: FeatureFlagGroupTypeWithSortKey[] } {
     return {
         ...filters,
-        groups: filters.groups.map((group: FeatureFlagGroupType) => ({
+        groups: (filters.groups ?? []).map((group: FeatureFlagGroupType) => ({
             ...group,
             sort_key: group.sort_key ?? uuidv4(),
         })),
@@ -121,7 +121,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         filters: {
             setFilters: (state, { filters }) => {
                 // Preserve sort_keys from previous state when possible
-                const groupsWithKeys = filters.groups.map(
+                const groupsWithKeys = (filters.groups ?? []).map(
                     (group: FeatureFlagGroupType, index: number): FeatureFlagGroupTypeWithSortKey => {
                         if (group.sort_key) {
                             return group as FeatureFlagGroupTypeWithSortKey

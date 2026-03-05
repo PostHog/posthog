@@ -235,6 +235,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             return None
 
     def get_filters(self) -> dict:
+        if not self.filters:
+            return {"groups": []}
+        if "groups" not in self.filters:
+            return {**self.filters, "groups": []}
         return self.filters
 
     def transform_cohort_filters_for_easy_evaluation(
