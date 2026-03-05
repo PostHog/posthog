@@ -126,6 +126,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         const additionalFieldIndices = Object.values(props.additionalSelect || {}).map((field) =>
                             assembledSelectFields.indexOf(field)
                         )
+                        const personColumnIndex = (response.columns || []).indexOf('person')
                         const newResponse: ListActorsResponse = {
                             results: [
                                 {
@@ -155,7 +156,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                                 created_at: result[0].$start_timestamp,
                                                 matched_recordings: [],
                                                 value_at_data_point: null,
-                                                person: result[2],
+                                                person: personColumnIndex >= 0 ? result[personColumnIndex] : undefined,
                                             }
                                             Object.keys(props.additionalSelect || {}).forEach((field, index) => {
                                                 session[field] = result[additionalFieldIndices[index]]
