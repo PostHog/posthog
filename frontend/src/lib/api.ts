@@ -5584,7 +5584,7 @@ const api = {
         async list(
             params: {
                 status?: string
-                distinct_id?: string
+                distinct_ids?: string
                 search?: string
                 limit?: number
                 offset?: number
