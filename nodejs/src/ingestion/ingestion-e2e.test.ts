@@ -247,6 +247,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
 
             const ingester = new IngestionConsumer(hub, {
                 ...hub,
+                kafkaMetricsProducer: hub.kafkaProducer,
                 hogTransformer: createHogTransformerService(hub, hub),
             })
             // NOTE: We don't actually use kafka so we skip instantiation for faster tests
