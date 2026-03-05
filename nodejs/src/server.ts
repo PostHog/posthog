@@ -375,7 +375,8 @@ export class PluginServer {
                     config.CYCLOTRON_DATABASE_URL = config.CYCLOTRON_SHADOW_DATABASE_URL!
                     // We also want to force the job queue to _only_ write to postgres so we don't mix up the data2
                     // We allow remotely this to be overridden for postgres-v2
-                    config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:postgres'
+                    config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:postgres-v2'
+                    config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'postgres-v2' //
                 }
 
                 serviceLoaders.push(async () => {
