@@ -191,26 +191,30 @@ export function captureRapidUrlChangeWarning(
 }
 
 export function trackUrlChange(response: ActionToUrlResponse, logicPath: string, actionName: string): void {
-    const urlString = extractUrlString(response)
-    if (urlString === null) {
-        return
-    }
+    try {
+        const urlString = extractUrlString(response)
+        if (urlString === null) {
+            return
+        }
 
-    const tracker = getUrlChangeTracker(logicPath)
+        const tracker = getUrlChangeTracker(logicPath)
 
-    if (containsSerializationBug(urlString)) {
-        // eslint-disable-next-line no-console
-        console.error('[PostHog] Invalid URL detected - contains [object Object]', {
-            url: urlString,
-            action: actionName,
-            logic: logicPath,
-        })
-    }
+        if (containsSerializationBug(urlString)) {
+            // eslint-disable-next-line no-console
+            console.error('[PostHog] Invalid URL detected - contains [object Object]', {
+                url: urlString,
+                action: actionName,
+                logic: logicPath,
+            })
+        }
 
-    tracker.recordChange(urlString, logicPath, actionName)
+        tracker.recordChange(urlString, logicPath, actionName)
 
-    if (tracker.isRapidlyChanging()) {
-        captureRapidUrlChangeWarning(tracker, urlString, logicPath, actionName)
+        if (tracker.isRapidlyChanging()) {
+            captureRapidUrlChangeWarning(tracker, urlString, logicPath, actionName)
+        }
+    } catch {
+        // Silently ignore errors - this is observability code that should never disturb the app
     }
 }
 
