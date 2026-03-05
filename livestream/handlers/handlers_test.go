@@ -27,19 +27,22 @@ func TestStreamEventsHandler_AuthValidation(t *testing.T) {
 
 	tests := []struct {
 		name           string
+		description    string
 		setupHeader    func(*http.Request)
 		expectedStatus int
 		expectedError  string
 	}{
 		{
-			name: "Missing authorization header returns unauthorized",
+			name:        "Missing authorization header returns unauthorized",
+			description: "When auth header is missing, handler should return 401 with 'wrong token'",
 			setupHeader: func(req *http.Request) {
 			},
 			expectedStatus: http.StatusUnauthorized,
 			expectedError:  "wrong token",
 		},
 		{
-			name: "Invalid auth header returns unauthorized",
+			name:        "Invalid auth header returns unauthorized",
+			description: "When auth header is invalid (not Bearer format), handler should return 401 with 'wrong token'",
 			setupHeader: func(req *http.Request) {
 				req.Header.Set("Authorization", "InvalidToken")
 			},
@@ -61,7 +64,7 @@ func TestStreamEventsHandler_AuthValidation(t *testing.T) {
 
 			err := handler(c)
 
-			require.Error(t, err)
+			require.Error(t, err, tt.description)
 			httpErr, ok := err.(*echo.HTTPError)
 			require.True(t, ok, "error should be an HTTPError")
 			assert.Equal(t, tt.expectedStatus, httpErr.Code)
@@ -80,12 +83,14 @@ func TestStreamEventsHandler_TokenAndTeamIDValidation(t *testing.T) {
 
 	tests := []struct {
 		name         string
+		description  string
 		claims       jwt.MapClaims
 		expectError  bool
 		errorMessage string
 	}{
 		{
-			name: "Empty api_token should return unauthorized",
+			name:        "Empty api_token should return unauthorized",
+			description: "New validation: empty token in JWT claims should be rejected with 401",
 			claims: jwt.MapClaims{
 				"team_id":   123,
 				"api_token": "",
@@ -94,7 +99,8 @@ func TestStreamEventsHandler_TokenAndTeamIDValidation(t *testing.T) {
 			errorMessage: "wrong token",
 		},
 		{
-			name: "Team ID 0 should return unauthorized",
+			name:        "Team ID 0 should return unauthorized",
+			description: "New validation: teamID=0 in JWT claims should be rejected with 401",
 			claims: jwt.MapClaims{
 				"team_id":   0,
 				"api_token": "valid-token",
@@ -103,7 +109,8 @@ func TestStreamEventsHandler_TokenAndTeamIDValidation(t *testing.T) {
 			errorMessage: "wrong token",
 		},
 		{
-			name: "Valid token and team ID succeeds",
+			name:        "Valid token and team ID succeeds",
+			description: "New validation: teamID=7 and non-empty token should pass validation",
 			claims: jwt.MapClaims{
 				"team_id":   7,
 				"api_token": "valid-token",
@@ -128,13 +135,13 @@ func TestStreamEventsHandler_TokenAndTeamIDValidation(t *testing.T) {
 			err := handler(c)
 
 			if tt.expectError {
-				require.Error(t, err)
+				require.Error(t, err, tt.description)
 				httpErr, ok := err.(*echo.HTTPError)
 				require.True(t, ok, "error should be an HTTPError")
 				assert.Equal(t, http.StatusUnauthorized, httpErr.Code)
 				assert.Equal(t, tt.errorMessage, httpErr.Message)
 			} else {
-				assert.NoError(t, err)
+				assert.NoError(t, err, tt.description)
 			}
 		})
 	}

@@ -1,5 +1,10 @@
 //go:build integration
 
+// Sharded pub/sub routes messages by hash slot,
+// so each slot may live on a different cluster node. Mocks and miniredis
+// don't simulate this so these tests hit a real Redis Cluster to verify
+// events reach subscribers even when tokens hash to different shards.
+// Use livestream/scripts/run-integration-tests.sh to run this.
 package events
 
 import (

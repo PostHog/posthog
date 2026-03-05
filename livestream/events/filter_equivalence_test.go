@@ -1,3 +1,6 @@
+// This test file ensures that filters work identically between the new
+// Pub/Sub implementation and the existing in-memory implementation
+// Once the Livestream V2 migration is complete, this can be deleted.
 package events
 
 import (
@@ -9,11 +12,11 @@ import (
 
 func TestFilterEquivalence(t *testing.T) {
 	tests := []struct {
-		name      string
-		sub       func() Subscription
-		event     PostHogEvent
-		streamType  string
-		wantProps map[string]interface{}
+		name       string
+		sub        func() Subscription
+		event      PostHogEvent
+		streamType string
+		wantProps  map[string]interface{}
 	}{
 		{
 			name: "basic match",
@@ -22,8 +25,8 @@ func TestFilterEquivalence(t *testing.T) {
 				Token: "tok_a", Event: "$pageview", DistinctId: "u1", Uuid: "uuid-1",
 				Properties: map[string]interface{}{"url": "https://example.com"},
 			},
-			streamType:  "event",
-			wantProps: map[string]interface{}{"url": "https://example.com"},
+			streamType: "event",
+			wantProps:  map[string]interface{}{"url": "https://example.com"},
 		},
 		{
 			name: "distinctId match",
@@ -124,8 +127,8 @@ func TestFilterEquivalence(t *testing.T) {
 				Token: "tok_a", Event: "$pageview", DistinctId: "u1", Uuid: "uuid-1",
 				Properties: map[string]interface{}{"url": "https://example.com", "$browser": "Chrome"},
 			},
-			streamType:  "event",
-			wantProps: map[string]interface{}{"url": "https://example.com"},
+			streamType: "event",
+			wantProps:  map[string]interface{}{"url": "https://example.com"},
 		},
 		{
 			name: "columns nil returns all properties",
@@ -136,8 +139,8 @@ func TestFilterEquivalence(t *testing.T) {
 				Token: "tok_a", Event: "$pageview", DistinctId: "u1", Uuid: "uuid-1",
 				Properties: map[string]interface{}{"url": "https://example.com", "$browser": "Chrome"},
 			},
-			streamType:  "event",
-			wantProps: map[string]interface{}{"url": "https://example.com", "$browser": "Chrome"},
+			streamType: "event",
+			wantProps:  map[string]interface{}{"url": "https://example.com", "$browser": "Chrome"},
 		},
 		{
 			name: "shouldClose prevents delivery",
