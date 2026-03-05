@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 import { IconCopy, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
@@ -185,9 +185,17 @@ function ConditionHeader({
     )
 }
 
-function IntentIssuesSummary({ issues, intent }: { issues: string[]; intent: FlagIntent | null }): JSX.Element | null {
-    const [expanded, setExpanded] = useState(false)
-
+function IntentIssuesSummary({
+    issues,
+    intent,
+    expanded,
+    onToggle,
+}: {
+    issues: string[]
+    intent: FlagIntent | null
+    expanded: boolean
+    onToggle: () => void
+}): JSX.Element | null {
     if (issues.length === 0 || !intent) {
         return null
     }
@@ -198,10 +206,7 @@ function IntentIssuesSummary({ issues, intent }: { issues: string[]; intent: Fla
     return (
         <LemonBanner type="warning">
             <div>
-                <div
-                    className="flex items-center justify-between cursor-pointer select-none"
-                    onClick={() => setExpanded(!expanded)}
-                >
+                <div className="flex items-center justify-between cursor-pointer select-none" onClick={onToggle}>
                     <span className="text-sm font-medium">{label}</span>
                     <span className="text-xs text-secondary">{expanded ? 'Hide' : 'Show'}</span>
                 </div>
@@ -226,8 +231,16 @@ function IntentIssuesSummary({ issues, intent }: { issues: string[]; intent: Fla
 }
 
 function IntentWarningsBanner({ flagId }: { flagId: FeatureFlagLogicProps['id'] }): JSX.Element | null {
-    const { intentIssues, flagIntent } = useValues(featureFlagIntentWarningLogic({ id: flagId }))
-    return <IntentIssuesSummary issues={intentIssues} intent={flagIntent} />
+    const { intentIssues, flagIntent, issuesExpanded } = useValues(featureFlagIntentWarningLogic({ id: flagId }))
+    const { toggleIssuesExpanded } = useActions(featureFlagIntentWarningLogic({ id: flagId }))
+    return (
+        <IntentIssuesSummary
+            issues={intentIssues}
+            intent={flagIntent}
+            expanded={issuesExpanded}
+            onToggle={toggleIssuesExpanded}
+        />
+    )
 }
 
 function UnreachableConditionBanner({

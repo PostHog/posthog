@@ -97,7 +97,7 @@ function maybeApplyUrlIntent(
     actions: {
         setFlagIntent: (intent: FlagIntent) => void
         applyUrlIntent: () => void
-        setFeatureFlag: (flag: Partial<FeatureFlagType>) => void
+        setFeatureFlag: (flag: FeatureFlagType) => void
     }
 ): void {
     if (values.urlIntentApplied) {

@@ -1,4 +1,4 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
@@ -54,6 +54,19 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
             ['featureFlags as enabledFeatures'],
         ],
     })),
+
+    actions({
+        toggleIssuesExpanded: true,
+    }),
+
+    reducers({
+        issuesExpanded: [
+            false,
+            {
+                toggleIssuesExpanded: (expanded) => !expanded,
+            },
+        ],
+    }),
 
     selectors({
         unreachableGroups: [
