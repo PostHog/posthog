@@ -31,7 +31,7 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SLACK,
-            caption="Select an existing Slack workspace to link to PostHog or create a new connection",
+            caption="Connect your Slack workspace to sync channels, users, and messages.",
             iconPath="/static/services/slack.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
