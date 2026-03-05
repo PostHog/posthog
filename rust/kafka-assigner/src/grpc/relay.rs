@@ -29,7 +29,7 @@ pub async fn run_relay(
 ) -> Result<()> {
     tokio::try_join!(
         relay_assignments(store.clone(), registry.clone(), cancel.clone()),
-        relay_handoffs(store, registry, cancel),
+        relay_handoffs(store.clone(), registry.clone(), cancel.clone()),
     )?;
     Ok(())
 }
@@ -92,7 +92,11 @@ async fn relay_assignments(
     }
 }
 
-/// Watch handoff changes and push `Warm`/`Release` events to affected consumers.
+/// Watch handoff changes and push batched `Warm`/`Release` events to affected consumers.
+///
+/// Like `relay_assignments`, this batches events per-consumer from each watch
+/// response. Without batching, a rebalance moving hundreds of partitions would
+/// send one event per partition, overflowing the consumer channel.
 async fn relay_handoffs(
     store: Arc<KafkaAssignerStore>,
     registry: Arc<ConsumerRegistry>,
@@ -106,53 +110,63 @@ async fn relay_handoffs(
             msg = stream.message() => {
                 let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended"))?;
 
+                let mut warms: HashMap<String, Vec<HandoffState>> = HashMap::new();
+                let mut releases: HashMap<String, Vec<HandoffState>> = HashMap::new();
+
                 for event in resp.events() {
                     if event.event_type() == EventType::Put {
                         match store::parse_watch_value::<HandoffState>(event) {
-                            Ok(handoff) => {
-                                relay_handoff_event(&registry, &handoff);
-                            }
+                            Ok(handoff) => match handoff.phase {
+                                HandoffPhase::Warming => {
+                                    warms
+                                        .entry(handoff.new_owner.clone())
+                                        .or_default()
+                                        .push(handoff);
+                                }
+                                HandoffPhase::Complete => {
+                                    releases
+                                        .entry(handoff.old_owner.clone())
+                                        .or_default()
+                                        .push(handoff);
+                                }
+                                // Ready is a consumer → leader signal, not relayed.
+                                HandoffPhase::Ready => {}
+                            },
                             Err(e) => {
                                 tracing::error!(error = %e, "failed to parse handoff event");
                             }
                         }
                     }
                 }
-            }
-        }
-    }
-}
 
-/// Route a single handoff event to the appropriate consumer.
-fn relay_handoff_event(registry: &ConsumerRegistry, handoff: &HandoffState) {
-    match handoff.phase {
-        HandoffPhase::Warming => {
-            if let Some(sender) = registry.get_sender(&handoff.new_owner) {
-                match sender.try_send(AssignmentEvent::Warm(handoff.clone())) {
-                    Ok(()) => {}
-                    Err(TrySendError::Full(_)) => {
-                        tracing::warn!(consumer = %handoff.new_owner, "consumer channel full, dropping warm");
+                for (consumer, handoffs) in warms {
+                    if let Some(sender) = registry.get_sender(&consumer) {
+                        match sender.try_send(AssignmentEvent::Warm(handoffs)) {
+                            Ok(()) => {}
+                            Err(TrySendError::Full(_)) => {
+                                tracing::warn!(consumer = %consumer, "consumer channel full, dropping warm batch");
+                            }
+                            Err(TrySendError::Closed(_)) => {
+                                tracing::debug!(consumer = %consumer, "consumer channel closed, skipping warm batch");
+                            }
+                        }
                     }
-                    Err(TrySendError::Closed(_)) => {
-                        tracing::debug!(consumer = %handoff.new_owner, "consumer channel closed, skipping warm");
+                }
+
+                for (consumer, handoffs) in releases {
+                    if let Some(sender) = registry.get_sender(&consumer) {
+                        match sender.try_send(AssignmentEvent::Release(handoffs)) {
+                            Ok(()) => {}
+                            Err(TrySendError::Full(_)) => {
+                                tracing::warn!(consumer = %consumer, "consumer channel full, dropping release batch");
+                            }
+                            Err(TrySendError::Closed(_)) => {
+                                tracing::debug!(consumer = %consumer, "consumer channel closed, skipping release batch");
+                            }
+                        }
                     }
                 }
             }
         }
-        HandoffPhase::Complete => {
-            if let Some(sender) = registry.get_sender(&handoff.old_owner) {
-                match sender.try_send(AssignmentEvent::Release(handoff.clone())) {
-                    Ok(()) => {}
-                    Err(TrySendError::Full(_)) => {
-                        tracing::warn!(consumer = %handoff.old_owner, "consumer channel full, dropping release");
-                    }
-                    Err(TrySendError::Closed(_)) => {
-                        tracing::debug!(consumer = %handoff.old_owner, "consumer channel closed, skipping release");
-                    }
-                }
-            }
-        }
-        // Ready is a consumer → leader signal, not relayed to consumers.
-        HandoffPhase::Ready => {}
     }
 }

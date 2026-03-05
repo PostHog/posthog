@@ -327,6 +327,7 @@ impl Assigner {
         let mut all_assignments: Vec<PartitionAssignment> = Vec::new();
         let mut all_handoffs: Vec<HandoffState> = Vec::new();
         let now = util::now_seconds();
+        let active_set: HashSet<&str> = active_consumers.iter().map(|s| s.as_str()).collect();
 
         for config in &topic_configs {
             let current_assignments = store.list_assignments_for_topic(&config.topic).await?;
@@ -340,13 +341,42 @@ impl Assigner {
                 &active_consumers,
                 config.partition_count,
             );
-            let handoffs = util::compute_required_handoffs(&current_map, &desired);
+            let moves = util::compute_required_handoffs(&current_map, &desired);
 
-            let handoff_partitions: HashSet<u32> = handoffs.iter().map(|(p, _, _)| *p).collect();
+            // Separate moves into direct assignments (old owner is dead) and
+            // handoffs (old owner is alive and needs the handoff protocol).
+            let mut moving_partitions: HashSet<u32> = HashSet::new();
+            for (partition, old_owner, new_owner) in moves {
+                moving_partitions.insert(partition);
+                if active_set.contains(old_owner.as_str()) {
+                    all_handoffs.push(HandoffState {
+                        topic: config.topic.clone(),
+                        partition,
+                        old_owner,
+                        new_owner,
+                        phase: HandoffPhase::Warming,
+                        started_at: now,
+                    });
+                } else {
+                    tracing::info!(
+                        topic = %config.topic,
+                        partition,
+                        old_owner = %old_owner,
+                        new_owner = %new_owner,
+                        "old owner is dead, assigning directly without handoff"
+                    );
+                    all_assignments.push(PartitionAssignment {
+                        topic: config.topic.clone(),
+                        partition,
+                        owner: new_owner,
+                        status: AssignmentStatus::Active,
+                    });
+                }
+            }
 
-            // Stable assignments: partitions not being handed off
+            // Stable assignments: partitions not moving
             for (&partition, owner) in &desired {
-                if !handoff_partitions.contains(&partition) {
+                if !moving_partitions.contains(&partition) {
                     all_assignments.push(PartitionAssignment {
                         topic: config.topic.clone(),
                         partition,
@@ -354,17 +384,6 @@ impl Assigner {
                         status: AssignmentStatus::Active,
                     });
                 }
-            }
-
-            for (partition, old_owner, new_owner) in handoffs {
-                all_handoffs.push(HandoffState {
-                    topic: config.topic.clone(),
-                    partition,
-                    old_owner,
-                    new_owner,
-                    phase: HandoffPhase::Warming,
-                    started_at: now,
-                });
             }
         }
 

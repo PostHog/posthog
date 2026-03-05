@@ -21,7 +21,7 @@ pub struct Config {
     #[envconfig(from = "BIND_PORT", default = "50051")]
     pub port: u16,
 
-    #[envconfig(default = "64")]
+    #[envconfig(default = "1024")]
     pub stream_channel_size: usize,
 
     #[envconfig(default = "30")]

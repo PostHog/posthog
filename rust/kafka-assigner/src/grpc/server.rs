@@ -45,7 +45,7 @@ impl KafkaAssignerService {
             store,
             registry,
             kafka_config,
-            64,
+            1024,
             30,
             Duration::from_secs(10),
         )
@@ -239,8 +239,14 @@ impl KafkaAssigner for KafkaAssignerService {
             async move {
                 let mut event_rx = event_rx;
                 while let Some(event) = event_rx.recv().await {
-                    let cmd = proto::AssignmentCommand::from(&event);
-                    if proto_tx.send(Ok(cmd)).await.is_err() {
+                    let mut failed = false;
+                    for cmd in convert::to_proto_commands(&event) {
+                        if proto_tx.send(Ok(cmd)).await.is_err() {
+                            failed = true;
+                            break;
+                        }
+                    }
+                    if failed {
                         break;
                     }
                 }
