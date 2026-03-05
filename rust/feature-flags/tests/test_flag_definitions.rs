@@ -1448,3 +1448,229 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
         "Metrics should include key label. Metrics: {metrics_text}"
     );
 }
+
+#[tokio::test]
+async fn test_etag_returns_304_when_matching() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let etag_value = "a1b2c3d4e5f6g7h8";
+    context
+        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", format!("W/\"{etag_value}\""))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        304,
+        "Should return 304 when ETag matches. Body: {}",
+        response.text().await.unwrap_or_default()
+    );
+}
+
+#[tokio::test]
+async fn test_etag_304_includes_etag_and_cache_control_headers() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let etag_value = "abcdef1234567890";
+    context
+        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", format!("W/\"{etag_value}\""))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 304);
+    assert_eq!(
+        response.headers().get("etag").unwrap().to_str().unwrap(),
+        format!("W/\"{etag_value}\"")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "private, must-revalidate"
+    );
+}
+
+#[tokio::test]
+async fn test_etag_returns_200_when_not_matching() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    context
+        .populate_cache_for_team_with_etag(team.id, "current_etag_value")
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", "W/\"stale_etag_value\"")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Should return 200 when ETag does not match"
+    );
+
+    assert_eq!(
+        response.headers().get("etag").unwrap().to_str().unwrap(),
+        "W/\"current_etag_value\""
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "private, must-revalidate"
+    );
+}
+
+#[tokio::test]
+async fn test_etag_200_includes_etag_header_without_if_none_match() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let etag_value = "freshdata12345678";
+    context
+        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // Request WITHOUT If-None-Match header
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers().get("etag").unwrap().to_str().unwrap(),
+        format!("W/\"{etag_value}\""),
+        "200 response should include ETag header even without If-None-Match"
+    );
+}
+
+#[tokio::test]
+async fn test_etag_graceful_degradation_without_stored_etag() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Populate cache WITHOUT an ETag
+    context.populate_cache_for_team(team.id).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // Send If-None-Match even though no ETag is stored — should get 200 (graceful degradation)
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", "W/\"some_stale_etag\"")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Should return 200 when no ETag is stored (graceful degradation)"
+    );
+    assert!(
+        response.headers().get("etag").is_none(),
+        "Should not include ETag header when no ETag is stored"
+    );
+}

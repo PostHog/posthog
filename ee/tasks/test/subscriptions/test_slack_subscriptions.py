@@ -474,7 +474,7 @@ class TestSlackErrorTruncation(APIBaseTest):
             team=self.team, insight_id=self.insight.id, export_format="image/png", exception=short_error
         )
 
-        block = _block_for_asset(asset)
+        block = _block_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
 
         assert block["type"] == "section"
         assert short_error in block["text"]["text"]
@@ -487,7 +487,7 @@ class TestSlackErrorTruncation(APIBaseTest):
             team=self.team, insight_id=self.insight.id, export_format="image/png", exception=long_error
         )
 
-        block = _block_for_asset(asset)
+        block = _block_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
 
         assert block["type"] == "section"
         text = block["text"]["text"]
@@ -499,7 +499,7 @@ class TestSlackErrorTruncation(APIBaseTest):
     def test_block_for_asset_without_content_or_location(self) -> None:
         asset = ExportedAsset.objects.create(team=self.team, insight_id=self.insight.id, export_format="image/png")
 
-        block = _block_for_asset(asset)
+        block = _block_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
 
         assert block["type"] == "section"
         text = block["text"]["text"]

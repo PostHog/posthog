@@ -243,7 +243,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             {} as Record<string, Option>,
             {
                 setOptionsLoading: (state, { key }) => ({ ...state, [key]: { ...state[key], status: 'loading' } }),
-                setOptions: (state, { key, values, allowCustomValues, refreshing }) => {
+                setOptions: (state, { key, values: rawValues, allowCustomValues, refreshing }) => {
+                    const values = Array.isArray(rawValues) ? rawValues : []
                     const current = state[key]
                     const valueNames = values.map((v) => toString(v.name))
 
@@ -444,7 +445,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             )
             breakpoint()
 
-            const propValues = responseData.results
+            const propValues = Array.isArray(responseData.results) ? responseData.results : []
             const refreshing = responseData.refreshing
 
             actions.setOptions(propertyKey, propValues, type !== PropertyDefinitionType.FlagValue, refreshing)
