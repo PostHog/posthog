@@ -1051,6 +1051,7 @@ export const PropertyMathTypeApi = {
     P90: 'p90',
     P95: 'p95',
     P99: 'p99',
+    CountDistinct: 'count_distinct',
 } as const
 
 export type CountPerActorMathTypeApi = (typeof CountPerActorMathTypeApi)[keyof typeof CountPerActorMathTypeApi]
