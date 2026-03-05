@@ -184,9 +184,9 @@ class SignalReportViewSet(
 
         try:
             client = sync_connect()
-            async_to_sync(client.start_workflow)(
-                SignalReportDeletionWorkflow.run,
-                SignalReportDeletionWorkflowInputs(team_id=team_id, report_id=report_id),
+            async_to_sync(client.start_workflow)(  # type: ignore
+                "signal-report-deletion",  # type: ignore
+                SignalReportDeletionWorkflowInputs(team_id=team_id, report_id=report_id),  # type: ignore
                 id=SignalReportDeletionWorkflow.workflow_id_for(team_id, report_id),
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 execution_timeout=timedelta(minutes=30),
@@ -333,9 +333,9 @@ class SignalReportViewSet(
 
         try:
             client = sync_connect()
-            async_to_sync(client.start_workflow)(
-                SignalReportReingestionWorkflow.run,
-                SignalReportReingestionWorkflowInputs(team_id=team_id, report_id=report_id),
+            async_to_sync(client.start_workflow)(  # type: ignore
+                "signal-report-reingestion",  # type: ignore
+                SignalReportReingestionWorkflowInputs(team_id=team_id, report_id=report_id),  # type: ignore
                 id=SignalReportReingestionWorkflow.workflow_id_for(team_id, report_id),
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 execution_timeout=timedelta(minutes=30),
