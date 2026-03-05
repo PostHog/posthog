@@ -117,8 +117,10 @@ export const hasInvalidRegexFilter = (obj: unknown): boolean => {
 
 export const validateQuery = (q: DataNode): boolean => {
     if (isFunnelsQuery(q)) {
-        // funnels require at least two steps
         return q.series.length >= 2
+    }
+    if (isTrendsQuery(q) && q.trendsFilter?.display === ChartDisplayType.BoxPlot) {
+        return !!q.series?.[0]?.math_property
     }
     if (hasInvalidRegexFilter(q)) {
         return false
@@ -148,6 +150,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.CalendarHeatmap]: ChartDisplayType.ActionsBarValue,
 
     [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayType.TwoDimensionalHeatmap,
+    [ChartDisplayType.BoxPlot]: ChartDisplayType.BoxPlot,
 }
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */

@@ -895,6 +895,17 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
     }
 
+    // Remove breakdown filter and formulas for box plot
+    if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoxPlot) {
+        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
+        ;(mergedUpdate as TrendsQuery).trendsFilter = {
+            ...(mergedUpdate as TrendsQuery).trendsFilter,
+            formula: undefined,
+            formulas: undefined,
+            formulaNodes: [],
+        }
+    }
+
     // Don't allow minutes on anything other than Trends
     if (
         currentState.kind == NodeKind.TrendsQuery &&

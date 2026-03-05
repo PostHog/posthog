@@ -2575,6 +2575,7 @@ export enum ChartDisplayType {
     WorldMap = 'WorldMap',
     CalendarHeatmap = 'CalendarHeatmap',
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
+    BoxPlot = 'BoxPlot',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -6739,6 +6740,38 @@ export interface LLMPrompt {
     created_at: string
     updated_at: string
     deleted: boolean
+    is_latest: boolean
+    latest_version: number
+    version_count: number
+    first_version_created_at: string
+}
+
+export interface LLMPromptPublic {
+    id: string
+    name: string
+    prompt: string
+    version: number
+    created_at: string
+    updated_at: string
+    deleted: boolean
+    is_latest: boolean
+    latest_version: number
+    version_count: number
+    first_version_created_at: string
+}
+
+export interface LLMPromptVersionSummary {
+    id: string
+    version: number
+    created_by: UserBasicType
+    created_at: string
+    is_latest: boolean
+}
+
+export interface LLMPromptResolveResponse {
+    prompt: LLMPrompt
+    versions: LLMPromptVersionSummary[]
+    has_more: boolean
 }
 
 // Managed viewset
