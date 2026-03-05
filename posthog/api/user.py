@@ -965,6 +965,24 @@ def toolbar_oauth_authorize(request):
             application=oauth_app, state=signed_state, code_challenge=code_challenge
         )
     except ToolbarOAuthError as exc:
+        if exc.code == "forbidden_app_url":
+            parsed_redirect = urllib.parse.urlparse(redirect_url)
+            hostname = parsed_redirect.hostname or redirect_url
+            return render_template(
+                "toolbar_oauth_error.html",
+                request,
+                context={
+                    "error_title": "Domain not authorized",
+                    "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                    "error_detail": (
+                        f"The hostname {hostname} needs to be added to your project's "
+                        "authorized URLs before the toolbar can be used on this site."
+                    ),
+                    "error_code": "403",
+                    "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
+                },
+                status_code=exc.status_code,
+            )
         return HttpResponse(exc.detail, status=exc.status_code)
 
     # Mark session so the callback knows to redirect back to app_url with the code
@@ -1039,7 +1057,14 @@ def toolbar_oauth_callback(request):
         base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
         quoted_code = urllib.parse.quote(code, safe="")
         quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
-        toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
+        # Include redirect_uri and token_endpoint so the frontend doesn't need
+        # to derive them from ui_host. This fixes reverse proxy setups where
+        # ui_host differs from SITE_URL.
+        redirect_uri = f"{settings.SITE_URL}/toolbar_oauth/callback"
+        token_endpoint = f"{settings.SITE_URL}/oauth/token/"
+        quoted_redirect_uri = urllib.parse.quote(redirect_uri, safe="")
+        quoted_token_endpoint = urllib.parse.quote(token_endpoint, safe="")
+        toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id},redirect_uri:{quoted_redirect_uri},token_endpoint:{quoted_token_endpoint}"
         if original_fragment:
             fragment = f"{original_fragment}&{toolbar_param}"
         else:
@@ -1198,13 +1223,29 @@ def redirect_to_site(request):
 
     if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
+        parsed_app_url = urllib.parse.urlparse(app_url)
+        hostname = parsed_app_url.hostname or app_url
         logger.error(
             "can_only_redirect_to_permitted_domain",
             permitted_domains=team.app_urls,
             app_url=app_url,
             team_id=team.id,
         )
-        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
+        return render_template(
+            "toolbar_oauth_error.html",
+            request,
+            context={
+                "error_title": "Domain not authorized",
+                "error_message": "The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
+                "error_detail": (
+                    f"The hostname {hostname} needs to be added to your project's "
+                    "authorized URLs before the toolbar can be used on this site."
+                ),
+                "error_code": "403",
+                "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
+            },
+            status_code=403,
+        )
     params = {
         "action": "ph_authorize",
         "token": team.api_token,

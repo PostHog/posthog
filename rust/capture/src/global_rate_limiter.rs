@@ -71,6 +71,7 @@ impl GlobalRateLimiter {
             "@ph/grl/capture/tok_distid/{}",
             config.capture_mode.as_tag()
         );
+        let metrics_scope = format!("{}_tok_distid", config.capture_mode.as_tag());
         Self::build(
             config,
             redis_instances,
@@ -80,6 +81,7 @@ impl GlobalRateLimiter {
                 .as_ref(),
             config.global_rate_limit_token_distinctid_local_cache_max_entries,
             &prefix,
+            &metrics_scope,
         )
     }
 
@@ -89,6 +91,7 @@ impl GlobalRateLimiter {
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
     ) -> anyhow::Result<Self> {
         let prefix = format!("@ph/grl/capture/token/{}", config.capture_mode.as_tag());
+        let metrics_scope = format!("{}_token", config.capture_mode.as_tag());
         Self::build(
             config,
             redis_instances,
@@ -96,6 +99,7 @@ impl GlobalRateLimiter {
             config.global_rate_limit_token_overrides_csv.as_ref(),
             config.global_rate_limit_token_local_cache_max_entries,
             &prefix,
+            &metrics_scope,
         )
     }
 
@@ -106,6 +110,7 @@ impl GlobalRateLimiter {
         custom_keys_csv: Option<&String>,
         local_cache_max_entries: u64,
         redis_key_prefix: &str,
+        metrics_scope: &str,
     ) -> anyhow::Result<Self> {
         let grl_config = GlobalRateLimiterConfig {
             global_threshold: threshold,
@@ -115,6 +120,7 @@ impl GlobalRateLimiter {
             redis_key_prefix: redis_key_prefix.to_string(),
             custom_keys: Self::format_custom_keys(custom_keys_csv),
             local_cache_max_entries,
+            metrics_scope: metrics_scope.to_string(),
             ..Default::default()
         };
 
