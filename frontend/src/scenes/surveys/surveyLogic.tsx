@@ -425,7 +425,7 @@ export function processOpenEndedResults(
             }
             const otherData = collectOpenChoiceResponses(question, type, rows, columnIndex, distinctIdIdx, timestampIdx)
             if (otherData.length > 0) {
-                result[questionId] = { type, data: otherData, totalResponses: 0 }
+                result[questionId] = { type, data: otherData, totalResponses: 0, noResponseCount: 0 }
             }
         }
     }
