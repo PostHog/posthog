@@ -1,12 +1,12 @@
 import uuid
 
-import pytest_asyncio
+import pytest
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
 from posthog.batch_exports.service import acreate_batch_export_backfill
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def batch_export(ateam):
     destination = await BatchExportDestination.objects.acreate(
         type="S3",
@@ -26,6 +26,7 @@ async def batch_export(ateam):
     )
     yield batch_export
     await batch_export.adelete()
+    await destination.adelete()
 
 
 async def test_creates_new_backfill(ateam, batch_export):
