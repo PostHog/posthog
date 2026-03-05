@@ -32,6 +32,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError({"pathname": "This field is required."})
 
         query_runner = get_query_runner(
+            request=request,
             query={
                 "kind": "TrendsQuery",
                 "dateRange": {"date_from": "-7d", "explicitDate": False},
@@ -78,9 +79,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
         try:
-            result = query_runner.run(
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, request=request
-            )
+            result = query_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         except UserAccessControlError as e:
             raise ValidationError(str(e))
 

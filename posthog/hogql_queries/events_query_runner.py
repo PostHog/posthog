@@ -65,7 +65,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
         return cast(
             InsightActorsQueryRunner,
-            get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers),
+            get_query_runner(
+                self.query.source, self.team, self.timings, self.limit_context, self.modifiers, request=self.request
+            ),
         )
 
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:

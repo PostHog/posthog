@@ -1540,10 +1540,10 @@ When set, the specified dashboard's filters and date range override will be appl
         filter = Filter(request=request, team=team)
         query = filter_to_query(filter.to_dict()).model_dump()
         query = upgrade(query)  # should not be necessary, but just in case
-        query_runner = get_query_runner(query, team, limit_context=None)
+        query_runner = get_query_runner(query, team, limit_context=None, request=request)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
-        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, request=request)
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert (
             isinstance(result, schema.CachedTrendsQueryResponse)
             or isinstance(result, schema.CachedStickinessQueryResponse)
@@ -1605,10 +1605,10 @@ When set, the specified dashboard's filters and date range override will be appl
         filter = filter.shallow_clone(overrides={"insight": "FUNNELS"})
         query = filter_to_query(filter.to_dict()).model_dump()
         query = upgrade(query)  # should not be necessary, but just in case
-        query_runner = get_query_runner(query, team, limit_context=None)
+        query_runner = get_query_runner(query, team, limit_context=None, request=request)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
-        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, request=request)
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert isinstance(result, schema.CachedFunnelsQueryResponse)
 
         return {"result": result.results, "timezone": team.timezone}

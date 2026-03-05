@@ -67,6 +67,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        **kwargs,
     ):
         super().__init__(
             query=query,
@@ -79,6 +80,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 if not limit_context or limit_context in (LimitContext.QUERY_ASYNC, LimitContext.QUERY)
                 else limit_context
             ),
+            **kwargs,
         )
 
         self.start_event = self.query.retentionFilter.targetEntity or DEFAULT_ENTITY

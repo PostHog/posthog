@@ -58,7 +58,9 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     @cached_property
     def source_runner(self) -> QueryRunner:
-        return get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers)
+        return get_query_runner(
+            self.query.source, self.team, self.timings, self.limit_context, self.modifiers, request=self.request
+        )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if isinstance(self.source_runner, TrendsQueryRunner):
