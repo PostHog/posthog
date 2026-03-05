@@ -127,6 +127,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setStatus: (status: TicketStatus) => ({ status }),
         setPriority: (priority: TicketPriority) => ({ priority }),
         setAssignee: (assignee: TicketAssignee) => ({ assignee }),
+        setTags: (tags: string[]) => ({ tags }),
 
         // Session context actions
         loadPerson: true,
@@ -241,6 +242,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setTicket: (_, { ticket }) => ticket?.assignee || null,
             },
         ],
+        tags: [
+            [] as string[],
+            {
+                setTags: (_, { tags }) => tags,
+                setTicket: (_, { ticket }) => ticket?.tags || [],
+            },
+        ],
         messages: [
             [] as CommentType[],
             {
@@ -300,15 +308,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     }),
     selectors({
         hasUnsavedChanges: [
-            (s) => [s.status, s.priority, s.assignee, s.ticket],
-            (status, priority, assignee, ticket): boolean => {
+            (s) => [s.status, s.priority, s.assignee, s.tags, s.ticket],
+            (status, priority, assignee, tags, ticket): boolean => {
                 if (!ticket) {
                     return false
                 }
                 return (
                     status !== ticket.status ||
                     priority !== ticket.priority ||
-                    JSON.stringify(assignee) !== JSON.stringify(ticket.assignee)
+                    JSON.stringify(assignee) !== JSON.stringify(ticket.assignee) ||
+                    JSON.stringify([...tags].sort()) !== JSON.stringify([...(ticket.tags || [])].sort())
                 )
             },
         ],
@@ -437,6 +446,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     status: string
                     priority: string
                     assignee: TicketAssignee
+                    tags: string[]
                 }> = {}
 
                 if (values.status) {
@@ -446,6 +456,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     data.priority = values.priority
                 }
                 data.assignee = values.assignee
+                data.tags = values.tags
 
                 const ticket = await api.conversationsTickets.update(props.id.toString(), data)
                 actions.setTicket(ticket)
