@@ -96,3 +96,10 @@ export const FEATURE_FLAG_RESOURCE_URI = 'ui://posthog/feature-flag.html'
  * Shows a data table of all feature flags with status, tags, and dates.
  */
 export const FEATURE_FLAG_LIST_RESOURCE_URI = 'ui://posthog/feature-flag-list.html'
+
+/**
+
+ * LLM costs visualization.
+ * Used by: get-llm-total-costs-for-project
+ */
+export const LLM_COSTS_RESOURCE_URI = 'ui://posthog/llm-costs.html'
