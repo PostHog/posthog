@@ -188,7 +188,7 @@ class FakePersonHogClient:
     def get_persons_by_uuids(self, request: person_pb2.GetPersonsByUuidsRequest) -> person_pb2.PersonsResponse:
         self.calls.append(_Call("get_persons_by_uuids", request))
         found = []
-        missing_ids = []
+        missing_ids: list[int] = []
         for uuid in request.uuids:
             person = self._persons_by_uuid.get((request.team_id, uuid))
             if person:

@@ -113,7 +113,7 @@ class TestProtoGroupTypeMappingToDict:
     )
     def test_conversion(self, _name: str, proto_kwargs: dict, expected: dict):
         proto = _make_proto_mapping(**proto_kwargs)
-        assert proto_group_type_mapping_to_dict(proto) == expected
+        assert proto_group_type_mapping_to_dict(proto) == expected  # type: ignore[arg-type] -- SimpleNamespace duck-types the proto
 
 
 class TestProtoGroupTypeMappingToResult:
@@ -125,7 +125,7 @@ class TestProtoGroupTypeMappingToResult:
     )
     def test_conversion(self, _name: str, group_type: str, group_type_index: int):
         proto = _make_proto_mapping(group_type=group_type, group_type_index=group_type_index)
-        result = proto_group_type_mapping_to_result(proto)
+        result = proto_group_type_mapping_to_result(proto)  # type: ignore[arg-type] -- SimpleNamespace duck-types the proto
         assert result == GroupTypeMappingResult(group_type=group_type, group_type_index=group_type_index)
 
     def test_result_is_frozen(self):
