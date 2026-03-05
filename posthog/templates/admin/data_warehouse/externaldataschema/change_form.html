@@ -51,12 +51,14 @@
                     <td style="padding: 8px;">{% if job.finished_at %}{{ job.finished_at|date:"Y-m-d H:i:s" }}{% else %}&mdash;{% endif %}</td>
                     <td style="padding: 8px; text-align: right;">{% if job.rows_synced is not None %}{{ job.rows_synced }}{% else %}&mdash;{% endif %}</td>
                     <td style="padding: 8px;">
-                        {% if job.workflow_id %}
+                    <td style="padding: 8px;">
+                        {% if job.workflow_id and job.workflow_run_id %}
                             <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/workflows/{{ job.workflow_id }}/{{ job.workflow_run_id }}"
                                target="_blank">View workflow</a>
                         {% else %}
                             &mdash;
                         {% endif %}
+                    </td>
                     </td>
                     <td style="padding: 8px;">
                         {% if job.workflow_id %}
