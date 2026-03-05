@@ -27,7 +27,7 @@ function IdleInput(): JSX.Element {
     useEffect(() => {
         const timer = setTimeout(() => inputRef.current?.focus(), 100)
         return () => clearTimeout(timer)
-    }, [inputRef.current])
+    }, [])
 
     return (
         <div className="flex flex-col items-center w-full">
