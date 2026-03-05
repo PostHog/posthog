@@ -133,8 +133,7 @@ pub fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sql
             let pool_name = pool_name.clone();
             Box::pin(async move {
                 if let Some(name) = pool_name {
-                    metrics::counter!(DB_CONNECTION_CREATED_COUNTER, "pool" => name)
-                        .increment(1);
+                    metrics::counter!(DB_CONNECTION_CREATED_COUNTER, "pool" => name).increment(1);
                 }
 
                 if let Some(timeout_ms) = statement_timeout_ms {

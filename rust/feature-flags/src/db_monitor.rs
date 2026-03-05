@@ -102,26 +102,14 @@ impl DatabasePoolMonitor {
 
         let labels = [("pool".to_string(), pool_name.to_string())];
 
-        gauge(
-            DB_CONNECTION_POOL_SIZE_GAUGE,
-            &labels,
-            pool_size as f64,
-        );
+        gauge(DB_CONNECTION_POOL_SIZE_GAUGE, &labels, pool_size as f64);
         gauge(
             DB_CONNECTION_POOL_ACTIVE_COUNTER,
             &labels,
             pool_active as f64,
         );
-        gauge(
-            DB_CONNECTION_POOL_IDLE_COUNTER,
-            &labels,
-            pool_idle as f64,
-        );
-        gauge(
-            DB_CONNECTION_POOL_MAX_COUNTER,
-            &labels,
-            pool_max as f64,
-        );
+        gauge(DB_CONNECTION_POOL_IDLE_COUNTER, &labels, pool_idle as f64);
+        gauge(DB_CONNECTION_POOL_MAX_COUNTER, &labels, pool_max as f64);
 
         tracing::debug!(
             "{} pool metrics - active: {}, idle: {}, max: {}",
