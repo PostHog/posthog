@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { IconSearch, IconSparkles } from '@posthog/icons'
 
+import { Search } from 'lib/components/Search/Search'
 import { uuid } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
@@ -123,34 +124,6 @@ function IdleInput(): JSX.Element {
     )
 }
 
-function SearchInput(): JSX.Element {
-    const { query } = useValues(aiFirstHomepageLogic)
-    const { setQuery } = useActions(aiFirstHomepageLogic)
-    const inputRef = useRef<HTMLInputElement>(null)
-
-    useEffect(() => {
-        inputRef.current?.focus()
-    }, [])
-
-    return (
-        <label
-            htmlFor="homepage-search-input"
-            className="group input-like flex gap-1 items-center w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2"
-        >
-            <IconSearch className="size-4 shrink-0 text-tertiary group-focus-within:text-primary" />
-            <input
-                ref={inputRef}
-                id="homepage-search-input"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search..."
-                className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
-                autoFocus
-            />
-        </label>
-    )
-}
-
 function HomepageAiInput(): JSX.Element {
     const { threadLogicKey, conversation } = useValues(maxLogic)
 
@@ -179,7 +152,7 @@ export function HomepageInput(): JSX.Element {
                 </div>
             )}
             {mode === 'ai' && <HomepageAiInput />}
-            {mode === 'search' && <SearchInput />}
+            {mode === 'search' && <Search.Input autoFocus />}
         </div>
     )
 }
