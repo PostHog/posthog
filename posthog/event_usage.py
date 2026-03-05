@@ -292,13 +292,13 @@ def get_event_source(request) -> EventSource:
     return EventSource.API
 
 
-MAX_USER_AGENT_LENGTH = 1000
+MAX_HEADER_VALUE_LENGTH = 1000
 
 
-def _sanitize_user_agent(value: str | None) -> str | None:
+def _sanitize_header_value(value: str | None) -> str | None:
     if not value:
         return None
-    return re.sub(r"[\x00-\x1f\x7f]", "", value).strip()[:MAX_USER_AGENT_LENGTH] or None
+    return re.sub(r"[\x00-\x1f\x7f]", "", value).strip()[:MAX_HEADER_VALUE_LENGTH] or None
 
 
 def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
@@ -308,7 +308,10 @@ def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
         "$current_url": request.headers.get("Referer"),
         "$session_id": request.headers.get("X-Posthog-Session-Id"),
         "was_impersonated": is_impersonated_session(request),
-        "mcp_user_agent": _sanitize_user_agent(request.headers.get("X-Posthog-Mcp-User-Agent")),
+        "mcp_user_agent": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-User-Agent")),
+        "mcp_client_name": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Name")),
+        "mcp_client_version": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Version")),
+        "mcp_protocol_version": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Protocol-Version")),
     }
 
 
