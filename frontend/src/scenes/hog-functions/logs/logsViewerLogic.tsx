@@ -26,7 +26,6 @@ import { LogEntryLevel } from '~/types'
 import type { logsViewerLogicType } from './logsViewerLogicType'
 
 export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARN', 'ERROR']
-export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'ERROR']
 export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
 export const LOG_GROUP_LIMIT = 10
@@ -244,7 +243,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         filters: [
             {
                 search: '',
-                levels: props.defaultFilters?.levels ?? DEFAULT_LOG_LEVELS,
+                levels: props.defaultFilters?.levels ?? ALL_LOG_LEVELS,
                 date_from: props.defaultFilters?.dateFrom ?? '-7d',
                 date_to: props.defaultFilters?.dateTo,
             } as LogsViewerFilters,
