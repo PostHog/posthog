@@ -320,11 +320,13 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                         placeholder="Search for workflows"
                         onChange={setSearchTerm}
                         value={filters.search}
+                        data-attr="workflows-search"
                     />
                     <div className="flex items-center gap-2 flex-wrap">
                         <div className="flex items-center gap-2">
                             <span>Status:</span>
                             <LemonSelect
+                                data-attr="workflows-status-filter"
                                 value={filters.status || 'all'}
                                 onChange={(value) => setStatus(value === 'all' ? null : value)}
                                 options={[

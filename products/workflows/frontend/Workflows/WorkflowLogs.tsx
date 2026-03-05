@@ -161,5 +161,9 @@ function WorkflowBatchRunLogs({ id }: WorkflowLogsProps): JSX.Element {
 export function WorkflowLogs({ id }: WorkflowLogsProps): JSX.Element {
     const { workflow } = useValues(workflowLogic)
 
-    return workflow?.trigger?.type === 'batch' ? <WorkflowBatchRunLogs id={id} /> : <WorkflowRunLogs id={id} />
+    return (
+        <div data-attr="workflow-logs">
+            {workflow?.trigger?.type === 'batch' ? <WorkflowBatchRunLogs id={id} /> : <WorkflowRunLogs id={id} />}
+        </div>
+    )
 }

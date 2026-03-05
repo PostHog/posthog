@@ -37,7 +37,7 @@ export function MessageChannels(): JSX.Element {
                 }}
             />
 
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4" data-attr="message-channels">
                 {integrationsLoading && !integrations?.length && (
                     <>
                         <LemonSkeleton className="h-20" />
