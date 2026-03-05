@@ -2,22 +2,60 @@ import json
 import asyncio
 import logging
 
+from django.conf import settings
+
 from asgiref.sync import sync_to_async
 
 logger = logging.getLogger(__name__)
 
-TEAM_ID = 2
-USER_ID = 196695
-GITHUB_INTEGRATION_ID = 155750
-REPOSITORY = "posthog/posthog"
+_CLOUD_REPOSITORY = "posthog/posthog"
+_LOCAL_REPOSITORY = "sortafreel/posthog"
 ORIGIN_PRODUCT = "user_created"
 
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
 
+# Cloud defaults (used when DEBUG=False)
+_CLOUD_TEAM_ID = 2
+_CLOUD_USER_ID = 196695
+_CLOUD_GITHUB_INTEGRATION_ID = 155750
+
+
+def _get_defaults() -> tuple[int, int, int, str]:
+    """Return (team_id, user_id, github_integration_id, repository) based on environment."""
+    if settings.DEBUG:
+        from posthog.models.integration import Integration
+        from posthog.models.team.team import Team
+        from posthog.models.user import User
+
+        team = Team.objects.first()
+        if not team:
+            raise RuntimeError("No team found in local database")
+
+        user = User.objects.first()
+        if not user:
+            raise RuntimeError("No user found in local database")
+
+        gh = Integration.objects.filter(team=team, kind="github").first()
+        if not gh:
+            raise RuntimeError(
+                f"No GitHub integration found for team {team.id}. "
+                "Set up a GitHub App installation first: "
+                "go to /settings/integrations in your local PostHog."
+            )
+
+        return team.id, user.id, gh.id, _LOCAL_REPOSITORY
+
+    return _CLOUD_TEAM_ID, _CLOUD_USER_ID, _CLOUD_GITHUB_INTEGRATION_ID, _CLOUD_REPOSITORY
+
 
 async def run_review(prompt: str, branch: str = "master") -> str:
-    """Spawn a sandbox agent with the given prompt and return its last response."""
+    """Spawn a sandbox agent with the given prompt and return its last response.
+
+    Creates a Task + TaskRun, triggers the existing Temporal workflow,
+    polls until completion, then reads the S3 logs and extracts the last
+    agent message.
+    """
     full_description = _build_description(prompt, branch)
     task, task_run = await _create_task_and_trigger(full_description)
     logger.info("review_hog: started task=%s run=%s", task.id, task_run.id)
@@ -43,14 +81,16 @@ async def _create_task_and_trigger(description: str):
     from products.tasks.backend.models import Task
     from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
+    team_id, user_id, github_integration_id, repository = await sync_to_async(_get_defaults)()
+
     task = await sync_to_async(Task.objects.create)(
-        team_id=TEAM_ID,
-        created_by_id=USER_ID,
+        team_id=team_id,
+        created_by_id=user_id,
         title=description[:100],
         description=description,
         origin_product=ORIGIN_PRODUCT,
-        github_integration_id=GITHUB_INTEGRATION_ID,
-        repository=REPOSITORY,
+        github_integration_id=github_integration_id,
+        repository=repository,
     )
 
     task_run = await sync_to_async(task.create_run)(mode="background")
@@ -58,8 +98,8 @@ async def _create_task_and_trigger(description: str):
     await sync_to_async(execute_task_processing_workflow)(
         task_id=str(task.id),
         run_id=str(task_run.id),
-        team_id=TEAM_ID,
-        user_id=USER_ID,
+        team_id=team_id,
+        user_id=user_id,
     )
 
     return task, task_run
