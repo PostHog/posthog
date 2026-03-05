@@ -3,6 +3,11 @@ import { Page, test as base } from '@playwright/test'
 import { AppContext } from '~/types'
 
 import { Identifier, Navigation } from './navigation'
+import {
+    attachOpenAPIValidationSummary,
+    isOpenAPIValidationEnabled,
+    startOpenAPIValidationCollector,
+} from './openapi-validation'
 
 export const LOGIN_USERNAME = process.env.LOGIN_USERNAME || 'test@posthog.com'
 export const LOGIN_PASSWORD = process.env.LOGIN_PASSWORD || '12345678'
@@ -23,7 +28,11 @@ declare module '@playwright/test' {
  * Use this as the foundation for both legacy tests and new workspace-based tests
  */
 export const test = base.extend<{ page: Page }>({
-    page: async ({ page }, use) => {
+    page: async ({ page }, use, testInfo) => {
+        const stopOpenAPIValidationCollector = isOpenAPIValidationEnabled()
+            ? startOpenAPIValidationCollector(page)
+            : null
+
         // Add custom methods to the page object
         page.setAppContext = async function <K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void> {
             await page.evaluate(
@@ -42,6 +51,11 @@ export const test = base.extend<{ page: Page }>({
         // Pass the extended page to the test
         // eslint-disable-next-line react-hooks/rules-of-hooks
         await use(page)
+
+        if (stopOpenAPIValidationCollector) {
+            const summary = stopOpenAPIValidationCollector()
+            await attachOpenAPIValidationSummary(testInfo, summary)
+        }
     },
 })
 

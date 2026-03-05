@@ -25,6 +25,8 @@ env:
     SECURE_COOKIES: 0
     OPT_OUT_CAPTURE: 0
     E2E_TESTING: 1
+    OPENAPI_E2E_VALIDATION_ENABLED: 1
+    PLAYWRIGHT_OPENAPI_VALIDATE: 1
     SKIP_SERVICE_VERSION_REQUIREMENTS: 1
     EMAIL_HOST: email.test.posthog.net
     SITE_URL: http://localhost:8000
@@ -436,6 +438,36 @@ jobs:
                     fi
                   fi
 
+            - name: Summarize OpenAPI validation findings
+              if: always()
+              run: |
+                  SUMMARY_FILE="playwright/test-results/openapi-validation-summary.json"
+
+                  if [ ! -f "$SUMMARY_FILE" ]; then
+                    echo "OpenAPI validation summary not found at $SUMMARY_FILE"
+                    echo "## 📘 OpenAPI validation" >> $GITHUB_STEP_SUMMARY
+                    echo "No OpenAPI validation summary produced for this run." >> $GITHUB_STEP_SUMMARY
+                    exit 0
+                  fi
+
+                  TOTAL_FINDINGS=$(jq -r '.totalErrorCount // 0' "$SUMMARY_FILE")
+                  AFFECTED_RESPONSES=$(jq -r '.totalAffectedResponses // 0' "$SUMMARY_FILE")
+                  TESTS_WITH_FINDINGS=$(jq -r '.testCountWithFindings // 0' "$SUMMARY_FILE")
+
+                  echo "OpenAPI validation findings: $TOTAL_FINDINGS"
+
+                  echo "## 📘 OpenAPI validation" >> $GITHUB_STEP_SUMMARY
+                  echo "- Findings: **$TOTAL_FINDINGS**" >> $GITHUB_STEP_SUMMARY
+                  echo "- Affected responses: **$AFFECTED_RESPONSES**" >> $GITHUB_STEP_SUMMARY
+                  echo "- Tests with findings: **$TESTS_WITH_FINDINGS**" >> $GITHUB_STEP_SUMMARY
+
+                  TOP_ENDPOINTS=$(jq -r '.endpointStats[:10][]? | "- \(.errorCount) × `\(.url)`"' "$SUMMARY_FILE")
+                  if [ -n "$TOP_ENDPOINTS" ]; then
+                    echo "" >> $GITHUB_STEP_SUMMARY
+                    echo "Top endpoints:" >> $GITHUB_STEP_SUMMARY
+                    echo "$TOP_ENDPOINTS" >> $GITHUB_STEP_SUMMARY
+                  fi
+
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
             # Run even if tests failed, as long as snapshots may have been updated
@@ -577,6 +609,29 @@ jobs:
                           }
                           if (flaky.length > 0) {
                               extraLines += `\n\n⚠️ **${flaky.length} flaky test${flaky.length > 1 ? 's' : ''}:**\n${flaky.join('\n')}`;
+                          }
+                      } catch {}
+
+                      try {
+                          const openApiSummary = JSON.parse(fs.readFileSync('playwright/test-results/openapi-validation-summary.json', 'utf8'));
+                          const findings = openApiSummary.totalErrorCount || 0;
+                          const affectedResponses = openApiSummary.totalAffectedResponses || 0;
+                          const testsWithFindings = openApiSummary.testCountWithFindings || 0;
+
+                          if (findings > 0) {
+                              extraLines += `\n\n📘 **OpenAPI validation findings:** ${findings}`;
+                              extraLines += `\n- Affected responses: ${affectedResponses}`;
+                              extraLines += `\n- Tests with findings: ${testsWithFindings}`;
+
+                              const endpoints = Array.isArray(openApiSummary.endpointStats)
+                                  ? openApiSummary.endpointStats.slice(0, 5)
+                                  : [];
+                              if (endpoints.length > 0) {
+                                  extraLines += '\n- Top endpoints:';
+                                  for (const endpoint of endpoints) {
+                                      extraLines += `\n  - ${endpoint.errorCount} × ${endpoint.url}`;
+                                  }
+                              }
                           }
                       } catch {}
 
