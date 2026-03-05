@@ -31,6 +31,7 @@ export const ACTION_LIST_RESOURCE_URI = 'ui://posthog/action-list.html'
  * Used by: cohorts-retrieve, cohorts-create, cohorts-partial-update
  */
 export const COHORT_RESOURCE_URI = 'ui://posthog/cohort.html'
+
 /**
  * Cohort list visualization.
  * Used by: cohorts-list
@@ -49,11 +50,13 @@ export const DEBUG_RESOURCE_URI = 'ui://posthog/debug.html'
  * Used by: error-details
  */
 export const ERROR_DETAILS_RESOURCE_URI = 'ui://posthog/error-details.html'
+
 /**
  * Error tracking issue detail visualization.
  * Used by: error-tracking-issues-retrieve, error-tracking-issues-partial-update
  */
 export const ERROR_ISSUE_RESOURCE_URI = 'ui://posthog/error-issue.html'
+
 /**
  * Error tracking issue list visualization.
  * Used by: error-tracking-issues-list
@@ -65,11 +68,13 @@ export const ERROR_ISSUE_LIST_RESOURCE_URI = 'ui://posthog/error-issue-list.html
  * Used by: experiment-get, experiment-create, experiment-update
  */
 export const EXPERIMENT_RESOURCE_URI = 'ui://posthog/experiment.html'
+
 /**
  * Experiment list visualization.
  * Used by: experiment-get-all
  */
 export const EXPERIMENT_LIST_RESOURCE_URI = 'ui://posthog/experiment-list.html'
+
 /**
  * Experiment results visualization.
  * Used by: experiment-results-get
@@ -83,6 +88,7 @@ export const EXPERIMENT_RESULTS_RESOURCE_URI = 'ui://posthog/experiment-results.
  * Shows flag status, release conditions, variants, and property filters.
  */
 export const FEATURE_FLAG_RESOURCE_URI = 'ui://posthog/feature-flag.html'
+
 /**
  * Feature flag list visualization.
  * Used by: feature-flag-get-all
@@ -127,3 +133,16 @@ export const SURVEY_STATS_RESOURCE_URI = 'ui://posthog/survey-stats.html'
  * Used by: surveys-global-stats
  */
 export const SURVEY_GLOBAL_STATS_RESOURCE_URI = 'ui://posthog/survey-global-stats.html'
+
+/**
+
+ * Workflow detail visualization.
+ * Used by: workflows-get
+ */
+export const WORKFLOW_RESOURCE_URI = 'ui://posthog/workflow.html'
+
+/**
+ * Workflow list visualization.
+ * Used by: workflows-list
+ */
+export const WORKFLOW_LIST_RESOURCE_URI = 'ui://posthog/workflow-list.html'

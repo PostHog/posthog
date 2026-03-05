@@ -29,8 +29,13 @@ const workflowsList = (): ToolBase<
         })
         return {
             ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/workflows`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/pipeline/destinations`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/workflow-list.html',
+        },
     },
 })
 
@@ -45,7 +50,15 @@ const workflowsGet = (): ToolBase<typeof WorkflowsGetSchema, Schemas.HogFlow> =>
             method: 'GET',
             path: `/api/projects/${projectId}/hog_flows/${params.id}/`,
         })
-        return result
+        return {
+            ...(result as any),
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/pipeline/destinations/hog-${(result as any).id}`,
+        }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/workflow.html',
+        },
     },
 })
 
