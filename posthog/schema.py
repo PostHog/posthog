@@ -1407,20 +1407,6 @@ class ErrorTrackingIssueStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
-class RevenueEntity(StrEnum):
-    PERSON = "person"
-    GROUP_0 = "group_0"
-    GROUP_1 = "group_1"
-    GROUP_2 = "group_2"
-    GROUP_3 = "group_3"
-    GROUP_4 = "group_4"
-
-
-class RevenuePeriod(StrEnum):
-    ALL_TIME = "all_time"
-    MRR = "mrr"
-
-
 class EventDefinition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11129,7 +11115,6 @@ class ErrorTrackingIssue(BaseModel):
     last_seen: AwareDatetime
     library: str | None = None
     name: str | None = None
-    revenue: float | None = None
     source: str | None = None
     status: ErrorTrackingIssueStatus
 
