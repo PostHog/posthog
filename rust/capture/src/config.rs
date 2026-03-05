@@ -91,7 +91,7 @@ pub struct Config {
     // --- Token+DistinctId limiter config ---
     /// Per-(token, distinct_id) rate limit threshold per window interval
     /// Note: default is too high to trigger limiting in production
-    #[envconfig(default = "5000000")]
+    #[envconfig(default = "300000")]
     pub global_rate_limit_token_distinctid_threshold: u64,
 
     /// CSV list of key=value pairs for custom per-(token, distinct_id) thresholds
@@ -104,7 +104,7 @@ pub struct Config {
     // --- Token-only limiter config ---
     /// Per-token rate limit threshold per window interval
     /// Note: default is too high to trigger limiting in production
-    #[envconfig(default = "100000")]
+    #[envconfig(default = "5000000")]
     pub global_rate_limit_token_threshold: u64,
 
     /// CSV list of key=value pairs for custom per-token thresholds
