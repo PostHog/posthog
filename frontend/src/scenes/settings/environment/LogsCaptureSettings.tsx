@@ -117,6 +117,7 @@ export function LogsRetentionSettings(): JSX.Element {
         <AccessControlAction resourceType={AccessControlResourceType.Logs} minAccessLevel={AccessControlLevel.Editor}>
             <div className="space-y-2">
                 <LemonInput
+                    className="max-w-24"
                     data-attr="logs-retention-input"
                     type="number"
                     value={retentionDays}
