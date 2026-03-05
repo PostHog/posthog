@@ -9,7 +9,8 @@ Each event represents one evaluation run against one generation.
 | --------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `$ai_evaluation_id`         | string (UUID) | The evaluation definition UUID                                                                                        |
 | `$ai_evaluation_name`       | string        | Name of the evaluation                                                                                                |
-| `$ai_evaluation_type`       | string        | `"llm_judge"` or `"hog"`                                                                                              |
+| `$ai_evaluation_type`       | string        | `"online"` (server-side evaluation)                                                                                   |
+| `$ai_evaluation_runtime`    | string        | `"llm_judge"` or `"hog"` — the execution runtime used                                                                 |
 | `$ai_evaluation_result`     | boolean       | `true` = pass, `false` = fail                                                                                         |
 | `$ai_evaluation_reasoning`  | string        | Explanation of the verdict (LLM judge: from the LLM; Hog: captured from `print()` output)                             |
 | `$ai_evaluation_applicable` | boolean       | `false` means N/A — the evaluation wasn't applicable to this generation. When `false`, ignore `$ai_evaluation_result` |
