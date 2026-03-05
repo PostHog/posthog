@@ -1543,7 +1543,7 @@ When set, the specified dashboard's filters and date range override will be appl
         query_runner = get_query_runner(query, team, limit_context=None)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
-        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, request=request)
         assert (
             isinstance(result, schema.CachedTrendsQueryResponse)
             or isinstance(result, schema.CachedStickinessQueryResponse)
@@ -1608,7 +1608,7 @@ When set, the specified dashboard's filters and date range override will be appl
         query_runner = get_query_runner(query, team, limit_context=None)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
-        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, request=request)
         assert isinstance(result, schema.CachedFunnelsQueryResponse)
 
         return {"result": result.results, "timezone": team.timezone}

@@ -78,7 +78,9 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
         try:
-            result = query_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+            result = query_runner.run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, request=request
+            )
         except UserAccessControlError as e:
             raise ValidationError(str(e))
 
