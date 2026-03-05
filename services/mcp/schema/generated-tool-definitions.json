@@ -126,7 +126,7 @@
         "summary": "Update support ticket",
         "title": "Update support ticket",
         "required_scopes": ["ticket:write"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
