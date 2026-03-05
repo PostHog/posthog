@@ -271,6 +271,11 @@ including how to set up viewsets, serializers, and `@extend_schema` correctly.
   This is useful when you want to add imperative instructions for specific fields.
 - Be specific about formats, constraints, and valid values.
 - Avoid jargon that an LLM wouldn't understand without context.
+- `ListField` and `JSONField` need explicit types —
+  use `ListField(child=serializers.CharField())` instead of bare `ListField()`,
+  and `@extend_schema_field(PydanticModel)` on `JSONField` subclasses
+  (see `posthog/api/alert.py` for the pattern).
+  Without this, Orval generates `z.unknown()`.
 - Plain `ViewSet` methods that validate manually need `@extend_schema(request=YourSerializer)` —
   without it, drf-spectacular can't discover the request body
   and the generated tool gets an empty schema with zero parameters.
