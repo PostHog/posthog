@@ -7,7 +7,6 @@ from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.sentry.sentry import (
     SentryPaginator,
-    _coerce_positive_int,
     _extract_rows,
     _normalize_api_base_url,
     _parse_next_link,
@@ -17,22 +16,37 @@ from posthog.temporal.data_imports.sources.sentry.sentry import (
 )
 
 
+def _response(payload, status_code: int = 200, link_header: str = "") -> Mock:
+    response = Mock()
+    response.status_code = status_code
+    response.headers = {"Link": link_header}
+    response.json.return_value = payload
+    response.text = "error"
+
+    def _raise_for_status() -> None:
+        if status_code >= 400:
+            raise Exception(f"{status_code} client error")
+
+    response.raise_for_status = _raise_for_status
+    return response
+
+
+class _FakeDltResource:
+    """Lightweight stand-in for a DltResource returned by rest_api_resources."""
+
+    def __init__(self, name: str, rows: list[dict]) -> None:
+        self.name = name
+        self._rows = rows
+
+    def add_map(self, mapper):
+        self._rows = [mapper(dict(row)) for row in self._rows]
+        return self
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
 class TestSentryTransport:
-    @staticmethod
-    def _response(payload, status_code: int = 200, link_header: str = "") -> Mock:
-        response = Mock()
-        response.status_code = status_code
-        response.headers = {"Link": link_header}
-        response.json.return_value = payload
-        response.text = "error"
-
-        def _raise_for_status() -> None:
-            if status_code >= 400:
-                raise Exception(f"{status_code} client error")
-
-        response.raise_for_status = _raise_for_status
-        return response
-
     def test_normalize_api_base_url(self) -> None:
         assert _normalize_api_base_url(None) == "https://sentry.io"
         assert _normalize_api_base_url("https://us.sentry.io/") == "https://us.sentry.io"
@@ -146,11 +160,11 @@ class TestSentryTransport:
     )
     @patch("posthog.temporal.data_imports.sources.sentry.sentry.external_requests.get")
     def test_validate_credentials(self, _name, status_code, expected, mock_get) -> None:
-        response = Mock()
-        response.status_code = status_code
-        response.text = "error"
-        response.json.return_value = {"detail": "error"}
-        mock_get.return_value = response
+        resp = Mock()
+        resp.status_code = status_code
+        resp.text = "error"
+        resp.json.return_value = {"detail": "error"}
+        mock_get.return_value = resp
 
         result = validate_credentials(
             auth_token="token",
@@ -165,7 +179,7 @@ class TestSentryTransport:
         mock_resource = Mock()
         mock_rest_api_resources.return_value = [mock_resource]
 
-        response = sentry_source(
+        resp = sentry_source(
             auth_token="token",
             organization_slug="acme",
             api_base_url="https://sentry.io",
@@ -177,9 +191,9 @@ class TestSentryTransport:
             incremental_field="lastSeen",
         )
 
-        assert response.name == "issues"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
+        assert resp.name == "issues"
+        assert resp.primary_keys == ["id"]
+        assert resp.partition_mode == "datetime"
 
     @parameterized.expand(
         [
@@ -194,78 +208,85 @@ class TestSentryTransport:
     def test_project_fanout_endpoint_row_format(self, endpoint, child_path, child_row, mock_get) -> None:
         def side_effect(url, headers=None, params=None, timeout=None):
             if url.endswith("/organizations/acme/projects/"):
-                return self._response([{"id": "1", "slug": "web"}])
+                return _response([{"id": "1", "slug": "web"}])
             if url.endswith(child_path):
-                return self._response([child_row])
-            return self._response([])
+                return _response([child_row])
+            return _response([])
 
         mock_get.side_effect = side_effect
 
-        response = sentry_source(
+        resp = sentry_source(
             auth_token="token",
             organization_slug="acme",
             api_base_url="https://sentry.io",
             endpoint=endpoint,
             team_id=123,
             job_id="job-id",
-            max_projects_to_sync=10,
-            max_pages_per_parent=5,
         )
 
-        rows = list(response.items())
+        rows = list(resp.items())
         assert len(rows) == 1
         row = rows[0]
         assert isinstance(row, dict)
-        assert row["organization_slug"] == "acme"
         assert row["project_slug"] == "web"
         assert row["project_id"] == "1"
-        assert row["source_endpoint"] == endpoint
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.external_requests.get")
+    def test_issue_tag_values_custom_fanout_row_format(self, mock_get) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "100"}])
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                return _response([{"value": "Chrome", "timesSeen": 1}])
+            return _response([])
+
+        mock_get.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        rows = list(resp.items())
+        assert len(rows) == 1
+        row = rows[0]
+        assert isinstance(row, dict)
+        assert row["issue_id"] == "100"
+        assert row["tag_key"] == "browser"
 
     @parameterized.expand(
         [
-            ("issue_events", "/issues/100/events/", [{"eventID": "evt-1", "message": "boom"}], None),
-            ("issue_hashes", "/issues/100/hashes/", [{"id": "hash-1", "hash": "abc"}], None),
-            (
-                "issue_tag_values",
-                "/issues/100/tags/browser/values/",
-                [{"value": "Chrome", "timesSeen": 1}],
-                [{"key": "browser"}],
-            ),
+            ("issue_events", [{"id": "100", "eventID": "evt-1", "message": "boom"}]),
+            ("issue_hashes", [{"id": "hash-1", "issue_id": "100", "hash": "abc"}]),
         ]
     )
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.external_requests.get")
-    def test_issue_fanout_endpoint_row_format(self, endpoint, child_path, child_rows, tags_rows, mock_get) -> None:
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/"):
-                return self._response([{"id": "100"}])
-            if tags_rows is not None and url.endswith("/issues/100/tags/"):
-                return self._response(tags_rows)
-            if url.endswith(child_path):
-                return self._response(child_rows)
-            return self._response([])
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resources")
+    def test_issue_fanout_dependent_resource_row_format(self, endpoint, child_rows, mock_rest_api_resources) -> None:
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource("issues", [{"id": "100"}]),
+            _FakeDltResource(endpoint, child_rows),
+        ]
 
-        mock_get.side_effect = side_effect
-
-        response = sentry_source(
+        resp = sentry_source(
             auth_token="token",
             organization_slug="acme",
             api_base_url="https://sentry.io",
             endpoint=endpoint,
             team_id=123,
             job_id="job-id",
-            max_issues_to_fanout=10,
-            max_pages_per_parent=5,
         )
 
-        rows = list(response.items())
+        rows = list(resp.items())
         assert len(rows) == 1
         row = rows[0]
         assert isinstance(row, dict)
-        assert row["organization_slug"] == "acme"
         assert row["issue_id"] == "100"
-        assert row["source_endpoint"] == endpoint
-        if endpoint == "issue_tag_values":
-            assert row["tag_key"] == "browser"
 
 
 class TestHelpers:
@@ -293,14 +314,3 @@ class TestHelpers:
         rows = _extract_rows(payload)
         assert len(rows) == expected_count
         assert all(isinstance(r, dict) for r in rows)
-
-    @parameterized.expand(
-        [
-            ("none_returns_fallback", None, 42, 42),
-            ("zero_returns_fallback", 0, 42, 42),
-            ("negative_returns_fallback", -1, 42, 42),
-            ("positive_returns_value", 10, 42, 10),
-        ]
-    )
-    def test_coerce_positive_int(self, _name, value, fallback, expected) -> None:
-        assert _coerce_positive_int(value, fallback) == expected
