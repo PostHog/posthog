@@ -135,7 +135,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             // Including them would cause a re-initialization loop after OAuth callback.
             const hash = window.location.hash
                 .replace(/[#&]__posthog=[^&]*/g, '')
-                .replace(/^#&/, '#')
+                .replace(/^&/, '#')
                 .replace(/^#$/, '')
             const redirect = encodeURIComponent(
                 window.location.origin + window.location.pathname + window.location.search + hash
