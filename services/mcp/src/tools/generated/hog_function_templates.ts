@@ -24,6 +24,9 @@ const hogFunctionTemplatesList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                template_id: params.template_id,
+                type: params.type,
+                types: params.types,
             },
         })
         return {
