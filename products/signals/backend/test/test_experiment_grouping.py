@@ -2,6 +2,9 @@
 Test script: would 10 experiment-finished signals be grouped into one report or stay separate?
 
 Calls the real LLM matching logic with synthetic experiment signals.
+Simulates sequential pipeline processing: each signal sees all previously
+emitted signals as search candidates, just like the real workflow.
+
 Requires ANTHROPIC_API_KEY in the environment (or Django settings).
 
 Usage:
@@ -9,14 +12,15 @@ Usage:
 """
 
 import uuid
+from dataclasses import dataclass, field
 
 import pytest
 
 from products.signals.backend.temporal.grouping import match_signal_to_report
-from products.signals.backend.temporal.types import ExistingReportMatch, ReportContext, SignalCandidate
+from products.signals.backend.temporal.types import ExistingReportMatch, NewReportMatch, ReportContext, SignalCandidate
 
 # ---------------------------------------------------------------------------
-# Fixture data: 10 unrelated experiments
+# Fixture data
 # ---------------------------------------------------------------------------
 
 UNRELATED_EXPERIMENTS = [
@@ -111,7 +115,6 @@ UNRELATED_EXPERIMENTS = [
     },
 ]
 
-# Signals about the SAME experiment (should be grouped together)
 SAME_EXPERIMENT_SIGNALS = [
     {
         "source_id": "exp-001",
@@ -141,101 +144,182 @@ SAME_EXPERIMENT_SIGNALS = [
 ]
 
 
-def _make_candidate(description: str, report_id: str, source_id: str, distance: float = 0.15) -> SignalCandidate:
-    return SignalCandidate(
-        signal_id=str(uuid.uuid4()),
-        report_id=report_id,
-        content=description,
-        source_product="experiments",
-        source_type="experiment_finished",
-        distance=distance,
-    )
+# ---------------------------------------------------------------------------
+# In-memory state that accumulates as signals are processed sequentially
+# ---------------------------------------------------------------------------
 
 
-async def _test_pairwise_grouping(
-    existing_description: str,
-    existing_source_id: str,
-    new_description: str,
-    new_source_id: str,
-    report_title: str,
-) -> tuple[bool, str]:
+@dataclass
+class EmittedSignal:
+    signal_id: str
+    report_id: str
+    description: str
+    source_id: str
+
+
+@dataclass
+class ReportState:
+    report_id: str
+    title: str
+    signal_count: int = 1
+
+
+@dataclass
+class PipelineState:
+    """Simulates the accumulated ClickHouse + Postgres state after each signal."""
+
+    signals: list[EmittedSignal] = field(default_factory=list)
+    reports: dict[str, ReportState] = field(default_factory=dict)
+
+    def get_candidates(self) -> list[SignalCandidate]:
+        """All previously emitted signals, as the semantic search would return them."""
+        return [
+            SignalCandidate(
+                signal_id=s.signal_id,
+                report_id=s.report_id,
+                content=s.description,
+                source_product="experiments",
+                source_type="experiment_finished",
+                # Real distances vary; use a low distance so the LLM always sees them.
+                # The matching decision is based on content, not distance threshold.
+                distance=0.15,
+            )
+            for s in self.signals
+        ]
+
+    def get_report_contexts(self) -> dict[str, ReportContext]:
+        return {
+            rid: ReportContext(report_id=rid, title=r.title, signal_count=r.signal_count)
+            for rid, r in self.reports.items()
+        }
+
+    def apply_result(
+        self,
+        result: ExistingReportMatch | NewReportMatch,
+        description: str,
+        source_id: str,
+    ) -> str:
+        """Apply the match result to the state, return the report_id."""
+        signal_id = str(uuid.uuid4())
+
+        if isinstance(result, ExistingReportMatch):
+            report_id = result.report_id
+            self.reports[report_id].signal_count += 1
+        else:
+            report_id = str(uuid.uuid4())
+            self.reports[report_id] = ReportState(
+                report_id=report_id,
+                title=result.title,
+            )
+
+        self.signals.append(
+            EmittedSignal(
+                signal_id=signal_id,
+                report_id=report_id,
+                description=description,
+                source_id=source_id,
+            )
+        )
+        return report_id
+
+
+async def _process_signal_sequentially(
+    state: PipelineState,
+    description: str,
+    source_id: str,
+) -> tuple[str, ExistingReportMatch | NewReportMatch]:
     """
-    Simulate: one signal already exists in a report. Would the new signal join it?
-    Returns (matched: bool, reason: str).
+    Process one signal against the current pipeline state.
+    Returns (report_id, match_result).
     """
-    report_id = str(uuid.uuid4())
-    candidate = _make_candidate(existing_description, report_id, existing_source_id)
+    candidates = state.get_candidates()
 
-    queries = [f"experiment finished {new_source_id}"]
-    query_results = [[candidate]]
-    report_contexts = {
-        report_id: ReportContext(report_id=report_id, title=report_title, signal_count=1),
-    }
-
-    result = await match_signal_to_report(
-        description=new_description,
-        source_product="experiments",
-        source_type="experiment_finished",
-        queries=queries,
-        query_results=query_results,
-        report_contexts=report_contexts,
-    )
-
-    if isinstance(result, ExistingReportMatch):
-        return True, result.match_metadata.reason
+    if not candidates:
+        # First signal: no candidates, always creates a new report.
+        # Skip the LLM call — the real pipeline also creates a new report
+        # when semantic search returns no results.
+        result = NewReportMatch(
+            title=description.split(".")[0],
+            summary=description,
+            match_metadata=type("FakeNoMatch", (), {"reason": "first signal, no candidates"})(),  # type: ignore[arg-type]
+        )
     else:
-        return False, result.match_metadata.reason
+        queries = [f"experiment results {source_id}"]
+        query_results = [candidates]
+        report_contexts = state.get_report_contexts()
+
+        result = await match_signal_to_report(
+            description=description,
+            source_product="experiments",
+            source_type="experiment_finished",
+            queries=queries,
+            query_results=query_results,
+            report_contexts=report_contexts,
+        )
+
+    report_id = state.apply_result(result, description, source_id)
+    return report_id, result
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 class TestExperimentSignalGrouping:
     """
     Integration tests that call the real LLM to verify grouping behavior.
+    Signals are processed sequentially, accumulating state like the real pipeline.
+
     Run with: pytest products/signals/backend/test/test_experiment_grouping.py -s
     """
 
-    @pytest.mark.parametrize(
-        "i,j",
-        # Test a sample of pairs, not all 45 combinations (save API calls)
-        [(0, 1), (0, 4), (2, 7), (3, 9), (5, 8)],
-        ids=lambda pair: f"exp-{pair + 1}" if isinstance(pair, int) else None,
-    )
-    async def test_unrelated_experiments_stay_separate(self, i, j):
-        exp_a = UNRELATED_EXPERIMENTS[i]
-        exp_b = UNRELATED_EXPERIMENTS[j]
+    async def test_unrelated_experiments_stay_separate(self):
+        """10 unrelated experiments processed sequentially should produce 10 distinct reports."""
+        state = PipelineState()
+        report_ids: list[str] = []
 
-        matched, reason = await _test_pairwise_grouping(
-            existing_description=exp_a["description"],
-            existing_source_id=exp_a["source_id"],
-            new_description=exp_b["description"],
-            new_source_id=exp_b["source_id"],
-            report_title=f"Experiment {exp_a['source_id']} results",
+        for i, exp in enumerate(UNRELATED_EXPERIMENTS):
+            report_id, result = await _process_signal_sequentially(state, exp["description"], exp["source_id"])
+            report_ids.append(report_id)
+
+            matched = isinstance(result, ExistingReportMatch)
+            reason = result.match_metadata.reason if hasattr(result.match_metadata, "reason") else "n/a"
+            print(  # noqa: T201
+                f"\n  Signal {i + 1} ({exp['source_id']}): "
+                f"{'GROUPED into' if matched else 'NEW report'} {report_id[:8]}... "
+                f"reason={reason}"
+            )
+
+        unique_reports = set(report_ids)
+        print(f"\n  Total reports: {len(unique_reports)} (expected 10)")  # noqa: T201
+        print(f"  Report distribution: {dict(state.reports)}")  # noqa: T201
+
+        assert len(unique_reports) == len(UNRELATED_EXPERIMENTS), (
+            f"Expected {len(UNRELATED_EXPERIMENTS)} distinct reports for unrelated experiments, "
+            f"got {len(unique_reports)}. Some unrelated experiments were incorrectly grouped."
         )
 
-        print(f"\n[{exp_a['source_id']} vs {exp_b['source_id']}] matched={matched}, reason={reason}")  # noqa: T201
-        assert not matched, (
-            f"Expected unrelated experiments {exp_a['source_id']} and {exp_b['source_id']} "
-            f"to stay separate, but they were grouped. Reason: {reason}"
-        )
+    async def test_same_experiment_signals_group_together(self):
+        """3 signals about the same experiment should converge into 1 report."""
+        state = PipelineState()
+        report_ids: list[str] = []
 
-    @pytest.mark.parametrize(
-        "new_idx",
-        [1, 2],
-        ids=["follow-up-analysis", "early-significance"],
-    )
-    async def test_same_experiment_signals_group_together(self, new_idx):
-        existing = SAME_EXPERIMENT_SIGNALS[0]
-        new = SAME_EXPERIMENT_SIGNALS[new_idx]
+        for i, sig in enumerate(SAME_EXPERIMENT_SIGNALS):
+            report_id, result = await _process_signal_sequentially(state, sig["description"], sig["source_id"])
+            report_ids.append(report_id)
 
-        matched, reason = await _test_pairwise_grouping(
-            existing_description=existing["description"],
-            existing_source_id=existing["source_id"],
-            new_description=new["description"],
-            new_source_id=new["source_id"],
-            report_title="Experiment 'Blue CTA button on pricing page' results",
-        )
+            matched = isinstance(result, ExistingReportMatch)
+            reason = result.match_metadata.reason if hasattr(result.match_metadata, "reason") else "n/a"
+            print(  # noqa: T201
+                f"\n  Signal {i + 1}: {'GROUPED into' if matched else 'NEW report'} {report_id[:8]}... reason={reason}"
+            )
 
-        print(f"\n[same experiment, signal {new_idx}] matched={matched}, reason={reason}")  # noqa: T201
-        assert matched, (
-            f"Expected same-experiment signals to group together, but they were kept separate. Reason: {reason}"
+        unique_reports = set(report_ids)
+        print(f"\n  Total reports: {len(unique_reports)} (expected 1)")  # noqa: T201
+
+        assert len(unique_reports) == 1, (
+            f"Expected 1 report for same-experiment signals, got {len(unique_reports)}. "
+            f"Signals about the same experiment were incorrectly split apart."
         )
