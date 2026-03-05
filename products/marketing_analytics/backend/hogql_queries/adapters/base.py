@@ -97,6 +97,14 @@ class SnapchatAdsConfig(BaseMarketingConfig):
 
 
 @dataclass
+class PinterestAdsConfig(BaseMarketingConfig):
+    """Configuration for Pinterest Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+
+
+@dataclass
 class ValidationResult:
     """Result of source validation"""
 

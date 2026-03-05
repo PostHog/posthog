@@ -540,6 +540,141 @@ exports[`marketing analytics utils createMarketingTile snapshots MetaAds - roas 
 }
 `;
 
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - clicks 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics clicks",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(total_clickthrough), 0))",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - cost 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics cost",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(currency, 'USD'), 'USD', toFloat(spend_in_dollar))))",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - impressions 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics impressions",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(total_impression), 0))",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - reported_conversion (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - reported_conversion 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(total_conversions), 0))",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - reported_conversion_value (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - reported_conversion_value 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "toFloat(convertCurrency(any(coalesce(currency, 'USD')), 'USD', SUM(ifNull(toFloat(total_checkout_value_in_micro_dollar), 0))))",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - roas (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics roas",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - roas 1`] = `
+{
+  "custom_name": "prefix.campaign_analytics roas",
+  "distinct_id_field": "campaign_id",
+  "id": "PinterestAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(total_checkout_value_in_micro_dollar), 0)) / nullIf(SUM(toFloat(spend_in_dollar)), 0)",
+  "name": "pinterest",
+  "table_name": "prefix.campaign_analytics",
+  "timestamp_field": "date",
+}
+`;
+
 exports[`marketing analytics utils createMarketingTile snapshots RedditAds - clicks 1`] = `
 {
   "custom_name": "prefix.campaign_report clicks",
