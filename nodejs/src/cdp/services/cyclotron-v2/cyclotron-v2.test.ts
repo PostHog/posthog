@@ -50,13 +50,13 @@ interface RawJobRow {
     queue_name: string
     status: string
     priority: number
-    scheduled: string
-    created: string
+    scheduled: string | Date
+    created: string | Date
     lock_id: string | null
-    last_heartbeat: string | null
+    last_heartbeat: string | Date | null
     janitor_touch_count: number
     transition_count: number
-    last_transition: string
+    last_transition: string | Date
     parent_run_id: string | null
     state: Buffer | null
 }
