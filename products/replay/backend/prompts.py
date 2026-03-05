@@ -119,7 +119,12 @@ If the query is to show recordings of people who are frustrated, filter for reco
 
 - Users Facing Bugs/Errors/Problems:
 For queries asking for recordings of users experiencing bugs or errors, target recordings with many console errors. An example filter might look like:
-- Key: "level", Type: PropertyFilterType.Log_entry, Value: ["error"], Operator: PropertyOperator.Exact.
+- Key: "level", Type: "log_entry", Value: ["error"], Operator: "exact".
+
+- Console Log Text Search:
+When users want to find recordings containing specific console log messages (e.g., "find sessions with 'IP detection error'" or "'something went wrong'"), use a log_entry filter with key "message":
+- Key: "message", Type: "log_entry", Value: "the search text", Operator: "icontains".
+You can combine level and message filters to narrow results (e.g., error logs containing a specific message).
 
 - Default Filter Group:
 The blank, default `filter_group` value you can use is:
@@ -292,6 +297,8 @@ FILTER_EXAMPLES_PROMPT = """
 **Event**: `$current_url`, `$event_type` ($rageclick/$pageview), `$pathname`
 **Recording**: `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`
   Always use `"type": "recording"` for these. They are NOT events — `$keypress`, `$click`, `$console_error` do not exist as event names.
+**Console logs** (type: `log_entry`): `level` (info/warn/error), `message` (console log text content)
+  Use `"type": "log_entry"` for these. Use `key: "message"` with `operator: "icontains"` to search log text. Use `key: "level"` with `operator: "exact"` to filter by log level.
 
 # Special Patterns
 **Frustrated users (rageclicks)**:
@@ -301,6 +308,14 @@ FILTER_EXAMPLES_PROMPT = """
 **Users with errors**:
 ```json
 {"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"console_error_count","type":"recording","operator":"gt","value":[0]}]}]},"order":"console_error_count","order_direction":"DESC"}
+```
+**Sessions with specific console log message** (e.g., "IP detection error"):
+```json
+{"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"message","type":"log_entry","operator":"icontains","value":"IP detection error"}]}]}}
+```
+**Sessions with error-level logs containing specific text**:
+```json
+{"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"level","type":"log_entry","operator":"exact","value":["error"]},{"key":"message","type":"log_entry","operator":"icontains","value":"something went wrong"}]}]}}
 ```
 **Clear all filters**:
 ```json

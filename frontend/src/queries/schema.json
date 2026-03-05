@@ -21652,7 +21652,7 @@
                     "$ref": "#/definitions/FilterLogicalOperator"
                 },
                 "values": {
-                    "description": "Filter conditions for session recordings. Possible filter types:\n- 'event' type: Filter by properties of events in the session (e.g. `$current_url` equals X).\n- 'person' type: Filter by person properties (e.g. `email` contains Y).\n- 'session' type: Filter by session-level properties (e.g. `$session_duration`).\n- 'recording' type: Filter by recording metadata (e.g. `console_log_level`, `visited_page`).\n- 'group' type: Filter by group properties (e.g. company `plan` is \"enterprise\").\n- 'events' type: Filter by whether a specific event occurred (e.g. `$pageview` was present).",
+                    "description": "Filter conditions for session recordings. Possible filter types:\n- 'event' type: Filter by properties of events in the session (e.g. `$current_url` equals X).\n- 'person' type: Filter by person properties (e.g. `email` contains Y).\n- 'session' type: Filter by session-level properties (e.g. `$session_duration`).\n- 'recording' type: Filter by recording metadata (e.g. `console_log_level`, `visited_page`).\n- 'log_entry' type: Filter by console log content (e.g. `level` equals \"error\", `message` icontains \"failed to load\").\n- 'group' type: Filter by group properties (e.g. company `plan` is \"enterprise\").\n- 'events' type: Filter by whether a specific event occurred (e.g. `$pageview` was present).",
                     "items": {
                         "$ref": "#/definitions/MaxUniversalFilterValue"
                     },
@@ -21888,6 +21888,9 @@
                 },
                 {
                     "$ref": "#/definitions/RecordingPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/LogEntryPropertyFilter"
                 },
                 {
                     "$ref": "#/definitions/GroupPropertyFilter"
