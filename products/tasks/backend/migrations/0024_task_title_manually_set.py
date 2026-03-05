@@ -2,7 +2,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("tasks", "0023_alter_codeinvite_id_alter_codeinviteredemption_id"),
     ]
