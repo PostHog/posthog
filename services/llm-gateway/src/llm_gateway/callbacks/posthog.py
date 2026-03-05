@@ -8,7 +8,9 @@ from uuid import uuid4
 import structlog
 from posthoganalytics import Posthog
 
+from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.callbacks.base import InstrumentedCallback
+from llm_gateway.config import get_settings
 from llm_gateway.request_context import (
     get_auth_user,
     get_posthog_flags,
@@ -18,6 +20,51 @@ from llm_gateway.request_context import (
 )
 
 logger = structlog.get_logger(__name__)
+
+SCOPE_TO_EVENT: dict[str, str] = {
+    "user_cost_burst": "ai burst rate limited",
+    "user_cost_sustained": "ai sustained rate limited",
+    "product_cost": "ai product rate limited",
+}
+
+
+def capture_rate_limit_event(
+    scope: str, product: str, auth_user: AuthenticatedUser | None, end_user_id: str | None
+) -> None:
+    settings = get_settings()
+    if not settings.posthog_project_token:
+        return
+    event = SCOPE_TO_EVENT.get(scope)
+    if not event:
+        return
+    distinct_id = (auth_user.distinct_id if auth_user else None) or end_user_id
+    if not distinct_id:
+        return
+    team_id = auth_user.team_id if auth_user and auth_user.team_id else None
+    properties: dict[str, Any] = {"ai_product": product, "scope": scope}
+    if team_id:
+        properties["team_id"] = team_id
+    capture_kwargs: dict[str, Any] = {
+        "distinct_id": distinct_id,
+        "event": event,
+        "properties": properties,
+    }
+    if team_id:
+        capture_kwargs["groups"] = {"project": team_id}
+    loop = asyncio.get_running_loop()
+    loop.run_in_executor(
+        None, partial(_capture_rate_limit_sync, settings.posthog_project_token, settings.posthog_host, capture_kwargs)
+    )
+
+
+def _capture_rate_limit_sync(api_key: str, host: str, capture_kwargs: dict[str, Any]) -> None:
+    client = Posthog(api_key, host=host, sync_mode=True, enable_local_evaluation=False)
+    try:
+        client.capture(**capture_kwargs)
+    except Exception as e:
+        logger.exception("posthog_rate_limit_capture_failed", error=str(e))
+    finally:
+        client.shutdown()
 
 
 def _replace_binary_content(data: Any) -> Any:

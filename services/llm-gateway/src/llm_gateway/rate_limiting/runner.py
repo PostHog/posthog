@@ -29,6 +29,9 @@ class ThrottleRunner:
                     scope=scope,
                     status_code=result.status_code,
                 )
+                from llm_gateway.callbacks.posthog import capture_rate_limit_event
+
+                capture_rate_limit_event(scope, context.product, context.user, context.end_user_id)
                 return result
         return ThrottleResult.allow()
 
