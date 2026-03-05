@@ -191,6 +191,29 @@ function filterSchemaByOperationIds(fullSchema, operationIds) {
 }
 
 // ------------------------------------------------------------------
+// OpenAPI post-processing
+// ------------------------------------------------------------------
+
+/**
+ * Strip `format: "uuid"` from all string properties in the schema.
+ * Zod 4's `.uuid()` enforces strict RFC 4122 version/variant bits,
+ * which some PostHog UUID generation paths don't satisfy.
+ * Since these are API response schemas, there's no value in
+ * re-validating the UUID format client-side.
+ */
+function stripUuidFormat(obj) {
+    if (!obj || typeof obj !== 'object') {
+        return
+    }
+    if (obj.type === 'string' && obj.format === 'uuid') {
+        delete obj.format
+    }
+    for (const value of Object.values(obj)) {
+        stripUuidFormat(value)
+    }
+}
+
+// ------------------------------------------------------------------
 // Orval runner
 // ------------------------------------------------------------------
 
@@ -259,6 +282,7 @@ for (const def of definitions) {
     totalOps += operationIds.size
 
     const filtered = filterSchemaByOperationIds(fullSchema, operationIds)
+    stripUuidFormat(filtered)
     const pathCount = Object.keys(filtered.paths).length
     const schemaCount = Object.keys(filtered.components.schemas).length
 

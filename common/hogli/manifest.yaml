@@ -272,10 +272,9 @@ build:
             - build:schema-latest-versions
         description: Generate all schema definitions (frontend JSON, Python, latest versions)
     build:openapi-schema:
-        cmd:
-            'mkdir -p frontend/tmp && DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 OPENAPI_MOCK_INTERNAL_API_SECRET=1 python manage.py
-            spectacular --file frontend/tmp/openapi.json --format openapi-json && echo "OpenAPI
-            schema written to frontend/tmp/openapi.json"
+        cmd: 'mkdir -p frontend/tmp && DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 OPENAPI_MOCK_INTERNAL_API_SECRET=1
+            python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json
+            && echo "OpenAPI schema written to frontend/tmp/openapi.json"
 
             '
         description: Generate OpenAPI schema from Django backend (writes to gitignored
@@ -285,7 +284,8 @@ build:
             - clickhouse
             - django
     build:schema-mcp:
-        cmd: cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm exec oxfmt schema/tool-inputs.json
+        cmd: cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm exec oxfmt
+            schema/tool-inputs.json
         description: Generate MCP tool-inputs.json schema from Zod definitions
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
@@ -484,10 +484,12 @@ quality:
         cmd: pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format JSON, YAML files
     format:css:
-        cmd: pnpm stylelint --fix --allow-empty-input "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
+        cmd: pnpm stylelint --fix --allow-empty-input "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern
+            "$@"
         description: Format CSS/SCSS files
     format:js:
-        cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
+        cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern
+            "$@"
         description: Format JavaScript/TypeScript files (frontend)
     format:nodejs:
         cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec prettier
@@ -613,6 +615,10 @@ tools:
     start:custom:
         bin_script: start-custom
         description: 'TODO: add description for start-custom'
+        hidden: true
+    generate_personhog_proto:
+        bin_script: generate_personhog_proto.sh
+        description: 'TODO: add description for generate_personhog_proto.sh'
         hidden: true
 utilities:
     nuke:

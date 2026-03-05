@@ -240,6 +240,8 @@ const insightActionsMapping: Record<
     _create_in_folder: () => null,
     last_viewed_at: () => null,
     viewers: () => null,
+    view_count: () => null,
+    is_cached: () => null,
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {

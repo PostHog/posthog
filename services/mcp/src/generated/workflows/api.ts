@@ -19,7 +19,7 @@ export const HogFlowsListParams = zod.object({
 export const HogFlowsListQueryParams = zod.object({
     created_at: zod.string().datetime({}).optional(),
     created_by: zod.number().optional(),
-    id: zod.string().uuid().optional(),
+    id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     updated_at: zod.string().datetime({}).optional(),
@@ -39,7 +39,7 @@ export const HogFlowsListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string().uuid(),
+            id: zod.string(),
             name: zod.string().nullable(),
             description: zod.string(),
             version: zod.number(),
@@ -49,7 +49,7 @@ export const HogFlowsListResponse = zod.object({
             created_at: zod.string().datetime({}),
             created_by: zod.object({
                 id: zod.number(),
-                uuid: zod.string().uuid(),
+                uuid: zod.string(),
                 distinct_id: zod.string().max(hogFlowsListResponseResultsItemCreatedByOneDistinctIdMax).nullish(),
                 first_name: zod.string().max(hogFlowsListResponseResultsItemCreatedByOneFirstNameMax).optional(),
                 last_name: zod.string().max(hogFlowsListResponseResultsItemCreatedByOneLastNameMax).optional(),
@@ -96,12 +96,14 @@ export const HogFlowsListResponse = zod.object({
             abort_action: zod.string().nullable(),
             variables: zod.unknown().nullable(),
             billable_action_types: zod.unknown().nullable(),
+            draft: zod.unknown().nullable(),
+            draft_updated_at: zod.string().datetime({}).nullable(),
         })
     ),
 })
 
 export const HogFlowsRetrieveParams = zod.object({
-    id: zod.string().uuid().describe('A UUID string identifying this hog flow.'),
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
         .describe(
@@ -129,7 +131,7 @@ export const hogFlowsRetrieveResponseActionsItemFiltersOneSourceDefault = `event
 export const hogFlowsRetrieveResponseActionsItemTypeMax = 100
 
 export const HogFlowsRetrieveResponse = zod.object({
-    id: zod.string().uuid(),
+    id: zod.string(),
     name: zod.string().max(hogFlowsRetrieveResponseNameMax).nullish(),
     description: zod.string().optional(),
     version: zod.number(),
@@ -140,7 +142,7 @@ export const HogFlowsRetrieveResponse = zod.object({
     created_at: zod.string().datetime({}),
     created_by: zod.object({
         id: zod.number(),
-        uuid: zod.string().uuid(),
+        uuid: zod.string(),
         distinct_id: zod.string().max(hogFlowsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
         first_name: zod.string().max(hogFlowsRetrieveResponseCreatedByOneFirstNameMax).optional(),
         last_name: zod.string().max(hogFlowsRetrieveResponseCreatedByOneLastNameMax).optional(),
@@ -229,4 +231,6 @@ export const HogFlowsRetrieveResponse = zod.object({
     abort_action: zod.string().nullable(),
     variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
     billable_action_types: zod.unknown().nullable(),
+    draft: zod.unknown().nullable(),
+    draft_updated_at: zod.string().datetime({}).nullable(),
 })

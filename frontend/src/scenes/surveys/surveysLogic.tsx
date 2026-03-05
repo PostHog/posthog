@@ -23,8 +23,10 @@ import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLog
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, AvailableFeature, Breadcrumb, ProgressStatus, Survey, SurveyType } from '~/types'
 
+import { SURVEY_CREATED_SOURCE } from './constants'
 import type { surveysLogicType } from './surveysLogicType'
 import { surveysSdkLogic } from './surveysSdkLogic'
+import { captureMaxAISurveyCreationException } from './utils'
 
 export enum SurveysTabs {
     Active = 'active',
@@ -134,6 +136,16 @@ export const surveysLogic = kea<surveysLogicType>([
         loadNextPage: true,
         loadNextSearchPage: true,
         setSurveyToDuplicate: (survey: Survey | null) => ({ survey }),
+        handleMaxSurveyCreated: (
+            toolOutput: {
+                survey_id?: string
+                survey_name?: string
+                survey_type?: string
+                error?: string
+                error_message?: string
+            },
+            source: SURVEY_CREATED_SOURCE
+        ) => ({ toolOutput, source }),
     }),
     loaders(({ values, actions }) => ({
         data: {
@@ -364,6 +376,29 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         setTab: ({ tab }) => {
             actions.setSurveysFilters({ ...values.filters, archived: tab === SurveysTabs.Archived })
+        },
+        handleMaxSurveyCreated: ({ toolOutput, source }) => {
+            actions.addProductIntent({
+                product_type: ProductKey.SURVEYS,
+                intent_context: ProductIntentContext.SURVEY_CREATED,
+                metadata: {
+                    survey_id: toolOutput.survey_id,
+                    source,
+                    created_successfully: !toolOutput?.error,
+                },
+            })
+
+            if (toolOutput?.error || !toolOutput?.survey_id) {
+                captureMaxAISurveyCreationException(toolOutput.error, source)
+                return
+            }
+
+            actions.loadSurveys()
+            if (toolOutput.survey_type === 'popover') {
+                router.actions.push(urls.surveyWizard(toolOutput.survey_id))
+            } else {
+                router.actions.push(urls.survey(toolOutput.survey_id) + '?edit=true')
+            }
         },
         setSearchTerm: async ({ searchTerm }, breakpoint) => {
             await breakpoint(300) // Debounce for 300ms

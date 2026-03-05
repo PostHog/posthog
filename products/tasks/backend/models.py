@@ -45,6 +45,7 @@ class Task(DeletedMetaFields, models.Model):
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
     task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)
+    title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
 

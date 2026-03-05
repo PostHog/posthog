@@ -9,10 +9,13 @@ logger = get_logger(__name__)
 # We don't want to analyze tickets that were already solved
 ZENDESK_IGNORED_STATUSES = ("closed", "solved")
 
-ZENDESK_SUMMARIZATION_PROMPT = """Summarize this support ticket into a concise description for semantic search.
-Capture the core problem or request, the product area affected, and any relevant context like error messages or what the customer already tried.
+ZENDESK_SUMMARIZATION_PROMPT = """Summarize this support ticket for semantic search.
+Output exactly two parts separated by a newline:
+1. A short title (under 100 characters) that captures the core issue
+2. A concise summary capturing the problem or request, the product area affected, and any relevant context like error messages or what the customer already tried
+
 Strip email signatures, legal disclaimers, and system-generated footers — but keep quoted replies or conversation fragments if they add context about the issue.
-Keep the summary under {max_length} characters. Respond with only the summary text.
+Keep the total output under {max_length} characters. Respond with only the title and summary, nothing else.
 
 <ticket>
 {description}
