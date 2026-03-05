@@ -58,6 +58,7 @@ PRODUCTS_APPS = [
     "products.signals.backend.apps.SignalsConfig",
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
+    "products.review_hog.backend.apps.ReviewHogConfig",
 ]
 
 INSTALLED_APPS = [
