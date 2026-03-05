@@ -923,7 +923,9 @@ class SlackIntegration:
 
     @property
     def client(self) -> WebClient:
-        return WebClient(self.integration.sensitive_config["access_token"])
+        from posthog.security.outbound_proxy import get_proxy_url
+
+        return WebClient(self.integration.sensitive_config["access_token"], proxy=get_proxy_url())
 
     def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> AsyncWebClient:
         return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
@@ -1065,7 +1067,9 @@ class GoogleAdsIntegration:
 
     @property
     def client(self) -> WebClient:
-        return WebClient(self.integration.sensitive_config["access_token"])
+        from posthog.security.outbound_proxy import get_proxy_url
+
+        return WebClient(self.integration.sensitive_config["access_token"], proxy=get_proxy_url())
 
     def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
         response = external_requests.request(
@@ -1349,7 +1353,9 @@ class LinkedInAdsIntegration:
 
     @property
     def client(self) -> WebClient:
-        return WebClient(self.integration.sensitive_config["access_token"])
+        from posthog.security.outbound_proxy import get_proxy_url
+
+        return WebClient(self.integration.sensitive_config["access_token"], proxy=get_proxy_url())
 
     def list_linkedin_ads_conversion_rules(self, account_id):
         response = external_requests.request(
