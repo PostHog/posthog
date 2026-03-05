@@ -8,11 +8,12 @@ import { NotFound } from 'lib/components/NotFound'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { compactNumber } from 'lib/utils'
 import { formatCurrency } from 'lib/utils/geography/currency'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { PersonIcon } from 'scenes/persons/PersonDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { PersonIcon } from 'scenes/persons/PersonDisplay'
 import { personLogic } from 'scenes/persons/personLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -29,9 +30,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
     const { id, distinctId } = attributes
 
     const personLogicProps = { id, distinctId }
-    const { person, personLoading } = useValues(personLogic(personLogicProps))
-    const { setExpanded, setActions, insertAfter } = useActions(notebookNodeLogic)
-    const { setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const mountedPersonLogic = personLogic(personLogicProps)
+    const { person, personLoading } = useValues(mountedPersonLogic)
+    const { setExpanded, setActions, insertAfter, setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { notebookLogic } = useValues(notebookNodeLogic)
+    useAttachedLogic(mountedPersonLogic, notebookLogic)
 
     useEffect(() => {
         const title = person ? `Person: ${asDisplay(person)}` : 'Person'
@@ -162,14 +165,14 @@ function FirstSeen({ person }: { person: PersonType }): JSX.Element {
 }
 
 function LastSeen(): JSX.Element {
-    const { info, infoLoading } = useValues(personLogic)
+    const { person, personLoading } = useValues(personLogic)
     return (
         <div className="flex items-center gap-1">
             <span className="text-secondary">Last seen:</span>{' '}
-            {infoLoading ? (
+            {personLoading ? (
                 <LemonSkeleton className="h-4 w-24" />
-            ) : info?.lastSeen ? (
-                <TZLabel time={info.lastSeen} />
+            ) : person?.last_seen_at ? (
+                <TZLabel time={person.last_seen_at} />
             ) : (
                 'unknown'
             )}

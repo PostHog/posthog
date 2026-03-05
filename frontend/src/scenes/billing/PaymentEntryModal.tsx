@@ -5,12 +5,14 @@ import { useEffect, useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
+
 import { paymentEntryLogic } from './paymentEntryLogic'
 
 const stripeJs = async (): Promise<typeof import('@stripe/stripe-js')> => await import('@stripe/stripe-js')
 
 export const PaymentForm = (): JSX.Element => {
-    const { stripeError, isLoading } = useValues(paymentEntryLogic)
+    const { stripeError, isLoading, redirectPath } = useValues(paymentEntryLogic)
     const { setStripeError, clearErrors, hidePaymentEntryModal, pollAuthorizationStatus, setLoading } =
         useActions(paymentEntryLogic)
 
@@ -24,11 +26,12 @@ export const PaymentForm = (): JSX.Element => {
             return
         }
         setLoading(true)
+
+        const returnUrl = `${window.location.origin}${urls.billingAuthorizationStatus()}`
+        const queryParams = redirectPath ? `?postRedirectPath=${encodeURIComponent(redirectPath)}` : ''
         const result = await stripe.confirmPayment({
             elements,
-            confirmParams: {
-                return_url: `${window.location.origin}/billing/authorization_status`,
-            },
+            confirmParams: { return_url: `${returnUrl}${queryParams}` },
             redirect: 'if_required',
         })
 
@@ -45,8 +48,8 @@ export const PaymentForm = (): JSX.Element => {
         <div>
             <PaymentElement />
             <p className="text-xs text-secondary mt-0.5">
-                Your card will not be charged but we place a $0.50 hold on it to verify your card that will be released
-                in 7 days.
+                A temporary $0.50 authorization hold will be placed on your card to verify it. This hold will be
+                automatically released within 7 days and you will not be charged.
             </p>
             {stripeError && <LemonBanner type="error">{stripeError}</LemonBanner>}
             <div className="flex justify-end deprecated-space-x-2 mt-2">
@@ -113,7 +116,7 @@ export const PaymentEntryModal = (): JSX.Element => {
                                 alt="Loading animation"
                             />
                         </div>
-                        <p className="text-secondary text-md mt-4">We're contacting the Hedgehogs for approval.</p>
+                        <p className="text-secondary text-md mt-4">We're contacting the hedgehogs for approval.</p>
                     </div>
                 )}
             </div>

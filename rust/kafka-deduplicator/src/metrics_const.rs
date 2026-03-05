@@ -1,10 +1,4 @@
 // ==== Deduplication-specific metrics ====
-/// Counter for the number of duplicate events found
-pub const DUPLICATE_EVENTS_TOTAL_COUNTER: &str = "duplicate_events_total";
-
-/// Counter for the number of unique events processed
-pub const UNIQUE_EVENTS_TOTAL_COUNTER: &str = "unique_events_total";
-
 /// Counter for duplicate events published to Kafka (with status label: success/failure)
 pub const DUPLICATE_EVENTS_PUBLISHED_COUNTER: &str = "duplicate_events_published_total";
 
@@ -165,7 +159,7 @@ pub const REBALANCE_ASYNC_SETUP_CANCELLED: &str = "rebalance_async_setup_cancell
 pub const PARTITION_STORE_SETUP_SKIPPED: &str = "partition_store_setup_skipped_total";
 
 /// Counter for partitions where checkpoint import failed and we fell back to empty store
-/// Labels: checkpoint_failure_reason (import, restore)
+/// Labels: reason (no_importer | import_failed | import_cancelled | unknown)
 /// This is an important metric for alerting - indicates degraded deduplication quality
 pub const PARTITION_STORE_FALLBACK_EMPTY: &str = "partition_store_fallback_empty_total";
 
@@ -190,6 +184,12 @@ pub const REBALANCE_RESUME_SKIPPED_NO_OWNED: &str = "rebalance_resume_skipped_no
 /// how many of these empty rebalances we short-circuit.
 pub const REBALANCE_EMPTY_SKIPPED: &str = "rebalance_empty_skipped_total";
 
+/// Histogram for partition directory cleanup duration at end of rebalance cycle.
+/// Measures total time for parallel scatter-gather deletion of unowned partition directories.
+/// Use to monitor cleanup performance and detect I/O bottlenecks blocking consumption resume.
+pub const REBALANCE_DIRECTORY_CLEANUP_DURATION_HISTOGRAM: &str =
+    "rebalance_directory_cleanup_duration_seconds";
+
 // ==== Partition Batch Processing Diagnostics ====
 /// Histogram for partition batch processing duration (in milliseconds)
 pub const PARTITION_BATCH_PROCESSING_DURATION_MS: &str = "partition_batch_processing_duration_ms";
@@ -205,3 +205,7 @@ pub const KAFKA_PRODUCER_SEND_DURATION_MS: &str = "kafka_producer_send_duration_
 
 /// Histogram for event parsing duration using rayon (in milliseconds)
 pub const EVENT_PARSING_DURATION_MS: &str = "event_parsing_duration_ms";
+
+// ==== Fail-open mode metrics ====
+/// Counter for events passed through in fail-open mode (deduplication bypassed)
+pub const FAIL_OPEN_EVENTS_PASSED_THROUGH: &str = "fail_open_events_passed_through_total";

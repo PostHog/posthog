@@ -10,13 +10,17 @@ use serde_json::Value;
 
 use crate::{
     context::AppContext,
-    emit::{kafka::KafkaEmitter, Emitter, FileEmitter, NoOpEmitter, StdoutEmitter},
+    emit::{
+        capture::CaptureEmitter, kafka::KafkaEmitter, Emitter, FileEmitter, NoOpEmitter,
+        StdoutEmitter,
+    },
     extractor::ExtractorType,
     parse::format::FormatConfig,
     source::{
         date_range_export::{AuthConfig, DateRangeExportSource},
         folder::FolderSource,
         s3::S3Source,
+        s3_gzip::GzipS3Source,
         url_list::UrlList,
         DataSource,
     },
@@ -45,6 +49,7 @@ pub enum SourceConfig {
     Folder(FolderSourceConfig),
     UrlList(UrlListConfig),
     S3(S3SourceConfig),
+    S3Gzip(S3SourceConfig),
     DateRangeExport(DateRangeExportSourceConfig),
 }
 
@@ -72,6 +77,8 @@ pub struct S3SourceConfig {
     bucket: String,
     prefix: String,
     region: String,
+    #[serde(default)]
+    endpoint_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -128,6 +135,7 @@ pub enum SinkConfig {
         cleanup: bool,
     },
     Kafka(KafkaEmitterConfig),
+    Capture(CaptureEmitterConfig),
     NoOp,
 }
 
@@ -136,6 +144,11 @@ pub struct KafkaEmitterConfig {
     pub topic: String,
     pub send_rate: u64,
     pub transaction_timeout_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureEmitterConfig {
+    pub send_rate: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -187,6 +200,7 @@ impl SourceConfig {
                 config.create_source(secrets, !is_restarting).await?,
             )),
             SourceConfig::S3(config) => Ok(Box::new(config.create_source(secrets).await?)),
+            SourceConfig::S3Gzip(config) => Ok(Box::new(config.create_gzip_source(secrets).await?)),
             SourceConfig::DateRangeExport(config) => {
                 Ok(Box::new(config.create_source(secrets).await?))
             }
@@ -226,6 +240,22 @@ impl SinkConfig {
                     // emit to kafka at the same time.
                     KafkaEmitter::new(resolved_config, &model.id.to_string(), context).await?,
                 ))
+            }
+            SinkConfig::Capture(capture_config) => {
+                let token = context.get_token_for_team_id(model.team_id).await?;
+                let options = posthog_rs::ClientOptionsBuilder::default()
+                    .api_key(token)
+                    .host(&context.config.capture_url)
+                    .request_timeout_seconds(30)
+                    .build()
+                    .map_err(|e| {
+                        Error::msg(format!("Failed to build capture client options: {e}"))
+                    })?;
+                let client = posthog_rs::client(options).await;
+                Ok(Box::new(CaptureEmitter::new(
+                    client,
+                    capture_config.send_rate,
+                )))
             }
         }
     }
@@ -305,7 +335,7 @@ impl S3SourceConfig {
             "job_config",
         );
 
-        let aws_conf = aws_sdk_s3::config::Builder::new()
+        let mut builder = aws_sdk_s3::config::Builder::new()
             .region(Region::new(self.region.clone()))
             .credentials_provider(aws_credentials)
             .behavior_version(BehaviorVersion::latest())
@@ -314,14 +344,74 @@ impl S3SourceConfig {
                     .operation_timeout(Duration::from_secs(30))
                     .build(),
             )
-            .retry_config(RetryConfig::standard())
-            .build();
-        let client = aws_sdk_s3::Client::from_conf(aws_conf);
+            .retry_config(RetryConfig::standard());
+        if let Some(ref url) = self.endpoint_url {
+            builder = builder.endpoint_url(url).force_path_style(true);
+        }
+        let client = aws_sdk_s3::Client::from_conf(builder.build());
 
         Ok(S3Source::new(
             client,
             self.bucket.clone(),
             self.prefix.clone(),
+        ))
+    }
+
+    pub async fn create_gzip_source(&self, secrets: &JobSecrets) -> Result<GzipS3Source, Error> {
+        let access_key_id = secrets
+            .secrets
+            .get(&self.access_key_id_key)
+            .ok_or(Error::msg(format!(
+                "Missing access key id as key {}",
+                self.access_key_id_key
+            )))?
+            .as_str()
+            .ok_or(Error::msg(format!(
+                "Access key id as key {} is not a string",
+                self.access_key_id_key
+            )))?;
+
+        let secret_access_key = secrets
+            .secrets
+            .get(&self.secret_access_key_key)
+            .ok_or(Error::msg(format!(
+                "Missing secret access key as key {}",
+                self.secret_access_key_key
+            )))?
+            .as_str()
+            .ok_or(Error::msg(format!(
+                "Secret access key as key {} is not a string",
+                self.secret_access_key_key
+            )))?;
+
+        let aws_credentials = aws_sdk_s3::config::Credentials::new(
+            access_key_id,
+            secret_access_key,
+            None,
+            None,
+            "job_config",
+        );
+
+        let mut builder = aws_sdk_s3::config::Builder::new()
+            .region(Region::new(self.region.clone()))
+            .credentials_provider(aws_credentials)
+            .behavior_version(BehaviorVersion::latest())
+            .timeout_config(
+                TimeoutConfig::builder()
+                    .operation_timeout(Duration::from_secs(30))
+                    .build(),
+            )
+            .retry_config(RetryConfig::standard());
+        if let Some(ref url) = self.endpoint_url {
+            builder = builder.endpoint_url(url).force_path_style(true);
+        }
+        let client = aws_sdk_s3::Client::from_conf(builder.build());
+
+        Ok(GzipS3Source::new(
+            client,
+            self.bucket.clone(),
+            self.prefix.clone(),
+            ExtractorType::PlainGzip.create_extractor(),
         ))
     }
 }

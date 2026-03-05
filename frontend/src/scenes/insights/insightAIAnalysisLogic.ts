@@ -24,12 +24,13 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
     path(['scenes', 'insights', 'insightAIAnalysisLogic']),
     props({} as InsightAIAnalysisLogicProps),
     key((props) => props.insightId ?? 'new'),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId'], organizationLogic, ['currentOrganization']],
-    }),
+    })),
     actions({
         startAnalysis: true,
         setHasClickedAnalyze: (hasClicked: boolean) => ({ hasClicked }),
+        setHasClickedSuggestions: true,
         resetAnalysis: true,
         reportAnalysisFeedback: (isPositive: boolean) => ({ isPositive }),
         reportSuggestionFeedback: (suggestionIndex: number, suggestionTitle: string, isPositive: boolean) => ({
@@ -47,13 +48,8 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                         return null
                     }
 
-                    try {
-                        const response = await api.insights.analyze(props.insightId)
-                        return response.result
-                    } catch (e) {
-                        console.error('[InsightAIAnalysis] Error fetching analysis', e)
-                        return null
-                    }
+                    const response = await api.insights.analyze(props.insightId)
+                    return response.result
                 },
             },
         ],
@@ -84,6 +80,13 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                 resetAnalysis: () => false,
             },
         ],
+        hasClickedSuggestions: [
+            false,
+            {
+                setHasClickedSuggestions: () => true,
+                resetAnalysis: () => false,
+            },
+        ],
         analysisFeedbackGiven: [
             null as boolean | null, // true = positive, false = negative, null = no feedback
             {
@@ -101,6 +104,24 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                 resetAnalysis: () => ({}),
             },
         ],
+        analysisError: [
+            null as string | null,
+            {
+                startAnalysis: () => null,
+                startAnalysisFailure: (_, { error }) => {
+                    // Extract error message from API response
+                    const err = error as any
+                    if (err?.detail) {
+                        return err.detail
+                    }
+                    if (err?.message) {
+                        return err.message
+                    }
+                    return 'Failed to generate analysis'
+                },
+                resetAnalysis: () => null,
+            },
+        ],
     }),
     selectors({
         isAnalyzing: [(s) => [s.analysisLoading], (analysisLoading) => analysisLoading],
@@ -109,6 +130,14 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
         startAnalysis: () => {
             actions.setHasClickedAnalyze(true)
             posthog.capture('insight ai analysis started', {
+                insight_id: props.insightId,
+                insight_type: props.query.kind,
+                team_id: values.currentTeamId,
+                organization_id: values.currentOrganization?.id,
+            })
+        },
+        setHasClickedSuggestions: () => {
+            posthog.capture('insight ai suggestions clicked', {
                 insight_id: props.insightId,
                 insight_type: props.query.kind,
                 team_id: values.currentTeamId,

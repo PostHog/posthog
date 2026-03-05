@@ -3,8 +3,8 @@ import { useValues } from 'kea'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
-import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
@@ -39,6 +39,7 @@ export function FunnelLineGraph({
         interval,
         insightData,
         showValuesOnSeries,
+        funnelsFilter,
     } = useValues(funnelDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
@@ -61,6 +62,7 @@ export function FunnelLineGraph({
                 inSharedMode={!!inSharedMode}
                 showPersonsModal={showPersonsModal}
                 showValuesOnSeries={showValuesOnSeries}
+                showTrendLines={funnelsFilter?.showTrendLines ?? false}
                 goalLines={goalLines ?? []}
                 tooltip={{
                     showHeader: false,

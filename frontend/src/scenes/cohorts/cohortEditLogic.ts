@@ -27,7 +27,7 @@ import { urls } from 'scenes/urls'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
+import { ActorsQuery, DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,
@@ -93,7 +93,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         setQuery: (query: Node) => ({ query }),
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
         updateCohortCount: true,
-        setCreationPersonQuery: (query: Node) => ({ query }),
+        setCreationPersonQuery: (query: ActorsQuery) => ({ query }),
         addPersonToCreateStaticCohort: (personId: string) => ({ personId }),
         removePersonFromCreateStaticCohort: (personId: string) => ({ personId }),
         removePersonFromCohort: (personId: string) => ({ personId }),
@@ -217,35 +217,29 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             } as DataTableNode,
             {
                 setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
-                setCohort: (state, { cohort }) => ({
-                    ...state,
-                    source: {
-                        ...state.source,
-                        select: cohort.is_static
-                            ? ['person_display_name -- Person', 'id', 'created_at', 'person.$delete']
-                            : ['person_display_name -- Person', 'id', 'created_at'],
-                    },
-                }),
+                setCohort: (state, { cohort }) => {
+                    const source = state.source as ActorsQuery
+                    const defaultSelect = cohort.is_static
+                        ? ['person_display_name -- Person', 'id', 'created_at', 'person.$delete']
+                        : ['person_display_name -- Person', 'id', 'created_at']
+                    return {
+                        ...state,
+                        source: {
+                            ...source,
+                            select: source.select ?? defaultSelect,
+                        },
+                    }
+                },
             },
         ],
         creationPersonQuery: [
             {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.ActorsQuery,
-                    fixedProperties: [],
-                    select: ['id', 'person_display_name -- Person'],
-                },
-                showPropertyFilter: false,
-                showEventFilter: false,
-                showExport: false,
-                showSearch: true,
-                showActions: false,
-                showElapsedTime: false,
-                showTimings: false,
-            } as DataTableNode,
+                kind: NodeKind.ActorsQuery,
+                fixedProperties: [],
+                select: ['id', 'person_display_name -- Person'],
+            } as ActorsQuery,
             {
-                setCreationPersonQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
+                setCreationPersonQuery: (_state, { query }) => query,
             },
         ],
         personsToCreateStaticCohort: [
@@ -294,6 +288,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             }),
             submit: (cohort) => {
+                // Prevent multiple concurrent saves
+                if (values.cohortLoading) {
+                    return
+                }
+
                 if (cohort.id !== 'new') {
                     actions.saveCohort(cohort)
                 } else {

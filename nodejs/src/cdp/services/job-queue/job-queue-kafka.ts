@@ -13,16 +13,16 @@ import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { cdpJobSizeKb } from './shared'
+import { WarpstreamFetchTester } from './warpstream-fetch-tester'
 
 export class CyclotronJobQueueKafka {
     private kafkaConsumer?: KafkaConsumer
     private kafkaProducer?: KafkaProducerWrapper
+    private fetchTester?: WarpstreamFetchTester
+    private queue?: CyclotronJobQueueKind
+    private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
 
-    constructor(
-        private config: PluginsServerConfig,
-        private queue: CyclotronJobQueueKind,
-        private consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
-    ) {}
+    constructor(private config: PluginsServerConfig) {}
 
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
@@ -32,7 +32,13 @@ export class CyclotronJobQueueKafka {
         this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
     }
 
-    public async startAsConsumer() {
+    public async startAsConsumer(
+        queue: CyclotronJobQueueKind,
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+    ) {
+        this.queue = queue
+        this.consumeBatch = consumeBatch
+
         const groupId = `cdp-cyclotron-${this.queue}-consumer`
         const topic = `cdp_cyclotron_${this.queue}`
 
@@ -44,6 +50,23 @@ export class CyclotronJobQueueKafka {
             const { backgroundTask } = await this.consumeKafkaBatch(messages)
             return { backgroundTask }
         })
+
+        if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
+            if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
+                try {
+                    this.fetchTester = new WarpstreamFetchTester(this.config)
+                    this.fetchTester.start()
+                    logger.info('🔄', 'WarpStream fetch tester initialized')
+                } catch (error) {
+                    logger.warn('🔄', 'Failed to initialize WarpStream fetch tester', {
+                        error: String(error),
+                    })
+                    this.fetchTester = undefined
+                }
+            }
+
+            logger.info('🔄', 'WarpStream fetch tester initialized')
+        }
     }
 
     public async stopConsumer() {
@@ -76,18 +99,13 @@ export class CyclotronJobQueueKafka {
                     ? await compress(JSON.stringify(serialized))
                     : JSON.stringify(serialized)
 
-                cdpJobSizeKb.observe(value.length / 1024)
+                cdpJobSizeKb.labels('kafka').observe(value.length / 1024)
 
                 const headers: Record<string, string> = {
                     // NOTE: Later we should remove hogFunctionId as it is no longer used
                     hogFunctionId: x.functionId,
                     functionId: x.functionId,
                     teamId: x.teamId.toString(),
-                }
-
-                if (x.queueScheduledAt && x.state?.returnTopic) {
-                    headers.queueScheduledAt = x.queueScheduledAt.toString()
-                    headers.returnTopic = `cdp_cyclotron_${x.state.returnTopic}`
                 }
 
                 await producer
@@ -133,7 +151,7 @@ export class CyclotronJobQueueKafka {
 
     private async consumeKafkaBatch(messages: Message[]): Promise<{ backgroundTask: Promise<any> }> {
         if (messages.length === 0) {
-            return await this.consumeBatch([])
+            return await this.consumeBatch!([])
         }
 
         const invocations: CyclotronJobInvocation[] = []
@@ -154,7 +172,15 @@ export class CyclotronJobQueueKafka {
             invocations.push(invocation)
         }
 
-        return await this.consumeBatch(invocations)
+        if (this.fetchTester) {
+            try {
+                await this.fetchTester.maybeMeasureFetchLatency(messages)
+            } catch (error) {
+                logger.warn('fetch_tester_error', { error: String(error) })
+            }
+        }
+
+        return await this.consumeBatch!(invocations)
     }
 }
 

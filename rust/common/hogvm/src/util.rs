@@ -30,6 +30,24 @@ pub fn regex_match(
     Ok(regex.is_match(val.as_ref()))
 }
 
+pub fn regex_extract(
+    haystack: impl AsRef<str>,
+    pattern: impl AsRef<str>,
+) -> Result<String, VmError> {
+    let regex = RegexBuilder::new(pattern.as_ref())
+        .build()
+        .map_err(|e| VmError::InvalidRegex(pattern.as_ref().to_string(), e.to_string()))?;
+    let Some(captures) = regex.captures(haystack.as_ref()) else {
+        return Ok(String::new());
+    };
+    let result = if regex.captures_len() > 1 {
+        captures.get(1).map(|m| m.as_str()).unwrap_or("")
+    } else {
+        captures.get(0).map(|m| m.as_str()).unwrap_or("")
+    };
+    Ok(result.to_string())
+}
+
 fn like_to_regex(pattern: &str) -> String {
     let mut result = String::from("^");
     let mut escape = false;

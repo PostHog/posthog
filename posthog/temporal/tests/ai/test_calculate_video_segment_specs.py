@@ -6,7 +6,16 @@ from posthog.temporal.ai.session_summary.summarize_session import (
     SESSION_VIDEO_CHUNK_DURATION_S,
     calculate_video_segment_specs,
 )
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.ai.session_summary.types.video import VideoSegmentSpec
+
+DUMMY_INPUTS = SingleSessionSummaryInputs(
+    session_id="test-session",
+    user_id=1,
+    team_id=1,
+    redis_key_base="test",
+    model_to_use="test",
+)
 
 
 class TestCalculateVideoSegmentSpecsRequiresInactivityData:
@@ -16,10 +25,11 @@ class TestCalculateVideoSegmentSpecsRequiresInactivityData:
         ids=["none", "empty_list"],
     )
     def test_raises_without_inactivity_data(self, inactivity_periods):
-        with pytest.raises(ValueError, match="Inactivity periods are required"):
+        with pytest.raises(ValueError, match="Inactivity periods were not provided"):
             calculate_video_segment_specs(
                 video_duration=100,
                 chunk_duration=SESSION_VIDEO_CHUNK_DURATION_S,
+                inputs=DUMMY_INPUTS,
                 inactivity_periods=inactivity_periods,
             )
 
@@ -73,6 +83,7 @@ class TestCalculateVideoSegmentSpecsValidation:
             calculate_video_segment_specs(
                 video_duration=video_duration,
                 chunk_duration=SESSION_VIDEO_CHUNK_DURATION_S,
+                inputs=DUMMY_INPUTS,
                 inactivity_periods=inactivity_periods,
             )
 
@@ -188,6 +199,7 @@ class TestCalculateVideoSegmentSpecsWithInactivityData:
         result = calculate_video_segment_specs(
             video_duration=video_duration,
             chunk_duration=chunk_duration,
+            inputs=DUMMY_INPUTS,
             inactivity_periods=inactivity_periods,
         )
 

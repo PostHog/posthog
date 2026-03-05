@@ -5,8 +5,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { BatchExportConfiguration } from '~/types'
 
 import type { batchExportBackfillModalLogicType } from './batchExportBackfillModalLogicType'
@@ -131,6 +133,7 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
         closeBackfillModal: true,
         setEarliestBackfill: true,
         unsetEarliestBackfill: true,
+        backfillCreated: (backfillId: string) => ({ backfillId }),
     }),
     reducers({
         isBackfillModalOpen: [
@@ -177,7 +180,10 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
         dayOfWeekName: [
             (s) => [s.dayOfWeek],
             (dayOfWeek: number | null): string | null => {
-                return dayOfWeek ? dayOptions[dayOfWeek].label : null
+                if (dayOfWeek === null) {
+                    return null
+                }
+                return dayOptions[dayOfWeek].label
             },
         ],
         hourOffset: [
@@ -293,7 +299,7 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
                     startAtStr = earliest_backfill ? null : (start_at?.toISOString() ?? null)
                     endAtStr = end_at?.toISOString() ?? null
                 }
-                await api.batchExports
+                const result = await api.batchExports
                     .createBackfill(props.id, { start_at: startAtStr, end_at: endAtStr })
                     .catch((e) => {
                         if (e.detail) {
@@ -306,7 +312,14 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
                         throw e
                     })
 
+                void addProductIntent({
+                    product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                    intent_context: ProductIntentContext.BATCH_EXPORT_BACKFILL_CREATED,
+                })
+
                 actions.closeBackfillModal()
+                lemonToast.success('Backfill created')
+                actions.backfillCreated(result.backfill_id)
                 return
             },
         },

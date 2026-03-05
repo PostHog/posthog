@@ -10,8 +10,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -416,8 +416,9 @@ export const personsLogic = kea<personsLogicType>([
                 let newPropertyType: string = typeof newValue
 
                 // If the property is a number, store it as a number
+                // Guard against empty string: Number("") === 0, which is a false positive
                 const attemptedParsedNumber = Number(newValue)
-                if (!Number.isNaN(attemptedParsedNumber) && typeof newValue !== 'boolean') {
+                if (!Number.isNaN(attemptedParsedNumber) && typeof newValue !== 'boolean' && newValue !== '') {
                     parsedValue = attemptedParsedNumber
                     newPropertyType = 'number'
                 }

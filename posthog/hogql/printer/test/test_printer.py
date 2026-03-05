@@ -59,6 +59,7 @@ from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 from ee.clickhouse.materialized_columns.columns import (
     get_bloom_filter_index_name,
@@ -78,7 +79,7 @@ class TestPrinter(BaseTest):
         context: Optional[HogQLContext] = None,
         dialect: HogQLDialect = "clickhouse",
         settings: Optional[HogQLQuerySettings] = None,
-        backend: HogQLParserBackend = "cpp",
+        backend: HogQLParserBackend = "cpp-json",
     ) -> str:
         node = parse_expr(query, backend=backend)
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -123,6 +124,13 @@ class TestPrinter(BaseTest):
 
     def _assert_select_error(self, statement, expected_error):
         with self.assertRaises(ExposedHogQLError) as context:
+            self._select(statement, None)
+        if expected_error not in str(context.exception):
+            raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
+        self.assertTrue(expected_error in str(context.exception))
+
+    def _assert_query_error(self, statement, expected_error):
+        with self.assertRaises(QueryError) as context:
             self._select(statement, None)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
@@ -177,6 +185,11 @@ class TestPrinter(BaseTest):
             f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_intersect_all_raises_in_clickhouse(self):
+        with self.assertRaises(ImpossibleASTError) as context:
+            self._select("select 1 as id intersect all select 2 as id")
+        self.assertIn("INTERSECT ALL is not supported", str(context.exception))
+
     def test_intersect_distinct(self):
         expr = parse_select("""select 1 as id intersect distinct select 2 as id""")
         response = to_printed_hogql(expr, self.team)
@@ -192,6 +205,11 @@ class TestPrinter(BaseTest):
             response,
             f"SELECT\n    1 AS id\nLIMIT 50000\nEXCEPT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
+
+    def test_except_all_raises_in_clickhouse(self):
+        with self.assertRaises(ImpossibleASTError) as context:
+            self._select("select 1 as id except all select 2 as id")
+        self.assertIn("EXCEPT ALL is not supported", str(context.exception))
 
     # these share the same priority, should stay in order
     def test_except_and_union(self):
@@ -1324,7 +1342,7 @@ class TestPrinter(BaseTest):
             self._select("select 1 from events"),
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
-        self._assert_select_error("select 1 from other", "Unknown table `other`.")
+        self._assert_query_error("select 1 from other", "Unknown table `other`.")
 
     def test_select_from_placeholder(self):
         self.assertEqual(
@@ -1529,7 +1547,7 @@ class TestPrinter(BaseTest):
     def test_select_limit_with_posthog_ai_context(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, limit_context=LimitContext.POSTHOG_AI)
         self.assertEqual(
-            self._select("select 1 limit 500", context=context),
+            self._select("select 1 limit 1000", context=context),
             f"SELECT 1 LIMIT {MAX_SELECT_POSTHOG_AI_LIMIT}",
         )
 
@@ -2267,7 +2285,7 @@ class TestPrinter(BaseTest):
         printed = self._print("SELECT 1 FROM events", settings=HogQLGlobalSettings(max_execution_time=10))
         self.assertEqual(
             printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_query_level_settings(self):
@@ -2296,8 +2314,109 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
+
+    def test_table_top_level_settings_added_to_query(self):
+        printed = self._print("SELECT job_id FROM preaggregation_results")
+        assert "load_balancing='in_order'" in printed
+
+    def test_table_top_level_settings_not_added_for_regular_tables(self):
+        printed = self._print("SELECT event FROM events")
+        assert "load_balancing" not in printed
+
+    def test_table_top_level_settings_deduplication(self):
+        printed = self._print(
+            "SELECT a.job_id, b.job_id "
+            "FROM preaggregation_results a "
+            "JOIN experiment_exposures_preaggregated b ON a.job_id = b.job_id"
+        )
+        assert printed.count("load_balancing") == 1
+
+    def test_table_top_level_settings_conflict_between_tables(self):
+        db = Database()
+        db.get_table("preaggregation_results").top_level_settings = HogQLQuerySettings(load_balancing="round_robin")
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query_both = parse_select(
+            "SELECT a.job_id, b.job_id "
+            "FROM preaggregation_results a "
+            "JOIN experiment_exposures_preaggregated b ON a.job_id = b.job_id"
+        )
+        with self.assertRaises(QueryError) as cm:
+            prepare_and_print_ast(query_both, context, "clickhouse")
+        assert "Conflicting" in str(cm.exception)
+
+    def test_table_top_level_settings_conflict_with_query_settings(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        assert isinstance(query, ast.SelectQuery)
+        query.settings = HogQLQuerySettings(load_balancing="round_robin")
+        with self.assertRaises(QueryError) as cm:
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                "clickhouse",
+            )
+        assert "Conflicting" in str(cm.exception)
+
+    def test_table_top_level_settings_conflict_with_global_settings(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        with self.assertRaises(QueryError) as cm:
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                "clickhouse",
+                settings=HogQLGlobalSettings(load_balancing="round_robin"),
+            )
+        assert "Conflicting" in str(cm.exception)
+
+    def test_table_top_level_settings_same_value_in_query_settings(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        assert isinstance(query, ast.SelectQuery)
+        query.settings = HogQLQuerySettings(load_balancing="in_order")
+        printed, _ = prepare_and_print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        assert "load_balancing='in_order'" in printed
+        assert printed.count("load_balancing") == 1
+
+    def test_table_top_level_settings_with_global_settings_single_clause(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        printed, _ = prepare_and_print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=30),
+        )
+        assert "load_balancing='in_order'" in printed
+        assert printed.count("SETTINGS") == 1
+        assert printed.count("load_balancing") == 1
+
+    def test_subquery_table_settings_bubble_up(self):
+        printed = self._print("SELECT job_id FROM (SELECT job_id FROM preaggregation_results)")
+        assert "load_balancing='in_order'" in printed
+
+    def test_warehouse_csv_table_with_double_quotes_setting(self):
+        from posthog.hogql.database.models import TableNode
+        from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+
+        csv_table = HogQLDataWarehouseTable(
+            name="csv_table",
+            url="https://example.com/test.csv",
+            format="CSVWithNames",
+            fields={"col1": StringDatabaseField(name="col1")},
+            structure="`col1` String",
+            top_level_settings=HogQLQuerySettings(format_csv_allow_double_quotes=True),
+        )
+        db = Database()
+        root = TableNode()
+        root.add_child(TableNode(name="csv_table", table=csv_table))
+        db._add_warehouse_tables(root)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query = parse_select("SELECT col1 FROM csv_table")
+        printed, _ = prepare_and_print_ast(query, context, "clickhouse")
+        assert "format_csv_allow_double_quotes=1" in printed
 
     def test_pretty_print(self):
         printed = self._pretty("SELECT 1, event FROM events")
@@ -2396,7 +2515,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT timestamp AS timestamp FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s), "
             f"toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk})) "
-            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_hidden_aliases_column_override(self):
@@ -2408,7 +2527,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT event AS event FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS event, "
             f"event FROM events WHERE equals(events.team_id, {self.team.pk})) "
-            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_hidden_aliases_properties(self):
@@ -2428,7 +2547,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_hidden_aliases_double_property(self):
@@ -2449,7 +2568,7 @@ class TestPrinter(BaseTest):
             f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null'), "
             f"nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "  # only the second one gets the alias
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_lookup_domain_type(self):
@@ -2464,7 +2583,7 @@ class TestPrinter(BaseTest):
             "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS domain "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-            "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+            "max_ast_elements=4000000, "
             "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
@@ -2480,7 +2599,7 @@ class TestPrinter(BaseTest):
             "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-            "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+            "max_ast_elements=4000000, "
             "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
@@ -2493,7 +2612,7 @@ class TestPrinter(BaseTest):
             "SELECT dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', "
             "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
     def test_lookup_organic_source_type(self):
@@ -2508,7 +2627,7 @@ class TestPrinter(BaseTest):
             "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-            "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+            "max_ast_elements=4000000, "
             "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
@@ -2521,7 +2640,7 @@ class TestPrinter(BaseTest):
             "SELECT dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', "
             "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
     def test_currency_conversion(self):
@@ -2532,7 +2651,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             (
                 f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
         )
@@ -2545,7 +2664,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             (
                 f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
         )
@@ -2568,41 +2687,79 @@ class TestPrinter(BaseTest):
                 f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_1)s), '(\\d+(\\.\\d+)+)'))) AS semver2, "
                 f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_2)s), '(\\d+(\\.\\d+)+)'))) AS semver3, "
                 f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_3)s), '(\\d+(\\.\\d+)+)'))) AS semver4 "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
         )
 
     def test_get_survey_response(self):
         # Test with just question index (0) - dynamic key
-        printed = self._print(
-            "select getSurveyResponse(0) from events",
-            settings=HogQLGlobalSettings(max_execution_time=10),
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(0) FROM events",
         )
+        assert result.clickhouse is not None
         # Dynamic key (no question_id) uses concat for key construction
-        self.assertIn("coalesce", printed)
-        self.assertIn("nullIf", printed)
-        self.assertIn("concat", printed)
+        self.assertIn("coalesce", result.clickhouse)
+        self.assertIn("nullIf", result.clickhouse)
+        self.assertIn("concat", result.clickhouse)
+        # Always uses JSONExtractString for consistent String return type
+        self.assertIn("JSONExtractString", result.clickhouse)
 
-        # Test with question index and specific ID - static key uses ast.Field
-        printed = self._print(
-            "select getSurveyResponse(1, 'question123') from events",
-            settings=HogQLGlobalSettings(max_execution_time=10),
+        # Test with question index and specific ID - static key
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(1, 'question123') FROM events",
         )
-        # Static key uses ast.Field which resolves to JSONExtractRaw (enables materialization)
-        self.assertIn("coalesce", printed)
-        self.assertIn("nullIf", printed)
-        self.assertIn("JSONExtractRaw", printed)
+        assert result.clickhouse is not None
+        # Static key also uses JSONExtractString for type consistency
+        self.assertIn("coalesce", result.clickhouse)
+        self.assertIn("nullIf", result.clickhouse)
+        self.assertIn("JSONExtractString", result.clickhouse)
 
         # Test with multiple choice question
-        printed = self._print(
-            "select getSurveyResponse(2, 'abc123', true) from events",
-            settings=HogQLGlobalSettings(max_execution_time=10),
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(2, 'abc123', true) FROM events",
         )
+        assert result.clickhouse is not None
         # Multiple choice uses if() with JSONHas and JSONExtractArrayRaw
-        self.assertIn("JSONHas", printed)
-        self.assertIn("JSONExtractArrayRaw", printed)
-        self.assertIn("if(", printed)
+        self.assertIn("JSONHas", result.clickhouse)
+        self.assertIn("JSONExtractArrayRaw", result.clickhouse)
+        self.assertIn("if(", result.clickhouse)
+
+    def test_get_survey_response_with_numeric_property_type(self):
+        """Test that getSurveyResponse returns consistent types even when property has Numeric type.
+
+        Regression test for a bug where PropertySwapper would wrap the index-based
+        property access with toFloat() when $survey_response had type=Numeric in
+        PropertyDefinition, causing a ClickHouse type mismatch error:
+        "There is no supertype for types String, Float64"
+        """
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="$survey_response",
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+        # This should NOT raise a ClickHouse error about type mismatch
+        # Before the fix, this would fail with:
+        # "There is no supertype for types String, Float64 because some of them
+        # are String/FixedString/Enum and some of them are not"
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(0) FROM events",
+        )
+
+        # Query should execute successfully (even with no results)
+        assert result.clickhouse is not None
+        # Both branches of coalesce should return String type (via JSONExtractString)
+        self.assertIn("JSONExtractString", result.clickhouse)
+        # Should NOT contain Float64 casting which would cause type mismatch
+        self.assertNotIn("accurateCastOrNull", result.clickhouse)
+        self.assertNotIn("Float64", result.clickhouse)
 
     def test_unique_survey_submissions_filter(self):
         printed = self._print(
@@ -2658,7 +2815,7 @@ class TestPrinter(BaseTest):
         )
         assert printed == (
             f"SELECT trim(LEADING %(hogql_val_1)s FROM %(hogql_val_0)s) AS a, trim(TRAILING %(hogql_val_3)s FROM %(hogql_val_2)s) AS b, trim(BOTH %(hogql_val_5)s FROM %(hogql_val_4)s) AS c LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         )
         printed2 = self._print(
             "select trimLeft('media', 'xy') as a, trimRight('media', 'xy') as b, trim('media', 'xy') as c",
@@ -2887,6 +3044,26 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",
             )
+
+    def test_fails_on_placeholder_macro_expansion_depth_limit(self):
+        query = parse_select(
+            """
+            SELECT date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', now())))))))))
+            """
+        )
+        with pytest.raises(QueryError, match="exceeded maximum placeholder macro depth"):
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+    def test_date_part_macro_does_not_expand_exponentially(self):
+        sql = self._select("SELECT date_part('year', date_part('year', date_part('year', now())))")
+
+        assert "arrayMap((part, dt) -> multiIf" in sql
+        assert sql.count("now()") == 1
+        assert len(sql) < 3_000
 
     def test_team_id_guarding_events(self):
         sql = self._select(
@@ -3151,6 +3328,80 @@ class TestPrinter(BaseTest):
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
 
+    def test_cte_with_alias_in_join_clickhouse(self):
+        """Test that CTETableAliasType properly prints in ClickHouse dialect with qualified fields"""
+        result = self._select(
+            """
+            WITH
+                exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events),
+                conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events)
+            SELECT
+                e.person_id,
+                e.exposure_time,
+                c.conversion_time
+            FROM exposures AS e
+            LEFT JOIN conversions AS c ON e.person_id = c.person_id AND c.conversion_time >= e.exposure_time
+            """
+        )
+
+        # The key assertion: JOIN constraint fields should be qualified with CTE aliases
+        self.assertIn("equals(e.person_id, c.person_id)", result)
+        # timestamp fields get wrapped in toTimeZone, but the important part is the alias qualification
+        self.assertIn("c.conversion_time", result)
+        self.assertIn("e.exposure_time", result)
+        # Verify the greaterOrEquals comparison exists with the qualified fields
+        self.assertIn("greaterOrEquals(toTimeZone(c.conversion_time", result)
+        self.assertIn("toTimeZone(e.exposure_time", result)
+        # Verify CTE aliasing in FROM/JOIN clauses
+        self.assertIn("FROM exposures AS e", result)
+        self.assertIn("LEFT JOIN conversions AS c", result)
+
+    def test_cte_non_aliased_with_aliased_join_clickhouse(self):
+        """Test mixing non-aliased and aliased CTEs in ClickHouse output"""
+        result = self._select(
+            """
+            WITH users AS (SELECT event AS user_id, timestamp FROM events)
+            SELECT users.user_id, u2.user_id, users.timestamp
+            FROM users
+            LEFT JOIN users AS u2 ON users.user_id = u2.user_id
+            """
+        )
+
+        # Non-aliased CTE: fields qualified with CTE name
+        self.assertIn("users.user_id", result)
+        self.assertIn("users.timestamp", result)
+        # Aliased CTE: fields qualified with alias
+        self.assertIn("u2.user_id", result)
+        # JOIN constraint should have both
+        self.assertIn("equals(users.user_id, u2.user_id)", result)
+        # Verify table references
+        self.assertIn("FROM users", result)
+        self.assertIn("LEFT JOIN users AS u2", result)
+
+    def test_cte_multiple_aliases_same_cte_clickhouse(self):
+        """Test that the same CTE can be joined multiple times with different aliases"""
+        result = self._select(
+            """
+            WITH base AS (SELECT event AS id FROM events)
+            SELECT b1.id, b2.id, b3.id
+            FROM base AS b1
+            LEFT JOIN base AS b2 ON b1.id = b2.id
+            LEFT JOIN base AS b3 ON b2.id = b3.id
+            """
+        )
+
+        # All three aliases should be present and properly qualified
+        self.assertIn("b1.id", result)
+        self.assertIn("b2.id", result)
+        self.assertIn("b3.id", result)
+        # JOIN constraints should use the right aliases
+        self.assertIn("equals(b1.id, b2.id)", result)
+        self.assertIn("equals(b2.id, b3.id)", result)
+        # Table aliases in FROM/JOIN
+        self.assertIn("FROM base AS b1", result)
+        self.assertIn("LEFT JOIN base AS b2", result)
+        self.assertIn("LEFT JOIN base AS b3", result)
+
     def test_final_keyword_not_supported(self):
         with self.assertRaises(QueryError) as e:
             self._select("SELECT * FROM events FINAL")
@@ -3187,18 +3438,54 @@ class TestPrinter(BaseTest):
         ]
     )
     def test_postgres_style_cast(self, name, expr, expected):
-        self.assertEqual(self._expr(expr, backend="cpp-json"), expected)
+        self.assertEqual(self._expr(expr), expected)
 
     def test_postgres_style_cast_datetime(self):
         # DateTime types include timezone, test separately
-        self.assertIn("toDateTime(events.event", self._expr("event::datetime", backend="cpp-json"))
-        self.assertIn("toDateTime(events.event", self._expr("event::timestamp", backend="cpp-json"))
-        self.assertIn("toDateTime(events.event", self._expr("event::timestamptz", backend="cpp-json"))
+        self.assertIn("toDateTime(events.event", self._expr("event::datetime"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamp"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamptz"))
 
     def test_postgres_style_cast_unsupported_type(self):
         with self.assertRaises(QueryError) as ctx:
-            self._expr("event::unsupported_type", backend="cpp-json")
+            self._expr("event::unsupported_type")
         self.assertIn("Unsupported type cast", str(ctx.exception))
+
+    def test_cte_materialization_hint_not_supported(self):
+        with self.assertRaises(ImpossibleASTError) as ctx:
+            self._select(
+                """
+                WITH some_cte AS MATERIALIZED (SELECT event FROM events)
+                SELECT event FROM some_cte
+                """,
+            )
+        self.assertIn("not supported", str(ctx.exception))
+
+    def test_cte_column_name_list_not_supported(self):
+        with self.assertRaises(NotImplementedError):
+            self._select(
+                "WITH stats(a, b) AS (SELECT event, timestamp FROM events) SELECT a, b FROM stats",
+            )
+
+    def test_cte_using_key_not_supported(self):
+        with self.assertRaises(ImpossibleASTError) as ctx:
+            self._select(
+                "WITH x USING KEY (a) AS (SELECT 1 AS a, 2 AS b) SELECT * FROM x",
+            )
+        self.assertIn("not supported", str(ctx.exception))
+
+    def test_projection_pushdown_cte_with_lazy_table_join(self):
+        modifiers = HogQLQueryModifiers(optimizeProjections=True)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        # Pruning the CTE should not leave stale LazyTableType references
+        # in SelectQueryType.columns that cause KeyError during lazy table resolution
+        self._select(
+            """
+            WITH combined AS (SELECT * FROM persons LIMIT 10)
+            SELECT 1 FROM events AS e LEFT JOIN combined AS c ON e.distinct_id = c.id
+            """,
+            context=context,
+        )
 
 
 @snapshot_clickhouse_queries
@@ -3922,6 +4209,18 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             not_in_matches = {d for (d,) in not_in_result.results}
             assert not_in_matches == not_in_expected, f"NOT IN {in_values}"
 
+    def test_recursive_cte_raises(self):
+        query = """
+        WITH RECURSIVE cte AS (
+            SELECT 1 AS n
+            UNION ALL
+            SELECT n + 1 FROM cte WHERE n < 5
+        )
+        SELECT * FROM cte;
+        """
+        with self.assertRaises(ImpossibleASTError):
+            execute_hogql_query(team=self.team, query=query)
+
 
 class TestPrinted(APIBaseTest):
     def test_can_call_parametric_function(self):
@@ -3941,7 +4240,7 @@ class TestPostgresPrinter(BaseTest):
         query: ast.Expr | str,
         context: Optional[HogQLContext] = None,
         settings: Optional[HogQLQuerySettings] = None,
-        backend: HogQLParserBackend = "cpp",
+        backend: HogQLParserBackend = "cpp-json",
     ) -> str:
         node = parse_expr(query, backend=backend) if isinstance(query, str) else query
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -3967,7 +4266,7 @@ class TestPostgresPrinter(BaseTest):
         dialect: HogQLDialect = "postgres",
     ) -> str:
         return prepare_and_print_ast(
-            parse_select(query, placeholders=placeholders),
+            parse_select(query, placeholders=placeholders, backend="cpp-json"),
             context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             dialect,
         )[0]
@@ -4119,14 +4418,14 @@ class TestPostgresPrinter(BaseTest):
         )
 
     def test_postgres_style_cast(self):
-        self.assertEqual(self._expr("123::int", backend="cpp-json"), "CAST(123 AS int)")
-        self.assertEqual(self._expr("123.45::float", backend="cpp-json"), "CAST(123.45 AS float)")
-        self.assertEqual(self._expr("'2024-01-01'::date", backend="cpp-json"), "CAST('2024-01-01' AS date)")
-        self.assertEqual(self._expr("event::int", backend="cpp-json"), "CAST(events.event AS int)")
-        self.assertEqual(self._expr("event::text", backend="cpp-json"), "CAST(events.event AS text)")
-        self.assertEqual(self._expr("event::boolean", backend="cpp-json"), "CAST(events.event AS boolean)")
-        self.assertEqual(self._expr("event::INT", backend="cpp-json"), "CAST(events.event AS int)")
-        self.assertEqual(self._expr("(1 + 2)::int", backend="cpp-json"), "CAST((1 + 2) AS int)")
+        self.assertEqual(self._expr("123::int"), "CAST(123 AS int)")
+        self.assertEqual(self._expr("123.45::float"), "CAST(123.45 AS float)")
+        self.assertEqual(self._expr("'2024-01-01'::date"), "CAST('2024-01-01' AS date)")
+        self.assertEqual(self._expr("event::int"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("event::text"), "CAST(events.event AS text)")
+        self.assertEqual(self._expr("event::boolean"), "CAST(events.event AS boolean)")
+        self.assertEqual(self._expr("event::INT"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("(1 + 2)::int"), "CAST((1 + 2) AS int)")
 
     @parameterized.expand(
         [
@@ -4156,3 +4455,90 @@ class TestPostgresPrinter(BaseTest):
             type_name=type_name,
         )
         self.assertEqual(self._expr(node), f"CAST(123 AS {expected_escaped})")
+
+    @parameterized.expand(
+        [
+            (
+                "basic",
+                "WITH stats(a, b) AS (SELECT event, timestamp FROM events) SELECT a, b FROM stats",
+                "stats(a, b) AS",
+            ),
+            (
+                "single column",
+                "WITH single(x) AS (SELECT event FROM events) SELECT x FROM single",
+                "single(x) AS",
+            ),
+            (
+                "reserved word as column name",
+                "WITH stats(select, from) AS (SELECT event, timestamp FROM events) SELECT stats.select FROM stats",
+                'stats("select", "from") AS',
+            ),
+            (
+                "used in join",
+                """
+                WITH cte1(id, val) AS (SELECT event, timestamp FROM events),
+                     cte2(id, val) AS (SELECT event, timestamp FROM events)
+                SELECT c1.id, c2.val
+                FROM cte1 AS c1
+                JOIN cte2 AS c2 ON c1.id = c2.id
+                """,
+                "cte1(id, val) AS",
+            ),
+        ]
+    )
+    def test_cte_column_name_list(self, _name: str, query: str, expected_fragment: str):
+        result = self._select(query)
+        self.assertIn(expected_fragment, result)
+
+    def test_with_recursive(self):
+        query = "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte"
+        self.assertEqual(
+            self._select(query),
+            "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        )
+
+    def test_with_recursive_self_referencing(self):
+        query = "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT n FROM nums"
+        self.assertEqual(
+            self._select(query),
+            "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT (nums.n + 1) FROM nums WHERE (nums.n < 5)) "
+            "SELECT nums.n FROM nums LIMIT 50000",
+        )
+
+    def test_cte_materialization_hint_materialized(self):
+        query = "WITH events_cte AS MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte"
+        self.assertEqual(
+            self._select(query),
+            "WITH events_cte AS MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        )
+
+    def test_cte_materialization_hint_not_materialized(self):
+        query = "WITH events_cte AS NOT MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte"
+        self.assertEqual(
+            self._select(query),
+            "WITH events_cte AS NOT MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        )
+
+    def test_cte_using_key_single_column(self):
+        query = "WITH RECURSIVE x(a, b) USING KEY (a) AS (SELECT 1 AS a, 2 AS b UNION ALL SELECT a + 1, b FROM x WHERE a < 5) SELECT * FROM x"
+        result = self._select(query)
+        self.assertIn("USING KEY", result)
+        self.assertIn("x(a, b) USING KEY (a) AS", result)
+
+    def test_cte_using_key_multiple_columns(self):
+        query = "WITH RECURSIVE x(a, b, c) USING KEY (a, b) AS (SELECT 1 AS a, 2 AS b, 3 AS c UNION ALL SELECT a + 1, b, c FROM x WHERE a < 5) SELECT * FROM x"
+        result = self._select(query)
+        self.assertIn("x(a, b, c) USING KEY (a, b) AS", result)
+
+    def test_cte_using_key_without_column_name_list(self):
+        query = "WITH RECURSIVE x USING KEY (a) AS (SELECT 1 AS a UNION ALL SELECT a + 1 FROM x WHERE a < 5) SELECT * FROM x"
+        result = self._select(query)
+        self.assertIn("USING KEY (a) AS", result)
+
+    def test_intersect_all(self):
+        result = self._select("select 1 as id intersect all select 2 as id")
+        self.assertIn("INTERSECT ALL", result)
+
+    def test_except_all(self):
+        result = self._select("select 1 as id except all select 2 as id")
+        self.assertIn("EXCEPT ALL", result)

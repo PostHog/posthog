@@ -14,8 +14,8 @@ import {
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 
 import { TASK_STATUS_CONFIG } from '../lib/task-status'
-import { taskTrackerSceneLogic } from '../logics/taskTrackerSceneLogic'
 import { tasksLogic } from '../logics/tasksLogic'
+import { taskTrackerSceneLogic } from '../logics/taskTrackerSceneLogic'
 import { Task, TaskRunStatus } from '../types'
 import { TaskCreateModal } from './TaskCreateModal'
 import { TaskStatusBadge } from './TaskStatusBadge'

@@ -17,6 +17,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import query_with_columns
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.permissions import AccessControlPermission
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.run_evaluation import RunEvaluationInputs
 
@@ -37,7 +38,7 @@ class EvaluationRunRequestSerializer(serializers.Serializer):
 
 class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "evaluation"
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccessControlPermission]
 
     @llma_track_latency("llma_evaluation_runs_create")
     @monitor(feature=None, endpoint="llma_evaluation_runs_create", method="POST")
@@ -114,7 +115,8 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         # Generate unique workflow ID
-        workflow_id = f"{evaluation_id}-{target_event_id}-manual-{int(time.time() * 1000)}"
+        prefix = "llma-hog-eval" if evaluation.evaluation_type == "hog" else "llma-llm-eval"
+        workflow_id = f"{prefix}-{evaluation_id}-{target_event_id}-manual-{int(time.time() * 1000)}"
 
         # Start Temporal workflow
         try:
@@ -150,7 +152,8 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "workflow_id": workflow_id,
                     "trigger_type": "manual",
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
             return Response(

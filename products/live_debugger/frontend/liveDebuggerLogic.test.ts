@@ -118,18 +118,13 @@ describe('liveDebuggerLogic', () => {
             logic = liveDebuggerLogic()
             logic.mount()
 
-            // Wait for polling to start
             await expectLogic(logic).toDispatchActions(['loadBreakpoints'])
 
-            const intervalId = logic.values.breakpointPollingInterval
-            expect(intervalId).not.toBeNull()
-
-            // Stop polling (this is what beforeUnmount does)
             await expectLogic(logic, () => {
                 logic.actions.stopPollingBreakpoints()
             }).toDispatchActions(['stopPollingBreakpoints'])
 
-            expect(clearIntervalSpy).toHaveBeenCalledWith(intervalId)
+            expect(clearIntervalSpy).toHaveBeenCalled()
         })
     })
 
@@ -364,7 +359,6 @@ describe('liveDebuggerLogic', () => {
             ])
 
             expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 15000)
-            expect(logic.values.breakpointPollingInterval).toBeTruthy()
         })
 
         it('polling interval loads data every 15 seconds', async () => {
@@ -401,11 +395,9 @@ describe('liveDebuggerLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['loadBreakpoints'])
 
-            const intervalId = logic.values.breakpointPollingInterval
-
             logic.actions.stopPollingBreakpoints()
 
-            expect(clearIntervalSpy).toHaveBeenCalledWith(intervalId)
+            expect(clearIntervalSpy).toHaveBeenCalled()
         })
     })
 
@@ -522,14 +514,6 @@ describe('liveDebuggerLogic', () => {
             logic.actions.showHitsForLine(null)
 
             expect(logic.values.selectedLineForHits).toBe(null)
-        })
-
-        it('savePollingInterval updates interval ID', () => {
-            const intervalId = 12345 as unknown as number
-
-            logic.actions.savePollingInterval(intervalId)
-
-            expect(logic.values.breakpointPollingInterval).toBe(intervalId)
         })
     })
 

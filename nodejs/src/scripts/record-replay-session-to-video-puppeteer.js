@@ -32,7 +32,10 @@ const MAX_DIMENSION = 1920
 const DEFAULT_WIDTH = 1920
 const DEFAULT_HEIGHT = 1080
 const RECORDING_BUFFER_SECONDS = 120
-const DEFAULT_FPS = 25 // Both Playwright and ffpmeg use 25 (PAL) as a default
+// Default speed params below are just intended for human consumption of video,
+// but specific uses cases (like AI analysis) may provide their own values
+const DEFAULT_PLAYBACK_SPEED = 4
+const DEFAULT_FPS = 24 // 24 frames per 1 second of original real time, for human consumption
 
 // Log to stderr so it doesn't interfere with JSON output
 function log(...args) {
@@ -79,6 +82,28 @@ async function waitForPageReady(page, urlToRender, waitForCssSelector) {
         await page.waitForSelector('.Spinner', { hidden: true, timeout: 20000 })
     } catch (e) {
         log('Spinner wait timeout (continuing):', e.message)
+    }
+}
+
+// Verify the recording rendered properly by checking inactivity periods availability
+// This data is set by the frontend useEffect as soon as segments load, before playback starts
+// If the page failed to render (e.g., server error), this data will never be set
+async function verifyInactivityPeriodsAvailable(page) {
+    log('Verifying inactivity periods are available...')
+    try {
+        await page.waitForFunction(
+            () => {
+                const periods = window.__POSTHOG_INACTIVITY_PERIODS__
+                return Array.isArray(periods) && periods.length > 0
+            },
+            { timeout: 20000 }
+        )
+        log('Inactivity periods verified')
+    } catch (e) {
+        throw new Error(
+            'Inactivity periods were not available within 20s after page load. ' +
+                'The session recording may not have rendered properly.'
+        )
     }
 }
 
@@ -208,9 +233,10 @@ async function main() {
         recording_duration: recordingDuration,
         screenshot_width: providedWidth,
         screenshot_height: providedHeight,
-        playback_speed: requestedPlaybackSpeed = 1,
+        playback_speed: requestedPlaybackSpeed = DEFAULT_PLAYBACK_SPEED,
         headless = true,
         ffmpeg_path: ffmpegPath,
+        recording_fps: recordingFps = DEFAULT_FPS,
     } = options
     if (!urlToRender || !outputPath || !waitForCssSelector || !recordingDuration) {
         console.error('Missing required options: url_to_render, output_path, wait_for_css_selector, recording_duration')
@@ -258,7 +284,7 @@ async function main() {
         const recordStarted = Date.now()
         // Videos are recorded at x playspeed, and will be slowed down to 1x later
         // The complication is mostly with CSS animations, as they aren't sped up by rrweb player when running at >1x playback
-        const customFps = DEFAULT_FPS * playbackSpeed
+        const customFps = recordingFps * playbackSpeed
         log('Custom FPS:', customFps)
         const recorderConfig = {
             followNewTab: false, // Always a single tab is recorded
@@ -286,6 +312,7 @@ async function main() {
         await waitForPageReady(page, urlWithSpeed, waitForCssSelector)
         const readyAt = Date.now()
         await new Promise((r) => setTimeout(r, 500))
+        await verifyInactivityPeriodsAvailable(page)
         // Wait for recording to complete while tracking segments, with buffer for rendering
         const maxWaitMs = Math.floor((recordingDuration / playbackSpeed) * 1000) + RECORDING_BUFFER_SECONDS * 1000
         const segmentStartTimestamps = await waitForRecordingWithSegments(page, maxWaitMs, readyAt)
@@ -353,6 +380,7 @@ module.exports = {
     scaleDimensionsIfNeeded,
     setupUrlForPlaybackSpeed,
     waitForPageReady,
+    verifyInactivityPeriodsAvailable,
     waitForRecordingWithSegments,
     detectInactivityPeriods,
     // Constants

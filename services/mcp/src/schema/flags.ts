@@ -10,13 +10,14 @@ export interface PostHogFlagsResponse {
     results?: PostHogFeatureFlag[]
 }
 const base = ['exact', 'is_not', 'is_set', 'is_not_set'] as const
-const stringOpsForSchema = ['icontains', 'not_icontains', 'regex', 'not_regex', 'is_cleaned_path_exact']
+const stringOpsForSchema = ['icontains', 'not_icontains', 'regex', 'not_regex']
 const stringOps = [...base, ...stringOpsForSchema] as const
-const numberOpsForSchema = ['gt', 'gte', 'lt', 'lte', 'min', 'max']
+const numberOpsForSchema = ['gt', 'gte', 'lt', 'lte']
 const numberOps = [...base, ...numberOpsForSchema] as const
 const booleanOps = [...base] as const
 
-const arrayOps = ['in', 'not_in'] as const
+// Note: 'exact' and 'is_not' support arrays too (checks if value is contained in array)
+const arrayOps = ['exact', 'is_not'] as const
 
 const operatorValues = [...new Set([...stringOps, ...numberOps, ...booleanOps, ...arrayOps])] as [string, ...string[]]
 
@@ -45,13 +46,6 @@ export const PersonPropertyFilterSchema = z
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 message: `operator "${operator}" is not valid for value type "${isArray ? 'array' : typeof value}"`,
-            })
-        }
-
-        if (!isArray && arrayOps.includes(operator as any)) {
-            ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: `operator "${operator}" requires an array value`,
             })
         }
     })

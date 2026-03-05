@@ -8,8 +8,15 @@ from posthog.hogql.database.models import (
     Table,
 )
 
+from posthog.clickhouse.workload import Workload
+
+# 50GB - limit for user-provided HogQL queries on log tables to prevent expensive full scans
+HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES = 50_000_000_000
+
 
 class LogsTable(Table):
+    workload: Workload | None = Workload.LOGS
+
     fields: dict[str, FieldOrTable] = {
         "uuid": StringDatabaseField(name="uuid", nullable=False),
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -19,7 +26,6 @@ class LogsTable(Table):
         "body": StringDatabaseField(name="body", nullable=False),
         "attributes": StringJSONDatabaseField(name="attributes", nullable=False),
         "time_bucket": DateTimeDatabaseField(name="time_bucket", nullable=False),
-        "time_minute": DateTimeDatabaseField(name="time_minute", nullable=False),
         "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
         "observed_timestamp": DateTimeDatabaseField(name="observed_timestamp", nullable=False),
         "severity_text": StringDatabaseField(name="severity_text", nullable=False),
@@ -44,6 +50,7 @@ class LogsTable(Table):
 
 
 class LogAttributesTable(Table):
+    workload: Workload | None = Workload.LOGS
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "time_bucket": DateTimeDatabaseField(name="time_bucket", nullable=False),
@@ -69,6 +76,7 @@ class LogsKafkaMetricsTable(DANGEROUS_NoTeamIdCheckTable):
     This is so we can find out the overall lag per partition and filter live logs accordingly
     """
 
+    workload: Workload | None = Workload.LOGS
     fields: dict[str, FieldOrTable] = {
         "_partition": IntegerDatabaseField(name="_partition", nullable=False),
         "_topic": StringDatabaseField(name="_topic", nullable=False),

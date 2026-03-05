@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconFeatures, IconRefresh } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import {
     AssigneeIconDisplay,
     AssigneeLabelDisplay,
@@ -13,6 +14,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
+import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -74,6 +76,7 @@ export function PropertyValue({
     const isDateTimeProperty = operator && isOperatorDate(operator)
     const isBetweenProperty = operator && isOperatorBetween(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
+    const { isRefreshing } = useValues(propertyValueLogic({ propertyKey, type: propertyDefinitionType }))
 
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
@@ -85,8 +88,18 @@ export function PropertyValue({
     // This will require detecting isOperatorSemver(operator) and validating the input
     // matches semver format (e.g., "1.2.3", "1.2.3-alpha", etc.)
 
+    // we first load a set of suggested values when there is no user input yet to avoid
+    // options jumping around as the user types, we keep the initially loaded options
+    // in state and show those first, then any new options based on user input after
+    const [initialSuggestedValues, setInitialSuggestedValues] = useState<{
+        set: Set<string>
+        orderedKeys: string[]
+    }>({ set: new Set(), orderedKeys: [] })
+    const currentSearchInput = useRef<string>('')
+
     const load = useCallback(
         (newInput: string | undefined): void => {
+            currentSearchInput.current = newInput || ''
             loadPropertyValues({
                 endpoint,
                 type: propertyDefinitionType,
@@ -101,23 +114,85 @@ export function PropertyValue({
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
+    // preload values if preloadValues prop is set
     useEffect(() => {
         if (preloadValues && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
             load('')
         }
     }, [preloadValues, load, propertyOptions?.status])
 
+    // load options when propertyKey changes, unless it's a date/time property (since those don't have options to load)
     useEffect(() => {
         if (!isDateTimeProperty && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
             load('')
         }
     }, [propertyKey, isDateTimeProperty, load, propertyOptions?.status])
 
-    const displayOptions = propertyOptions?.values || []
+    // set initial suggested values when options are loaded, but only if there is no search input
+    // (to avoid overwriting suggestions based on search input)
+    useEffect(() => {
+        if (propertyOptions?.status === 'loaded' && propertyOptions?.values && currentSearchInput.current === '') {
+            const newKeys = propertyOptions.values.map((v) => toString(v.name))
+            setInitialSuggestedValues((prev) => {
+                // Merge new keys into existing ones so that values already shown are never removed
+                // from under the user's cursor when a background refresh arrives with a different list.
+                const merged = [...prev.orderedKeys]
+                const existingSet = new Set(prev.orderedKeys)
+                for (const key of newKeys) {
+                    if (!existingSet.has(key)) {
+                        merged.push(key)
+                        existingSet.add(key)
+                    }
+                }
+                return { set: existingSet, orderedKeys: merged }
+            })
+        }
+    }, [propertyOptions?.status, propertyOptions?.values])
+
+    // reset initial suggested values when propertyKey changes
+    useEffect(() => {
+        setInitialSuggestedValues({ set: new Set(), orderedKeys: [] })
+    }, [propertyKey])
+
+    // show suggested values first, then any other available options that aren't in the suggested list
+    const displayOptions = useMemo(() => {
+        const options = propertyOptions?.values || []
+        if (initialSuggestedValues.set.size === 0) {
+            return options
+        }
+
+        // map options by name
+        const allOptionsMap = new Map<string, (typeof options)[0]>()
+        for (const option of options) {
+            allOptionsMap.set(toString(option.name), option)
+        }
+
+        const suggestedOptions: typeof options = []
+        const otherOptions: typeof options = []
+
+        // build suggested options in order of their name, and remove them from the all options map
+        for (const key of initialSuggestedValues.orderedKeys) {
+            const existingOption = allOptionsMap.get(key)
+            if (existingOption) {
+                suggestedOptions.push(existingOption)
+                allOptionsMap.delete(key)
+            } else {
+                suggestedOptions.push({ name: key } as (typeof options)[0])
+            }
+        }
+
+        // built other options from what's left in the all options map
+        for (const option of allOptionsMap.values()) {
+            otherOptions.push(option)
+        }
+
+        return [...suggestedOptions, ...otherOptions]
+    }, [propertyOptions?.values, initialSuggestedValues])
 
     const onSearchTextChange = (newInput: string): void => {
-        if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
-            load(newInput.trim())
+        const trimmedInput = newInput.trim()
+        if (trimmedInput !== currentSearchInput.current && !(operator && isOperatorFlag(operator))) {
+            load(trimmedInput)
         }
     }
 
@@ -232,13 +307,45 @@ export function PropertyValue({
     // Disable comma splitting for user agent properties that contain commas in their values
     const isUserAgentProperty = ['$raw_user_agent', '$initial_raw_user_agent', '$user_agent'].includes(propertyKey)
 
+    const suggestionsLabel = PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
+        ? 'Suggested values (last 7 days)'
+        : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
+          ? 'Suggested values'
+          : null
+    const refreshDisabledReason =
+        propertyOptions?.status === 'loading' ? 'Loading values…' : isRefreshing ? 'Refreshing values…' : undefined
+    const titleNode = suggestionsLabel ? (
+        <span className="flex justify-between items-center gap-4">
+            {suggestionsLabel}
+            <LemonButton
+                size="xsmall"
+                icon={<IconRefresh />}
+                tooltip="Refresh values"
+                disabledReason={refreshDisabledReason}
+                onClick={() =>
+                    loadPropertyValues({
+                        endpoint,
+                        type: propertyDefinitionType,
+                        newInput: currentSearchInput.current || undefined,
+                        propertyKey,
+                        eventNames,
+                        properties: [],
+                        forceRefresh: true,
+                    })
+                }
+                noPadding
+            />
+        </span>
+    ) : undefined
+
     return (
         <LemonInputSelect
             className={inputClassName}
             data-attr="prop-val"
-            loading={propertyOptions?.status === 'loading'}
+            loading={propertyOptions?.status === 'loading' || isRefreshing}
             value={formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
+            singleValueAsSnack
             allowCustomValues={propertyOptions?.allowCustomValues ?? true}
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
             onInputChange={onSearchTextChange}
@@ -246,23 +353,28 @@ export function PropertyValue({
             size={size}
             disableCommaSplitting={isUserAgentProperty}
             status={validationError ? 'danger' : 'default'}
-            title={
-                PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
-                    ? 'Suggested values (last 7 days)'
-                    : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
-                      ? 'Suggested values'
-                      : undefined
-            }
+            title={titleNode}
             popoverClassName="max-w-200"
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)
+                const isSuggested = initialSuggestedValues.set.has(name)
                 return {
                     key: name,
                     label: name,
                     value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
                     labelComponent: (
-                        <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
+                        <span
+                            key={name}
+                            data-attr={'prop-val-' + index}
+                            className="ph-no-capture flex items-center gap-1.5"
+                            title={name}
+                        >
                             {formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                            {isSuggested && currentSearchInput.current && (
+                                <Tooltip title="Suggested value">
+                                    <IconFeatures className="text-muted shrink-0 w-4 h-4" />
+                                </Tooltip>
+                            )}
                         </span>
                     ),
                 }

@@ -1,12 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { CSSProperties, useEffect } from 'react'
+import { useEffect } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { objectsEqual } from 'lib/utils'
-
-import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { SimpleOption, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { PathItemSelector } from './components/PathItemSelector'
@@ -18,7 +16,6 @@ interface PropertyFiltersProps {
     propertyFilters?: AnyPropertyFilter[] | null
     onChange: (filters: AnyPropertyFilter[]) => void
     pageKey: string
-    style?: CSSProperties
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     wildcardOptions?: SimpleOption[]
 }
@@ -31,20 +28,18 @@ export function PathItemFilters({
     wildcardOptions,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
-    const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
+    const { filtersWithNew, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
     const { setFilter, remove, setFilters } = useActions(propertyFilterLogic(logicProps))
 
     useEffect(() => {
-        if (propertyFilters && !objectsEqual(propertyFilters, filtersWithNew)) {
-            setFilters([...propertyFilters, {} as EmptyPropertyFilter])
-        }
-    }, [propertyFilters]) // oxlint-disable-line react-hooks/exhaustive-deps
+        setFilters(propertyFilters ?? [])
+    }, [propertyFilters, setFilters])
 
     return (
         <BindLogic logic={propertyFilterLogic} props={logicProps}>
             {filtersWithNew?.map((filter: AnyPropertyFilter, index: number) => {
                 return (
-                    <div key={index} className="mb-2">
+                    <div key={filterIdsWithNew[index]} className="mb-2">
                         <PathItemSelector
                             pathItem={filter.value as string | undefined}
                             onChange={(pathItem) =>

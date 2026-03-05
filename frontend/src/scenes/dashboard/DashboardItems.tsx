@@ -9,8 +9,10 @@ import { Responsive as ReactGridLayout } from 'react-grid-layout'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
@@ -47,6 +49,7 @@ export function DashboardItems(): JSX.Element {
         updateLayouts,
         updateContainerWidth,
         updateTileColor,
+        toggleTileDescription,
         removeTile,
         duplicateTile,
         refreshDashboardItem,
@@ -54,6 +57,7 @@ export function DashboardItems(): JSX.Element {
         setTileOverride,
     } = useActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
+    const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
@@ -86,16 +90,23 @@ export function DashboardItems(): JSX.Element {
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
     const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
+    const isMobileView = gridWrapperWidth && gridWrapperWidth <= BREAKPOINTS['sm']
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
+            {dashboardMode === DashboardMode.Edit && isMobileView && (
+                <LemonBanner type="warning" className="mb-4">
+                    Layout editing is disabled on smaller screens. Please zoom out or use a larger screen to move or
+                    resize tiles.
+                </LemonBanner>
+            )}
             {gridWrapperWidth && (
                 <ReactGridLayout
                     width={gridWrapperWidth}
                     className={className}
                     draggableHandle=".CardMeta,.TextCard__body"
-                    isDraggable={dashboardMode === DashboardMode.Edit}
-                    isResizable={dashboardMode === DashboardMode.Edit}
+                    isDraggable={dashboardMode === DashboardMode.Edit && !isMobileView}
+                    isResizable={dashboardMode === DashboardMode.Edit && !isMobileView}
                     layouts={layouts}
                     rowHeight={80}
                     margin={[16, 16]}
@@ -118,6 +129,9 @@ export function DashboardItems(): JSX.Element {
                     }}
                     onResizeStop={() => {
                         setResizingItem(null)
+                        if (dashboard?.id) {
+                            reportDashboardTileRepositioned(dashboard.id, 'resized')
+                        }
                     }}
                     onDragStart={() => {
                         scrollContainerRef.current = document.getElementById('main-content')
@@ -177,8 +191,11 @@ export function DashboardItems(): JSX.Element {
                         dragEndTimeout.current = window.setTimeout(() => {
                             isDragging.current = false
                         }, 250)
+                        if (dashboard?.id) {
+                            reportDashboardTileRepositioned(dashboard.id, 'moved')
+                        }
                     }}
-                    draggableCancel="a,table,button,.Popover"
+                    draggableCancel="a,table,button,input,.Popover"
                 >
                     {tiles?.map((tile) => {
                         const { insight, text } = tile
@@ -188,7 +205,7 @@ export function DashboardItems(): JSX.Element {
 
                         const commonTileProps = {
                             dashboardId: dashboard?.id,
-                            showResizeHandles: dashboardMode === DashboardMode.Edit,
+                            showResizeHandles: dashboardMode === DashboardMode.Edit && !isMobileView,
                             canResizeWidth: canResizeWidth,
                             showEditingControls: [
                                 DashboardPlacement.Dashboard,
@@ -225,6 +242,7 @@ export function DashboardItems(): JSX.Element {
                                     apiError={apiError}
                                     highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                     updateColor={(color) => updateTileColor(tile.id, color)}
+                                    toggleShowDescription={() => toggleTileDescription(tile.id)}
                                     ribbonColor={tile.color}
                                     refresh={() => refreshDashboardItem({ tile })}
                                     refreshEnabled={!itemsLoading}

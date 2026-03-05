@@ -23,8 +23,8 @@ import { isValidRegexp } from 'lib/utils/regexp'
 import { PathCleaningFilter } from '~/types'
 
 import { parseAliasToReadable } from './PathCleanFilterItem'
-import { PathRegexModal } from './PathRegexModal'
 import { ensureFilterOrder, updateFilterOrder } from './pathCleaningUtils'
+import { PathRegexModal } from './PathRegexModal'
 
 export interface PathCleanFiltersTableProps {
     filters?: PathCleaningFilter[]
@@ -184,14 +184,6 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
         }
     }
 
-    if (localFilters.length === 0) {
-        return (
-            <div className="text-center py-8 text-muted">
-                No path cleaning rules configured. Add your first rule to get started.
-            </div>
-        )
-    }
-
     return (
         <div className="border border-border rounded-lg overflow-hidden bg-bg-light">
             <DndContext
@@ -220,20 +212,28 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
                         </tr>
                     </thead>
                     <tbody>
-                        <SortableContext
-                            items={localFilters.map((_, index) => `filter-${index}`)}
-                            strategy={verticalListSortingStrategy}
-                        >
-                            {localFilters.map((filter, index) => (
-                                <SortableRow
-                                    key={`filter-${index}`}
-                                    filter={filter}
-                                    index={index}
-                                    onEdit={(updatedFilter) => onEditFilter(index, updatedFilter)}
-                                    onRemove={() => onRemoveFilter(index)}
-                                />
-                            ))}
-                        </SortableContext>
+                        {localFilters.length === 0 ? (
+                            <tr>
+                                <td colSpan={5} className="text-center py-8 text-muted">
+                                    No path cleaning rules configured
+                                </td>
+                            </tr>
+                        ) : (
+                            <SortableContext
+                                items={localFilters.map((_, index) => `filter-${index}`)}
+                                strategy={verticalListSortingStrategy}
+                            >
+                                {localFilters.map((filter, index) => (
+                                    <SortableRow
+                                        key={`filter-${index}`}
+                                        filter={filter}
+                                        index={index}
+                                        onEdit={(updatedFilter) => onEditFilter(index, updatedFilter)}
+                                        onRemove={() => onRemoveFilter(index)}
+                                    />
+                                ))}
+                            </SortableContext>
+                        )}
                     </tbody>
                 </table>
             </DndContext>

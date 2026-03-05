@@ -13,8 +13,8 @@ import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
+import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 import { urls } from 'scenes/urls'
 
 import type { signupLogicType } from './signupLogicType'
@@ -40,6 +40,7 @@ export interface SignupPanelOnboardingForm {
     organization_name: string
     role_at_organization: string
     referral_source: string
+    referral_source_ai_prompt: string
 }
 
 interface SignupEmailPrecheckResponse {
@@ -178,6 +179,7 @@ export const signupLogic = kea<signupLogicType>([
                 organization_name: '',
                 role_at_organization: '',
                 referral_source: '',
+                referral_source_ai_prompt: '',
             } as SignupPanelOnboardingForm,
             errors: ({ name, role_at_organization }) => ({
                 name: !name ? 'Please enter your name' : undefined,
@@ -195,6 +197,7 @@ export const signupLogic = kea<signupLogicType>([
                         organization_name: payload.organization_name || undefined,
                         role_at_organization: payload.role_at_organization,
                         referral_source: payload.referral_source,
+                        referral_source_ai_prompt: payload.referral_source_ai_prompt,
                         next_url: nextUrl ?? undefined,
                     }
 
@@ -297,6 +300,7 @@ export const signupLogic = kea<signupLogicType>([
                 organization_name: '',
                 role_at_organization: '',
                 referral_source: '',
+                referral_source_ai_prompt: '',
             } as SignupForm,
             errors: ({ name, role_at_organization }) => ({
                 name: !name ? 'Please enter your name' : undefined,

@@ -1,5 +1,6 @@
 from .cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
+from .forward_pending_message import forward_pending_user_message
 from .get_sandbox_for_repository import (
     GetSandboxForRepositoryInput,
     GetSandboxForRepositoryOutput,
@@ -7,6 +8,8 @@ from .get_sandbox_for_repository import (
 )
 from .get_task_processing_context import TaskProcessingContext, get_task_processing_context
 from .post_slack_update import PostSlackUpdateInput, post_slack_update
+from .read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
+from .start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
 from .track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
 
@@ -17,14 +20,20 @@ __all__ = [
     "GetSandboxForRepositoryInput",
     "GetSandboxForRepositoryOutput",
     "PostSlackUpdateInput",
+    "ReadSandboxLogsInput",
+    "StartAgentServerInput",
+    "StartAgentServerOutput",
     "TaskProcessingContext",
     "TrackWorkflowEventInput",
     "UpdateTaskRunStatusInput",
     "cleanup_sandbox",
     "execute_task_in_sandbox",
+    "forward_pending_user_message",
     "get_sandbox_for_repository",
     "get_task_processing_context",
     "post_slack_update",
+    "read_sandbox_logs",
+    "start_agent_server",
     "track_workflow_event",
     "update_task_run_status",
 ]

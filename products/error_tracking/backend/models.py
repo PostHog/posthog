@@ -6,6 +6,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 
+import structlog
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
@@ -16,6 +17,8 @@ from posthog.models.utils import UUIDTModel
 from posthog.storage import object_storage
 
 from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
+
+logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingIssueManager(models.Manager):
@@ -359,24 +362,19 @@ def get_autocapture_controls(team_id: int, library: str = "web") -> dict | None:
     return result
 
 
-def get_all_autocapture_controls(team_id: int) -> dict[str, dict]:
-    """Get all autocapture controls for a team, keyed by library."""
-    controls = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id).values()
-    result: dict[str, dict] = {}
-    for control in controls:
-        library = control.get("library")
-        if library:
-            result[library] = {
-                "id": str(control["id"]) if control.get("id") else None,
-                "library": control.get("library"),
-                "matchType": control.get("match_type"),
-                "sampleRate": float(control["sample_rate"]) if control.get("sample_rate") is not None else None,
-                "linkedFeatureFlag": control.get("linked_feature_flag"),
-                "eventTriggers": control.get("event_triggers"),
-                "urlTriggers": control.get("url_triggers"),
-                "urlBlocklist": control.get("url_blocklist"),
-            }
-    return result
+def get_autocapture_triggers(team_id: int) -> dict | None:
+    controls = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id).values().first()
+    if not controls:
+        return None
+    return {
+        "library": controls.get("library"),
+        "matchType": controls.get("match_type"),
+        "sampleRate": float(controls["sample_rate"]) if controls.get("sample_rate") is not None else None,
+        "linkedFeatureFlag": controls.get("linked_feature_flag"),
+        "eventTriggers": controls.get("event_triggers"),
+        "urlTriggers": controls.get("url_triggers"),
+        "urlBlocklist": controls.get("url_blocklist"),
+    }
 
 
 class ErrorTrackingStackFrame(UUIDTModel):
@@ -509,3 +507,18 @@ def delete_symbol_set_contents(upload_path: str) -> None:
             code="object_storage_required",
             detail="Object storage must be available to delete source maps.",
         )
+
+
+class ErrorTrackingSpikeDetectionConfig(models.Model):
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="error_tracking_spike_detection_config",
+    )
+    snooze_duration_minutes = models.IntegerField(default=10)
+    multiplier = models.IntegerField(default=10)
+    threshold = models.IntegerField(default=500)
+
+    class Meta:
+        db_table = "posthog_errortrackingspikedetectionconfig"

@@ -7,8 +7,9 @@ import { LemonTableColumns } from '@posthog/lemon-ui'
 import { downloadExportedAsset, exportedAssetBlob } from 'lib/components/ExportButton/exporter'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { humanFriendlyNumber } from 'lib/utils'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { sidePanelExportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/sidePanelExportsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -103,7 +104,12 @@ export function ExportsScene(): JSX.Element {
                 <div className="flex items-center gap-1">
                     <LemonTag>{asset.export_format}</LemonTag>
                     {asset.export_format === ExporterFormat.CSV && (
-                        <span className="text-xs text-secondary">{ROW_LIMIT_IN_THOUSANDS}k row limit</span>
+                        <span className="text-xs text-secondary">
+                            {asset.export_context?.row_limit
+                                ? humanFriendlyNumber(asset.export_context.row_limit)
+                                : `${ROW_LIMIT_IN_THOUSANDS}k`}{' '}
+                            row limit
+                        </span>
                     )}
                 </div>
             ),

@@ -46,6 +46,7 @@ from posthog.settings.session_replay import *
 from posthog.settings.session_replay_v2 import *
 from posthog.settings.integrations import *
 from posthog.settings.payments import *
+from posthog.settings.personhog import *
 from posthog.settings.ses import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
@@ -65,6 +66,7 @@ INSTANCE_PREFERENCES = {
 }
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
+NGROK_URL: str | None = os.getenv("NGROK_URL", None)
 INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 
 if DEBUG:
@@ -93,9 +95,6 @@ NPM_TOKEN: str | None = os.getenv("NPM_TOKEN", None)
 
 # Whether to capture time-to-see-data metrics
 CAPTURE_TIME_TO_SEE_DATA: bool = get_from_env("CAPTURE_TIME_TO_SEE_DATA", False, type_cast=str_to_bool)
-
-# Whether kea should be act in verbose mode
-KEA_VERBOSE_LOGGING: bool = get_from_env("KEA_VERBOSE_LOGGING", False, type_cast=str_to_bool)
 
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_OVERRIDE", optional=True, type_cast=str_to_bool)

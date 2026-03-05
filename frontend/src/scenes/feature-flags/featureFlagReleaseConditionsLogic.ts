@@ -48,6 +48,11 @@ function moveConditionSet<T>(groups: T[], index: number, newIndex: number): T[] 
 export interface FeatureFlagReleaseConditionsLogicProps {
     filters: FeatureFlagFilters
     id?: string
+    /**
+     * When true, prevents blast radius API calls from being made.
+     * Use this for readonly displays where live calculations aren't needed.
+     * @see calculateBlastRadius listener which checks this prop
+     */
     readOnly?: boolean
     onChange?: (filters: FeatureFlagFilters, errors: any) => void
     nonEmptyFeatureFlagVariants?: MultivariateFlagVariant[]
@@ -323,7 +328,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         addConditionSet: () => {
             const newGroup = values.filters.groups[values.filters.groups.length - 1]
             if (newGroup.sort_key) {
-                actions.setAffectedUsers(newGroup.sort_key, values.totalUsers || -1)
+                // Use ?? instead of || to properly handle totalUsers = 0
+                actions.setAffectedUsers(newGroup.sort_key, values.totalUsers ?? -1)
                 actions.openCondition(newGroup.sort_key)
             }
         },
@@ -604,7 +610,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         ],
     }),
     propsChanged(({ props, values, actions }) => {
-        if (!objectsEqual(props.filters, values.filters)) {
+        // Compare only the fields that affect release conditions and blast radius,
+        // excluding payloads which don't affect targeting
+        const { payloads: _newPayloads, ...newRelevant } = props.filters
+        const { payloads: _oldPayloads, ...oldRelevant } = values.filters
+        if (!objectsEqual(newRelevant, oldRelevant)) {
             actions.setFilters(props.filters)
         }
     }),

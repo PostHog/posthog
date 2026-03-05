@@ -211,10 +211,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'series',
-                    label: isTrends && display !== ChartDisplayType.CalendarHeatmap ? TrendsSeriesLabel : undefined,
+                    label:
+                        isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot
+                            ? TrendsSeriesLabel
+                            : undefined,
                     component: TrendsSeries,
                 },
-                isTrends && hasFormula
+                isTrends && hasFormula && display !== ChartDisplayType.BoxPlot
                     ? {
                           key: 'formula',
                           label: 'Formula',
@@ -472,16 +475,16 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                             setQuery(node)
                         }}
                         initialMaxPrompt="Show me users who "
-                        className="EditorFiltersWrapper"
+                        className="EditorFiltersWrapper__max-tool"
                         active={maxToolActive}
                     >
                         <div
-                            className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
+                            className={clsx('@container/editor flex flex-row flex-wrap gap-8 bg-surface-primary', {
                                 'p-4 rounded border': !embedded,
                             })}
                         >
                             {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                                <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
+                                <div key={title} className="grow shrink basis-[28rem] flex flex-col gap-4 max-w-full">
                                     {editorFilterGroups.map((editorFilterGroup) => (
                                         <EditorFilterGroup
                                             key={editorFilterGroup.title}

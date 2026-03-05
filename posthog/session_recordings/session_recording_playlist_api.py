@@ -602,6 +602,7 @@ class SessionRecordingPlaylistViewSet(
                 team=self.team,
                 defaults={"deleted": False},
             )
+            # nosemgrep: idor-lookup-without-team (scoped via DRF parent viewset)
             playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
                 playlist=playlist, recording=recording
             )
@@ -652,6 +653,7 @@ class SessionRecordingPlaylistViewSet(
                     team=self.team,
                     defaults={"deleted": False},
                 )
+                # nosemgrep: idor-lookup-without-team (scoped via DRF parent viewset)
                 playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
                     playlist=playlist, recording=recording
                 )

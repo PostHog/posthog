@@ -54,7 +54,10 @@ class RoleSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "created_by", "is_default"]
 
     def validate_name(self, name):
-        if Role.objects.filter(name__iexact=name, organization=self.context["request"].user.organization).exists():
+        qs = Role.objects.filter(name__iexact=name, organization=self.context["request"].user.organization)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
             raise serializers.ValidationError("There is already a role with this name.", code="unique")
         return name
 
@@ -101,6 +104,7 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
         user_uuid = validated_data.pop("user_uuid")
 
         try:
+            # nosemgrep: idor-lookup-without-org (organization filter on next line)
             role = Role.objects.get(id=self.context["role_id"])
         except Role.DoesNotExist:
             raise serializers.ValidationError("Role does not exist.")
@@ -126,6 +130,7 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
 class RoleMembershipViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,

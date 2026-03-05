@@ -61,6 +61,8 @@ export function HogFlowFunctionConfiguration({
                 workflowVariables[variable.key] = 123
             } else if (variable.type === 'boolean') {
                 workflowVariables[variable.key] = true
+            } else if (variable.type === 'dictionary' || variable.type === 'json') {
+                workflowVariables[variable.key] = {}
             } else {
                 workflowVariables[variable.key] = null
             }
@@ -96,6 +98,14 @@ export function HogFlowFunctionConfiguration({
             },
         }
         sampleGlobals.groups = {}
+    } else if (triggerType === 'batch') {
+        sampleGlobals.person = {
+            id: 'person123',
+            properties: {
+                email: 'user@example.com',
+                name: 'John Doe',
+            },
+        }
     }
 
     return (

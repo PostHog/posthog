@@ -32,6 +32,7 @@ from posthog.rate_limit import (
     AIResearchBurstRateThrottle,
     AIResearchSustainedRateThrottle,
     AISustainedRateThrottle,
+    is_team_exempt_from_ai_rate_limit,
 )
 from posthog.temporal.ai.chat_agent import (
     CHAT_AGENT_STREAM_MAX_LENGTH,
@@ -190,6 +191,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
     def _ensure_queue_access(self, request: Request, conversation_id: str) -> Response | None:
         try:
+            # nosemgrep: idor-lookup-without-team (instance scoped to team via get_queryset)
             conversation = Conversation.objects.get(id=conversation_id)
         except Conversation.DoesNotExist:
             return Response({"error": "Conversation not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -233,7 +235,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         conversation_id = request.data.get("conversation")
         if conversation_id:
             try:
-                conversation = Conversation.objects.get(id=conversation_id)
+                conversation = Conversation.objects.get(id=conversation_id, team=self.team)
                 if conversation.type == Conversation.Type.DEEP_RESEARCH:
                     return True
             except (Conversation.DoesNotExist, ValidationError):
@@ -255,6 +257,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         is_research = self._is_research_request(request)
 
         if is_research:
+            if is_team_exempt_from_ai_rate_limit(self.team_id):
+                return
             throttles = [AIResearchBurstRateThrottle(), AIResearchSustainedRateThrottle()]
         else:
             # Skip throttling for paying customers
@@ -320,6 +324,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if self.lookup_url_kwarg:
             self.kwargs[self.lookup_url_kwarg] = conversation_id
         try:
+            # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (user+team check immediately after)
             conversation = Conversation.objects.get(id=conversation_id)
             if conversation.user != request.user or conversation.team != self.team:
                 return Response(
@@ -356,6 +361,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
+        is_impersonated = is_impersonated_session(request)
+
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
         workflow_class: type[ChatAgentWorkflow] | type[ResearchAgentWorkflow]
         if is_research:
@@ -370,13 +377,13 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
                 billing_context=serializer.validated_data.get("billing_context"),
                 is_agent_billable=False,
+                is_impersonated=is_impersonated,
                 resume_payload=serializer.validated_data.get("resume_payload"),
             )
             workflow_class = ResearchAgentWorkflow
             timeout = RESEARCH_AGENT_WORKFLOW_TIMEOUT
             max_length = RESEARCH_AGENT_STREAM_MAX_LENGTH
         else:
-            is_impersonated = is_impersonated_session(request)
             is_agent_billable = not is_impersonated
             workflow_inputs = ChatAgentWorkflowInputs(
                 team_id=self.team_id,
@@ -392,6 +399,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 agent_mode=serializer.validated_data.get("agent_mode"),
                 use_checkpointer=True,
                 is_agent_billable=is_agent_billable,
+                is_impersonated=is_impersonated,
                 resume_payload=serializer.validated_data.get("resume_payload"),
             )
             workflow_class = ChatAgentWorkflow

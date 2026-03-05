@@ -1,19 +1,21 @@
 import { JSONContent } from '@tiptap/core'
 
-import { IconLock } from '@posthog/icons'
-import { ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { IconCopy, IconLock } from '@posthog/icons'
+import { LemonButton, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import type { ChatMessage } from '../../types'
+import type { ChatMessage, MessageDeliveryStatus } from '../../types'
 import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
 
 export interface MessageProps {
     message: ChatMessage
     isCustomer: boolean
+    deliveryStatus?: MessageDeliveryStatus
 }
 
-export function Message({ message, isCustomer }: MessageProps): JSX.Element {
+export function Message({ message, isCustomer, deliveryStatus }: MessageProps): JSX.Element {
     const profileType = message.authorType === 'AI' ? 'bot' : 'person'
     const isPrivate = message.isPrivate
 
@@ -34,7 +36,7 @@ export function Message({ message, isCustomer }: MessageProps): JSX.Element {
                                 <Tooltip title="Only visible to your team">
                                     <span className="inline-flex items-center gap-0.5 text-xs text-warning-dark bg-warning-highlight px-1.5 py-0.5 rounded">
                                         <IconLock className="text-xs" />
-                                        Private message
+                                        Private note
                                     </span>
                                 </Tooltip>
                             )}
@@ -49,6 +51,18 @@ export function Message({ message, isCustomer }: MessageProps): JSX.Element {
                                 isPrivate ? 'bg-warning-highlight border-warning' : 'bg-surface-primary'
                             } [&_.SupportMarkdown__image]:max-h-64 [&_.SupportEditor__image]:max-h-64`}
                         >
+                            {isPrivate && (
+                                <div className="flex items-center justify-end">
+                                    <Tooltip title="Copy message">
+                                        <LemonButton
+                                            size="xsmall"
+                                            icon={<IconCopy />}
+                                            noPadding
+                                            onClick={() => void copyToClipboard(message.content, 'Message')}
+                                        />
+                                    </Tooltip>
+                                </div>
+                            )}
                             {message.richContent ? (
                                 <SupportRichContentPreview
                                     content={message.richContent as JSONContent}
@@ -56,6 +70,13 @@ export function Message({ message, isCustomer }: MessageProps): JSX.Element {
                                 />
                             ) : (
                                 <SupportMarkdown className="text-sm">{message.content}</SupportMarkdown>
+                            )}
+                        </div>
+                        <div className="flex items-center justify-end gap-1">
+                            {deliveryStatus && (
+                                <span className="text-xs text-muted-alt">
+                                    {deliveryStatus === 'read' ? 'Read' : 'Sent'}
+                                </span>
                             )}
                         </div>
                     </div>

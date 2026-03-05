@@ -371,6 +371,9 @@ class SnowflakeField(Field):
     def to_destination_field(self) -> SnowflakeDestinationField:
         return SnowflakeDestinationField(name=self.name, type=self.snowflake_type_name, is_nullable=self.nullable)
 
+    def with_new_arrow_type(self, new_type: pa.DataType) -> "SnowflakeField":
+        return SnowflakeField(self.name, data_type_to_snowflake_type(new_type), new_type, self.nullable)
+
 
 class SnowflakeTable(Table):
     def __init__(
@@ -785,6 +788,12 @@ class SnowflakeClient:
 
         Returns:
             A SnowflakeTable.
+
+        Raises:
+            SnowflakeTableNotFoundError: If the table we are trying to get doesn't exist.
+            SnowflakeIncompatibleSchemaError: If the table does exist, but it is a
+                mutable table and one or more fields from the primary key are missing
+                from the table.
         """
         try:
             result = await self.execute_async_query(f"""
@@ -798,16 +807,27 @@ class SnowflakeClient:
             else:
                 raise
 
-        record_batch_field_names = [field.name.lower() for field in table.fields]
+        if table.is_mutable():
+            missing_primary_key_fields = set(table.primary_key) - {
+                field_metadata.name.lower() for field_metadata in metadata
+            }
+            if missing_primary_key_fields:
+                raise SnowflakeIncompatibleSchemaError(
+                    "Missing one or more fields from the table's primary key, "
+                    f"which are required for mutable models: {', '.join(f"'{name}'" for name in missing_primary_key_fields)}. "
+                    "Please review your table's schema and model configuration. "
+                    "Has the model been updated without updating the target table?"
+                )
+
+        record_batch_field_names = {field.name.lower() for field in table.fields}
         fields = (
             SnowflakeDestinationField(
-                metadata.name,
-                FIELD_ID_TO_NAME[metadata.type_code],  # type: ignore[arg-type]
-                metadata.is_nullable,
+                field_metadata.name,
+                FIELD_ID_TO_NAME[field_metadata.type_code],  # type: ignore[arg-type]
+                field_metadata.is_nullable,
             )
-            for metadata in metadata
-            # Only include fields that are present in the record batch schema
-            if metadata.name.lower() in record_batch_field_names
+            for field_metadata in metadata
+            if field_metadata.name.lower() in record_batch_field_names
         )
 
         return SnowflakeTable.from_snowflake_table(
@@ -1181,8 +1201,9 @@ class SnowflakeConsumer(Consumer):
         self,
         snowflake_client: SnowflakeClient,
         snowflake_table: SnowflakeTable,
+        model: str = "events",
     ):
-        super().__init__()
+        super().__init__(model=model)
 
         self.snowflake_client = snowflake_client
         self.snowflake_table = snowflake_table
@@ -1375,6 +1396,7 @@ async def insert_into_snowflake_activity_from_stage(
                 consumer = SnowflakeConsumer(
                     snowflake_client=snow_client,
                     snowflake_table=snow_consumer_table,
+                    model=model.name if isinstance(model, BatchExportModel) else "events",
                 )
 
                 transformer = PipelineTransformer(

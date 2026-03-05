@@ -25,6 +25,7 @@ export function NetworkBar({ item }: { item: PerformanceEvent }): JSX.Element | 
                 style={{
                     backgroundColor: initiatorTypeToColor(item.initiator_type || 'other'),
                     width: positionPercentages?.widthPercentage ?? '0%',
+                    minWidth: 2,
                     left: positionPercentages?.startPercentage ?? '0%',
                 }}
             />

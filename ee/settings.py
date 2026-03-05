@@ -81,6 +81,9 @@ BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posth
 # Whether to enable the admin portal. Default false for self-hosted as if not setup properly can pose security issues.
 ADMIN_PORTAL_ENABLED = get_from_env("ADMIN_PORTAL_ENABLED", DEMO or DEBUG, type_cast=str_to_bool)
 
+# Fixed personal API key for local development, created by `manage.py setup_local_api_key`
+DEV_API_KEY = "phx_dev_local_test_api_key_1234567890abcdef"
+
 PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES = get_from_env(
     "PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES", 10.0, type_cast=float
 )
@@ -92,14 +95,14 @@ OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = get_from_env("OPENAI_BASE_URL", "https://api.openai.com/v1")
 
 # LLM Gateway (internal service for proxying LLM requests with rate limiting and attribution)
-LLM_GATEWAY_URL = get_from_env("LLM_GATEWAY_URL", "")
-LLM_GATEWAY_API_KEY = get_from_env("LLM_GATEWAY_PERSONAL_API_KEY", "")
+LLM_GATEWAY_URL = get_from_env("LLM_GATEWAY_URL", "http://localhost:3308" if DEBUG else "")
+LLM_GATEWAY_API_KEY = get_from_env("LLM_GATEWAY_PERSONAL_API_KEY", DEV_API_KEY if DEBUG else "")
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
 PPLX_API_KEY = get_from_env("PPLX_API_KEY", "")
-AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "")
-AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "")
+AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "", type_cast=str)
+AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "", type_cast=str)
 BRAINTRUST_API_KEY = get_from_env("BRAINTRUST_API_KEY", "")
 
 LLMA_EVAL_OPENAI_API_KEY = get_from_env("LLMA_EVAL_OPENAI_API_KEY", "")
@@ -119,9 +122,6 @@ SQS_QUEUES = {
         "type": "billing",
     },
 }
-
-AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "", type_cast=str)
-AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "", type_cast=str)
 
 # Salesforce API credentials
 SALESFORCE_USERNAME = get_from_env("SF_USERNAME", "", type_cast=str)

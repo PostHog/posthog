@@ -24,6 +24,7 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.utils import get_ip_address, get_short_user_agent
@@ -248,3 +249,48 @@ def log_user_change_activity(
             error=e,
         )
         capture_exception(e)
+
+
+@dataclasses.dataclass(frozen=True)
+class OrganizationDomainContext(ActivityContextBase):
+    organization_id: str
+    organization_name: str
+    domain: str
+
+
+@mutable_receiver(model_activity_signal, sender=OrganizationDomain)
+def handle_organization_domain_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    domain_instance = after_update or before_update
+
+    if not domain_instance:
+        return
+
+    context = OrganizationDomainContext(
+        organization_id=str(domain_instance.organization_id),
+        organization_name=domain_instance.organization.name,
+        domain=domain_instance.domain,
+    )
+
+    if activity == "created":
+        detail_name = f"Domain {domain_instance.domain} added to {domain_instance.organization.name}"
+    elif activity == "deleted":
+        detail_name = f"Domain {domain_instance.domain} removed from {domain_instance.organization.name}"
+    else:
+        detail_name = f"Domain {domain_instance.domain} updated in {domain_instance.organization.name}"
+
+    log_activity(
+        organization_id=domain_instance.organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=domain_instance.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            context=context,
+        ),
+    )

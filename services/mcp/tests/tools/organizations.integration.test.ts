@@ -24,6 +24,7 @@ describe.skip('Organizations', { concurrent: false }, () => {
         dashboards: [],
         surveys: [],
         actions: [],
+        cohorts: [],
     }
 
     beforeAll(async () => {

@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
-from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
+from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool, SessionReplaySummaryTool
 from products.feature_flags.backend.max_tools import CreateFeatureFlagTool
 
 from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
@@ -77,24 +77,45 @@ class FlagsAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        tools: list[type[MaxTool]] = [CreateFeatureFlagTool, CreateExperimentTool]
+        tools: list[type[MaxTool]] = [CreateFeatureFlagTool, CreateExperimentTool, SessionReplaySummaryTool]
         if has_experiment_summary_tool_feature_flag(self._team, self._user):
             tools.append(ExperimentSummaryTool)
         return tools
 
 
-MODE_DESCRIPTION = "Specialized mode for creating and managing feature flags and experiments. This mode allows you to create feature flags with property-based targeting and rollout percentages, set up A/B test experiments with multivariate flags, and analyze experiment results with statistical summaries."
+FLAGS_MODE_DESCRIPTION = "Specialized mode for creating and managing feature flags and experiments. This mode allows you to create feature flags with property-based targeting and rollout percentages, set up A/B test experiments with multivariate flags, and analyze experiment results with statistical summaries."
 
 flags_agent = AgentModeDefinition(
     mode=AgentMode.FLAGS,
-    mode_description=MODE_DESCRIPTION,
+    mode_description=FLAGS_MODE_DESCRIPTION,
     toolkit_class=FlagsAgentToolkit,
 )
 
+
+class ReadOnlyFlagsAgentToolkit(AgentToolkit):
+    """Flags toolkit for readonly operations"""
+
+    POSITIVE_TODO_EXAMPLES = [
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_ANALYZE_EXPERIMENT,
+            reasoning=POSITIVE_EXAMPLE_ANALYZE_EXPERIMENT_REASONING,
+        ),
+    ]
+
+    @property
+    def tools(self) -> list[type["MaxTool"]]:
+        tools: list[type[MaxTool]] = [SessionReplaySummaryTool]
+        if has_experiment_summary_tool_feature_flag(self._team, self._user):
+            tools.append(ExperimentSummaryTool)
+        return tools
+
+
+READ_ONLY_FLAGS_MODE_DESCRIPTION = "Specialized mode for analyzing feature flags and experiments. This mode allows you to analyze experiment results and session replay patterns across experiment variants with statistical summaries."
+
 chat_agent_plan_flags_agent = AgentModeDefinition(
     mode=AgentMode.FLAGS,
-    mode_description=MODE_DESCRIPTION,
-    toolkit_class=FlagsAgentToolkit,
+    mode_description=READ_ONLY_FLAGS_MODE_DESCRIPTION,
+    toolkit_class=ReadOnlyFlagsAgentToolkit,
     node_class=ChatAgentPlanExecutable,
     tools_node_class=ChatAgentPlanToolsExecutable,
 )

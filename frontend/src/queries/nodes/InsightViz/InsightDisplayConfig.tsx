@@ -12,10 +12,13 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
-import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
@@ -34,6 +37,7 @@ import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPick
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
 import { ConfidenceLevelInput } from 'scenes/insights/views/LineGraph/ConfidenceLevelInput'
@@ -77,9 +81,14 @@ export function InsightDisplayConfig(): JSX.Element {
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
+    const { featureFlags } = useValues(featureFlagLogic)
+    const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
 
     const showCompare =
-        (isTrends && display !== ChartDisplayType.ActionsAreaGraph && display !== ChartDisplayType.CalendarHeatmap) ||
+        (isTrends &&
+            display !== ChartDisplayType.ActionsAreaGraph &&
+            display !== ChartDisplayType.CalendarHeatmap &&
+            display !== ChartDisplayType.BoxPlot) ||
         isStickiness ||
         isWebAnalyticsInsightQuery(querySource)
     const showInterval =
@@ -87,10 +96,15 @@ export function InsightDisplayConfig(): JSX.Element {
         isLifecycle ||
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
     const showSmoothing =
-        isTrends && !isValidBreakdown(breakdownFilter) && (!display || display === ChartDisplayType.ActionsLineGraph)
-    const showMultipleYAxesConfig = isTrends || isStickiness
-    const showAlertThresholdLinesConfig = isTrends
-    const isLineGraph = display === ChartDisplayType.ActionsLineGraph || (!display && isTrendsQuery(querySource))
+        isTrends &&
+        !isValidBreakdown(breakdownFilter) &&
+        (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph)
+    const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
+    const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
+    const isLineGraph =
+        display === ChartDisplayType.ActionsLineGraph ||
+        display === ChartDisplayType.ActionsAreaGraph ||
+        (!display && isTrendsQuery(querySource))
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
     const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
@@ -98,7 +112,7 @@ export function InsightDisplayConfig(): JSX.Element {
     )
 
     const advancedOptions: LemonMenuItems = [
-        ...((isTrends && display !== ChartDisplayType.CalendarHeatmap) ||
+        ...((isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot) ||
         isRetention ||
         isTrendsFunnel ||
         isStickiness ||
@@ -116,7 +130,12 @@ export function InsightDisplayConfig(): JSX.Element {
                               ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
                               : []),
                           ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
-                          ...(isTrends || isRetention ? [{ label: () => <ShowTrendLinesFilter /> }] : []),
+                          ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
+                              ? [{ label: () => <ShowTrendLinesFilter /> }]
+                              : []),
+                          ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
+                              ? [{ label: () => <HideWeekendsFilter /> }]
+                              : []),
                       ],
                   },
               ]
@@ -138,7 +157,10 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(!showPercentStackView && isTrends && display !== ChartDisplayType.CalendarHeatmap
+        ...(!showPercentStackView &&
+        isTrends &&
+        display !== ChartDisplayType.CalendarHeatmap &&
+        display !== ChartDisplayType.BoxPlot
             ? [
                   {
                       title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
@@ -152,82 +174,89 @@ export function InsightDisplayConfig(): JSX.Element {
                       title: 'Y-axis scale',
                       items: [{ label: () => <ScalePicker /> }, { label: () => <YAxisStartAtMinFilter /> }],
                   },
-                  {
-                      title: 'Statistical analysis',
-                      items: [
-                          {
-                              label: () => (
-                                  <LemonSwitch
-                                      label="Show confidence intervals"
-                                      className="pb-2"
-                                      fullWidth
-                                      checked={showConfidenceIntervals}
-                                      disabledReason={
-                                          !isLineGraph
-                                              ? 'Confidence intervals are only available for line graphs'
-                                              : !isLinearScale
-                                                ? 'Confidence intervals are only supported for linear scale.'
-                                                : undefined
-                                      }
-                                      onChange={(checked) => {
-                                          if (isTrendsQuery(querySource)) {
-                                              const newQuery = { ...querySource }
-                                              newQuery.trendsFilter = {
-                                                  ...trendsFilter,
-                                                  showConfidenceIntervals: checked,
-                                              }
-                                              updateQuerySource(newQuery)
-                                          }
-                                      }}
-                                  />
-                              ),
-                          },
-                          ...(showConfidenceIntervals
-                              ? [
+                  ...(display === ChartDisplayType.BoxPlot
+                      ? []
+                      : [
+                            {
+                                title: 'Statistical analysis',
+                                items: [
                                     {
-                                        label: () => <ConfidenceLevelInput />,
+                                        label: () => (
+                                            <LemonSwitch
+                                                label="Show confidence intervals"
+                                                className="pb-2"
+                                                fullWidth
+                                                checked={showConfidenceIntervals}
+                                                disabledReason={
+                                                    !isLineGraph
+                                                        ? 'Confidence intervals are only available for line graphs'
+                                                        : !isLinearScale
+                                                          ? 'Confidence intervals are only supported for linear scale.'
+                                                          : undefined
+                                                }
+                                                onChange={(checked) => {
+                                                    if (isTrendsQuery(querySource)) {
+                                                        const newQuery = { ...querySource }
+                                                        newQuery.trendsFilter = {
+                                                            ...trendsFilter,
+                                                            showConfidenceIntervals: checked,
+                                                        }
+                                                        updateQuerySource(newQuery)
+                                                    }
+                                                }}
+                                            />
+                                        ),
                                     },
-                                ]
-                              : []),
-                          {
-                              label: () => (
-                                  <LemonSwitch
-                                      label="Show moving average"
-                                      className="pb-2"
-                                      fullWidth
-                                      checked={showMovingAverage}
-                                      disabledReason={
-                                          !isLineGraph
-                                              ? 'Moving average is only available for line graphs'
-                                              : !isLinearScale
-                                                ? 'Moving average is only supported for linear scale.'
-                                                : undefined
-                                      }
-                                      onChange={(checked) => {
-                                          if (isTrendsQuery(querySource)) {
-                                              const newQuery = { ...querySource }
-                                              newQuery.trendsFilter = {
-                                                  ...trendsFilter,
-                                                  showMovingAverage: checked,
-                                              }
-                                              updateQuerySource(newQuery)
-                                          }
-                                      }}
-                                  />
-                              ),
-                          },
-                          ...(showMovingAverage
-                              ? [
+                                    ...(showConfidenceIntervals
+                                        ? [
+                                              {
+                                                  label: () => <ConfidenceLevelInput />,
+                                              },
+                                          ]
+                                        : []),
                                     {
-                                        label: () => <MovingAverageIntervalsInput />,
+                                        label: () => (
+                                            <LemonSwitch
+                                                label="Show moving average"
+                                                className="pb-2"
+                                                fullWidth
+                                                checked={showMovingAverage}
+                                                disabledReason={
+                                                    !isLineGraph
+                                                        ? 'Moving average is only available for line and area graphs'
+                                                        : !isLinearScale
+                                                          ? 'Moving average is only supported for linear scale.'
+                                                          : undefined
+                                                }
+                                                onChange={(checked) => {
+                                                    if (isTrendsQuery(querySource)) {
+                                                        const newQuery = { ...querySource }
+                                                        newQuery.trendsFilter = {
+                                                            ...trendsFilter,
+                                                            showMovingAverage: checked,
+                                                        }
+                                                        updateQuerySource(newQuery)
+                                                    }
+                                                }}
+                                            />
+                                        ),
                                     },
-                                ]
-                              : []),
-                      ],
-                  },
+                                    ...(showMovingAverage
+                                        ? [
+                                              {
+                                                  label: () => <MovingAverageIntervalsInput />,
+                                              },
+                                          ]
+                                        : []),
+                                ],
+                            },
+                        ]),
               ]
             : []),
-        ...(mightContainFractionalNumbers && isTrends && display !== ChartDisplayType.CalendarHeatmap
+        ...(mightContainFractionalNumbers &&
+        isTrends &&
+        display !== ChartDisplayType.CalendarHeatmap &&
+        display !== ChartDisplayType.BoxPlot
             ? [
                   {
                       title: 'Decimal places',
@@ -257,6 +286,7 @@ export function InsightDisplayConfig(): JSX.Element {
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
         (trendsFilter?.yAxisStartAtMin ? 1 : 0)
+        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
 
     return (
         <div
