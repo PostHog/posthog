@@ -197,7 +197,7 @@ export class CyclotronJobQueue {
     public isHealthy() {
         if (!this.consumerMode) {
             return new HealthCheckResultError('Consumer not started', {})
-        } else if (this.consumerMode === 'postgres' || this.consumerMode === 'shadow') {
+        } else if (this.consumerMode === 'postgres') {
             return this.jobQueuePostgres.isHealthy()
         } else if (this.consumerMode === 'postgres-v2') {
             return this.jobQueuePostgresV2?.isHealthy() ?? new HealthCheckResultError('V2 not enabled', {})
@@ -209,16 +209,6 @@ export class CyclotronJobQueue {
     }
 
     private getTarget(invocation: CyclotronJobInvocation): CyclotronJobQueueSource {
-        if (
-            this.producerForceScheduledToPostgres &&
-            invocation.queueScheduledAt &&
-            invocation.queueScheduledAt > DateTime.now().plus({ milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS }) &&
-            invocation.queue !== 'hogoverflow' // overflow is always sent to kafka
-        ) {
-            // Kafka doesn't support delays so if enabled we should force scheduled jobs to postgres
-            return 'postgres'
-        }
-
         const teamId = invocation.teamId
         const mapping = this.producerTeamMapping[teamId] ?? this.producerMapping
         const producerConfig = mapping[invocation.queue] ?? mapping['*']
@@ -228,6 +218,17 @@ export class CyclotronJobQueue {
         if (producerConfig.percentage < 1) {
             const otherTarget = target === 'postgres' ? 'kafka' : 'postgres'
             target = Math.random() < producerConfig.percentage ? target : otherTarget
+        }
+
+        if (
+            target === 'kafka' &&
+            this.producerForceScheduledToPostgres &&
+            invocation.queueScheduledAt &&
+            invocation.queueScheduledAt > DateTime.now().plus({ milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS }) &&
+            invocation.queue !== 'hogoverflow' // overflow is always sent to kafka
+        ) {
+            // Kafka doesn't support delays so if enabled we should force scheduled jobs to postgres
+            return 'postgres'
         }
 
         return target
