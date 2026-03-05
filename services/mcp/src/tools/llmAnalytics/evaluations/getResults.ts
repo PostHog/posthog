@@ -10,6 +10,7 @@ const schema = z.object({
         .describe('Filter results by evaluation UUID. Provide this or generationId (or both).'),
     generationId: z
         .string()
+        .uuid()
         .optional()
         .describe('Filter results by generation event UUID. Provide this or evaluationId (or both).'),
     result: z.enum(['pass', 'fail', 'na']).optional().describe('Filter by result status: "pass", "fail", or "na".'),
