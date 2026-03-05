@@ -1,5 +1,4 @@
 import { chunk } from 'lodash'
-import { DateTime } from 'luxon'
 
 import { parseJSON } from '~/utils/json-parse'
 
@@ -217,7 +216,7 @@ function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation 
         functionId: job.functionId ?? '',
         queue: job.queueName as CyclotronJobQueueKind,
         queuePriority: job.priority,
-        queueScheduledAt: job.scheduled ? DateTime.fromJSDate(job.scheduled) : undefined,
+        queueScheduledAt: job.scheduled ?? undefined,
         queueMetadata: parsed.queueMetadata ?? undefined,
         queueParameters: parsed.queueParameters ?? undefined,
         state: parsed.state,

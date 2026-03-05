@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -10,8 +11,8 @@ interface RawJobRow {
     function_id: string | null
     queue_name: string
     priority: number
-    scheduled: Date
-    created: Date
+    scheduled: string
+    created: string
     parent_run_id: string | null
     transition_count: number
     state: Buffer | null
@@ -114,7 +115,7 @@ export class CyclotronV2Worker {
         // UPDATE...RETURNING doesn't preserve the CTE's ORDER BY,
         // so re-sort to maintain priority ordering within the batch
         // TODO: Do we care about this in reality?
-        return result.rows.sort((a, b) => a.priority - b.priority || a.scheduled.getTime() - b.scheduled.getTime())
+        return result.rows.sort((a, b) => a.priority - b.priority || a.scheduled.localeCompare(b.scheduled))
     }
 
     private wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
@@ -135,8 +136,8 @@ export class CyclotronV2Worker {
             functionId: row.function_id,
             queueName: row.queue_name,
             priority: row.priority,
-            scheduled: row.scheduled,
-            created: row.created,
+            scheduled: DateTime.fromISO(row.scheduled, { zone: 'utc' }),
+            created: DateTime.fromISO(row.created, { zone: 'utc' }),
             parentRunId: row.parent_run_id,
             transitionCount: row.transition_count,
             state: row.state,

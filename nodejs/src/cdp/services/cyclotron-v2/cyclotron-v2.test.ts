@@ -50,13 +50,13 @@ interface RawJobRow {
     queue_name: string
     status: string
     priority: number
-    scheduled: Date
-    created: Date
+    scheduled: string
+    created: string
     lock_id: string | null
-    last_heartbeat: Date | null
+    last_heartbeat: string | null
     janitor_touch_count: number
     transition_count: number
-    last_transition: Date
+    last_transition: string
     parent_run_id: string | null
     state: Buffer | null
 }
@@ -285,7 +285,7 @@ describe('Cyclotron V2', () => {
 
             const row = await queryJob(id)
             expect(row.status).toBe('available')
-            expect(row.scheduled.getTime()).toBeGreaterThan(beforeRetry + 50_000)
+            expect(new Date(row.scheduled).getTime()).toBeGreaterThan(beforeRetry + 50_000)
         })
 
         it('retry({ state }) updates state blob', async () => {

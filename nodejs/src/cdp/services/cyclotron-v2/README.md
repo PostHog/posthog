@@ -5,7 +5,7 @@ TypeScript job queue backed by PostgreSQL, using `pg` directly.
 ## Schema
 
 Lives in a **separate database** (`cyclotron_node`) with its own migrations
-in `rust/cyclotron_node_migrations/`.
+in `rust/cyclotron-node-migrations/`.
 Run them with `rust/bin/migrate-cyclotron-node`.
 
 Single table `cyclotron_jobs` with a single `state` BYTEA column

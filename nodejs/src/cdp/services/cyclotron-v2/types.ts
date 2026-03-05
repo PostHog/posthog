@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'failed' | 'canceled'
 
 export type CyclotronV2PoolConfig = {
@@ -23,8 +25,8 @@ export interface CyclotronV2DequeuedJob {
     readonly functionId: string | null
     readonly queueName: string
     readonly priority: number
-    readonly scheduled: Date
-    readonly created: Date
+    readonly scheduled: DateTime
+    readonly created: DateTime
     readonly parentRunId: string | null
     readonly transitionCount: number
     readonly state: Buffer | null
