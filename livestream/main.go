@@ -86,7 +86,7 @@ func main() {
 
 	usePubSub := config.Redis.UsePubSub
 	if usePubSub {
-		cleanup, err := setupRedisPubSub(config.Redis, consumer, subChan, unSubChan, ctx)
+		cleanup, err := setupRedisPubSub(ctx, config.Redis, consumer, subChan, unSubChan)
 		if err != nil {
 			log.Printf("ERROR: Failed to set up Redis pub/sub, falling back to in-memory filter: %v", err)
 			usePubSub = false
@@ -276,10 +276,10 @@ func main() {
 }
 
 func setupRedisPubSub(
+	ctx context.Context,
 	redisConfig configs.RedisConfig,
 	consumer *events.PostHogKafkaConsumer,
 	subChan, unSubChan chan events.Subscription,
-	ctx context.Context,
 ) (cleanup func(), err error) {
 	broker, err := events.NewRedisEventBroker(redisConfig)
 	if err != nil {

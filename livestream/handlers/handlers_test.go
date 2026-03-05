@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/posthog/posthog/livestream/auth"
@@ -16,7 +17,6 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 )
 
 func TestStreamEventsHandler_AuthValidation(t *testing.T) {
@@ -165,6 +165,12 @@ func TestStatsHandler_ReadsFromRedis(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { client.Close() })
 	rw := events.NewStatsInRedisFromClient(client)
+
+	ctx := context.Background()
+	require.NoError(t, rw.AddUser(ctx, apiToken, "user1"))
+	require.NoError(t, rw.AddUser(ctx, apiToken, "user2"))
+	require.NoError(t, rw.AddSession(ctx, apiToken, "sess1"))
+
 	stats := events.NewStatsKeeper()
 	sessionStats := events.NewSessionStatsKeeper(0, 0)
 
