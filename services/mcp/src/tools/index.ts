@@ -62,6 +62,11 @@ import getProjects from './projects/getProjects'
 import getProperties from './projects/propertyDefinitions'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
+// Prompts
+import createPrompt from './prompts/create'
+import getPrompt from './prompts/get'
+import listPrompts from './prompts/list'
+import updatePrompt from './prompts/update'
 // Query
 import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
@@ -170,6 +175,12 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
+
+    // Prompts
+    'prompt-list': listPrompts,
+    'prompt-get': getPrompt,
+    'prompt-create': createPrompt,
+    'prompt-update': updatePrompt,
 
     // PostHog AI tools
     'execute-sql': executeSql,
