@@ -185,7 +185,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         const allTickets = response.results || []
 
                         // Exclude current ticket
-                        const uniqueTickets = allTickets.filter((ticket) => ticket.id !== currentTicketId)
+                        const uniqueTickets = allTickets.filter(
+                            (ticket) => ticket.ticket_number !== parseInt(currentTicketId.toString())
+                        )
 
                         // Sort by created_at descending (most recent first)
                         return uniqueTickets.sort(
