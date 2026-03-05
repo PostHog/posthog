@@ -2,57 +2,57 @@
 
 Every error thrown is an exception. Our error tracking groups exceptions into issues.
 
-Exception is an event in posthog.
-Issue is an entity in our postgres.
+An exception is an event in PostHog.
+An issue is an entity in our Postgres database.
 
-When querying for issues list, we have to query two data sources:
+When querying for the issues list, we have to query two data sources:
 
-- postgres for issues related things (name, description, status, assignee),
-- clickhouse for all the other things (occurences, affected users, charts, etc...).
+- Postgres for issue-related things (name, description, status, assignee),
+- ClickHouse for everything else (occurrences, affected users, charts, etc.).
 
-In general this is suboptimal.
+In general, this is suboptimal.
 
-But to make things worse -> we allow filtering by issue-specific properties.
-So when we query for example 10 ACTIVE issues with the most number of occurences, we:
+To make things worse, we allow filtering by issue-specific properties.
+So when we query for, say, the 10 ACTIVE issues with the most occurrences, we:
 
-- go to clickhouse and "construct" these 10 issues,
-- then we check postgres and see that 1 of these 10 issues does not have ACTIVE status,
-- we then drop it,
-- we display 9 issues even though we should display 10
+- go to ClickHouse and "construct" these 10 issues,
+- then check Postgres and find that 1 of these 10 issues does not have ACTIVE status,
+- drop it,
+- display 9 issues even though we should display 10.
 
 # Plan
 
-We want to store copies of issues in clickhouse and keep them in sync so we have to query only one data source (faster and less problems with filtering)
+We want to store copies of issues in ClickHouse and keep them in sync,
+so we only have to query a single data source (faster and fewer problems with filtering).
 
-1. Create table in clickhouse
+1. Create a table in ClickHouse
 
-First step - we need to create a table. I think the engine should be a ReplacingMergeTree.
+First, we need to create a table. The engine should be a ReplacingMergeTree.
 
-We want to use updated_as as the version.
+We want to use `updated_at` as the version.
 
-As I understand it, that clickhouse table will get rid of old versions automatically thanks to that engine
+ClickHouse will automatically deduplicate old versions thanks to that engine.
 
 2. Live updates
 
-Any time new issue gets created or updated, we write to that clickhouse table (via kafka topic).
+Any time a new issue is created or updated, we write to the ClickHouse table (via a Kafka topic).
 
-We could use signals
+We could use signals:
 
 ```python
 @receiver(post_save, sender=ErrorTrackingAutoCaptureControls)
 ```
 
-They run on every instance tho so we should add something in between like a celery task and dedup here or something else.
+These run on every instance, though, so we should add something in between — like a Celery task with deduplication, or another approach.
 
 3. Backfill
 
-After we confirm that live updates are working, we need to run backfill to migrate all existing issues data into that clickhouse table.
+After we confirm that live updates are working, we need to run a backfill to migrate all existing issue data into the ClickHouse table.
 
 4. Rewrite queries
 
-We would then rewrite queries to use pure clickhouse.
+We would then rewrite queries to use pure ClickHouse.
 
-# Some questions to clickhouse team
+# Questions for the ClickHouse team
 
-- what is the delay between emiting something to kafka queue vs having it available in CH reads? We want to avoid situations where you change issue status, go back to the listing page and it's still there because that change is not yet available in CH. Something sub 1s would be perfect,
--
+- What is the delay between emitting something to the Kafka queue and having it available in ClickHouse reads? We want to avoid situations where a user changes an issue's status, goes back to the listing page, and the old status is still showing because the change hasn't propagated yet. Something sub-1s would be ideal.
