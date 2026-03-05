@@ -85,6 +85,16 @@ class InternalServerError(aiohttp.ClientResponseError):
     pass
 
 
+def _make_exception(
+    exc: type[aiohttp.ClientResponseError], err: aiohttp.ClientResponseError
+) -> aiohttp.ClientResponseError:
+    """Construct one of the specific exception classes from a generic error.
+
+    Used to appease mypy, who doesn't like (*args, **kwargs) syntax.
+    """
+    return exc(err.request_info, err.history, status=err.status, message=err.message, headers=err.headers)
+
+
 class WorkflowsConsumer(Consumer):
     def __init__(
         self,
@@ -117,21 +127,16 @@ class WorkflowsConsumer(Consumer):
                 response.raise_for_status()
             except aiohttp.ClientResponseError as err:
                 self.logger.exception("Request failed", status=err.status)
-                kwargs = {
-                    "status": err.status,
-                    "message": err.message,
-                    "headers": err.headers,
-                }
 
                 match err.status:
                     case 404:
-                        raise NotFound(err.request_info, err.history, **kwargs)
+                        raise _make_exception(NotFound, err)
                     case 429:
-                        raise TooManyRequests(err.request_info, err.history, **kwargs)
+                        raise _make_exception(TooManyRequests, err)
                     case n if n >= 400 and n < 500:
-                        raise BadRequest(err.request_info, err.history, **kwargs)
+                        raise _make_exception(BadRequest, err)
                     case n if n >= 500:
-                        raise InternalServerError(err.request_info, err.history, **kwargs)
+                        raise _make_exception(InternalServerError, err)
 
     async def finalize_file(self):
         """Required by consumer interface."""

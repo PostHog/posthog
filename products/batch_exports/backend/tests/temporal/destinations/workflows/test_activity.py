@@ -6,6 +6,8 @@ import pytest
 from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
 
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import (
+    BadRequest,
+    NotFound,
     WorkflowsInsertInputs,
     insert_into_workflows_activity_from_stage,
     workflows_default_fields,
@@ -128,3 +130,76 @@ async def test_insert_into_workflows_activity_from_stage_posts_data_to_server(
         batch_export_model=model,
         sort_key="event",
     )
+
+
+@pytest.mark.parametrize("error", [404, 400], indirect=True)
+async def test_insert_into_workflows_activity_from_stage_fails_on_non_retryable_errors(
+    clickhouse_client,
+    activity_environment,
+    exclude_events,
+    data_interval_start,
+    data_interval_end,
+    generate_test_data,
+    ateam,
+    server,
+    path,
+    handler,
+    hog_function_id,
+    error,
+):
+    model = BatchExportModel(name="events", schema=None)
+
+    if error == 404:
+        expected = NotFound
+    else:
+        expected = BadRequest
+
+    with pytest.raises(expected):
+        await _run_activity(
+            activity_environment,
+            server=server,
+            handler=handler,
+            hog_function_id=hog_function_id,
+            clickhouse_client=clickhouse_client,
+            team=ateam,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            exclude_events=exclude_events,
+            batch_export_model=model,
+            sort_key="event",
+        )
+
+
+@pytest.mark.parametrize("error", [429, 500], indirect=True)
+async def test_insert_into_workflows_activity_from_stage_retries_on_retryable_errors(
+    clickhouse_client,
+    activity_environment,
+    exclude_events,
+    data_interval_start,
+    data_interval_end,
+    generate_test_data,
+    ateam,
+    server,
+    path,
+    handler,
+    hog_function_id,
+    error,
+):
+    model = BatchExportModel(name="events", schema=None)
+
+    await _run_activity(
+        activity_environment,
+        server=server,
+        handler=handler,
+        hog_function_id=hog_function_id,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        batch_export_model=model,
+        sort_key="event",
+    )
+
+    assert len(handler.error_data) == 1  # First request failed...
+    assert handler.error_data[0] in handler.data  # And should have been retried
