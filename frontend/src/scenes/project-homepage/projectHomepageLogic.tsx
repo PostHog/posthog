@@ -119,11 +119,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
         recentDashboards: [
             (s) => [s.rawDashboards],
             (rawDashboards): DashboardBasicType[] => {
-                return Object.values(rawDashboards)
-                    .filter((d) => d.last_viewed_at && !d.deleted)
-                    .sort((a, b) => {
-                        return new Date(b.last_viewed_at!).getTime() - new Date(a.last_viewed_at!).getTime()
-                    })
+                return Object.values(rawDashboards).filter((d) => d.last_viewed_at && !d.deleted)
             },
         ],
         breadcrumbs: [
