@@ -31,7 +31,7 @@ describe('normalizeProcessPersonFlagStep', () => {
     const normalizeStep = createNormalizeProcessPersonFlagStep()
 
     describe('$process_person_profile=false', () => {
-        it.each(['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])(
+        it.each(['$identify', '$create_alias', '$merge_dangerously'])(
             'drops event %s when $process_person_profile=false',
             async (eventName) => {
                 const input: PerDistinctIdPipelineInput = {
@@ -58,6 +58,25 @@ describe('normalizeProcessPersonFlagStep', () => {
                 })
             }
         )
+
+        it('allows $groupidentify when $process_person_profile=false', async () => {
+            const input: PerDistinctIdPipelineInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$groupidentify',
+                    properties: { $process_person_profile: false },
+                },
+            }
+
+            const result = await normalizeStep(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.processPerson).toBe(false)
+                expect(result.value.forceDisablePersonProcessing).toBe(false)
+            }
+        })
 
         it('allows regular events when $process_person_profile=false', async () => {
             const input: PerDistinctIdPipelineInput = {

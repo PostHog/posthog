@@ -1003,6 +1003,51 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         )
 
         testWithTeamIngester(
+            '$groupidentify is processed when $process_person_profile=false',
+            {},
+            async (ingester, hub, team) => {
+                const distinctId = new UUIDT().toString()
+                const groupKey = 'group_key'
+                const timestamp = DateTime.now().toMillis()
+
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('$groupidentify')
+                            .withProperties({
+                                $process_person_profile: false,
+                                $group_type: 'organization',
+                                $group_key: groupKey,
+                                $group_set: { name: 'Acme Corp' },
+                            })
+                            .withTimestamp(timestamp)
+                            .build(),
+                    ])
+                )
+
+                await waitForKafkaMessages(hub)
+
+                await waitForExpect(async () => {
+                    const events = await fetchEvents(hub, team.id)
+                    expect(events.length).toEqual(1)
+                    expect(events[0].event).toEqual('$groupidentify')
+                })
+
+                await waitForExpect(async () => {
+                    const group = await hub.groupRepository.fetchGroup(team.id, 0, groupKey)
+                    expect(group).toEqual(
+                        expect.objectContaining({
+                            team_id: team.id,
+                            group_type_index: 0,
+                            group_properties: { name: 'Acme Corp' },
+                            group_key: groupKey,
+                        })
+                    )
+                })
+            }
+        )
+
+        testWithTeamIngester(
             'force_upgrade triggers when personless event sent after person creation',
             {},
             async (ingester, hub, team) => {
