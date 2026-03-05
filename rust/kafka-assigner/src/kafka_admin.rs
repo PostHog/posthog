@@ -35,7 +35,9 @@ pub fn fetch_partition_count(
     })?;
 
     let metadata = consumer.fetch_metadata(Some(topic), timeout).map_err(|e| {
-        format!("failed to fetch metadata for topic '{topic}' (hosts={kafka_hosts}, tls={tls}): {e}")
+        format!(
+            "failed to fetch metadata for topic '{topic}' (hosts={kafka_hosts}, tls={tls}): {e}"
+        )
     })?;
 
     let topic_metadata = metadata
