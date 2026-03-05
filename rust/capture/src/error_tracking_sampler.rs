@@ -56,14 +56,6 @@ pub fn should_dual_write_error_tracking() -> bool {
 mod tests {
     use super::*;
 
-    // Note: These tests use a separate static, so they don't interfere with each other.
-    // In practice, the OnceLock means only the first init wins.
-
-    #[test]
-    fn test_returns_false_when_not_initialized() {
-        // Can't easily test this since OnceLock is static, but the logic is covered
-    }
-
     #[test]
     fn test_sample_rate_clamping() {
         let config = DualWriteConfig {
