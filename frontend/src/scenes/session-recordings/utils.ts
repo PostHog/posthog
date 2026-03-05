@@ -13,6 +13,7 @@ export const TimestampFormatToLabel = {
     relative: 'Relative',
     utc: 'UTC',
     device: 'Device',
+    project: 'Project',
 }
 
 export const isUniversalFilters = (

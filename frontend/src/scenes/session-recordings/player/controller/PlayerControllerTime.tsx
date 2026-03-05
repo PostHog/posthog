@@ -15,6 +15,7 @@ import {
     ONE_SECOND_MS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { HotKeyOrModifier } from '~/types'
@@ -26,15 +27,29 @@ const TIMESTAMP_FORMAT_LABELS: Record<TimestampFormat, string> = {
     [TimestampFormat.Relative]: 'Relative',
     [TimestampFormat.UTC]: 'UTC',
     [TimestampFormat.Device]: 'Device',
+    [TimestampFormat.Project]: 'Project',
 }
 
-function formatTimestampForTooltip(timestamp: number | undefined, format: TimestampFormat): string {
+function formatTimestampForTooltip(
+    timestamp: number | undefined,
+    format: TimestampFormat,
+    projectTimezone?: string
+): string {
     if (timestamp === undefined) {
         return '--:--:--'
     }
-    const d = format === TimestampFormat.UTC ? dayjs(timestamp).tz('UTC') : dayjs(timestamp)
+    let d = dayjs(timestamp)
+    let timezone: string
+    if (format === TimestampFormat.UTC) {
+        d = d.tz('UTC')
+        timezone = 'UTC'
+    } else if (format === TimestampFormat.Project && projectTimezone) {
+        d = d.tz(projectTimezone)
+        timezone = shortTimeZone(projectTimezone, d.toDate()) ?? projectTimezone
+    } else {
+        timezone = shortTimeZone(undefined, d.toDate()) ?? ''
+    }
     const formatted = d.format(`${formatLocalizedDate()}, HH:mm:ss`)
-    const timezone = format === TimestampFormat.UTC ? 'UTC' : shortTimeZone(undefined, d.toDate())
     return `${formatted} ${timezone}`
 }
 
@@ -72,6 +87,7 @@ export function Timestamp({
     const { isScrubbing, scrubbingTime, scrubbingTimeSeconds } = useValues(seekbarLogic(logicProps))
     const { timestampFormat } = useValues(playerSettingsLogic)
     const { setTimestampFormat } = useActions(playerSettingsLogic)
+    const { currentTeam } = useValues(teamLogic)
     const [isHovered, setIsHovered] = useState(false)
 
     const scrubbingTimestamp = sessionPlayerData.start?.valueOf()
@@ -94,7 +110,7 @@ export function Timestamp({
                 const value =
                     format === TimestampFormat.Relative
                         ? relativeTime
-                        : formatTimestampForTooltip(activeTimestamp, format)
+                        : formatTimestampForTooltip(activeTimestamp, format, currentTeam?.timezone)
 
                 return (
                     <div

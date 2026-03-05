@@ -13,6 +13,7 @@ export enum TimestampFormat {
     Relative = 'relative',
     UTC = 'utc',
     Device = 'device',
+    Project = 'project',
 }
 
 export type HideViewedRecordingsOptions = 'current-user' | 'any-user' | false

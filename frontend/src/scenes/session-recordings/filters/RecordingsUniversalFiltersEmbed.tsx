@@ -177,6 +177,11 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     highlightWhenActive={false}
                     items={[
                         {
+                            label: 'Project',
+                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Project),
+                            active: playlistTimestampFormat === TimestampFormat.Project,
+                        },
+                        {
                             label: 'UTC',
                             onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
                             active: playlistTimestampFormat === TimestampFormat.UTC,
