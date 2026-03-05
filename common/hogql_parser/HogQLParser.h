@@ -2494,6 +2494,7 @@ public:
     antlr4::tree::TerminalNode *LEFT();
     antlr4::tree::TerminalNode *LIKE();
     antlr4::tree::TerminalNode *LIMIT();
+    antlr4::tree::TerminalNode *NAME();
     antlr4::tree::TerminalNode *NOT();
     antlr4::tree::TerminalNode *NULLS();
     antlr4::tree::TerminalNode *OFFSET();

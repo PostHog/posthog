@@ -242,22 +242,22 @@ void hogqlparserParserInitialize() {
   	54,54,79,79,2,0,1,1,4,4,2,0,66,66,123,123,2,0,7,7,22,23,2,0,31,31,52,
   	52,2,0,76,76,82,82,3,0,10,10,53,53,96,96,2,0,43,43,56,56,1,0,113,114,
   	2,0,125,125,147,147,7,0,21,21,40,40,59,60,75,75,84,84,103,103,109,109,
-  	19,0,1,13,15,20,22,26,28,29,31,31,33,36,38,39,41,44,46,46,48,54,56,57,
-  	63,63,65,74,76,83,85,89,91,98,100,102,104,105,107,108,4,0,20,20,31,31,
-  	41,41,51,51,1602,0,191,1,0,0,0,2,198,1,0,0,0,4,200,1,0,0,0,6,202,1,0,
-  	0,0,8,209,1,0,0,0,10,232,1,0,0,0,12,234,1,0,0,0,14,241,1,0,0,0,16,248,
-  	1,0,0,0,18,261,1,0,0,0,20,273,1,0,0,0,22,282,1,0,0,0,24,290,1,0,0,0,26,
-  	312,1,0,0,0,28,327,1,0,0,0,30,336,1,0,0,0,32,341,1,0,0,0,34,345,1,0,0,
-  	0,36,347,1,0,0,0,38,356,1,0,0,0,40,360,1,0,0,0,42,374,1,0,0,0,44,387,
-  	1,0,0,0,46,414,1,0,0,0,48,418,1,0,0,0,50,426,1,0,0,0,52,478,1,0,0,0,54,
-  	484,1,0,0,0,56,490,1,0,0,0,58,494,1,0,0,0,60,500,1,0,0,0,62,518,1,0,0,
-  	0,64,521,1,0,0,0,66,524,1,0,0,0,68,534,1,0,0,0,70,537,1,0,0,0,72,541,
-  	1,0,0,0,74,545,1,0,0,0,76,569,1,0,0,0,78,571,1,0,0,0,80,574,1,0,0,0,82,
-  	589,1,0,0,0,84,651,1,0,0,0,86,656,1,0,0,0,88,667,1,0,0,0,90,669,1,0,0,
-  	0,92,675,1,0,0,0,94,680,1,0,0,0,96,688,1,0,0,0,98,706,1,0,0,0,100,708,
-  	1,0,0,0,102,716,1,0,0,0,104,721,1,0,0,0,106,729,1,0,0,0,108,733,1,0,0,
-  	0,110,737,1,0,0,0,112,746,1,0,0,0,114,760,1,0,0,0,116,762,1,0,0,0,118,
-  	821,1,0,0,0,120,823,1,0,0,0,122,834,1,0,0,0,124,850,1,0,0,0,126,1004,
+  	20,0,1,13,15,20,22,26,28,29,31,31,33,36,38,39,41,44,46,46,48,54,56,57,
+  	61,61,63,63,65,74,76,83,85,89,91,98,100,102,104,105,107,108,4,0,20,20,
+  	31,31,41,41,51,51,1602,0,191,1,0,0,0,2,198,1,0,0,0,4,200,1,0,0,0,6,202,
+  	1,0,0,0,8,209,1,0,0,0,10,232,1,0,0,0,12,234,1,0,0,0,14,241,1,0,0,0,16,
+  	248,1,0,0,0,18,261,1,0,0,0,20,273,1,0,0,0,22,282,1,0,0,0,24,290,1,0,0,
+  	0,26,312,1,0,0,0,28,327,1,0,0,0,30,336,1,0,0,0,32,341,1,0,0,0,34,345,
+  	1,0,0,0,36,347,1,0,0,0,38,356,1,0,0,0,40,360,1,0,0,0,42,374,1,0,0,0,44,
+  	387,1,0,0,0,46,414,1,0,0,0,48,418,1,0,0,0,50,426,1,0,0,0,52,478,1,0,0,
+  	0,54,484,1,0,0,0,56,490,1,0,0,0,58,494,1,0,0,0,60,500,1,0,0,0,62,518,
+  	1,0,0,0,64,521,1,0,0,0,66,524,1,0,0,0,68,534,1,0,0,0,70,537,1,0,0,0,72,
+  	541,1,0,0,0,74,545,1,0,0,0,76,569,1,0,0,0,78,571,1,0,0,0,80,574,1,0,0,
+  	0,82,589,1,0,0,0,84,651,1,0,0,0,86,656,1,0,0,0,88,667,1,0,0,0,90,669,
+  	1,0,0,0,92,675,1,0,0,0,94,680,1,0,0,0,96,688,1,0,0,0,98,706,1,0,0,0,100,
+  	708,1,0,0,0,102,716,1,0,0,0,104,721,1,0,0,0,106,729,1,0,0,0,108,733,1,
+  	0,0,0,110,737,1,0,0,0,112,746,1,0,0,0,114,760,1,0,0,0,116,762,1,0,0,0,
+  	118,821,1,0,0,0,120,823,1,0,0,0,122,834,1,0,0,0,124,850,1,0,0,0,126,1004,
   	1,0,0,0,128,1154,1,0,0,0,130,1167,1,0,0,0,132,1169,1,0,0,0,134,1200,1,
   	0,0,0,136,1213,1,0,0,0,138,1215,1,0,0,0,140,1250,1,0,0,0,142,1252,1,0,
   	0,0,144,1270,1,0,0,0,146,1272,1,0,0,0,148,1289,1,0,0,0,150,1302,1,0,0,
@@ -750,7 +750,7 @@ HogQLParser::ProgramContext* HogQLParser::program() {
     _errHandler->sync(this);
     _la = _input->LA(1);
     while ((((_la & ~ 0x3fULL) == 0) &&
-      ((1ULL << _la) & -2594214124061736962) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
+      ((1ULL << _la) & -288371114848043010) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 64)) & -6890577798621036545) != 0) || ((((_la - 135) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 135)) & 8425495) != 0)) {
       setState(188);
@@ -875,6 +875,7 @@ HogQLParser::DeclarationContext* HogQLParser::declaration() {
       case HogQLParser::LIMIT:
       case HogQLParser::MINUTE:
       case HogQLParser::MONTH:
+      case HogQLParser::NAME:
       case HogQLParser::NAN_SQL:
       case HogQLParser::NOT:
       case HogQLParser::NULL_SQL:
@@ -2012,7 +2013,7 @@ HogQLParser::ForStmtContext* HogQLParser::forStmt() {
 
     _la = _input->LA(1);
     if ((((_la & ~ 0x3fULL) == 0) &&
-      ((1ULL << _la) & -2630243062814621698) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
+      ((1ULL << _la) & -324400053600927746) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 64)) & -6890582231094394881) != 0) || ((((_la - 135) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 135)) & 36887) != 0)) {
       setState(298);
@@ -2281,7 +2282,7 @@ HogQLParser::FuncStmtContext* HogQLParser::funcStmt() {
 
     _la = _input->LA(1);
     if ((((_la & ~ 0x3fULL) == 0) &&
-      ((1ULL << _la) & -7241964265614098434) != 0) || ((((_la - 65) & ~ 0x3fULL) == 0) &&
+      ((1ULL << _la) & -4936121256400404482) != 0) || ((((_la - 65) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 65)) & 103336879587327) != 0)) {
       setState(330);
       identifierList();
@@ -2538,7 +2539,7 @@ HogQLParser::BlockContext* HogQLParser::block() {
     _errHandler->sync(this);
     _la = _input->LA(1);
     while ((((_la & ~ 0x3fULL) == 0) &&
-      ((1ULL << _la) & -2594214124061736962) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
+      ((1ULL << _la) & -288371114848043010) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 64)) & -6890577798621036545) != 0) || ((((_la - 135) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 135)) & 8425495) != 0)) {
       setState(348);
@@ -6892,7 +6893,7 @@ HogQLParser::ColumnTypeExprContext* HogQLParser::columnTypeExpr() {
 
       _la = _input->LA(1);
       if ((((_la & ~ 0x3fULL) == 0) &&
-        ((1ULL << _la) & -2630243062814621698) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
+        ((1ULL << _la) & -324400053600927746) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 64)) & -6890582231094394881) != 0) || ((((_la - 135) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 135)) & 36887) != 0)) {
         setState(816);
@@ -8631,7 +8632,7 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
 
       _la = _input->LA(1);
       if ((((_la & ~ 0x3fULL) == 0) &&
-        ((1ULL << _la) & -2630243062814621698) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
+        ((1ULL << _la) & -324400053600927746) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 64)) & -6890582231094394881) != 0) || ((((_la - 135) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 135)) & 36887) != 0)) {
         setState(910);
@@ -8664,7 +8665,7 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
 
         _la = _input->LA(1);
         if ((((_la & ~ 0x3fULL) == 0) &&
-          ((1ULL << _la) & -2630243062814621698) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
+          ((1ULL << _la) & -324400053600927746) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
           ((1ULL << (_la - 64)) & -6890582231094394881) != 0) || ((((_la - 135) & ~ 0x3fULL) == 0) &&
           ((1ULL << (_la - 135)) & 36887) != 0)) {
           setState(919);
@@ -8698,7 +8699,7 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
 
       _la = _input->LA(1);
       if ((((_la & ~ 0x3fULL) == 0) &&
-        ((1ULL << _la) & -2630243062814621698) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
+        ((1ULL << _la) & -324400053600927746) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 64)) & -6890582231094394881) != 0) || ((((_la - 135) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 135)) & 36887) != 0)) {
         setState(932);
@@ -8731,7 +8732,7 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
 
         _la = _input->LA(1);
         if ((((_la & ~ 0x3fULL) == 0) &&
-          ((1ULL << _la) & -2630243062814621698) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
+          ((1ULL << _la) & -324400053600927746) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
           ((1ULL << (_la - 64)) & -6890582231094394881) != 0) || ((((_la - 135) & ~ 0x3fULL) == 0) &&
           ((1ULL << (_la - 135)) & 36887) != 0)) {
           setState(941);
@@ -8765,7 +8766,7 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
 
         _la = _input->LA(1);
         if ((((_la & ~ 0x3fULL) == 0) &&
-          ((1ULL << _la) & -2630243062814621698) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
+          ((1ULL << _la) & -324400053600927746) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
           ((1ULL << (_la - 64)) & -6890582231094394881) != 0) || ((((_la - 135) & ~ 0x3fULL) == 0) &&
           ((1ULL << (_la - 135)) & 36887) != 0)) {
           setState(952);
@@ -8799,7 +8800,7 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
 
       _la = _input->LA(1);
       if ((((_la & ~ 0x3fULL) == 0) &&
-        ((1ULL << _la) & -2630243062814621698) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
+        ((1ULL << _la) & -324400053600927746) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 64)) & -6890582231094394881) != 0) || ((((_la - 135) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 135)) & 36887) != 0)) {
         setState(962);
@@ -8868,7 +8869,7 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
 
       _la = _input->LA(1);
       if ((((_la & ~ 0x3fULL) == 0) &&
-        ((1ULL << _la) & -7241964265614098434) != 0) || ((((_la - 65) & ~ 0x3fULL) == 0) &&
+        ((1ULL << _la) & -4936121256400404482) != 0) || ((((_la - 65) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 65)) & 103336879587327) != 0)) {
         setState(974);
         tableIdentifier();
@@ -8930,7 +8931,7 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
 
       _la = _input->LA(1);
       if ((((_la & ~ 0x3fULL) == 0) &&
-        ((1ULL << _la) & -2630243062814621698) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
+        ((1ULL << _la) & -324400053600927746) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 64)) & -6890582231094394881) != 0) || ((((_la - 135) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 135)) & 36887) != 0)) {
         setState(993);
@@ -8952,7 +8953,7 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
 
       _la = _input->LA(1);
       if ((((_la & ~ 0x3fULL) == 0) &&
-        ((1ULL << _la) & -2630243062814621698) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
+        ((1ULL << _la) & -324400053600927746) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 64)) & -6890582231094394881) != 0) || ((((_la - 135) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 135)) & 36887) != 0)) {
         setState(998);
@@ -9333,7 +9334,7 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
 
           _la = _input->LA(1);
           if ((((_la & ~ 0x3fULL) == 0) &&
-            ((1ULL << _la) & -2630243062814621698) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
+            ((1ULL << _la) & -324400053600927746) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
             ((1ULL << (_la - 64)) & -6890582231094394881) != 0) || ((((_la - 135) & ~ 0x3fULL) == 0) &&
             ((1ULL << (_la - 135)) & 36887) != 0)) {
             setState(1079);
@@ -9960,7 +9961,7 @@ HogQLParser::HogqlxTagElementContext* HogQLParser::hogqlxTagElement() {
       _errHandler->sync(this);
       _la = _input->LA(1);
       while ((((_la & ~ 0x3fULL) == 0) &&
-        ((1ULL << _la) & -7241964265614098434) != 0) || ((((_la - 65) & ~ 0x3fULL) == 0) &&
+        ((1ULL << _la) & -4936121256400404482) != 0) || ((((_la - 65) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 65)) & 103336879587327) != 0)) {
         setState(1173);
         hogqlxTagAttribute();
@@ -9984,7 +9985,7 @@ HogQLParser::HogqlxTagElementContext* HogQLParser::hogqlxTagElement() {
       _errHandler->sync(this);
       _la = _input->LA(1);
       while ((((_la & ~ 0x3fULL) == 0) &&
-        ((1ULL << _la) & -7241964265614098434) != 0) || ((((_la - 65) & ~ 0x3fULL) == 0) &&
+        ((1ULL << _la) & -4936121256400404482) != 0) || ((((_la - 65) & ~ 0x3fULL) == 0) &&
         ((1ULL << (_la - 65)) & 103336879587327) != 0)) {
         setState(1183);
         hogqlxTagAttribute();
@@ -10601,6 +10602,7 @@ HogQLParser::ColumnIdentifierContext* HogQLParser::columnIdentifier() {
       case HogQLParser::LIMIT:
       case HogQLParser::MINUTE:
       case HogQLParser::MONTH:
+      case HogQLParser::NAME:
       case HogQLParser::NOT:
       case HogQLParser::NULLS:
       case HogQLParser::OFFSET:
@@ -11074,7 +11076,7 @@ HogQLParser::TableFunctionExprContext* HogQLParser::tableFunctionExpr() {
 
     _la = _input->LA(1);
     if ((((_la & ~ 0x3fULL) == 0) &&
-      ((1ULL << _la) & -2630243062814621698) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
+      ((1ULL << _la) & -324400053600927746) != 0) || ((((_la - 64) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 64)) & -6890582231094394881) != 0) || ((((_la - 135) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 135)) & 36887) != 0)) {
       setState(1304);
@@ -11931,6 +11933,10 @@ tree::TerminalNode* HogQLParser::KeywordContext::LIMIT() {
   return getToken(HogQLParser::LIMIT, 0);
 }
 
+tree::TerminalNode* HogQLParser::KeywordContext::NAME() {
+  return getToken(HogQLParser::NAME, 0);
+}
+
 tree::TerminalNode* HogQLParser::KeywordContext::NOT() {
   return getToken(HogQLParser::NOT, 0);
 }
@@ -12117,7 +12123,7 @@ HogQLParser::KeywordContext* HogQLParser::keyword() {
     setState(1357);
     _la = _input->LA(1);
     if (!((((_la & ~ 0x3fULL) == 0) &&
-      ((1ULL << _la) & -8971347622038093826) != 0) || ((((_la - 65) & ~ 0x3fULL) == 0) &&
+      ((1ULL << _la) & -6665504612824399874) != 0) || ((((_la - 65) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 65)) & 15101070932991) != 0))) {
     _errHandler->recoverInline(this);
     }
@@ -12393,6 +12399,7 @@ HogQLParser::IdentifierContext* HogQLParser::identifier() {
       case HogQLParser::LEFT:
       case HogQLParser::LIKE:
       case HogQLParser::LIMIT:
+      case HogQLParser::NAME:
       case HogQLParser::NOT:
       case HogQLParser::NULLS:
       case HogQLParser::OFFSET:
