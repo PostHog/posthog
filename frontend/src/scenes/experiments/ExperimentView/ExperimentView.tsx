@@ -57,6 +57,7 @@ import { Info } from './Info'
 import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
+import { SetupTab } from './SetupTab'
 import { SummaryTable } from './SummaryTable'
 
 const AiAnalysisTab = (): JSX.Element => {
@@ -285,6 +286,15 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                         onChange={(key) => setActiveTabKey(key)}
                         sceneInset
                         tabs={[
+                            ...(usesNewQueryRunner
+                                ? [
+                                      {
+                                          key: 'setup',
+                                          label: 'Setup',
+                                          content: <SetupTab />,
+                                      },
+                                  ]
+                                : []),
                             {
                                 key: 'metrics',
                                 label: 'Metrics',
@@ -313,11 +323,15 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                       },
                                   ]
                                 : []),
-                            {
-                                key: 'variants',
-                                label: 'Variants',
-                                content: <VariantsTab />,
-                            },
+                            ...(!usesNewQueryRunner
+                                ? [
+                                      {
+                                          key: 'variants',
+                                          label: 'Variants',
+                                          content: <VariantsTab />,
+                                      },
+                                  ]
+                                : []),
                             {
                                 key: 'history',
                                 label: 'History',

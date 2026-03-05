@@ -2,10 +2,11 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconGear, IconPencil, IconWarning } from '@posthog/icons'
+import { IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { TZLabel } from 'lib/components/TZLabel'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Label } from 'lib/ui/Label/Label'
@@ -20,10 +21,8 @@ import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { StatusTag } from './components'
-import { ExperimentDuration } from './ExperimentDuration'
 import { ExperimentReloadAction } from './ExperimentReloadAction'
 import { RunningTimeNew } from './RunningTimeNew'
-import { StatsMethodModal } from './StatsMethodModal'
 
 export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const {
@@ -35,20 +34,14 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
         statsMethod,
-        usesNewQueryRunner,
         isExperimentDraft,
         isSingleVariantShipped,
         shippedVariantKey,
         autoRefresh,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
-    const {
-        openEditConclusionModal,
-        openDescriptionModal,
-        closeDescriptionModal,
-        openStatsEngineModal,
-        openRunningTimeConfigModal,
-    } = useActions(modalsLogic)
+    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openRunningTimeConfigModal } =
+        useActions(modalsLogic)
     const { isDescriptionModalOpen } = useValues(modalsLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
@@ -143,29 +136,13 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                         )}
                         <div className="flex flex-col">
                             <Label intent="menu">Statistics</Label>
-                            <div className="inline-flex deprecated-space-x-2">
-                                <span>
-                                    {statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}
-                                    {' / '}
-                                    {statsMethod === ExperimentStatsMethod.Bayesian
-                                        ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
-                                        : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
-                                </span>
-                                {usesNewQueryRunner && (
-                                    <>
-                                        <LemonButton
-                                            type="secondary"
-                                            size="xsmall"
-                                            onClick={() => {
-                                                openStatsEngineModal()
-                                            }}
-                                            icon={<IconGear />}
-                                            tooltip="Configure statistics"
-                                        />
-                                        <StatsMethodModal />
-                                    </>
-                                )}
-                            </div>
+                            <span>
+                                {statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}
+                                {' / '}
+                                {statsMethod === ExperimentStatsMethod.Bayesian
+                                    ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
+                                    : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
+                            </span>
                         </div>
                     </div>
 
@@ -220,8 +197,35 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
 
                 {/* Column 2 */}
                 <div className="flex flex-col gap-4 overflow-hidden items-start min-[1100px]:items-end min-w-0">
-                    {/* Row 1: Duration (date pickers) - only for launched experiments */}
-                    {!isExperimentDraft && <ExperimentDuration />}
+                    {/* Row 1: Duration - read-only display for launched experiments */}
+                    {!isExperimentDraft && (
+                        <div>
+                            <Label intent="menu">Duration</Label>
+                            <span>
+                                {experiment.start_date ? (
+                                    <TZLabel
+                                        time={experiment.start_date}
+                                        formatDate="MMM DD, YYYY"
+                                        formatTime="hh:mm A"
+                                        noStyles
+                                    />
+                                ) : (
+                                    'No start date'
+                                )}
+                                {' → '}
+                                {experiment.end_date ? (
+                                    <TZLabel
+                                        time={experiment.end_date}
+                                        formatDate="MMM DD, YYYY"
+                                        formatTime="hh:mm A"
+                                        noStyles
+                                    />
+                                ) : (
+                                    'Present'
+                                )}
+                            </span>
+                        </div>
+                    )}
 
                     {/* Row 2: Running time, Last refreshed, Created by */}
                     <div className="flex flex-col overflow-hidden items-start min-[1100px]:items-end">
