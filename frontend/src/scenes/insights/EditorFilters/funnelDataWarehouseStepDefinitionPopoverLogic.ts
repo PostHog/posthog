@@ -49,7 +49,7 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
     })),
     reducers({
         activeFieldKey: [
-            'id_field' as FunnelFieldKey,
+            'distinct_id_field' as FunnelFieldKey,
             {
                 setActiveFieldKey: (_, { activeFieldKey }) => activeFieldKey,
             },
