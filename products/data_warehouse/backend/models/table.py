@@ -177,11 +177,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return self.table_name_without_prefix()
 
         source_type = self.external_data_source.source_type.lower()
-        prefix = self.external_data_source.prefix or ""
-        table_prefix = f"{prefix}_{source_type}_" if prefix else f"{source_type}_"
+        source_scoped_prefix = f"{source_type}_{self.external_data_source.pk.hex}_"
+        if self.name.lower().startswith(source_scoped_prefix):
+            return self.name[len(source_scoped_prefix) :]
 
-        if self.name.lower().startswith(table_prefix):
-            return self.name[len(table_prefix) :]
+        prefix = self.external_data_source.prefix or ""
+        legacy_table_prefix = f"{prefix}_{source_type}_" if prefix else f"{source_type}_"
+
+        if self.name.lower().startswith(legacy_table_prefix):
+            return self.name[len(legacy_table_prefix) :]
 
         return self.table_name_without_prefix()
 

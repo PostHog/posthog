@@ -137,6 +137,14 @@ def postgres_schema_metadata(
     }
 
 
+def direct_postgres_table_prefix(external_data_source: ExternalDataSource) -> str:
+    return f"{external_data_source.source_type.lower()}_{external_data_source.pk.hex}_"
+
+
+def direct_postgres_table_name(external_data_source: ExternalDataSource, schema_name: str) -> str:
+    return f"{direct_postgres_table_prefix(external_data_source)}{schema_name}".lower()
+
+
 def get_password_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that have PASSWORD type from a source config's fields."""
     password_fields: set[str] = set()
@@ -505,25 +513,37 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         description = request.data.get("description", None)
         source_type = request.data["source_type"]
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
-        # Validate prefix characters
-        is_valid, error_message = validate_source_prefix(prefix)
-        if not is_valid:
-            raise ValidationError(error_message)
-
-        if self.prefix_required(source_type):
-            if not prefix:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Source type already exists. Prefix is required"},
-                )
-            elif self.prefix_exists(source_type, prefix):
-                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+        is_direct_postgres = (
+            access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
+        )
 
         if access_method == ExternalDataSource.AccessMethod.DIRECT and source_type != ExternalDataSourceType.POSTGRES:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Direct query mode is currently supported only for Postgres sources."},
             )
+
+        if is_direct_postgres:
+            prefix = prefix.strip() if isinstance(prefix, str) else ""
+            if not prefix:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Name is required for direct query sources"},
+                )
+        else:
+            # Validate prefix characters
+            is_valid, error_message = validate_source_prefix(prefix)
+            if not is_valid:
+                raise ValidationError(error_message)
+
+            if self.prefix_required(source_type):
+                if not prefix:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": "Source type already exists. Prefix is required"},
+                    )
+                if self.prefix_exists(source_type, prefix):
+                    return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
         if access_method == ExternalDataSource.AccessMethod.WAREHOUSE and is_any_external_data_schema_paused(
             self.team_id
@@ -628,7 +648,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 name=schema_name,
                 team=self.team,
                 source=new_source_model,
-                should_sync=should_sync if access_method == ExternalDataSource.AccessMethod.WAREHOUSE else False,
+                should_sync=should_sync,
                 sync_type=sync_type if access_method == ExternalDataSource.AccessMethod.WAREHOUSE else None,
                 sync_time_of_day=sync_time_of_day
                 if access_method == ExternalDataSource.AccessMethod.WAREHOUSE
@@ -650,21 +670,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ):
                 from products.data_warehouse.backend.models.table import DataWarehouseTable
 
-                table_prefix = (
-                    f"{prefix}_{source_type_model}_".lower()
-                    if prefix is not None and isinstance(prefix, str) and prefix != ""
-                    else f"{source_type_model}_".lower()
-                )
-                table_model = DataWarehouseTable.objects.create(
-                    name=f"{table_prefix}{schema_name}".lower(),
-                    format=DataWarehouseTable.TableFormat.Parquet,
-                    team=self.team,
-                    url_pattern="direct://postgres",
-                    external_data_source=new_source_model,
-                    columns=postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
-                )
-                schema_model.table = table_model
-                schema_model.save(update_fields=["table"])
+                if should_sync:
+                    table_model = DataWarehouseTable.objects.create(
+                        name=direct_postgres_table_name(new_source_model, schema_name),
+                        format=DataWarehouseTable.TableFormat.Parquet,
+                        team=self.team,
+                        url_pattern="direct://postgres",
+                        external_data_source=new_source_model,
+                        columns=postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                    )
+                    schema_model.table = table_model
+                    schema_model.save(update_fields=["table"])
 
             if should_sync and access_method == ExternalDataSource.AccessMethod.WAREHOUSE:
                 active_schemas.append(schema_model)
@@ -826,11 +842,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ):
                 from products.data_warehouse.backend.models.table import DataWarehouseTable
 
-                table_prefix = (
-                    f"{instance.prefix}_{instance.source_type}_".lower()
-                    if instance.prefix is not None and isinstance(instance.prefix, str) and instance.prefix != ""
-                    else f"{instance.source_type}_".lower()
-                )
                 schema_models = {
                     schema.name: schema
                     for schema in ExternalDataSchema.objects.filter(
@@ -843,7 +854,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     if schema_model is None:
                         continue
 
-                    expected_table_name = f"{table_prefix}{source_schema.name}".lower()
+                    expected_table_name = direct_postgres_table_name(instance, source_schema.name)
                     expected_columns = postgres_columns_to_dwh_columns(source_schema.columns)
                     schema_metadata = postgres_schema_metadata(source_schema.columns, source_schema.foreign_keys)
 

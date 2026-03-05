@@ -1130,6 +1130,54 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert isinstance(activitylog.fields.get("team"), LazyJoin)
         assert isinstance(team.fields.get("posthog_activitylogs"), LazyJoin)
 
+    def test_serialize_direct_postgres_skips_foreign_key_join_when_target_table_is_missing(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        only_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "session_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+
+        ExternalDataSchema.objects.create(
+            name="activitylog",
+            team=self.team,
+            source=source,
+            table=only_table,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [
+                        {
+                            "column": "session_id",
+                            "target_table": "sessions",
+                            "target_column": "id",
+                        }
+                    ]
+                }
+            },
+        )
+
+        database = Database.create_for(team=self.team)
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        assert "postgres.ph3.activitylog" in serialized
+
     def test_serialize_direct_postgres_table_uses_prefixed_name_in_default_mode(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team

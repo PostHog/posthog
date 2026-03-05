@@ -3,7 +3,7 @@ import typing as t
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -838,7 +838,7 @@ class TestExternalDataSource(APIBaseTest):
                 team_id=self.team.pk,
                 external_data_source=source,
                 deleted=False,
-                name="test_postgres_table_a",
+                name=f"postgres_{source.pk.hex}_table_a",
             ).count(),
             1,
         )
@@ -847,6 +847,148 @@ class TestExternalDataSource(APIBaseTest):
             schema.sync_type_config.get("schema_metadata", {}).get("foreign_keys"),
             [{"column": "user_id", "target_table": "posthog_user", "target_column": "id"}],
         )
+
+    def test_create_direct_postgres_requires_name(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "access_method": "direct",
+                "prefix": "   ",
+                "payload": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"message": "Name is required for direct query sources"})
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_direct_postgres_creates_only_selected_tables(self, mock_get_source):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+            ),
+            SourceSchema(
+                name="payments",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "access_method": "direct",
+                "prefix": "Primary database",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [
+                        {"name": "accounts", "should_sync": True, "sync_type": None},
+                        {"name": "payments", "should_sync": False, "sync_type": None},
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+
+        self.assertEqual(source.prefix, "Primary database")
+
+        accounts_schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="accounts")
+        payments_schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="payments")
+
+        self.assertTrue(accounts_schema.should_sync)
+        self.assertFalse(payments_schema.should_sync)
+        self.assertIsNotNone(accounts_schema.table)
+        self.assertIsNone(payments_schema.table)
+
+        self.assertEqual(
+            DataWarehouseTable.objects.filter(
+                team_id=self.team.pk,
+                external_data_source=source,
+                deleted=False,
+                name=f"postgres_{source.pk.hex}_accounts",
+            ).count(),
+            1,
+        )
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_direct_postgres_does_not_require_prefix_namespace(self, mock_get_source):
+        ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix=None,
+        )
+
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "access_method": "direct",
+                "prefix": "Read replica",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [{"name": "accounts", "should_sync": True, "sync_type": None}],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_database_schema(self):
         postgres_connection = psycopg.connect(

@@ -208,7 +208,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         assert to_field is not None
 
         user = cast(User, self.request.user)
-        DataWarehouseJoin.objects.create(
+        validation_join = DataWarehouseJoin.objects.create(
             team=self.team,
             source_table_name=source_table_name,
             source_table_key=serializer.validated_data["source_table_key"],
@@ -262,5 +262,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "hogql": validation_query.to_hogql(),
             }
             status_code = status.HTTP_400_BAD_REQUEST  # type: ignore[assignment]
+        finally:
+            validation_join.delete()
 
         return response.Response(response_data, status=status_code)

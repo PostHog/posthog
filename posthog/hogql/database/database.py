@@ -1440,6 +1440,8 @@ def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehou
         if isinstance(join_table, str) and isinstance(hogql_table.name, str):
             if "." in hogql_table.name and "." not in join_table:
                 join_table = ".".join([*hogql_table.name.split(".")[:-1], join_table])
+            if not database.has_table(join_table):
+                return
 
         hogql_table.fields[field_name] = LazyJoin(
             from_field=from_field,

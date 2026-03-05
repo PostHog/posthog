@@ -387,6 +387,9 @@ class TestViewLinkValidation(APIBaseTest):
                     data["hogql"],
                     f"SELECT validation.{payload['joining_table_key']} FROM {payload['source_table_name']} LIMIT 10",
                 )
+                self.assertFalse(
+                    DataWarehouseJoin.objects.filter(team=self.team, field_name="validation", deleted=False).exists()
+                )
 
     @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
     def test_system_table_success(self, _):
