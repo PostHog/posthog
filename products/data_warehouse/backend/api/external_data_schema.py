@@ -39,6 +39,87 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 logger = structlog.get_logger(__name__)
 
 
+POSTGRES_TO_CLICKHOUSE_TYPE = {
+    "smallint": "Int16",
+    "integer": "Int32",
+    "bigint": "Int64",
+    "real": "Float32",
+    "double precision": "Float64",
+    "numeric": "Float64",
+    "boolean": "Bool",
+    "date": "Date",
+    "timestamp without time zone": "DateTime64",
+    "timestamp with time zone": "DateTime64",
+    "character varying": "String",
+    "character": "String",
+    "text": "String",
+    "json": "String",
+    "jsonb": "String",
+    "uuid": "String",
+}
+
+
+HOGQL_BY_CLICKHOUSE_TYPE = {
+    "Int16": "integer",
+    "Int32": "integer",
+    "Int64": "integer",
+    "Float32": "float",
+    "Float64": "float",
+    "Bool": "boolean",
+    "Date": "date",
+    "DateTime64": "datetime",
+    "String": "string",
+}
+
+
+def direct_postgres_table_name(source: ExternalDataSource, schema_name: str) -> str:
+    return f"{source.source_type.lower()}_{source.pk.hex}_{schema_name}".lower()
+
+
+def postgres_schema_metadata_to_dwh_columns(schema_metadata: dict[str, Any] | None) -> dict[str, dict[str, str | bool]]:
+    resolved_columns: dict[str, dict[str, str | bool]] = {}
+    if not schema_metadata:
+        return resolved_columns
+
+    columns = schema_metadata.get("columns")
+    if not isinstance(columns, list):
+        return resolved_columns
+
+    for column in columns:
+        if not isinstance(column, dict):
+            continue
+        column_name = column.get("name")
+        postgres_type = column.get("data_type")
+        nullable = bool(column.get("is_nullable"))
+
+        if not isinstance(column_name, str) or not isinstance(postgres_type, str):
+            continue
+
+        normalized_type = postgres_type.lower()
+        clickhouse_type = POSTGRES_TO_CLICKHOUSE_TYPE.get(normalized_type)
+        if clickhouse_type is None:
+            if normalized_type.startswith("timestamp"):
+                clickhouse_type = "DateTime64"
+            elif normalized_type.startswith("numeric") or normalized_type.startswith("decimal"):
+                clickhouse_type = "Float64"
+            elif "int" in normalized_type:
+                clickhouse_type = "Int64"
+            else:
+                clickhouse_type = "String"
+
+        if nullable:
+            clickhouse_type = f"Nullable({clickhouse_type})"
+
+        raw_clickhouse_type = clickhouse_type.replace("Nullable(", "").replace(")", "")
+        resolved_columns[column_name] = {
+            "clickhouse": clickhouse_type,
+            "hogql": HOGQL_BY_CLICKHOUSE_TYPE.get(raw_clickhouse_type, "string"),
+            "valid": True,
+        }
+
+    return resolved_columns
+
+
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
@@ -194,6 +275,44 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         if should_sync is True and sync_type is None and instance.sync_type is None and not is_direct_query_source:
             raise ValidationError("Sync type must be set up first before enabling schema")
+
+        should_enable_direct_schema = should_sync is True and instance.should_sync is False and is_direct_query_source
+        if should_enable_direct_schema and instance.source.source_type == ExternalDataSourceType.POSTGRES:
+            from products.data_warehouse.backend.models.table import DataWarehouseTable
+
+            expected_table_name = direct_postgres_table_name(instance.source, instance.name)
+            expected_columns = postgres_schema_metadata_to_dwh_columns(instance.sync_type_config.get("schema_metadata"))
+
+            table_model = instance.table
+            if table_model is None:
+                table_model = DataWarehouseTable.objects.create(
+                    name=expected_table_name,
+                    format=DataWarehouseTable.TableFormat.Parquet,
+                    team_id=instance.team_id,
+                    url_pattern="direct://postgres",
+                    external_data_source=instance.source,
+                    columns=expected_columns,
+                )
+                validated_data["table"] = table_model
+            else:
+                table_model.name = expected_table_name
+                table_model.url_pattern = "direct://postgres"
+                table_model.external_data_source = instance.source
+                table_model.columns = expected_columns
+                table_model.deleted = False
+                table_model.deleted_at = None
+                table_model.save(
+                    update_fields=[
+                        "name",
+                        "url_pattern",
+                        "external_data_source",
+                        "columns",
+                        "deleted",
+                        "deleted_at",
+                        "updated_at",
+                    ]
+                )
+                validated_data["table"] = table_model
 
         if not is_direct_query_source:
             schedule_exists = external_data_workflow_exists(str(instance.id))

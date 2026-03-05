@@ -250,7 +250,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     allowBlankSensitiveFields: true,
                 })
             },
-            submit: async ({ payload = {}, description }) => {
+            submit: async ({ payload = {}, description, prefix, access_method }) => {
                 const sanitizedPayload = JSON.parse(JSON.stringify(payload)) as Record<string, any>
                 if (values.sourceFieldConfig?.fields) {
                     removeEmptySensitiveValues(values.sourceFieldConfig.fields, sanitizedPayload)
@@ -287,6 +287,8 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     await externalDataSourcesLogic.asyncActions.updateSource({
                         ...values.source!,
                         job_inputs: newJobInputs,
+                        prefix: prefix !== undefined ? prefix : values.source?.prefix,
+                        access_method: access_method !== undefined ? access_method : values.source?.access_method,
                         description: description !== '' ? description : (values.source?.description ?? null),
                     })
                     actions.loadSource()

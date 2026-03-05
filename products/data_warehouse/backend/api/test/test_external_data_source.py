@@ -1583,6 +1583,35 @@ class TestExternalDataSource(APIBaseTest):
         assert "passphrase" not in ssh_tunnel["auth"]
         assert "private_key" not in ssh_tunnel["auth"]
 
+    def test_update_direct_postgres_prefix(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            created_by=self.user,
+            prefix="Original name",
+            job_inputs={
+                "host": "172.16.0.0",
+                "port": "123",
+                "database": "database",
+                "user": "user",
+                "password": "password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
+            data={"prefix": " Updated name ", "access_method": "direct"},
+        )
+
+        assert response.status_code == 200, response.content
+        source.refresh_from_db()
+        assert source.prefix == "Updated name"
+
     def test_update_after_get_preserves_ssh_tunnel_credentials(self):
         """
         Regression test for P0 bug: updating a source after viewing it should preserve credentials.

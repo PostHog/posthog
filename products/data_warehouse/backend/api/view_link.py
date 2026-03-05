@@ -7,6 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import Call, Field
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import LazyJoin
 from posthog.hogql.database.utils import get_join_field_chain
 from posthog.hogql.errors import QueryError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -203,21 +204,33 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         source_table_name = serializer.validated_data["source_table_name"]
+        source_table_key = serializer.validated_data["source_table_key"]
+        joining_table_name = serializer.validated_data["joining_table_name"]
         joining_table_key = serializer.validated_data.get("joining_table_key")
+        from_field = get_join_field_chain(source_table_key)
         to_field = get_join_field_chain(joining_table_key)
+        assert from_field is not None
         assert to_field is not None
 
         user = cast(User, self.request.user)
-        validation_join = DataWarehouseJoin.objects.create(
+        validation_join = DataWarehouseJoin(
             team=self.team,
             source_table_name=source_table_name,
-            source_table_key=serializer.validated_data["source_table_key"],
-            joining_table_name=serializer.validated_data["joining_table_name"],
+            source_table_key=source_table_key,
+            joining_table_name=joining_table_name,
             joining_table_key=joining_table_key,
             field_name="validation",
             configuration={},
         )
         database = Database.create_for(team_id=self.team_id, user=user)
+        source_table = database.get_table(source_table_name)
+        joining_table = database.get_table(joining_table_name)
+        source_table.fields["validation"] = LazyJoin(
+            from_field=from_field,
+            to_field=to_field,
+            join_table=joining_table,
+            join_function=validation_join.join_function(),
+        )
         validation_query = parse_select(
             "SELECT {to_field} FROM {source_table_name} LIMIT 10",
             placeholders={
@@ -262,7 +275,5 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "hogql": validation_query.to_hogql(),
             }
             status_code = status.HTTP_400_BAD_REQUEST  # type: ignore[assignment]
-        finally:
-            validation_join.delete()
 
         return response.Response(response_data, status=status_code)

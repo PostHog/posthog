@@ -506,6 +506,9 @@ class TestUpdateExternalDataSchema:
             assert response.status_code == 200
             schema.refresh_from_db()
             assert schema.should_sync is True
+            assert schema.table is not None
+            assert schema.table.deleted is False
+            assert schema.table.url_pattern == "direct://postgres"
             mock_external_data_workflow_exists.assert_not_called()
             mock_sync_external_data_job_workflow.assert_not_called()
 

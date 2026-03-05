@@ -252,7 +252,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "latest_error",
             "last_run_at",
             "schemas",
-            "prefix",
             "revenue_analytics_config",
             "user_access_level",
         ]
@@ -389,6 +388,21 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
+        incoming_access_method = validated_data.get("access_method", instance.access_method)
+        incoming_prefix = validated_data.get("prefix", instance.prefix)
+        is_direct_postgres = (
+            incoming_access_method == ExternalDataSource.AccessMethod.DIRECT
+            and instance.source_type == ExternalDataSourceType.POSTGRES
+        )
+
+        if is_direct_postgres:
+            normalized_prefix = incoming_prefix.strip() if isinstance(incoming_prefix, str) else ""
+            if not normalized_prefix:
+                raise ValidationError("Name is required for direct query sources")
+            validated_data["prefix"] = normalized_prefix
+        else:
+            validated_data["prefix"] = instance.prefix
+
         existing_job_inputs = instance.job_inputs or {}
         incoming_job_inputs = validated_data.get("job_inputs", {})
 
