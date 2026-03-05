@@ -72,7 +72,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         ],
         actions: [
             toolbarConfigLogic,
-            ['logout'],
+            ['logout', 'setOAuthTokens'],
             actionsTabLogic,
             [
                 'showButtonActions',
@@ -436,6 +436,11 @@ export const toolbarLogic = kea<toolbarLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        setOAuthTokens: () => {
+            if (values.minimized) {
+                actions.toggleMinimized(false)
+            }
+        },
         setVisibleMenu: ({ visibleMenu }) => {
             actions.disableInspect()
             actions.disableHeatmap()

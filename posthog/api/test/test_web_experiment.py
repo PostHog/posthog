@@ -33,7 +33,7 @@ class TestWebExperiment(APIBaseTest):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_can_create_basic_web_experiment(self, mock_capture):
+    def test_can_create_basic_web_experiment(self, mock_report_user_action):
         response = self._create_web_experiment()
         response_data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, response_data
@@ -58,7 +58,7 @@ class TestWebExperiment(APIBaseTest):
         assert web_experiment.type == "web"
         assert web_experiment.variants.get("control") is not None
         assert web_experiment.variants.get("test") is not None
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             ANY,
             "feature flag created",
             {

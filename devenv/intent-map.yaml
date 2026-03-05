@@ -43,6 +43,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    coordination:
+        description: 'etcd-based coordination for PersonHog and Kafka partition assignment'
+        requires: [core_infra]
+        docker_profiles: [etcd]
+
     celery_workers:
         description: 'Celery background job processing'
         requires: [core_infra]
@@ -173,7 +178,7 @@ intents:
 
     feature_flags:
         description: 'Feature flag management and evaluation'
-        capabilities: [flag_evaluation, celery_workers, celery_scheduler, nodejs_feature_flags]
+        capabilities: [flag_evaluation, coordination, celery_workers, celery_scheduler, nodejs_feature_flags]
 
     experiments:
         description: 'A/B testing and experimentation'
