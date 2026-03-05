@@ -1053,7 +1053,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     ordering = "-created_by"
 
     def safely_get_queryset(self, queryset):
-        user = cast(User, self.request.user)
+        user = self.request.user
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(user).team_ids_visible_for_user
         queryset = queryset.filter(id__in=visible_teams_ids)
@@ -1163,7 +1163,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         organization_id = team.organization_id
         team_name = team.name
 
-        user = cast(User, self.request.user)
+        user = self.request.user
 
         # Queue background task to handle all deletion
         # bulky postgres, batch exports, team record, ClickHouse, email
@@ -1269,7 +1269,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
                 if created:
                     report_user_action(
-                        cast(User, request.user),
+                        request.user,
                         "default evaluation tag added",
                         {"team_id": team.id, "tag_name": tag_name},
                         team=team,
@@ -1293,7 +1293,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
                     if deleted_count > 0:
                         report_user_action(
-                            cast(User, request.user),
+                            request.user,
                             "default evaluation tag removed",
                             {"team_id": team.id, "tag_name": tag_name},
                             team=team,
@@ -1347,7 +1347,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         config.save()
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "default release conditions updated",
             {"team_id": team.id, "enabled": enabled, "group_count": len(default_groups)},
         )
@@ -1539,7 +1539,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @cached_property
     def user_permissions(self):
         team = self.get_object() if self.action in actions_that_require_current_team else None
-        return UserPermissions(cast(User, self.request.user), team)
+        return UserPermissions(self.request.user, team)
 
 
 class RootTeamViewSet(TeamViewSet):

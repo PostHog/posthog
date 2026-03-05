@@ -26,7 +26,6 @@ from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventDefinition, ObjectMediaPreview, Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import get_safe_cache, relative_date_parse
@@ -156,7 +155,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         # Report user action for analytics
         if request and request.user:
             report_user_action(
-                cast(User, request.user),
+                request.user,
                 "event definition created",
                 {"name": event_definition.name},
                 team=view.team,
@@ -331,7 +330,7 @@ class EventDefinitionViewSet(
 
     def perform_create(self, serializer):
         """Handle context and side effects for event definition creation."""
-        user = cast(User, self.request.user)
+        user = self.request.user
 
         # Build save kwargs - only include updated_by for enterprise
         save_kwargs: dict[str, Any] = {
@@ -361,7 +360,7 @@ class EventDefinitionViewSet(
 
     def perform_update(self, serializer):
         """Handle context and side effects for event definition updates."""
-        user = cast(User, self.request.user)
+        user = self.request.user
         instance = serializer.instance
 
         # Capture before state for activity logging
@@ -397,15 +396,14 @@ class EventDefinitionViewSet(
         instance: EventDefinition = self.get_object()
         instance_id: str = str(instance.id)
         self.perform_destroy(instance)
-        # Casting, since an anonymous use CANNOT access this endpoint
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "event definition deleted",
             {"name": instance.name},
             team=self.team,
             request=request,
         )
-        user = cast(User, request.user)
+        user = request.user
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,

@@ -10,7 +10,6 @@ Endpoints:
 """
 
 import time
-from typing import cast
 
 from django.core.cache import cache
 
@@ -25,7 +24,6 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
     LLMAnalyticsSummarizationBurstThrottle,
@@ -419,7 +417,7 @@ The response includes the summary text and optional metadata.
 
             # Track user action
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma summarization generated",
                 {
                     "summarize_type": summarize_type,

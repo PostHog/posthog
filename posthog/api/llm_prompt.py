@@ -1,5 +1,5 @@
 import re
-from typing import Any, cast
+from typing import Any
 
 from django.conf import settings
 
@@ -18,7 +18,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import JwtAuthentication, SessionAuthentication
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models import User
 from posthog.models.llm_prompt import LLMPrompt
 from posthog.permissions import AccessControlPermission, get_organization_from_view
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
@@ -35,7 +34,7 @@ LLM_PROMPT_FEATURE_FLAGS = ("prompt-management", "llm-analytics-early-adopters")
 
 class LLMPromptFeatureFlagPermission(BasePermission):
     def has_permission(self, request, view) -> bool:
-        user = cast(User, request.user)
+        user = request.user
         organization = get_organization_from_view(view)
         org_id = str(organization.id)
         distinct_id = user.distinct_id or str(user.uuid)
@@ -166,7 +165,7 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
         instance = serializer.save()
 
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma prompt created",
             {
                 "prompt_id": str(instance.id),
@@ -183,7 +182,7 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
 
         if is_being_deleted:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma prompt deleted",
                 {
                     "prompt_id": str(instance.id),
@@ -197,7 +196,7 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
 
             if changed_fields:
                 report_user_action(
-                    cast(User, self.request.user),
+                    self.request.user,
                     "llma prompt updated",
                     {
                         "prompt_id": str(instance.id),

@@ -20,7 +20,7 @@ from posthog.api.utils import action
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventProperty, PropertyDefinition, User
+from posthog.models import EventProperty, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
@@ -824,9 +824,8 @@ class PropertyDefinitionViewSet(
         instance: PropertyDefinition = self.get_object()
         instance_id = str(instance.id)
         self.perform_destroy(instance)
-        # Casting, since an anonymous use CANNOT access this endpoint
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "property definition deleted",
             {"name": instance.name, "type": instance.get_type_display()},
             team=self.team,
@@ -836,7 +835,7 @@ class PropertyDefinitionViewSet(
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
-            user=cast(User, request.user),
+            user=request.user,
             was_impersonated=is_impersonated_session(self.request),
             item_id=instance_id,
             scope="PropertyDefinition",

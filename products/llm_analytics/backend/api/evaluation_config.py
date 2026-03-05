@@ -1,5 +1,3 @@
-from typing import cast
-
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -9,7 +7,6 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.permissions import AccessControlPermission
 
 from ..models.evaluation_config import EvaluationConfig
@@ -88,7 +85,7 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         config.save(update_fields=["active_provider_key", "updated_at"])
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "llma evaluation config active key set",
             {
                 "key_id": str(key.id),

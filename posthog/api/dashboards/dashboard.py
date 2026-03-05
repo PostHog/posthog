@@ -1054,17 +1054,17 @@ class DashboardsViewSet(
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = Dashboard.objects.create(
             team_id=self.team_id,
-            created_by=cast(User, request.user),
+            created_by=request.user,
             _create_in_folder=request.data.get("_create_in_folder"),  # type: ignore
         )
 
         try:
             dashboard_template = DashboardTemplate(**request.data["template"])
             creation_context = request.data.get("creation_context")
-            create_from_template(dashboard, dashboard_template, cast(User, request.user))
+            create_from_template(dashboard, dashboard_template, request.user)
 
             report_user_action(
-                cast(User, request.user),
+                request.user,
                 "dashboard created",
                 {
                     **dashboard.get_analytics_metadata(),
@@ -1130,11 +1130,11 @@ class DashboardsViewSet(
                 name=template.template_name,
                 description=template.dashboard_description or "",
                 filters={**(template.dashboard_filters or {}), "__template_version": 1},
-                created_by=cast(User, request.user),
+                created_by=request.user,
                 creation_mode="unlisted",
             )
 
-            create_from_template(dashboard, template, cast(User, request.user))
+            create_from_template(dashboard, template, request.user)
 
             return Response(
                 DashboardSerializer(dashboard, context=self.get_serializer_context()).data,

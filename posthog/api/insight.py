@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import timedelta
 from functools import lru_cache
-from typing import Any, Union, cast
+from typing import Any, Union
 
 from django.db import transaction
 from django.db.models import Count, F, Max, Prefetch, QuerySet
@@ -207,7 +207,7 @@ def capture_legacy_api_call(request: request.Request, team: Team) -> None:
         }
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "legacy insight endpoint called",
             properties,
             team=team,
@@ -1081,7 +1081,7 @@ class InsightViewSet(
         Returns basic details about the last 5 insights viewed by this user. Most recently viewed first.
         """
         insight_queryset = (
-            InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
+            InsightViewed.objects.filter(team=self.team, user=request.user)
             .select_related("insight")
             .exclude(insight__deleted=True)
             .only("insight")
