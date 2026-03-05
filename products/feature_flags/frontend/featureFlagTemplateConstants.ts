@@ -1,3 +1,5 @@
+import { type ComponentType } from 'react'
+
 import { IconRocket, IconServer } from '@posthog/icons'
 
 import type { FlagIntent } from 'scenes/feature-flags/featureFlagIntentWarningLogic'
@@ -8,13 +10,13 @@ export const TEMPLATE_NAMES: Record<TemplateKey, string> = {
     simple: 'Percentage rollout',
     targeted: 'Targeted release',
     multivariate: 'Multivariate',
-    'targeted-multivariate': 'Targeted Multivariate',
+    'targeted-multivariate': 'Targeted multivariate',
 }
 
 export interface IntentMetadata {
     name: string
     description: string
-    icon: React.ComponentType<{ className?: string }>
+    icon: ComponentType<{ className?: string }>
     consequence: string
     docUrl: string
 }

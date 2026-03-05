@@ -225,6 +225,30 @@ function IntentIssuesSummary({ issues, intent }: { issues: string[]; intent: Fla
     )
 }
 
+function IntentWarningsBanner({ flagId }: { flagId: FeatureFlagLogicProps['id'] }): JSX.Element | null {
+    const { intentIssues, flagIntent } = useValues(featureFlagIntentWarningLogic({ id: flagId }))
+    return <IntentIssuesSummary issues={intentIssues} intent={flagIntent} />
+}
+
+function UnreachableConditionBanner({
+    flagId,
+    groupIndex,
+}: {
+    flagId: FeatureFlagLogicProps['id']
+    groupIndex: number
+}): JSX.Element | null {
+    const { unreachableGroups } = useValues(featureFlagIntentWarningLogic({ id: flagId }))
+    if (!unreachableGroups.has(groupIndex)) {
+        return null
+    }
+    return (
+        <LemonBanner type="warning" className="mb-1">
+            <strong>Unreachable condition</strong> — A previous condition matches all users at 100% rollout, so this
+            condition will never be evaluated.
+        </LemonBanner>
+    )
+}
+
 export function FeatureFlagReleaseConditionsCollapsible({
     id,
     flagId,
@@ -255,9 +279,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
         openConditions,
     } = useValues(releaseConditionsLogic)
 
-    const { unreachableGroups, intentIssues, flagIntent } = useValues(
-        featureFlagIntentWarningLogic({ id: flagId ?? 'new' })
-    )
     const {
         updateConditionSet,
         removeConditionSet,
@@ -443,7 +464,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 </div>
             )}
 
-            <IntentIssuesSummary issues={intentIssues} intent={flagIntent} />
+            {flagId && <IntentWarningsBanner flagId={flagId} />}
 
             <div ref={collapseRef}>
                 {filterGroups.map((group, index) => (
@@ -453,12 +474,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 or
                             </div>
                         )}
-                        {unreachableGroups.has(index) && (
-                            <LemonBanner type="warning" className="mb-1">
-                                <strong>Unreachable condition</strong> — A previous condition matches all users at 100%
-                                rollout, so this condition will never be evaluated.
-                            </LemonBanner>
-                        )}
+                        {flagId && <UnreachableConditionBanner flagId={flagId} groupIndex={index} />}
                         <LemonCollapse
                             multiple
                             activeKeys={openConditions}

@@ -357,27 +357,11 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                         : undefined
                                 }
                             >
-                                {({ isEditing }) =>
-                                    isEditing ? (
-                                        <FeatureFlagReleaseConditionsCollapsible
-                                            id={String(featureFlag.id)}
-                                            flagId={featureFlag.id ?? 'new'}
-                                            filters={sectionDraft?.filters ?? featureFlag.filters}
-                                            onChange={(filters) => updateSectionDraft({ filters })}
-                                            nonEmptyFeatureFlagVariants={
-                                                featureFlag.filters?.multivariate?.variants?.filter((v) => !!v.key) ??
-                                                []
-                                            }
-                                            isDisabled={!featureFlag.active}
-                                        />
-                                    ) : (
-                                        <FeatureFlagReleaseConditionsReadonly
-                                            id={String(featureFlag.id)}
-                                            filters={featureFlag.filters}
-                                            isDisabled={!featureFlag.active}
-                                        />
-                                    )
-                                }
+                                <FeatureFlagReleaseConditionsReadonly
+                                    id={String(featureFlag.id)}
+                                    filters={featureFlag.filters}
+                                    isDisabled={!featureFlag.active}
+                                />
                             </EditableOverviewSection>
                         </>
                     )}

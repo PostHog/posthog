@@ -116,6 +116,7 @@ function maybeApplyUrlIntent(
             ensure_experience_continuity: false,
         })
     }
+    // 'first-page-load' applies no presets — it only surfaces warnings via featureFlagIntentWarningLogic
 }
 
 type FlagType = 'boolean' | 'multivariate' | 'remote_config'
