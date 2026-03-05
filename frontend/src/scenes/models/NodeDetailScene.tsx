@@ -11,6 +11,8 @@ import { ProductKey } from "~/queries/schema/schema-general";
 
 import { NODE_TYPE_SETTINGS } from './constants'
 import { NodeDetailColumns } from './NodeDetailColumns'
+import { NodeDetailLineage } from './NodeDetailLineage'
+import { NodeDetailLineageModal } from './NodeDetailLineageModal'
 import { NodeDetailQuery } from './NodeDetailQuery'
 import { NodeDetailQueryModal } from './NodeDetailQueryModal'
 import { nodeDetailSceneLogic, NodeDetailSceneLogicProps } from './nodeDetailSceneLogic'
@@ -84,9 +86,13 @@ export function NodeDetailScene({ id }: { id?: string } = {}): JSX.Element {
         ) : (
           <NodeDetailColumns id={logicProps.id} />
         )}
+
+        {/* Lineage */}
+        <NodeDetailLineage id={logicProps.id} />
             </div>
 
-            {hasQuery && <NodeDetailQueryModal id={logicProps.id} />}
-        </SceneContent>
-    )
+      {hasQuery && <NodeDetailQueryModal id={logicProps.id} />}
+      <NodeDetailLineageModal id={logicProps.id} />
+    </SceneContent>
+  );
 }
