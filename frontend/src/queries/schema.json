@@ -19148,6 +19148,88 @@
             "enum": ["new", "resurrecting", "returning", "dormant"],
             "type": "string"
         },
+        "LinearIssueSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "identifier": {
+                    "type": "string"
+                },
+                "labels": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "number": {
+                    "type": "number"
+                },
+                "priority": {
+                    "type": "number"
+                },
+                "priority_label": {
+                    "type": "string"
+                },
+                "state_name": {
+                    "type": ["string", "null"]
+                },
+                "state_type": {
+                    "type": ["string", "null"]
+                },
+                "team_name": {
+                    "type": ["string", "null"]
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "url",
+                "identifier",
+                "number",
+                "priority",
+                "priority_label",
+                "labels",
+                "state_name",
+                "state_type",
+                "team_name",
+                "created_at",
+                "updated_at"
+            ],
+            "type": "object"
+        },
+        "LinearIssueSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/LinearIssueSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "linear",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "issue",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "LinkedinAdsDefaultSources": {
             "enum": ["linkedin", "li"],
             "type": "string"
@@ -31092,7 +31174,7 @@
         },
         "SignalInput": {
             "discriminator": {
-                "propertyName": "source_type"
+                "propertyName": "source_product"
             },
             "oneOf": [
                 {
@@ -31106,9 +31188,12 @@
                 },
                 {
                     "$ref": "#/definitions/GithubIssueSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/LinearIssueSignalInput"
                 }
             ],
-            "required": ["source_type"],
+            "required": ["source_product"],
             "type": "object"
         },
         "SimilarIssue": {
@@ -35469,7 +35554,7 @@
                     "type": "string"
                 },
                 "priority": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "status": {
                     "type": "string"
@@ -35481,7 +35566,7 @@
                     "type": "array"
                 },
                 "type": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "url": {
                     "type": "string"

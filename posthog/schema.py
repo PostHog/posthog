@@ -2330,6 +2330,35 @@ class LifecycleToggle(StrEnum):
     DORMANT = "dormant"
 
 
+class LinearIssueSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    identifier: str
+    labels: list[str]
+    number: float
+    priority: float
+    priority_label: str
+    state_name: str | None = None
+    state_type: str | None = None
+    team_name: str | None = None
+    updated_at: str
+    url: str
+
+
+class LinearIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LinearIssueSignalExtra
+    source_id: str
+    source_product: Literal["linear"] = "linear"
+    source_type: Literal["issue"] = "issue"
+    weight: float
+
+
 class LinkedinAdsDefaultSources(StrEnum):
     LINKEDIN = "linkedin"
     LI = "li"
@@ -4432,10 +4461,10 @@ class ZendeskTicketSignalExtra(BaseModel):
         extra="forbid",
     )
     created_at: str
-    priority: str
+    priority: str | None = None
     status: str
     tags: list[str]
-    type: str
+    type: str | None = None
     url: str
 
 
@@ -6669,12 +6698,20 @@ class SessionsTimelineQueryResponse(BaseModel):
 
 class SignalInput(
     RootModel[
-        SessionSegmentClusterSignalInput | LlmEvaluationSignalInput | ZendeskTicketSignalInput | GithubIssueSignalInput
+        SessionSegmentClusterSignalInput
+        | LlmEvaluationSignalInput
+        | ZendeskTicketSignalInput
+        | GithubIssueSignalInput
+        | LinearIssueSignalInput
     ]
 ):
     root: (
-        SessionSegmentClusterSignalInput | LlmEvaluationSignalInput | ZendeskTicketSignalInput | GithubIssueSignalInput
-    ) = Field(..., discriminator="source_type")
+        SessionSegmentClusterSignalInput
+        | LlmEvaluationSignalInput
+        | ZendeskTicketSignalInput
+        | GithubIssueSignalInput
+        | LinearIssueSignalInput
+    ) = Field(..., discriminator="source_product")
 
 
 class SourceFieldFileUploadConfig(BaseModel):
