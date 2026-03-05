@@ -143,7 +143,7 @@ class _DeleteRecordingsWorkflowInterceptor(WorkflowInboundInterceptor):
             description="End-to-end workflow execution latency",
             histogram_attributes={"workflow_type": workflow_type},
         ):
-            status = "completed"
+            status = "COMPLETED"
             try:
                 result = await super().execute_workflow(input)
                 meter = get_metric_meter({"workflow_type": workflow_type, "status": status})
@@ -153,7 +153,7 @@ class _DeleteRecordingsWorkflowInterceptor(WorkflowInboundInterceptor):
                 ).add(1)
                 return result
             except Exception:
-                status = "failed"
+                status = "FAILED"
                 meter = get_metric_meter({"workflow_type": workflow_type, "status": status})
                 meter.create_counter(
                     "delete_recordings_workflow_finished",
