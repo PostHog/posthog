@@ -440,8 +440,8 @@ class TestQueryRunner(BaseTest):
 
         runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get() - before_success == 0
-        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get() - before_failure == 1
+        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get() - before_success == 1
+        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get() - before_failure == 0
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
 
     def test_query_execution_metrics_on_exception(self):

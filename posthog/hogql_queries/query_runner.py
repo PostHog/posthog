@@ -1307,6 +1307,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_start = perf_counter()
             try:
                 query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
+                QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="success").inc()
             except Exception:
                 QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="failure").inc()
                 raise
@@ -1346,8 +1347,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Don't cache debug queries with errors and export queries
             errors: Optional[list] = fresh_response_dict.get("error", None)
             has_error = errors is not None and len(errors) > 0
-
-            QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="failure" if has_error else "success").inc()
 
             if not has_error and self.limit_context != LimitContext.EXPORT:
                 cache_manager.set_cache_data(
