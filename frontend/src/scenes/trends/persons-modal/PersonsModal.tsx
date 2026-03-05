@@ -304,7 +304,7 @@ export function PersonsModal({
                                     Download CSV
                                 </LemonButton>
                             )}
-                            {actors.length > 0 && !isGroupType(actors[0]) && (
+                            {actors.length > 0 && !isGroupType(actors[0]) && !hasSessions && (
                                 <LemonButton
                                     onClick={() => setIsCohortModalOpen(true)}
                                     type="secondary"
