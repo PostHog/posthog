@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { EXPERIMENT_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { ExperimentCreateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -21,18 +22,21 @@ export const createExperimentHandler: ToolBase<typeof schema>['handler'] = async
     }
 
     const experiment = result.data
-    const experimentWithUrl = {
+    return {
         ...experiment,
-        url: `${context.api.getProjectBaseUrl(projectId)}/experiments/${experiment.id}`,
+        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/experiments/${experiment.id}`,
     }
-
-    return experimentWithUrl
 }
 
 const tool = (): ToolBase<typeof schema> => ({
     name: 'experiment-create',
     schema,
     handler: createExperimentHandler,
+    _meta: {
+        ui: {
+            resourceUri: EXPERIMENT_RESOURCE_URI,
+        },
+    },
 })
 
 export default tool

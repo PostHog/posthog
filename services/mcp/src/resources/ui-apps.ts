@@ -13,6 +13,9 @@ import {
     ERROR_DETAILS_RESOURCE_URI,
     ERROR_ISSUE_LIST_RESOURCE_URI,
     ERROR_ISSUE_RESOURCE_URI,
+    EXPERIMENT_LIST_RESOURCE_URI,
+    EXPERIMENT_RESOURCE_URI,
+    EXPERIMENT_RESULTS_RESOURCE_URI,
     QUERY_RESULTS_RESOURCE_URI,
 } from './ui-apps-constants'
 
@@ -26,6 +29,9 @@ import debugHtml from '../../ui-apps-dist/src/ui-apps/apps/debug/index.html'
 import errorDetailsHtml from '../../ui-apps-dist/src/ui-apps/apps/error-details/index.html'
 import errorIssueListHtml from '../../ui-apps-dist/src/ui-apps/apps/error-issue-list/index.html'
 import errorIssueHtml from '../../ui-apps-dist/src/ui-apps/apps/error-issue/index.html'
+import experimentListHtml from '../../ui-apps-dist/src/ui-apps/apps/experiment-list/index.html'
+import experimentResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/experiment-results/index.html'
+import experimentHtml from '../../ui-apps-dist/src/ui-apps/apps/experiment/index.html'
 import queryResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/query-results/index.html'
 
 const UI_APPS: Array<{ name: string; uri: string; description: string; html: string }> = [
@@ -66,6 +72,25 @@ const UI_APPS: Array<{ name: string; uri: string; description: string; html: str
         uri: ERROR_ISSUE_LIST_RESOURCE_URI,
         description: 'Error tracking issue list view',
         html: errorIssueListHtml,
+    },
+    // Experiments
+    {
+        name: 'Experiment',
+        uri: EXPERIMENT_RESOURCE_URI,
+        description: 'Experiment detail view',
+        html: experimentHtml,
+    },
+    {
+        name: 'Experiment list',
+        uri: EXPERIMENT_LIST_RESOURCE_URI,
+        description: 'Experiment list view',
+        html: experimentListHtml,
+    },
+    {
+        name: 'Experiment results',
+        uri: EXPERIMENT_RESULTS_RESOURCE_URI,
+        description: 'Experiment results visualization',
+        html: experimentResultsHtml,
     },
 ]
 

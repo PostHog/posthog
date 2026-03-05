@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { EXPERIMENT_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { ExperimentUpdateTransformSchema } from '@/schema/experiments'
 import { ExperimentUpdateSchema } from '@/schema/tool-inputs'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -25,12 +26,10 @@ export const updateHandler: ToolBase<typeof schema>['handler'] = async (context:
         throw new Error(`Failed to update experiment: ${updateResult.error.message}`)
     }
 
-    const experimentWithUrl = {
+    return {
         ...updateResult.data,
-        url: `${context.api.getProjectBaseUrl(projectId)}/experiments/${updateResult.data.id}`,
+        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/experiments/${updateResult.data.id}`,
     }
-
-    return experimentWithUrl
 }
 
 const definition = getToolDefinition('experiment-update')
@@ -47,6 +46,11 @@ const tool = (): Tool<typeof schema> => ({
         idempotentHint: true,
         openWorldHint: true,
         readOnlyHint: false,
+    },
+    _meta: {
+        ui: {
+            resourceUri: EXPERIMENT_RESOURCE_URI,
+        },
     },
 })
 
