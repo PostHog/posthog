@@ -78,6 +78,10 @@ class TestSentrySource:
         assert issues_schema.supports_incremental is True
         assert len(issues_schema.incremental_fields) == 2
 
+        issue_tag_values_schema = next(schema for schema in schemas if schema.name == "issue_tag_values")
+        assert issue_tag_values_schema.supports_incremental is True
+        assert issue_tag_values_schema.incremental_fields[0]["field"] == "lastSeen"
+
     @parameterized.expand(
         [
             ("valid", True, None),

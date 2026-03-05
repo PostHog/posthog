@@ -278,12 +278,17 @@ class TestSentryTransport:
 
     @patch("posthog.temporal.data_imports.sources.sentry.sentry.external_requests.get")
     def test_issue_tag_values_custom_fanout_row_format(self, mock_get) -> None:
+        seen_issues_params: list[dict | None] = []
+        seen_values_params: list[dict | None] = []
+
         def side_effect(url, headers=None, params=None, timeout=None):
             if url.endswith("/organizations/acme/issues/"):
+                seen_issues_params.append(params)
                 return _response([{"id": "100"}])
             if url.endswith("/organizations/acme/issues/100/tags/"):
                 return _response([{"key": "browser"}])
             if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                seen_values_params.append(params)
                 return _response([{"value": "Chrome", "timesSeen": 1}])
             return _response([])
 
@@ -303,6 +308,48 @@ class TestSentryTransport:
         row = rows[0]
         assert row["issue_id"] == "100"
         assert row["tag_key"] == "browser"
+        assert seen_issues_params == [{"limit": 100, "query": "", "sort": "date"}]
+        assert seen_values_params == [{"limit": 100, "sort": "-date"}]
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.external_requests.get")
+    def test_issue_tag_values_incremental_stops_at_last_seen_cutoff(self, mock_get) -> None:
+        cutoff = datetime(2026, 3, 3, 0, 0, 0, tzinfo=UTC)
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "100"}])
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                return _response(
+                    [
+                        {"value": "Chrome", "lastSeen": "2026-03-05T12:00:00Z"},
+                        {"value": "Firefox", "lastSeen": "2026-03-01T09:00:00Z"},
+                    ],
+                    link_header='<https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:0>; rel="next"; results="true"',
+                )
+            if "tags/browser/values/?cursor=0:100:0" in url:
+                raise AssertionError("should not request the next page after reaching cutoff")
+            return _response([])
+
+        mock_get.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=cutoff,
+            incremental_field="lastSeen",
+        )
+
+        rows = list(resp.items())
+        assert rows == [
+            {"value": "Chrome", "lastSeen": "2026-03-05T12:00:00Z", "issue_id": "100", "tag_key": "browser"}
+        ]
 
     # ----- rest_api_resources config assertions -----
 

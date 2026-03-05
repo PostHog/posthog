@@ -135,7 +135,17 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
     "issue_tag_values": SentryEndpointConfig(
         name="issue_tag_values",
         path="/organizations/{organization_slug}/issues/{issue_id}/tags/{tag_key}/values/",
-        incremental_fields=[],
+        incremental_fields=[
+            {
+                "label": "lastSeen",
+                "type": IncrementalFieldType.DateTime,
+                "field": "lastSeen",
+                "field_type": IncrementalFieldType.DateTime,
+            }
+        ],
+        default_incremental_field="lastSeen",
+        partition_key="lastSeen",
+        sort_mode="desc",
         primary_key=["issue_id", "tag_key", "value"],
         is_issue_fanout=True,
     ),

@@ -6,6 +6,7 @@ from typing import Any, Optional
 from urllib.parse import quote, urljoin
 
 import requests
+from dateutil import parser as dateutil_parser
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
@@ -32,18 +33,25 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
-def _start_param_for_sentry(value: Any) -> str:
-    """Format/cap datetime-like values for Sentry `start` and `end` params."""
+def _coerce_datetime_to_utc(value: Any) -> datetime | None:
     if isinstance(value, date) and not isinstance(value, datetime):
         value = datetime.combine(value, datetime.min.time())
 
     if not isinstance(value, datetime):
-        return str(value)
+        return None
 
     if value.tzinfo is None:
-        value = value.replace(tzinfo=UTC)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
-    capped = min(value.astimezone(UTC), datetime.now(UTC))
+
+def _start_param_for_sentry(value: Any) -> str:
+    """Format/cap datetime-like values for Sentry `start` and `end` params."""
+    normalized_value = _coerce_datetime_to_utc(value)
+    if normalized_value is None:
+        return str(value)
+
+    capped = min(normalized_value, datetime.now(UTC))
     # Keep format conservative for API parsing: no timezone suffix, second precision.
     return capped.strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -172,6 +180,16 @@ def _iter_endpoint_rows(
         current_params = None
 
 
+def _parse_datetime_value(value: Any) -> datetime | None:
+    if isinstance(value, str):
+        try:
+            parsed_value = dateutil_parser.parse(value)
+        except (ValueError, TypeError):
+            return None
+        return _coerce_datetime_to_utc(parsed_value)
+    return _coerce_datetime_to_utc(value)
+
+
 # ---------------------------------------------------------------------------
 # Issue tag-values fan-out (custom iterator — requires two-level fan-out:
 # issues → tags-per-issue → values-per-tag.  Can't be expressed as a single
@@ -183,7 +201,9 @@ def _iter_issue_tag_values_rows(
     base_api_url: str,
     headers: dict[str, str],
     organization_slug: str,
+    incremental_last_seen_max: Any = None,
 ) -> Iterator[dict[str, Any]]:
+    cutoff_last_seen = _parse_datetime_value(incremental_last_seen_max)
     issues = _iter_endpoint_rows(
         base_api_url=base_api_url,
         path=f"/organizations/{organization_slug}/issues/",
@@ -192,6 +212,11 @@ def _iter_issue_tag_values_rows(
     )
 
     for issue in issues:
+        if cutoff_last_seen is not None:
+            issue_last_seen = _parse_datetime_value(issue.get("lastSeen"))
+            if issue_last_seen is not None and issue_last_seen <= cutoff_last_seen:
+                break
+
         issue_id = str(issue["id"])
 
         tags = list(
@@ -210,16 +235,39 @@ def _iter_issue_tag_values_rows(
                 continue
 
             values_path = f"/organizations/{organization_slug}/issues/{issue_id}/tags/{quote(tag_key, safe='')}/values/"
-            for row in _iter_endpoint_rows(
-                base_api_url=base_api_url,
-                path=values_path,
-                headers=headers,
-                params={"limit": 100},
-                max_pages=_MAX_PAGES_PER_PARENT,
-            ):
-                row["issue_id"] = issue_id
-                row["tag_key"] = tag_key
-                yield row
+            values_url = urljoin(f"{base_api_url}/", values_path.lstrip("/"))
+            values_params: dict[str, Any] | None = {"limit": 100, "sort": "-date"}
+            pages_read = 0
+
+            while values_url:
+                if pages_read >= _MAX_PAGES_PER_PARENT:
+                    break
+
+                response = _request_with_retry(url=values_url, headers=headers, params=values_params)
+                response.raise_for_status()
+                rows = _extract_rows(response.json())
+
+                should_stop = False
+                for row in rows:
+                    if cutoff_last_seen is not None:
+                        row_last_seen = _parse_datetime_value(row.get("lastSeen"))
+                        if row_last_seen is not None and row_last_seen <= cutoff_last_seen:
+                            should_stop = True
+                            break
+
+                    row["issue_id"] = issue_id
+                    row["tag_key"] = tag_key
+                    yield row
+
+                pages_read += 1
+                if should_stop:
+                    break
+
+                next_url = _parse_next_link(response.headers.get("Link", ""))
+                if not next_url:
+                    break
+                values_url = urljoin(f"{base_api_url}/", next_url)
+                values_params = None
 
 
 # ---------------------------------------------------------------------------
@@ -493,6 +541,7 @@ def sentry_source(
                     base_api_url=base_api_url,
                     headers=headers,
                     organization_slug=organization_slug,
+                    incremental_last_seen_max=db_incremental_field_last_value if should_use_incremental_field else None,
                 ),
             )
 
