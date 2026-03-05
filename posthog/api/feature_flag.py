@@ -141,6 +141,11 @@ LOCAL_EVALUATION_ETAG_COUNTER = Counter(
     labelnames=["result"],  # "hit" (304), "miss" (200), "none" (no client etag)
 )
 
+LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER = Counter(
+    "posthog_local_evaluation_secret_api_key_in_body_total",
+    "Local evaluation requests where secret_api_key was passed in request body instead of Authorization header",
+)
+
 
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     """Find all active flags that depend on the given flag via flag-type filter properties."""
@@ -2530,6 +2535,12 @@ class FeatureFlagViewSet(
         # **kwargs is required because DRF passes parent_lookup_project_id from nested router
         start_time = time.time()
         logger = logging.getLogger(__name__)
+
+        # Track if secret_api_key was passed in request body (migration observability)
+        if request.data.get("secret_api_key") and isinstance(
+            request.successful_authenticator, ProjectSecretAPIKeyAuthentication
+        ):
+            LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER.inc()
 
         # Use validated boolean value from serializer
         include_cohorts = request.validated_query_data.get("send_cohorts", False)

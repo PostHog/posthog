@@ -109,7 +109,7 @@ impl FromStr for TeamIdCollection {
 }
 
 /// Flag definitions rate limits configuration
-/// Parses JSON from FLAG_DEFINITIONS_RATE_LIMITS environment variable
+/// Parses JSON from LOCAL_EVAL_RATE_LIMITS or FLAG_DEFINITIONS_RATE_LIMITS environment variable
 /// Format: {"team_id": "rate_string", ...}
 /// Example: {"123": "1200/minute", "456": "2400/hour"}
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -128,7 +128,7 @@ impl FromStr for FlagDefinitionsRateLimits {
 
         // Parse JSON into HashMap<String, String>
         let parsed: HashMap<String, String> = serde_json::from_str(s)
-            .map_err(|e| format!("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS as JSON: {e}"))?;
+            .map_err(|e| format!("Failed to parse rate limits as JSON: {e}"))?;
 
         // Convert string keys to TeamId
         let mut rate_limits = HashMap::new();
@@ -383,13 +383,17 @@ pub struct Config {
 
     // Flag definitions rate limiting
     // Default rate limit for all teams (requests per minute)
-    // Can be overridden per-team using FLAG_DEFINITIONS_RATE_LIMITS
+    // Can be overridden per-team using LOCAL_EVAL_RATE_LIMITS or FLAG_DEFINITIONS_RATE_LIMITS
     #[envconfig(from = "FLAG_DEFINITIONS_DEFAULT_RATE_PER_MINUTE", default = "600")]
     pub flag_definitions_default_rate_per_minute: u32,
 
     // Per-team rate limit overrides for flag definitions endpoint
+    // Reads from LOCAL_EVAL_RATE_LIMITS (shared with Django) with FLAG_DEFINITIONS_RATE_LIMITS as fallback
     // JSON format: {"team_id": "rate_string", ...}
     // Example: {"123": "1200/minute", "456": "2400/hour"}
+    #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
+    pub local_eval_rate_limits: FlagDefinitionsRateLimits,
+
     #[envconfig(from = "FLAG_DEFINITIONS_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
 
@@ -579,6 +583,16 @@ impl Config {
     const MAX_RESPONSE_TIMEOUT_MS: u64 = 30_000; // 30 seconds
     const MAX_CONNECTION_TIMEOUT_MS: u64 = 60_000; // 60 seconds
 
+    /// Returns the effective per-team rate limits for flag definitions.
+    /// LOCAL_EVAL_RATE_LIMITS takes precedence; falls back to FLAG_DEFINITIONS_RATE_LIMITS.
+    pub fn effective_rate_limits(&self) -> HashMap<TeamId, String> {
+        if !self.local_eval_rate_limits.0.is_empty() {
+            self.local_eval_rate_limits.0.clone()
+        } else {
+            self.flag_definitions_rate_limits.0.clone()
+        }
+    }
+
     /// Validate and fix timeout configuration, logging warnings and applying defaults for invalid values
     ///
     /// This method checks timeout values and relationships, applying safe defaults when invalid
@@ -673,6 +687,7 @@ impl Config {
             debug: FlexBool(false),
             flags_session_replay_quota_check: false,
             flag_definitions_default_rate_per_minute: 600,
+            local_eval_rate_limits: FlagDefinitionsRateLimits::default(),
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
             otel_url: None,
             otel_sampling_rate: 1.0,
@@ -982,7 +997,7 @@ mod tests {
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
-            .contains("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS"));
+            .contains("Failed to parse rate limits"));
     }
 
     #[test]
@@ -1009,6 +1024,36 @@ mod tests {
         let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
         assert_eq!(limits.0.len(), 1);
         assert_eq!(limits.0.get(&123), Some(&"600/minute".to_string()));
+    }
+
+    #[test]
+    fn test_effective_rate_limits_prefers_local_eval() {
+        let mut config = Config::default_test_config();
+        config.local_eval_rate_limits = r#"{"123": "1200/minute"}"#.parse().unwrap();
+        config.flag_definitions_rate_limits = r#"{"456": "600/minute"}"#.parse().unwrap();
+
+        let limits = config.effective_rate_limits();
+        assert_eq!(limits.len(), 1);
+        assert_eq!(limits.get(&123), Some(&"1200/minute".to_string()));
+        assert!(limits.get(&456).is_none());
+    }
+
+    #[test]
+    fn test_effective_rate_limits_falls_back_to_flag_definitions() {
+        let mut config = Config::default_test_config();
+        config.local_eval_rate_limits = FlagDefinitionsRateLimits::default();
+        config.flag_definitions_rate_limits = r#"{"456": "600/minute"}"#.parse().unwrap();
+
+        let limits = config.effective_rate_limits();
+        assert_eq!(limits.len(), 1);
+        assert_eq!(limits.get(&456), Some(&"600/minute".to_string()));
+    }
+
+    #[test]
+    fn test_effective_rate_limits_empty_when_neither_set() {
+        let config = Config::default_test_config();
+        let limits = config.effective_rate_limits();
+        assert!(limits.is_empty());
     }
 
     #[test]
