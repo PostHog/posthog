@@ -29,77 +29,12 @@ use rdkafka::{
 };
 use std::sync::Mutex;
 use time::OffsetDateTime;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
 const KAFKA_BROKERS: &str = "localhost:9092";
 const TEST_TOPIC_BASE: &str = "kdedup-batch-consumer-integration-test";
-
-/// Helper to create a BatchKafkaConsumer for integration smoke tests
-#[allow(clippy::type_complexity)]
-fn create_batch_kafka_consumer(
-    topic: &str,
-    group_id: &str,
-    batch_size: usize,
-    batch_timeout: Duration,
-) -> Result<(
-    BatchConsumer<CapturedEvent>,
-    UnboundedReceiver<Batch<CapturedEvent>>,
-    oneshot::Sender<()>,
-)> {
-    let mut config = ClientConfig::new();
-    config
-        .set("bootstrap.servers", KAFKA_BROKERS)
-        .set("group.id", group_id)
-        .set("enable.auto.commit", "false")
-        .set("auto.offset.reset", "earliest")
-        .set("session.timeout.ms", "6000")
-        .set("heartbeat.interval.ms", "2000");
-
-    // Create shutdown channel - return sender so test can control shutdown
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-
-    let (chan_tx, chan_rx) = unbounded_channel();
-
-    // Create a test processor that sends batches to the channel
-    struct TestProcessor {
-        sender: UnboundedSender<Batch<CapturedEvent>>,
-    }
-
-    #[async_trait]
-    impl BatchConsumerProcessor<CapturedEvent> for TestProcessor {
-        async fn process_batch(&self, messages: Vec<KafkaMessage<CapturedEvent>>) -> Result<()> {
-            let mut batch = Batch::new();
-            for msg in messages {
-                batch.push_message(msg);
-            }
-            self.sender
-                .send(batch)
-                .map_err(|e| anyhow::anyhow!("Failed to send batch: {e}"))
-        }
-    }
-
-    // Create offset tracker with coordinator
-    let coordinator = create_test_tracker();
-    let processor = Arc::new(TestProcessor { sender: chan_tx });
-    let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
-
-    let consumer = BatchConsumer::<CapturedEvent>::new(
-        &config,
-        Arc::new(TestRebalanceHandler::default()),
-        processor,
-        offset_tracker,
-        shutdown_rx,
-        topic,
-        batch_size,
-        batch_timeout,
-        Duration::from_secs(1),
-        Duration::from_secs(5), // seek_timeout
-    )?;
-
-    Ok((consumer, chan_rx, shutdown_tx))
-}
 
 /// Rebalance handler that captures the ConsumerCommandSender when async_setup runs,
 /// so tests can send SeekPartitions (or other commands) to the consumer.
