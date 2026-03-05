@@ -929,7 +929,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
 export const getErrorsForFields = (
     fields: SourceFieldConfig[],
-    values: { prefix: string; payload: Record<string, any> } | undefined
+    values: { prefix: string; payload: Record<string, any> } | undefined,
+    isUpdateMode: boolean = false
 ): Record<string, any> => {
     const errors: Record<string, any> = {
         payload: {},
@@ -974,7 +975,12 @@ export const getErrorsForFields = (
         }
 
         // All other types - check if required property exists on this field type
+        // In update mode, skip required validation for password fields since the API
+        // omits them for security and the backend preserves existing values.
         if ('required' in field && field.required && !valueObj[field.name]) {
+            if (isUpdateMode && field.type === 'password') {
+                return
+            }
             errorsObj[field.name] = `Please enter a ${field.label.toLowerCase()}`
         }
     }
