@@ -926,8 +926,6 @@ def _update_tile_with_new_key(insight, new_key: str, old_key: str, descriptionFu
         property_group = property_values[0]
         values = property_group.get("values", [])
         # Allow 1 value (user flag) or 2 values (group flag: $feature_flag + $groups)
-        if len(values) not in (1, 2):
-            return
         feature_flag_filter = next(
             (v for v in values if v.get("key") == "$feature_flag" and v.get("value") == old_key),
             None,
