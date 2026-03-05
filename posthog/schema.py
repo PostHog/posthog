@@ -58,6 +58,7 @@ class AggregationAxisFormat(StrEnum):
     PERCENTAGE = "percentage"
     PERCENTAGE_SCALED = "percentage_scaled"
     CURRENCY = "currency"
+    SHORT = "short"
 
 
 class AlertCalculationInterval(StrEnum):
@@ -728,6 +729,7 @@ class ChartSettingsDisplay(BaseModel):
 class Style(StrEnum):
     NONE = "none"
     NUMBER = "number"
+    SHORT = "short"
     PERCENT = "percent"
 
 

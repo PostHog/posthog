@@ -1546,6 +1546,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         ff_result = posthoganalytics.feature_enabled(
             "endpoints-ducklake-execution",
             user_email,
+            person_properties={"email": str(user_email)},
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )

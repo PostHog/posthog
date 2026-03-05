@@ -291,8 +291,7 @@ services:
             - 'seaweedfs-data:/data'
 
     duckgres:
-        build:
-            context: https://github.com/PostHog/duckgres.git#main
+        image: ghcr.io/posthog/duckgres:latest
         restart: on-failure
         profiles: ['duckgres']
         ports:

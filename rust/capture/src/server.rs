@@ -34,6 +34,7 @@ use crate::router;
 use crate::router::BATCH_BODY_SIZE;
 use crate::sinks::fallback::FallbackSink;
 use crate::sinks::kafka::KafkaSink;
+use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
 use crate::sinks::Event;
@@ -202,6 +203,16 @@ async fn create_sink(
             .await;
 
         Ok(Box::new(PrintSink {}))
+    } else if config.noop_sink {
+        info!("NoOpSink enabled, events will be silently dropped");
+        // NoOpSink is used for mirror traffic when we don't need to evaluate the output
+        // events and don't want to waste cost on MSK for nothing. The 12 hour period on
+        // the liveness check is unimportant as the sink does nothing. This is safer than
+        // nerfing the liveness check entirely when NoOpSink is enabled
+        let sink_liveness = liveness
+            .register("noop_sink".to_string(), Duration::from_secs(60 * 60 * 12))
+            .await;
+        Ok(Box::new(NoOpSink::new(sink_liveness).await))
     } else {
         let sink_liveness = liveness
             .register("rdkafka".to_string(), Duration::from_secs(30))
