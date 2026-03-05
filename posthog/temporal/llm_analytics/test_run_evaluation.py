@@ -22,6 +22,7 @@ from .run_evaluation import (
     ExecuteLLMJudgeInputs,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
+    build_system_prompt,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     execute_hog_eval_activity,
@@ -658,6 +659,40 @@ class TestEvalResultModels:
         """Test that verdict must be null when applicable is false"""
         with pytest.raises(ValueError, match="verdict must be null when applicable is false"):
             BooleanWithNAEvalResult(reasoning="Not applicable", applicable=False, verdict=True)
+
+
+class TestBuildSystemPrompt:
+    @parameterized.expand(
+        [
+            (
+                "without_allows_na_includes_irrelevance_guard",
+                False,
+                "not relevant to the given input/output",
+            ),
+            (
+                "without_allows_na_includes_must_return_false",
+                False,
+                "you MUST return verdict: false",
+            ),
+            (
+                "with_allows_na_includes_applicability_check",
+                True,
+                "completely different topic",
+            ),
+            (
+                "with_allows_na_includes_not_applicable",
+                True,
+                "mark it as not applicable",
+            ),
+        ]
+    )
+    def test_system_prompt_contains_expected_guidance(self, _name, allows_na, expected_substring):
+        prompt = build_system_prompt("Test criteria", allows_na)
+        assert expected_substring in prompt
+
+    def test_system_prompt_includes_evaluation_criteria(self):
+        prompt = build_system_prompt("Is the user struggling with Error Tracking?", allows_na=False)
+        assert "Is the user struggling with Error Tracking?" in prompt
 
 
 class TestRunHogEvalAllowsNA:

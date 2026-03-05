@@ -100,7 +100,7 @@ def get_output_type_config(allows_na: bool) -> OutputTypeConfig:
     if allows_na:
         return OutputTypeConfig(
             response_format=BooleanWithNAEvalResult,
-            instructions="""First, determine if this evaluation criteria is applicable to the given input/output. If the criteria doesn't apply to this case mark it as not applicable.
+            instructions="""First, determine if this evaluation criteria is applicable to the given input/output. If the criteria doesn't apply to this case (e.g., the conversation is about a completely different topic), mark it as not applicable.
 
 Note: If the criteria above instructs you to return "N/A", "not applicable", or similar, treat that as applicable=false with verdict=null.
 
@@ -111,7 +111,9 @@ Return:
         )
     return OutputTypeConfig(
         response_format=BooleanEvalResult,
-        instructions="Provide a brief reasoning (1 sentence) and a boolean verdict (true/false).",
+        instructions="""Important: If the evaluation criteria is not relevant to the given input/output (e.g., the conversation is about a completely different topic than what the criteria describes), you MUST return verdict: false.
+
+Provide a brief reasoning (1 sentence) and a boolean verdict (true/false).""",
     )
 
 
