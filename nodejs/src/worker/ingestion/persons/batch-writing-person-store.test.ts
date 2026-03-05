@@ -67,6 +67,11 @@ describe('BatchWritingPersonStore', () => {
             is_identified: false,
             uuid: '1',
             last_seen_at: null,
+            group_0_key: '',
+            group_1_key: '',
+            group_2_key: '',
+            group_3_key: '',
+            group_4_key: '',
         }
 
         mockPostgres = {
@@ -2621,6 +2626,93 @@ describe('BatchWritingPersonStore', () => {
             // Only the batch fetch should have been called, not individual fetchPerson
             expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
             expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('group keys', () => {
+        it('should set group keys via otherUpdates in updatePersonWithPropertiesDiffForUpdate', async () => {
+            const mockRepo = createMockRepository()
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockKafkaProducer)
+
+            personStore.setCachedPersonForUpdate(teamId, 'distinct-1', fromInternalPerson(person, 'distinct-1'))
+
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                {},
+                [],
+                { group_0_key: 'acme', group_2_key: 'org-42' },
+                'distinct-1'
+            )
+
+            const cached = personStore.getCachedPersonForUpdateByDistinctId(teamId, 'distinct-1')
+            expect(cached?.group_0_key).toBe('acme')
+            expect(cached?.group_1_key).toBe('')
+            expect(cached?.group_2_key).toBe('org-42')
+        })
+
+        it('should not overwrite existing group keys with empty values', async () => {
+            const mockRepo = createMockRepository()
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockKafkaProducer)
+
+            const personWithGroupKeys = {
+                ...person,
+                group_0_key: 'existing-company',
+            }
+
+            personStore.setCachedPersonForUpdate(
+                teamId,
+                'distinct-1',
+                fromInternalPerson(personWithGroupKeys, 'distinct-1')
+            )
+
+            // Update with group_1_key but no group_0_key - should preserve group_0_key
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithGroupKeys,
+                {},
+                [],
+                { group_1_key: 'new-org' },
+                'distinct-1'
+            )
+
+            const cached = personStore.getCachedPersonForUpdateByDistinctId(teamId, 'distinct-1')
+            expect(cached?.group_0_key).toBe('existing-company')
+            expect(cached?.group_1_key).toBe('new-org')
+        })
+
+        it('should merge group keys during updatePersonForMerge (non-empty wins)', async () => {
+            const mockRepo = createMockRepository()
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockKafkaProducer)
+
+            const targetPerson: InternalPerson = {
+                ...person,
+                id: 'target-id',
+                group_0_key: 'target-company',
+                group_1_key: '',
+                group_2_key: 'target-project',
+            }
+
+            personStore.setCachedPersonForUpdate(
+                teamId,
+                'target-distinct',
+                fromInternalPerson(targetPerson, 'target-distinct')
+            )
+
+            // Merge update includes group keys from source (non-empty fills in gaps)
+            await personStore.updatePersonForMerge(
+                targetPerson,
+                {
+                    group_0_key: 'source-company',
+                    group_1_key: 'source-org',
+                    group_2_key: '',
+                },
+                'target-distinct'
+            )
+
+            const cached = personStore.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
+            expect(cached?.group_0_key).toBe('source-company')
+            expect(cached?.group_1_key).toBe('source-org')
+            // Non-empty cached value preserved since incoming value is empty
+            expect(cached?.group_2_key).toBe('target-project')
         })
     })
 })

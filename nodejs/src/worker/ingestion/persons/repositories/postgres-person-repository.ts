@@ -234,7 +234,12 @@ export class PostgresPersonRepository
                 posthog_person.is_user_id,
                 posthog_person.version,
                 posthog_person.is_identified,
-                posthog_person.last_seen_at
+                posthog_person.last_seen_at,
+                posthog_person.group_0_key,
+                posthog_person.group_1_key,
+                posthog_person.group_2_key,
+                posthog_person.group_3_key,
+                posthog_person.group_4_key
             FROM posthog_person
             JOIN posthog_persondistinctid ON (
                 posthog_persondistinctid.person_id = posthog_person.id
@@ -299,6 +304,11 @@ export class PostgresPersonRepository
                 posthog_person.version,
                 posthog_person.is_identified,
                 posthog_person.last_seen_at,
+                posthog_person.group_0_key,
+                posthog_person.group_1_key,
+                posthog_person.group_2_key,
+                posthog_person.group_3_key,
+                posthog_person.group_4_key,
                 posthog_persondistinctid.distinct_id
             FROM posthog_person
             JOIN posthog_persondistinctid ON (
@@ -358,7 +368,12 @@ export class PostgresPersonRepository
                 posthog_person.is_user_id,
                 posthog_person.version,
                 posthog_person.is_identified,
-                posthog_person.last_seen_at
+                posthog_person.last_seen_at,
+                posthog_person.group_0_key,
+                posthog_person.group_1_key,
+                posthog_person.group_2_key,
+                posthog_person.group_3_key,
+                posthog_person.group_4_key
             FROM posthog_person
             WHERE (posthog_person.team_id, posthog_person.uuid) IN (SELECT * FROM UNNEST($1::integer[], $2::uuid[]))`
 
@@ -1003,8 +1018,13 @@ export class PostgresPersonRepository
                     properties_last_operation = $3,
                     is_identified = $4,
                     last_seen_at = $5,
+                    group_0_key = $6,
+                    group_1_key = $7,
+                    group_2_key = $8,
+                    group_3_key = $9,
+                    group_4_key = $10,
                     version = COALESCE(version, 0)::numeric + 1
-                WHERE team_id = $6 AND uuid = $7 AND version = $8
+                WHERE team_id = $11 AND uuid = $12 AND version = $13
                 RETURNING *
                 `,
                 [
@@ -1013,6 +1033,11 @@ export class PostgresPersonRepository
                     JSON.stringify(personUpdate.properties_last_operation),
                     personUpdate.is_identified,
                     personUpdate.last_seen_at?.toISO() ?? null,
+                    personUpdate.group_0_key ?? '',
+                    personUpdate.group_1_key ?? '',
+                    personUpdate.group_2_key ?? '',
+                    personUpdate.group_3_key ?? '',
+                    personUpdate.group_4_key ?? '',
                     personUpdate.team_id,
                     personUpdate.uuid,
                     personUpdate.version,
@@ -1083,6 +1108,11 @@ export class PostgresPersonRepository
         const isIdentified: boolean[] = []
         const createdAt: string[] = []
         const lastSeenAt: (string | null)[] = []
+        const group0Keys: string[] = []
+        const group1Keys: string[] = []
+        const group2Keys: string[] = []
+        const group3Keys: string[] = []
+        const group4Keys: string[] = []
 
         for (const update of personUpdates) {
             uuids.push(update.uuid)
@@ -1104,6 +1134,11 @@ export class PostgresPersonRepository
             isIdentified.push(update.is_identified)
             createdAt.push(update.created_at.toISO()!)
             lastSeenAt.push(update.last_seen_at?.toISO() ?? null)
+            group0Keys.push(update.group_0_key ?? '')
+            group1Keys.push(update.group_1_key ?? '')
+            group2Keys.push(update.group_2_key ?? '')
+            group3Keys.push(update.group_3_key ?? '')
+            group4Keys.push(update.group_4_key ?? '')
         }
 
         try {
@@ -1119,6 +1154,11 @@ export class PostgresPersonRepository
                     is_identified = batch.new_is_identified,
                     created_at = batch.new_created_at::timestamp with time zone,
                     last_seen_at = batch.new_last_seen_at::timestamp with time zone,
+                    group_0_key = batch.new_group_0_key,
+                    group_1_key = batch.new_group_1_key,
+                    group_2_key = batch.new_group_2_key,
+                    group_3_key = batch.new_group_3_key,
+                    group_4_key = batch.new_group_4_key,
                     version = COALESCE(p.version, 0)::numeric + 1
                 FROM UNNEST(
                     $1::uuid[],
@@ -1128,8 +1168,13 @@ export class PostgresPersonRepository
                     $5::text[],
                     $6::boolean[],
                     $7::text[],
-                    $8::text[]
-                ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at, new_last_seen_at)
+                    $8::text[],
+                    $9::varchar[],
+                    $10::varchar[],
+                    $11::varchar[],
+                    $12::varchar[],
+                    $13::varchar[]
+                ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at, new_last_seen_at, new_group_0_key, new_group_1_key, new_group_2_key, new_group_3_key, new_group_4_key)
                 WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id
                 RETURNING p.*
                 `,
@@ -1142,6 +1187,11 @@ export class PostgresPersonRepository
                     isIdentified,
                     createdAt,
                     lastSeenAt,
+                    group0Keys,
+                    group1Keys,
+                    group2Keys,
+                    group3Keys,
+                    group4Keys,
                 ],
                 'updatePersonsBatch'
             )

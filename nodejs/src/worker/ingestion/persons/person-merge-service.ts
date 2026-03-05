@@ -457,12 +457,21 @@ export class PersonMergeService {
             const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
                 'mergePeople',
                 async (tx) => {
+                    // Merge group keys: target person's non-empty values take precedence,
+                    // then fill in from source person
+                    const mergedGroupKeys: Partial<InternalPerson> = {}
+                    for (let i = 0; i <= 4; i++) {
+                        const field = `group_${i}_key` as `group_${0 | 1 | 2 | 3 | 4}_key`
+                        mergedGroupKeys[field] = currentTargetPerson[field] || currentSourcePerson[field] || ''
+                    }
+
                     const [person, updatePersonMessages] = await tx.updatePersonForMerge(
                         currentTargetPerson,
                         {
                             created_at: createdAt,
                             properties: properties,
                             is_identified: true,
+                            ...mergedGroupKeys,
 
                             // By using the max version between the two Persons, we ensure that if
                             // this Person is later split, we can use `this_person.version + 1` for

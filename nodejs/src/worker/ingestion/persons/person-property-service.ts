@@ -32,10 +32,19 @@ export class PersonPropertyService {
 
     async updateProperties(): Promise<[InternalPerson, Promise<void>]> {
         const [person, propertiesHandled] = await this.createOrGetPerson()
-        if (propertiesHandled) {
+        if (propertiesHandled && !this.eventHasGroupKeys()) {
             return [person, Promise.resolve()]
         }
         return await this.updatePersonProperties(person)
+    }
+
+    private eventHasGroupKeys(): boolean {
+        for (let i = 0; i <= 4; i++) {
+            if (this.context.eventProperties[`$group_${i}`] !== undefined) {
+                return true
+            }
+        }
+        return false
     }
 
     /**
@@ -88,6 +97,15 @@ export class PersonPropertyService {
             const roundedTimestamp = this.context.timestamp.startOf('hour')
             if (!person.last_seen_at || roundedTimestamp > person.last_seen_at) {
                 otherUpdates.last_seen_at = roundedTimestamp
+            }
+        }
+
+        // Extract group keys from $group_N event properties (set by addGroupProperties())
+        for (let i = 0; i <= 4; i++) {
+            const groupKey = this.context.eventProperties[`$group_${i}`]
+            if (groupKey !== undefined) {
+                const field = `group_${i}_key` as `group_${0 | 1 | 2 | 3 | 4}_key`
+                otherUpdates[field] = String(groupKey)
             }
         }
 

@@ -905,6 +905,11 @@ export interface BasePerson {
     uuid: string
     properties_last_updated_at: PropertiesLastUpdatedAt
     properties_last_operation: PropertiesLastOperation | null
+    group_0_key: string
+    group_1_key: string
+    group_2_key: string
+    group_3_key: string
+    group_4_key: string
 }
 
 /** Raw Person row from database. */
@@ -930,6 +935,11 @@ export interface PersonUpdateFields {
     created_at: DateTime
     version?: number // Optional: allows forcing a specific version
     last_seen_at?: DateTime | null
+    group_0_key?: string
+    group_1_key?: string
+    group_2_key?: string
+    group_3_key?: string
+    group_4_key?: string
 }
 
 /** Person model exposed outside of person-specific DB logic. */
@@ -956,6 +966,11 @@ export interface ClickHousePerson {
     timestamp: string
     version: number
     last_seen_at: string | null
+    group_0_key: string
+    group_1_key: string
+    group_2_key: string
+    group_3_key: string
+    group_4_key: string
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4

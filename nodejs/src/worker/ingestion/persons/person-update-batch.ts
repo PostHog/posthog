@@ -17,6 +17,11 @@ export interface PersonUpdate {
     is_identified: boolean
     is_user_id: number | null
     last_seen_at: DateTime | null
+    group_0_key: string
+    group_1_key: string
+    group_2_key: string
+    group_3_key: string
+    group_4_key: string
     needs_write: boolean
     // Fine-grained property tracking
     properties_to_set: Properties // Properties to set/update
@@ -49,6 +54,11 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         is_identified: person.is_identified,
         is_user_id: person.is_user_id,
         last_seen_at: person.last_seen_at,
+        group_0_key: person.group_0_key,
+        group_1_key: person.group_1_key,
+        group_2_key: person.group_2_key,
+        group_3_key: person.group_3_key,
+        group_4_key: person.group_4_key,
         needs_write: false,
         properties_to_set: {},
         properties_to_unset: [],
@@ -85,5 +95,10 @@ export function toInternalPerson(personUpdate: PersonUpdate): InternalPerson {
         is_identified: personUpdate.is_identified,
         is_user_id: personUpdate.is_user_id,
         last_seen_at: personUpdate.last_seen_at,
+        group_0_key: personUpdate.group_0_key,
+        group_1_key: personUpdate.group_1_key,
+        group_2_key: personUpdate.group_2_key,
+        group_3_key: personUpdate.group_3_key,
+        group_4_key: personUpdate.group_4_key,
     }
 }

@@ -138,6 +138,11 @@ export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDelet
                     last_seen_at: person.last_seen_at
                         ? castTimestampOrNow(person.last_seen_at, TimestampFormat.ClickHouseSecondPrecision)
                         : null,
+                    group_0_key: person.group_0_key ?? '',
+                    group_1_key: person.group_1_key ?? '',
+                    group_2_key: person.group_2_key ?? '',
+                    group_3_key: person.group_3_key ?? '',
+                    group_4_key: person.group_4_key ?? '',
                 } as Omit<ClickHousePerson, 'timestamp'>),
             },
         ],

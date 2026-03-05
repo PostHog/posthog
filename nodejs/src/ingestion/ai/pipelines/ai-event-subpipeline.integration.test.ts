@@ -30,6 +30,11 @@ const existingPerson: InternalPerson = {
     created_at: DateTime.fromISO('2020-01-01T00:00:00Z'),
     version: 0,
     last_seen_at: null,
+    group_0_key: '',
+    group_1_key: '',
+    group_2_key: '',
+    group_3_key: '',
+    group_4_key: '',
 }
 
 function createAiEvent(overrides: Partial<PluginEvent> = {}): PluginEvent {

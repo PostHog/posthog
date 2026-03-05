@@ -1054,6 +1054,11 @@ describe('PersonState.processEvent()', () => {
                 properties_last_updated_at: {},
                 properties_last_operation: null,
                 last_seen_at: null,
+                group_0_key: '',
+                group_1_key: '',
+                group_2_key: '',
+                group_3_key: '',
+                group_4_key: '',
             }
             await createPerson(
                 hub,
@@ -4373,6 +4378,11 @@ describe('PersonState.processEvent()', () => {
                             properties_last_updated_at: {},
                             properties_last_operation: {},
                             last_seen_at: timestamp.startOf('hour'),
+                            group_0_key: '',
+                            group_1_key: '',
+                            group_2_key: '',
+                            group_3_key: '',
+                            group_4_key: '',
                         }
                         jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                             success: true,

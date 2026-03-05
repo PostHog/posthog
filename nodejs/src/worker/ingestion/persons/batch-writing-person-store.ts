@@ -1196,6 +1196,14 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 }
             }
 
+            // Handle group keys - non-empty value wins
+            for (let i = 0; i <= 4; i++) {
+                const field = `group_${i}_key` as `group_${0 | 1 | 2 | 3 | 4}_key`
+                if (person[field]) {
+                    mergedPersonUpdate[field] = person[field]
+                }
+            }
+
             this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, person.id), mergedPersonUpdate)
         } else {
             // First time we're caching this person id
@@ -1390,6 +1398,15 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             }
         }
 
+        // Handle group keys - non-empty value wins
+        for (let i = 0; i <= 4; i++) {
+            const field = `group_${i}_key` as `group_${0 | 1 | 2 | 3 | 4}_key`
+            const newValue = otherUpdates[field]
+            if (newValue) {
+                personUpdate[field] = newValue
+            }
+        }
+
         personUpdate.needs_write = true
 
         // Set force_update flag with || operator - once set to true by a $identify/$set event, it stays true
@@ -1415,6 +1432,11 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             is_identified: person.is_identified,
             created_at: person.created_at,
             last_seen_at: person.last_seen_at,
+            group_0_key: person.group_0_key,
+            group_1_key: person.group_1_key,
+            group_2_key: person.group_2_key,
+            group_3_key: person.group_3_key,
+            group_4_key: person.group_4_key,
         }
 
         this.incrementCount('updatePersonNoAssert', personUpdate.distinct_id)
@@ -1643,6 +1665,11 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             original_is_identified: personUpdate.original_is_identified,
             original_created_at: personUpdate.original_created_at,
             original_last_seen_at: personUpdate.original_last_seen_at,
+            group_0_key: personUpdate.group_0_key,
+            group_1_key: personUpdate.group_1_key,
+            group_2_key: personUpdate.group_2_key,
+            group_3_key: personUpdate.group_3_key,
+            group_4_key: personUpdate.group_4_key,
         }
 
         return updatedPersonUpdate
