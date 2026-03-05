@@ -60,6 +60,7 @@ from products.llm_analytics.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
     EvaluationConfigViewSet,
+    EvaluationResultsViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
     LLMAnalyticsClusteringRunViewSet,
@@ -1242,6 +1243,13 @@ environments_router.register(
     r"llm_analytics/evaluation_config",
     EvaluationConfigViewSet,
     "environment_llm_analytics_evaluation_config",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/evaluation_results",
+    EvaluationResultsViewSet,
+    "environment_llm_analytics_evaluation_results",
     ["team_id"],
 )
 
