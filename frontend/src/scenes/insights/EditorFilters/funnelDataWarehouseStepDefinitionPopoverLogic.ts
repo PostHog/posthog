@@ -89,10 +89,8 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
             (activeFieldValue, table) => !Object.values(table.fields).some((field) => field.name === activeFieldValue),
         ],
         isAggregatingByGroup: [
-            (s) => [s.querySource, s.activeFieldKey],
-            (querySource, activeFieldKey) =>
-                querySource?.aggregation_group_type_index !== undefined &&
-                querySource?.aggregation_group_type_index !== null,
+            (s) => [s.querySource],
+            (querySource) => querySource?.aggregation_group_type_index != null,
         ],
         isAggregatingByHogQL: [
             (s) => [s.querySource, s.isAggregatingByGroup],
