@@ -14,7 +14,7 @@ import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
-import { HOMEPAGE_TAB_ID } from './HomepageThread'
+import { HOMEPAGE_TAB_ID } from './constants'
 
 const PLACEHOLDER_OPTIONS = [
     'insights...',

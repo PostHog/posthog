@@ -3,15 +3,14 @@ import { useEffect, useRef } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { uuid } from 'lib/utils'
-import { ChatToolbar } from 'scenes/max/components/AiFirstMaxInstance'
+import { ChatHeader } from 'scenes/max/components/AiFirstMaxInstance'
 import { ThreadAutoScroller } from 'scenes/max/components/ThreadAutoScroller'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { Thread } from 'scenes/max/Thread'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
-
-export const HOMEPAGE_TAB_ID = 'homepage-ai'
+import { HOMEPAGE_TAB_ID } from './constants'
 
 export function HomepageThread(): JSX.Element {
     const { query } = useValues(aiFirstHomepageLogic)
@@ -40,7 +39,7 @@ export function HomepageThread(): JSX.Element {
     return (
         <BindLogic logic={maxLogic} props={{ tabId: HOMEPAGE_TAB_ID }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                <ChatToolbar conversationId={conversationId} />
+                <ChatHeader conversationId={conversationId} />
                 <ScrollableShadows direction="vertical" styledScrollbars className="grow min-h-0">
                     <ThreadAutoScroller>
                         <Thread className="p-3" />

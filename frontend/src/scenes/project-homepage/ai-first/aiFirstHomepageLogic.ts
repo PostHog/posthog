@@ -5,7 +5,7 @@ import { maxLogic } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
 import type { aiFirstHomepageLogicType } from './aiFirstHomepageLogicType'
-import { HOMEPAGE_TAB_ID } from './HomepageThread'
+import { HOMEPAGE_TAB_ID } from './constants'
 
 export type HomepageMode = 'idle' | 'search' | 'ai'
 export type AnimationPhase = 'idle' | 'moving' | 'separator' | 'content'
