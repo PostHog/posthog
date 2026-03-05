@@ -6,8 +6,8 @@
 -- No table rewrite required regardless of table size
 -- For partitioned tables, ALTER TABLE propagates to all partitions automatically
 
-ALTER TABLE posthog_person ADD COLUMN IF NOT EXISTS group_0_key VARCHAR(400) DEFAULT '';
-ALTER TABLE posthog_person ADD COLUMN IF NOT EXISTS group_1_key VARCHAR(400) DEFAULT '';
-ALTER TABLE posthog_person ADD COLUMN IF NOT EXISTS group_2_key VARCHAR(400) DEFAULT '';
-ALTER TABLE posthog_person ADD COLUMN IF NOT EXISTS group_3_key VARCHAR(400) DEFAULT '';
-ALTER TABLE posthog_person ADD COLUMN IF NOT EXISTS group_4_key VARCHAR(400) DEFAULT '';
+ALTER TABLE posthog_person ADD COLUMN IF NOT EXISTS group_0_key VARCHAR(400) NOT NULL DEFAULT '';
+ALTER TABLE posthog_person ADD COLUMN IF NOT EXISTS group_1_key VARCHAR(400) NOT NULL DEFAULT '';
+ALTER TABLE posthog_person ADD COLUMN IF NOT EXISTS group_2_key VARCHAR(400) NOT NULL DEFAULT '';
+ALTER TABLE posthog_person ADD COLUMN IF NOT EXISTS group_3_key VARCHAR(400) NOT NULL DEFAULT '';
+ALTER TABLE posthog_person ADD COLUMN IF NOT EXISTS group_4_key VARCHAR(400) NOT NULL DEFAULT '';
