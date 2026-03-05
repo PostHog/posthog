@@ -184,17 +184,6 @@ def select_from_persons_table(
                         order_by_without_virtual_fields.append(order_by)
                 right_select.order_by = order_by_without_virtual_fields
 
-            # Patch: push limit+offset+1 to inner subquery for correct pagination, always set offset=0
-            if node.limit:
-                node_limit = cast(ast.Constant, node.limit)
-                node_offset = cast(ast.Constant, node.offset)
-                effective_limit = (
-                    (node_limit.value if node.limit else 100) + (node_offset.value if node.offset else 0) + 1
-                )
-                right_select.limit = ast.Constant(value=effective_limit)
-                right_select.offset = ast.Constant(value=0)
-                # Do NOT set node.limit/node.offset directly, outer paginator will slice results
-
         for field_name, field_chain in join_or_table.fields_accessed.items():
             # We need to always select the 'id' field for the join constraint. The field name here is likely to
             # be "persons__id" if anything, but just in case, let's avoid duplicates.
