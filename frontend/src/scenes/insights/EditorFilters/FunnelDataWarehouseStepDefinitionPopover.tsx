@@ -17,8 +17,6 @@ import {
 
 type EditableFieldProps = { shortExplanation: string }
 
-const EDITABLE_FIELD_ORDER: FunnelFieldKey[] = ['distinct_id_field', 'timestamp_field', 'id_field']
-
 const EDITABLE_FIELD_MAP: Record<FunnelFieldKey, EditableFieldProps> = {
     distinct_id_field: {
         shortExplanation: 'Used to match people or groups across funnel steps.',
@@ -64,6 +62,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
     })
     const {
         activeFieldKey,
+        activeFieldKeyOptions,
         activeField,
         activeFieldValue,
         activeFieldOptions,
@@ -87,10 +86,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                 fullWidth
                 value={activeFieldKey}
                 onChange={(value) => setActiveFieldKey(value as FunnelFieldKey)}
-                options={EDITABLE_FIELD_ORDER.map((key) => ({
-                    value: key,
-                    label: dataWarehousePopoverFields.find((f) => f.key === key)?.label ?? key,
-                }))}
+                options={activeFieldKeyOptions}
             />
 
             <span className="label-text font-semibold mt-3 mb-1">{activeField?.label}</span>

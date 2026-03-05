@@ -15,6 +15,8 @@ import type { funnelDataWarehouseStepDefinitionPopoverLogicType } from './funnel
 
 export type FunnelFieldKey = 'id_field' | 'timestamp_field' | 'distinct_id_field'
 
+const EDITABLE_FIELD_ORDER: FunnelFieldKey[] = ['distinct_id_field', 'timestamp_field', 'id_field']
+
 export interface FunnelDataWarehouseStepDefinitionPopoverLogicProps {
     table: DataWarehouseTableForInsight
     group: TaxonomicFilterGroup
@@ -54,6 +56,14 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
                     label: `${column.name} (${column.type})`,
                     value: column.name,
                     type: column.type,
+                })),
+        ],
+        activeFieldKeyOptions: [
+            (s) => [s.dataWarehousePopoverFields],
+            (dataWarehousePopoverFields) =>
+                EDITABLE_FIELD_ORDER.map((key) => ({
+                    value: key,
+                    label: dataWarehousePopoverFields.find((f) => f.key === key)?.label ?? key,
                 })),
         ],
         activeField: [
