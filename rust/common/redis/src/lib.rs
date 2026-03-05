@@ -266,8 +266,7 @@ pub trait Client: Send + Sync {
     ) -> Result<(), CustomRedisError>;
     async fn batch_set_nx_ex(
         &self,
-        items: Vec<(String, String)>,
-        ttl_seconds: usize,
+        items: Vec<(String, String, usize)>, // (key, value, ttl_seconds)
     ) -> Result<Vec<bool>, CustomRedisError>;
     async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError>;
     /// Execute a batch of pipeline commands in a single round-trip.

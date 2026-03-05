@@ -58,6 +58,7 @@ class AggregationAxisFormat(StrEnum):
     PERCENTAGE = "percentage"
     PERCENTAGE_SCALED = "percentage_scaled"
     CURRENCY = "currency"
+    SHORT = "short"
 
 
 class AlertCalculationInterval(StrEnum):
@@ -288,7 +289,6 @@ class AssistantNavigateUrl(StrEnum):
     SETTINGS = "settings"
     SQL_EDITOR = "sqlEditor"
     SURVEYS = "surveys"
-    SURVEY_TEMPLATES = "surveyTemplates"
     TOOLBAR_LAUNCH = "toolbarLaunch"
     WEB_ANALYTICS = "webAnalytics"
     WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
@@ -729,6 +729,7 @@ class ChartSettingsDisplay(BaseModel):
 class Style(StrEnum):
     NONE = "none"
     NUMBER = "number"
+    SHORT = "short"
     PERCENT = "percent"
 
 
@@ -1974,6 +1975,31 @@ class FunnelVizType(StrEnum):
     FLOW = "flow"
 
 
+class GithubIssueSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    html_url: str
+    labels: list[str]
+    locked: bool
+    number: float
+    state: str
+    updated_at: str
+
+
+class GithubIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: GithubIssueSignalExtra
+    source_id: str
+    source_product: Literal["github"] = "github"
+    source_type: Literal["issue"] = "issue"
+    weight: float
+
+
 class Position(StrEnum):
     START = "start"
     END = "end"
@@ -2315,6 +2341,30 @@ class LinkedinAdsTableExclusions(StrEnum):
 
 class LinkedinAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
+
+
+class LlmEvalSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    evaluation_id: str
+    model: str | None = None
+    provider: str | None = None
+    target_event_id: str | None = None
+    target_event_type: str | None = None
+    trace_id: str
+
+
+class LlmEvaluationSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LlmEvalSignalExtra
+    source_id: str
+    source_product: Literal["llm_analytics"] = "llm_analytics"
+    source_type: Literal["evaluation"] = "evaluation"
+    weight: float
 
 
 class LoadingBlock(BaseModel):
@@ -3671,6 +3721,48 @@ class SessionReplayBlock(BaseModel):
     type: Literal["session_replay"] = "session_replay"
 
 
+class SessionReplaySegment(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    distinct_id: str
+    end_time: str
+    session_id: str
+    start_time: str
+
+
+class SessionSegmentClusterMetrics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active_users_in_period: float
+    occurrence_count: float
+    relevant_user_count: float
+
+
+class SessionSegmentClusterSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actionable: bool
+    label_title: str
+    metrics: SessionSegmentClusterMetrics
+    segments: list[SessionReplaySegment]
+
+
+class SessionSegmentClusterSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SessionSegmentClusterSignalExtra
+    source_id: str
+    source_product: Literal["session_replay"] = "session_replay"
+    source_type: Literal["session_segment_cluster"] = "session_segment_cluster"
+    weight: float
+
+
 class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4003,6 +4095,7 @@ class TaxonomicFilterGroupType(StrEnum):
     LOG_ATTRIBUTES = "log_attributes"
     LOG_RESOURCE_ATTRIBUTES = "log_resource_attributes"
     REPLAY = "replay"
+    REPLAY_SAVED_FILTERS = "replay_saved_filters"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
@@ -4332,6 +4425,30 @@ class YAxisSettings(BaseModel):
     showGridLines: bool | None = None
     showTicks: bool | None = None
     startAtZero: bool | None = Field(default=None, description="Whether the Y axis should start at zero")
+
+
+class ZendeskTicketSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    priority: str
+    status: str
+    tags: list[str]
+    type: str
+    url: str
+
+
+class ZendeskTicketSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ZendeskTicketSignalExtra
+    source_id: str
+    source_product: Literal["zendesk"] = "zendesk"
+    source_type: Literal["ticket"] = "ticket"
+    weight: float
 
 
 class Integer(RootModel[int]):
@@ -6548,6 +6665,16 @@ class SessionsTimelineQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+
+
+class SignalInput(
+    RootModel[
+        SessionSegmentClusterSignalInput | LlmEvaluationSignalInput | ZendeskTicketSignalInput | GithubIssueSignalInput
+    ]
+):
+    root: (
+        SessionSegmentClusterSignalInput | LlmEvaluationSignalInput | ZendeskTicketSignalInput | GithubIssueSignalInput
+    ) = Field(..., discriminator="source_type")
 
 
 class SourceFieldFileUploadConfig(BaseModel):

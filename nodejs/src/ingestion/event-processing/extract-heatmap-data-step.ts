@@ -1,6 +1,7 @@
 import { URL } from 'url'
 
-import { Hub, PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../types'
+import { KafkaProducerWrapper } from '../../kafka/producer'
+import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../types'
 import { logger } from '../../utils/logger'
 import { castTimestampOrNow } from '../../utils/utils'
 import { isDistinctIdIllegal } from '../../worker/ingestion/persons/person-merge-service'
@@ -16,9 +17,10 @@ export type ExtractHeatmapDataStepResult<TInput> = TInput & {
     preparedEvent: PreIngestionEvent
 }
 
-export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataStepInput>(
-    hub: Pick<Hub, 'CLICKHOUSE_HEATMAPS_KAFKA_TOPIC' | 'kafkaProducer'>
-): ProcessingStep<TInput, ExtractHeatmapDataStepResult<TInput>> {
+export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataStepInput>(deps: {
+    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
+    kafkaProducer: KafkaProducerWrapper
+}): ProcessingStep<TInput, ExtractHeatmapDataStepResult<TInput>> {
     return async function extractHeatmapDataStep(
         input: TInput
     ): Promise<PipelineResult<ExtractHeatmapDataStepResult<TInput>>> {
@@ -39,8 +41,8 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
 
             if (heatmapEvents.length > 0) {
                 acks.push(
-                    hub.kafkaProducer.queueMessages({
-                        topic: hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                    deps.kafkaProducer.queueMessages({
+                        topic: deps.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
                         messages: heatmapEvents.map((rawEvent) => ({
                             key: eventUuid,
                             value: JSON.stringify(rawEvent),

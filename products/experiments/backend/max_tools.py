@@ -122,7 +122,7 @@ class CreateExperimentTool(MaxTool):
                 raise ValueError(f"An experiment with name '{name}' already exists")
 
             try:
-                feature_flag = FeatureFlag.objects.get(team=self._team, key=feature_flag_key, deleted=False)
+                feature_flag = FeatureFlag.objects.get(team=self._team, key=feature_flag_key)
             except FeatureFlag.DoesNotExist:
                 raise ValueError(f"Feature flag '{feature_flag_key}' does not exist")
 

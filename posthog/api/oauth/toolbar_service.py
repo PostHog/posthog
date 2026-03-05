@@ -118,7 +118,11 @@ def normalize_and_validate_app_url(team: Team, app_url: str) -> str:
         raise ToolbarOAuthError("invalid_app_url", "app_url must use https for non-loopback hosts", 400)
 
     if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
-        raise ToolbarOAuthError("forbidden_app_url", "Can only redirect to a permitted domain.", 403)
+        raise ToolbarOAuthError(
+            "forbidden_app_url",
+            f"Can only redirect to a permitted domain. The hostname '{parsed.hostname}' is not in this project's authorized URLs.",
+            403,
+        )
 
     # preserve path/query/fragment
     return app_url
