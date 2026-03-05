@@ -5,7 +5,7 @@ import pytest
 from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 from unittest import mock
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError
@@ -1931,3 +1931,76 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
             team=self.team, name="test_prop", type=PropertyDefinition.Type.GROUP, group_type_index=1
         )
         self.assertEqual(prop_def.group_type_index, 1)
+
+
+class TestGetGroupTypeMappingOr404PersonhogRouting(ClickhouseTestMixin, APIBaseTest):
+    """Tests for personhog routing in GroupsViewSet.get_group_type_mapping_or_404."""
+
+    def setUp(self):
+        super().setUp()
+        self.group_type_mapping = create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+            properties={"name": "Test Org"},
+        )
+
+    @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
+    @patch("posthog.personhog_client.converters.fetch_group_type_mapping_result")
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_personhog_success_returns_result(self, mock_capture, mock_fetch, mock_gate):
+        from posthog.personhog_client.converters import GroupTypeMappingResult
+
+        mock_fetch.return_value = GroupTypeMappingResult(group_type="organization", group_type_index=0)
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_capture.return_value = mock_resp
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_type_index=0&group_key=org:1",
+            {"$unset": "name"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_fetch.assert_called_once()
+
+    @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
+    @patch("posthog.personhog_client.converters.fetch_group_type_mapping_result")
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_personhog_failure_falls_back_to_orm(self, mock_capture, mock_fetch, mock_gate):
+        mock_fetch.side_effect = RuntimeError("grpc timeout")
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_capture.return_value = mock_resp
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_type_index=0&group_key=org:1",
+            {"$unset": "name"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("posthog.personhog_client.gate.use_personhog", return_value=False)
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_gate_off_uses_orm(self, mock_capture, mock_gate):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_capture.return_value = mock_resp
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_type_index=0&group_key=org:1",
+            {"$unset": "name"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
