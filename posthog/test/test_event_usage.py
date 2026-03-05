@@ -1,5 +1,7 @@
+from types import SimpleNamespace
+
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
@@ -159,27 +161,19 @@ class TestGetEventSource(BaseTest):
     def test_web_via_session_authentication(self):
         from rest_framework.authentication import SessionAuthentication
 
-        factory = APIRequestFactory()
-        request = factory.get("/fake")
-        request.successful_authenticator = SessionAuthentication()
+        request = SimpleNamespace(META={}, successful_authenticator=SessionAuthentication())
         assert get_event_source(request) == EventSource.WEB
 
     def test_web_via_session_key_fallback(self):
-        factory = APIRequestFactory()
-        request = factory.get("/fake")
-        request.session = MagicMock(session_key="abc123")
+        request = SimpleNamespace(META={}, session=SimpleNamespace(session_key="abc123"))
         assert get_event_source(request) == EventSource.WEB
 
     def test_api_when_session_is_dict(self):
-        factory = APIRequestFactory()
-        request = factory.get("/fake")
-        request.session = {}
+        request = SimpleNamespace(META={}, session={})
         assert get_event_source(request) == EventSource.API
 
     def test_api_when_session_key_is_none(self):
-        factory = APIRequestFactory()
-        request = factory.get("/fake")
-        request.session = MagicMock(session_key=None)
+        request = SimpleNamespace(META={}, session=SimpleNamespace(session_key=None))
         assert get_event_source(request) == EventSource.API
 
 
