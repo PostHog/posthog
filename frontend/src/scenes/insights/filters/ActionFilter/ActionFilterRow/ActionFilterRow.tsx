@@ -1044,7 +1044,7 @@ function useMathSelectorOptions({
         funnelMathDefinitions,
         staticActorsOnlyMathDefinitions,
         calendarHeatmapMathDefinitions,
-        boxPlotMathDefinitions,
+
         aggregationLabel,
         groupsMathDefinitions,
     } = useValues(mathsLogic)
