@@ -1076,10 +1076,6 @@
             "siliconflow-fp8": {
                 "prompt_token": 2.5e-7,
                 "completion_token": 0.000001
-            },
-            "wandb-fp8": {
-                "prompt_token": 0.00000114,
-                "completion_token": 0.00000275
             }
         }
     },
@@ -1888,6 +1884,11 @@
                 "completion_token": 0.000003
             },
             "google-ai-studio": {
+                "prompt_token": 5e-7,
+                "completion_token": 0.000003,
+                "image_output": 0.00006
+            },
+            "google-vertex": {
                 "prompt_token": 5e-7,
                 "completion_token": 0.000003,
                 "image_output": 0.00006
@@ -2988,6 +2989,10 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000011,
                 "cache_read_token": 3e-8
+            },
+            "ionstream-fp8": {
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012
             },
             "minimax-fp8": {
                 "prompt_token": 3e-7,
@@ -5394,11 +5399,6 @@
                 "completion_token": 8.8e-7,
                 "cache_read_token": 2e-7
             },
-            "cerebras-fp16": {
-                "prompt_token": 6e-7,
-                "completion_token": 0.0000012,
-                "cache_read_token": 6e-7
-            },
             "chutes-bf16": {
                 "prompt_token": 8e-8,
                 "completion_token": 5.5e-7,
@@ -6775,8 +6775,9 @@
         "model": "z-ai/glm-4.5",
         "cost": {
             "default": {
-                "prompt_token": 5.5e-7,
-                "completion_token": 0.000002
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000022,
+                "cache_read_token": 1.1e-7
             },
             "nebius-fp8": {
                 "prompt_token": 6e-7,
@@ -6786,10 +6787,6 @@
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000022,
                 "cache_read_token": 1.1e-7
-            },
-            "wandb-bf16": {
-                "prompt_token": 5.5e-7,
-                "completion_token": 0.000002
             },
             "z-ai-fp8": {
                 "prompt_token": 6e-7,
