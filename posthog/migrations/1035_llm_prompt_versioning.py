@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1030_add_last_calculation_duration_ms"),
+        ("posthog", "1034_taggeditem_ticket_unique_constraint"),
     ]
 
     operations = [
