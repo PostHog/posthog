@@ -27,7 +27,7 @@ class EvaluationContext(UUIDModel):
         return f"{self.team_id}:{self.name}"
 
 
-class FeatureFlagEvaluationContext(models.Model):
+class FeatureFlagEvaluationContext(UUIDModel):
     """
     Links a feature flag to an evaluation context.
 

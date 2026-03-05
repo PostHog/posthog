@@ -584,13 +584,15 @@ pub async fn insert_evaluation_tags_for_flag_in_pg(
         .await?;
 
         // Then, create the flag-context association
+        let assoc_uuid = Uuid::now_v7();
         sqlx::query(
             r#"
-            INSERT INTO posthog_featureflagevaluationcontext (feature_flag_id, evaluation_context_id, created_at)
-            VALUES ($1, $2, NOW())
+            INSERT INTO posthog_featureflagevaluationcontext (id, feature_flag_id, evaluation_context_id, created_at)
+            VALUES ($1, $2, $3, NOW())
             ON CONFLICT (feature_flag_id, evaluation_context_id) DO NOTHING
             "#,
         )
+        .bind(assoc_uuid)
         .bind(flag_id)
         .bind(ctx_id)
         .execute(&mut *conn)

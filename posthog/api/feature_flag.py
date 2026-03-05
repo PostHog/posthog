@@ -1633,16 +1633,26 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
 
     def _get_context_names(self, feature_flag: FeatureFlag) -> list[str]:
         try:
+            # Check for ArrayAgg annotation first
             names = getattr(feature_flag, "evaluation_tag_names", None)
-            if names is None:
-                from posthog.models.evaluation_context import FeatureFlagEvaluationContext
+            if names is not None:
+                return names or []
 
-                names = list(
-                    FeatureFlagEvaluationContext.objects.filter(feature_flag=feature_flag)
-                    .select_related("evaluation_context")
-                    .values_list("evaluation_context__name", flat=True)
-                )
-            return names or []
+            # Check prefetch cache
+            if (
+                hasattr(feature_flag, "_prefetched_objects_cache")
+                and "flag_evaluation_contexts" in feature_flag._prefetched_objects_cache
+            ):
+                return [ec.evaluation_context.name for ec in feature_flag.flag_evaluation_contexts.all()]
+
+            # Fallback: direct query
+            from posthog.models.evaluation_context import FeatureFlagEvaluationContext
+
+            return list(
+                FeatureFlagEvaluationContext.objects.filter(feature_flag=feature_flag)
+                .select_related("evaluation_context")
+                .values_list("evaluation_context__name", flat=True)
+            )
         except Exception:
             return []
 

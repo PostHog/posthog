@@ -289,7 +289,13 @@ class EnterpriseExperimentsViewSet(
     scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.prefetch_related(
-        "feature_flag", "created_by", "holdout", "experimenttosavedmetric_set", "saved_metrics"
+        "feature_flag",
+        "feature_flag__flag_evaluation_contexts",
+        "feature_flag__flag_evaluation_contexts__evaluation_context",
+        "created_by",
+        "holdout",
+        "experimenttosavedmetric_set",
+        "saved_metrics",
     ).all()
     ordering = "-created_at"
 
