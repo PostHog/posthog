@@ -49,7 +49,6 @@ class SignalReportAdmin(admin.ModelAdmin):
         "status",
         "total_weight",
         "signal_count",
-        "conversation",
         "signals_at_run",
         "title",
         "summary",
@@ -58,14 +57,12 @@ class SignalReportAdmin(admin.ModelAdmin):
         "updated_at",
         "promoted_at",
         "last_run_at",
-        "relevant_user_count",
     )
 
     fieldsets = (
         (None, {"fields": ("id", "team", "status")}),
         ("Content", {"fields": ("title", "summary", "error")}),
-        ("Stats", {"fields": ("signal_count", "total_weight", "relevant_user_count", "signals_at_run")}),
-        ("Related", {"fields": ("conversation",)}),
+        ("Stats", {"fields": ("signal_count", "total_weight", "signals_at_run")}),
         ("Dates", {"fields": ("created_at", "updated_at", "promoted_at", "last_run_at")}),
     )
 

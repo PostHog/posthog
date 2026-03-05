@@ -19,6 +19,7 @@ use crate::{
     global_rate_limiter::GlobalRateLimitKey,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
+    token::validate_token,
     v0_request::ProcessingContext,
 };
 
@@ -109,6 +110,7 @@ pub async fn handle_recording_payload(
     let token = events[0]
         .extract_token()
         .ok_or(CaptureError::NoTokenError)?;
+    validate_token(&token)?;
     Span::current().record("token", &token);
 
     counter!("capture_events_received_total").increment(events.len() as u64);
@@ -130,32 +132,7 @@ pub async fn handle_recording_payload(
         chatty_debug_enabled,
     };
 
-    // Apply global rate limit per (token, distinct_id) if enabled
-    if let Some(global_rate_limiter) = &state.global_rate_limiter {
-        let mut is_rate_limited = false;
-        for event in &events {
-            let maybe_distinct_id = event
-                .distinct_id
-                .as_ref()
-                .or(event.properties.distinct_id.as_ref())
-                .and_then(|v| v.as_str());
-            if let Some(distinct_id) = maybe_distinct_id {
-                let cache_key =
-                    GlobalRateLimitKey::TokenDistinctId(&context.token, distinct_id).to_cache_key();
-                if let Some(limited) = global_rate_limiter.is_limited(&cache_key, 1).await {
-                    debug_or_info!(chatty_debug_enabled,
-                        context=?context,
-                        distinct_id,
-                        details=?limited,
-                        "global rate limit applied");
-                    is_rate_limited = true;
-                }
-            }
-        }
-        if is_rate_limited {
-            return Err(CaptureError::GlobalRateLimitExceeded());
-        }
-    }
+    check_global_rate_limits(state, &context, &events).await?;
 
     // Apply all billing limit quotas and drop partial or whole
     // payload if any are exceeded for this token (team)
@@ -167,6 +144,51 @@ pub async fn handle_recording_payload(
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "processing complete");
     Ok((context, events))
+}
+
+async fn check_global_rate_limits(
+    state: &State<router::State>,
+    context: &ProcessingContext,
+    events: &[RawRecording],
+) -> Result<(), CaptureError> {
+    if let Some(limiter) = &state.global_rate_limiter_token {
+        let cache_key = GlobalRateLimitKey::Token(&context.token).to_cache_key();
+        if let Some(limited) = limiter.is_limited(&cache_key, events.len() as u64).await {
+            debug_or_info!(context.chatty_debug_enabled,
+                context=?context,
+                details=?limited,
+                "global token rate limit applied");
+            return Err(CaptureError::GlobalRateLimitExceeded());
+        }
+    }
+
+    if let Some(limiter) = &state.global_rate_limiter_token_distinctid {
+        let mut is_rate_limited = false;
+        for event in events {
+            let maybe_distinct_id = event
+                .distinct_id
+                .as_ref()
+                .or(event.properties.distinct_id.as_ref())
+                .and_then(|v| v.as_str());
+            if let Some(distinct_id) = maybe_distinct_id {
+                let cache_key =
+                    GlobalRateLimitKey::TokenDistinctId(&context.token, distinct_id).to_cache_key();
+                if let Some(limited) = limiter.is_limited(&cache_key, 1).await {
+                    debug_or_info!(context.chatty_debug_enabled,
+                        context=?context,
+                        distinct_id,
+                        details=?limited,
+                        "global token+distinct_id rate limit applied");
+                    is_rate_limited = true;
+                }
+            }
+        }
+        if is_rate_limited {
+            return Err(CaptureError::GlobalRateLimitExceeded());
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

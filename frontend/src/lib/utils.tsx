@@ -1139,10 +1139,10 @@ export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs):
             fromComponents = fromComponents.filter((x) => x !== YEAR)
         }
 
-        if (dateFrom.date() === dateTo.date()) {
+        if (dateFrom.isSame(dateTo, 'day')) {
             toComponents = toComponents.filter((x) => x !== MONTHDAY)
             toComponents = toComponents.filter((x) => x !== COMMA)
-            if (dateTo.date() === dayjs().date()) {
+            if (dateFrom.isSame(dayjs(), 'day')) {
                 fromComponents = fromComponents.filter((x) => x !== MONTHDAY)
                 fromComponents = fromComponents.filter((x) => x !== COMMA)
             }

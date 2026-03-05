@@ -110,6 +110,8 @@ class HogQLPrinter(Visitor[str]):
     def visit_cte(self, node: ast.CTE):
         if node.materialized is not None:
             raise ImpossibleASTError(f"CTE materialization hints are not supported in the '{self.dialect}' dialect")
+        if node.using_key is not None:
+            raise ImpossibleASTError(f"CTE USING KEY is not supported in the '{self.dialect}' dialect")
 
         if node.cte_type == "subquery":
             if node.columns is not None:
@@ -127,6 +129,8 @@ class HogQLPrinter(Visitor[str]):
             if self.pretty:
                 query = query.strip()
             if expr.set_operator is not None:
+                if expr.set_operator in ("INTERSECT ALL", "EXCEPT ALL") and self.dialect != "postgres":
+                    raise ImpossibleASTError(f"{expr.set_operator} is not supported in the '{self.dialect}' dialect")
                 if self.pretty:
                     ret += f"\n{self.indent(1)}{expr.set_operator}\n{self.indent(1)}"
                 else:

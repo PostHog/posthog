@@ -27,6 +27,7 @@ from posthog.api.utils import unparsed_hostname_in_allowed_url_list
 from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, is_loopback_host
 from posthog.models.organization import Organization
+from posthog.security.outbound_proxy import external_requests
 
 logger = structlog.get_logger(__name__)
 
@@ -117,7 +118,11 @@ def normalize_and_validate_app_url(team: Team, app_url: str) -> str:
         raise ToolbarOAuthError("invalid_app_url", "app_url must use https for non-loopback hosts", 400)
 
     if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
-        raise ToolbarOAuthError("forbidden_app_url", "Can only redirect to a permitted domain.", 403)
+        raise ToolbarOAuthError(
+            "forbidden_app_url",
+            f"Can only redirect to a permitted domain. The hostname '{parsed.hostname}' is not in this project's authorized URLs.",
+            403,
+        )
 
     # preserve path/query/fragment
     return app_url
@@ -284,7 +289,7 @@ def _post_to_token_endpoint(data: dict[str, str], error_code: str) -> dict[str, 
     token_url = f"{settings.SITE_URL}/oauth/token/"
 
     try:
-        response = requests.post(
+        response = external_requests.post(
             token_url,
             data=data,
             timeout=settings.TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS,

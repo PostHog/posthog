@@ -8,10 +8,11 @@ interface ValueInspectorButtonProps {
     onMouseLeave?: (e?: React.MouseEvent) => void
     children: React.ReactNode
     title?: string | undefined
+    'data-attr'?: string
 }
 
 export const ValueInspectorButton = forwardRef<HTMLElement, ValueInspectorButtonProps>(function ValueInspectorButton(
-    { onClick, onMouseEnter, onMouseLeave, children, title },
+    { onClick, onMouseEnter, onMouseLeave, children, title, 'data-attr': dataAttr },
     ref
 ): JSX.Element {
     return onClick ? (
@@ -22,6 +23,7 @@ export const ValueInspectorButton = forwardRef<HTMLElement, ValueInspectorButton
             onMouseLeave={onMouseLeave}
             className="funnel-inspect-button"
             title={title}
+            data-attr={dataAttr}
             subtle
         >
             {children}
@@ -33,6 +35,7 @@ export const ValueInspectorButton = forwardRef<HTMLElement, ValueInspectorButton
             onMouseLeave={onMouseLeave}
             className="funnel-inspect-button"
             title={title}
+            data-attr={dataAttr}
         >
             {children}
         </span>

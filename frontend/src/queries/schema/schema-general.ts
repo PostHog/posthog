@@ -1,4 +1,5 @@
 import { DataColorToken } from 'lib/colors'
+// eslint-disable-next-line import/no-cycle
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ConversionGoalSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
@@ -176,6 +177,9 @@ export enum NodeKind {
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
     EndpointsUsageTableQuery = 'EndpointsUsageTableQuery',
     EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
+
+    // Property values
+    PropertyValuesQuery = 'PropertyValuesQuery',
 }
 
 export type AnyDataNode =
@@ -329,6 +333,9 @@ export type QuerySchema =
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
 
+    // Property values
+    | PropertyValuesQuery
+
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
 
@@ -415,6 +422,7 @@ export interface HogQLQueryModifiers {
     optimizeProjections?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
+    inlineCohortCalculation?: 'off' | 'auto' | 'always'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -1007,7 +1015,7 @@ export interface ChartAxis {
 export interface ChartSettingsFormatting {
     prefix?: string
     suffix?: string
-    style?: 'none' | 'number' | 'percent'
+    style?: 'none' | 'number' | 'short' | 'percent'
     decimalPlaces?: number
 }
 
@@ -1307,6 +1315,8 @@ export type TrendsFilter = {
     movingAverageIntervals?: number
     /** detailed results table */
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
+    /** @default false */
+    hideWeekends?: boolean
 }
 
 export type CalendarHeatmapFilter = {
@@ -1329,6 +1339,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'yAxisScaleType',
     'hiddenLegendIndexes',
+    'hideWeekends',
 ])
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
@@ -1527,6 +1538,9 @@ export type RetentionFilter = {
     aggregationType?: 'count' | 'sum' | 'avg'
     /** @description The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string
+    /** @description The type of property to aggregate on (event or person). Defaults to event.
+     * @default event */
+    aggregationPropertyType?: 'event' | 'person'
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -1735,6 +1749,8 @@ export interface EndpointRequest {
     derived_from_insight?: string
     /** Target a specific version for updates (optional, defaults to current version) */
     version?: integer
+    /** Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month). */
+    bucket_overrides?: Record<string, string>
 }
 
 /**
@@ -2920,6 +2936,7 @@ export type FileSystemIconType =
     | 'pipeline_status'
     | 'llm_evaluations'
     | 'llm_datasets'
+    | 'llm_playground'
     | 'llm_prompts'
     | 'llm_clusters'
     | 'exports'
@@ -4017,6 +4034,7 @@ export interface LLMTrace {
     errorCount?: number
     events: LLMTraceEvent[]
     isSupportTrace?: boolean
+    tools?: string[]
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
@@ -5589,3 +5607,28 @@ export interface ReplayInactivityPeriod {
 export enum DomainConnectProviderName {
     Cloudflare = 'Cloudflare',
 }
+
+export enum PropertyType {
+    Event = 'event',
+    Person = 'person',
+}
+
+export interface PropertyValueItem {
+    name: string | number | boolean | null
+    count?: integer
+}
+
+export interface PropertyValuesQuery extends DataNode<PropertyValuesQueryResponse> {
+    kind: NodeKind.PropertyValuesQuery
+    property_type: PropertyType
+    property_key: string
+    search_value?: string
+    event_names?: string[]
+    is_column?: boolean
+}
+
+export interface PropertyValuesQueryResponse extends AnalyticsQueryResponseBase {
+    results: PropertyValueItem[]
+}
+
+export type CachedPropertyValuesQueryResponse = CachedQueryResponse<PropertyValuesQueryResponse>

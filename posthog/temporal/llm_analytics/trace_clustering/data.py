@@ -81,7 +81,12 @@ def fetch_item_embeddings_for_clustering(
     # - Old format: document_type = "llm-trace-summary" AND rendering = "llma_trace_detailed"
     if has_filters and analysis_level == "generation":
         # Generation-level with filters: 2-level nested subquery
-        # embeddings WHERE document_id IN (SELECT generation UUIDs WHERE trace_id IN (SELECT filtered trace_ids))
+        # embeddings WHERE document_id IN (SELECT generation UUIDs matching filters
+        #   WHERE trace_id IN (SELECT filtered trace_ids))
+        # The property_filters are applied at BOTH levels:
+        # - Inner: scopes to traces where any event matches the filter
+        # - Outer: ensures only generation events matching the filter are included
+        #   (e.g. a trace with both openai and anthropic generations only gets the openai ones)
         query = parse_select(
             """
             SELECT document_id, embedding, rendering
@@ -100,6 +105,7 @@ def fetch_item_embeddings_for_clustering(
                     WHERE event = {generation_event}
                         AND timestamp >= {start_dt}
                         AND timestamp < {end_dt}
+                        AND {property_filters}
                         AND properties.$ai_trace_id IN (
                             SELECT DISTINCT properties.$ai_trace_id
                             FROM events

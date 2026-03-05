@@ -164,7 +164,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error } = searchParams
-            const { next, token } = fromParamsGivenUrl(state)
+            const { next, token, source, server_id } = fromParamsGivenUrl(state)
             let replaceUrl: string = next || urls.settings('project-integrations')
 
             if (error) {
@@ -178,18 +178,23 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     throw new Error('Invalid state token')
                 }
 
-                const integration = await api.integrations.create({
-                    kind,
-                    config: { state, code },
-                })
+                if (source === 'mcp_store') {
+                    replaceUrl += `${replaceUrl.includes('?') ? '&' : '?'}code=${encodeURIComponent(code)}&server_id=${encodeURIComponent(server_id)}&state_token=${encodeURIComponent(token)}`
+                    lemonToast.success('Authorization successful.')
+                } else {
+                    const integration = await api.integrations.create({
+                        kind,
+                        config: { state, code },
+                    })
 
-                // Add the integration ID to the replaceUrl so that the landing page can use it
-                const url = new URL(replaceUrl, window.location.origin)
-                url.searchParams.set('integration_id', String(integration.id))
-                replaceUrl = url.pathname + url.search + url.hash
+                    // Add the integration ID to the replaceUrl so that the landing page can use it
+                    const url = new URL(replaceUrl, window.location.origin)
+                    url.searchParams.set('integration_id', String(integration.id))
+                    replaceUrl = url.pathname + url.search + url.hash
 
-                actions.loadIntegrations()
-                lemonToast.success(`Integration successful.`)
+                    actions.loadIntegrations()
+                    lemonToast.success(`Integration successful.`)
+                }
             } catch {
                 lemonToast.error(`Something went wrong. Please try again.`)
             } finally {
@@ -240,6 +245,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return integrations?.filter((x) => x.kind == 'slack')
             },
         ],
+        twigSlackIntegrations: [
+            (s) => [s.integrations],
+            (integrations) => {
+                return integrations?.filter((x) => x.kind === 'slack-twig')
+            },
+        ],
         getIntegrationsByKind: [
             (s) => [s.integrations],
             (integrations) => {
@@ -254,7 +265,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return preflight?.slack_service?.available
             },
         ],
-
+        twigSlackAvailable: [
+            (s) => [s.preflight],
+            (preflight) => {
+                return preflight?.twig_slack_service?.available
+            },
+        ],
         getGitHubRepositories: [
             (s) => [s.githubRepositories],
             (githubRepositories) => {
