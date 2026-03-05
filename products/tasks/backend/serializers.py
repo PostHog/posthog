@@ -29,6 +29,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "task_number",
             "slug",
             "title",
+            "title_manually_set",
             "description",
             "origin_product",
             "repository",
