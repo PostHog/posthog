@@ -165,23 +165,27 @@ export function DashboardReloadAction(): JSX.Element {
                                                     />
                                                 ),
                                             },
-                                            {
-                                                title: 'Refresh interval',
-                                                items: [
-                                                    {
-                                                        label: () => (
-                                                            <LemonRadio
-                                                                value={autoRefresh.interval}
-                                                                options={options}
-                                                                onChange={(value: number) => {
-                                                                    setAutoRefresh(true, value)
-                                                                }}
-                                                                className="mx-2 mb-1"
-                                                            />
-                                                        ),
-                                                    },
-                                                ],
-                                            },
+                                            ...(autoRefresh.enabled
+                                                ? [
+                                                      {
+                                                          title: 'Refresh interval',
+                                                          items: [
+                                                              {
+                                                                  label: () => (
+                                                                      <LemonRadio
+                                                                          value={autoRefresh.interval}
+                                                                          options={options}
+                                                                          onChange={(value: number) => {
+                                                                              setAutoRefresh(true, value)
+                                                                          }}
+                                                                          className="mx-2 mb-1"
+                                                                      />
+                                                                  ),
+                                                              },
+                                                          ],
+                                                      },
+                                                  ]
+                                                : []),
                                         ]}
                                     />
                                 ),

@@ -416,8 +416,9 @@ export const personsLogic = kea<personsLogicType>([
                 let newPropertyType: string = typeof newValue
 
                 // If the property is a number, store it as a number
+                // Guard against empty string: Number("") === 0, which is a false positive
                 const attemptedParsedNumber = Number(newValue)
-                if (!Number.isNaN(attemptedParsedNumber) && typeof newValue !== 'boolean') {
+                if (!Number.isNaN(attemptedParsedNumber) && typeof newValue !== 'boolean' && newValue !== '') {
                     parsedValue = attemptedParsedNumber
                     newPropertyType = 'number'
                 }
