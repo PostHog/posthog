@@ -975,7 +975,13 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
 def get_run_snapshots(run_id: UUID) -> list[RunSnapshot]:
     run = get_run(run_id)
     return list(
-        run.snapshots.select_related("current_artifact", "baseline_artifact", "diff_artifact").order_by("identifier")
+        run.snapshots.select_related("current_artifact", "baseline_artifact", "diff_artifact").order_by(
+            db_models.Case(
+                db_models.When(result=SnapshotResult.UNCHANGED, then=1),
+                default=0,
+            ),
+            "identifier",
+        )
     )
 
 
