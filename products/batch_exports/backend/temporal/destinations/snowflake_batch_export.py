@@ -573,10 +573,9 @@ class SnowflakeClient:
 
         try:
             async with CONNECTION_SEMAPHORE:
-                from posthog.security.outbound_proxy import get_proxy_host_port
+                from posthog.security.outbound_proxy import get_proxy_host_port_dict
 
-                proxy = get_proxy_host_port()
-                proxy_kwargs = {"proxy_host": proxy[0], "proxy_port": str(proxy[1])} if proxy else {}
+                proxy_kwargs = get_proxy_host_port_dict()
 
                 connection = await asyncio.to_thread(
                     snowflake.connector.connect,

@@ -48,8 +48,7 @@ def get_proxy_url() -> str | None:
     return None
 
 
-def get_proxy_host_port() -> tuple[str, int] | None:
-    """Return ``(host, port)`` for SDKs that need them separately (e.g. Snowflake)."""
+def _get_proxy_host_port() -> tuple[str, int] | None:
     url = get_proxy_url()
     if not url:
         return None
@@ -57,6 +56,18 @@ def get_proxy_host_port() -> tuple[str, int] | None:
 
     parsed = urlparse(url)
     return (parsed.hostname or "", parsed.port or 8080)
+
+
+def get_proxy_host_port_dict() -> dict[str, str]:
+    """Return ``{"proxy_host": ..., "proxy_port": ...}`` or ``{}`` when proxy is disabled.
+
+    Suitable for spreading into SDKs that accept separate host/port params
+    (e.g. Snowflake's ``connect(proxy_host=, proxy_port=)``).
+    """
+    hp = _get_proxy_host_port()
+    if not hp:
+        return {}
+    return {"proxy_host": hp[0], "proxy_port": str(hp[1])}
 
 
 # ---------------------------------------------------------------------------
