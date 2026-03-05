@@ -45,8 +45,8 @@ class TestStripeWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
     def test_valid_signed_webhook(self):
         secret = "whsec_test"
         globals = self._make_signed_request(secret)
-        res = self.run_function({"signing_secret": secret, "bypass_signature_check": False}, globals=globals)
-        assert res.result == globals["request"]["body"]
+        self.run_function({"signing_secret": secret, "bypass_signature_check": False}, globals=globals)
+        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(globals["request"]["body"])
 
     def test_non_post_request_returns_405(self):
         globals = self._make_signed_request("whsec_test", method="GET")
@@ -82,8 +82,8 @@ class TestStripeWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
                 "query": {},
             }
         }
-        res = self.run_function({"signing_secret": "", "bypass_signature_check": True}, globals=globals)
-        assert res.result == body
+        self.run_function({"signing_secret": "", "bypass_signature_check": True}, globals=globals)
+        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(body)
 
     @parameterized.expand(
         [
