@@ -433,6 +433,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 "$current_url": ANY,
                 "$session_id": ANY,
                 "was_impersonated": ANY,
+                "mcp_user_agent": ANY,
                 "name": "test_property",
                 "type": "event",
             },

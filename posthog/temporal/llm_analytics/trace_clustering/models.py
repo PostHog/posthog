@@ -52,7 +52,7 @@ class ClusteringWorkflowInputs:
     # Optional property filters to scope which traces are included in clustering
     # Uses PostHog's standard property filter format (same as evaluations, feature flags, etc.)
     event_filters: list[dict[str, Any]] = field(default_factory=list)
-    job_id: int = 0  # 0 = no job (legacy/manual run without a job)
+    job_id: str = ""  # empty = no job (legacy/manual run without a job)
     job_name: str = ""
 
     @property
@@ -83,7 +83,7 @@ class ClusteringActivityInputs:
     visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
     # Optional property filters to scope which traces are included in clustering
     event_filters: list[dict[str, Any]] = field(default_factory=list)
-    job_id: int = 0
+    job_id: str = ""
     job_name: str = ""
 
     @property
@@ -287,7 +287,7 @@ class EmitEventsActivityInputs:
     analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
     batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
     clustering_params: ClusteringParams | None = None  # Params used for this run
-    job_id: int = 0  # 0 = no job (legacy/manual run without a job)
+    job_id: str = ""  # empty = no job (legacy/manual run without a job)
     job_name: str = ""
 
     @property
