@@ -35,9 +35,14 @@ export function ExperimentPhaseSelector(): JSX.Element | null {
 
     const phases = experiment.phases || []
     const selectedPhase = selectedPhaseIndex != null ? phases[selectedPhaseIndex] : null
-    const selectedPhaseLabel = selectedPhase ? getPhaseName(selectedPhase, selectedPhaseIndex ?? 0) : 'All phases'
-    const displayStartDate = selectedPhase?.start_date ?? experiment.start_date
-    const displayEndDate = selectedPhase?.end_date ?? experiment.end_date
+    const selectedPhaseLabel = selectedPhase
+        ? getPhaseName(selectedPhase, selectedPhaseIndex ?? 0)
+        : phases.length > 0
+          ? getPhaseName(phases[phases.length - 1], phases.length - 1)
+          : 'No phases'
+    const effectivePhase = selectedPhase ?? phases[phases.length - 1]
+    const displayStartDate = effectivePhase?.start_date ?? experiment.start_date
+    const displayEndDate = effectivePhase?.end_date ?? experiment.end_date
 
     return (
         <div>
@@ -47,14 +52,6 @@ export function ExperimentPhaseSelector(): JSX.Element | null {
                     matchWidth={false}
                     overlay={
                         <div className="min-w-56">
-                            <LemonButton
-                                fullWidth
-                                size="small"
-                                active={selectedPhaseIndex === null}
-                                onClick={() => setSelectedPhaseIndex(null)}
-                            >
-                                All phases
-                            </LemonButton>
                             {phases.map((phase, i) => (
                                 <LemonButton
                                     key={i}
