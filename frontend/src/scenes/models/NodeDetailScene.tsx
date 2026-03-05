@@ -1,30 +1,33 @@
-import { useActions, useValues } from "kea";
+import { useValues } from 'kea'
 
-import { LemonTag, Spinner, Tooltip } from "@posthog/lemon-ui";
+import { LemonTag } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber } from "lib/utils";
-import { SceneExport } from "scenes/sceneTypes";
+import { SceneExport } from 'scenes/sceneTypes'
 
-import { SceneContent } from "~/layout/scenes/components/SceneContent";
-import { SceneTitleSection } from "~/layout/scenes/components/SceneTitleSection";
-import { ProductKey } from "~/queries/schema/schema-general";
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { NODE_TYPE_SETTINGS } from './constants'
 import { nodeDetailSceneLogic, NodeDetailSceneLogicProps } from './nodeDetailSceneLogic'
 
 export const scene: SceneExport<NodeDetailSceneLogicProps> = {
-  component: NodeDetailScene,
-  logic: nodeDetailSceneLogic,
-  paramsToProps: ({ params: { id } }) => ({ id }),
-  productKey: ProductKey.DATA_WAREHOUSE_SAVED_QUERY,
-};
+    component: NodeDetailScene,
+    logic: nodeDetailSceneLogic,
+    paramsToProps: ({ params: { id } }) => ({ id }),
+    productKey: ProductKey.DATA_WAREHOUSE_SAVED_QUERY,
+}
 
 export function NodeDetailScene({ id }: { id?: string } = {}): JSX.Element {
     const logicProps = { id: id || '' }
-    const { node, nodeLoading, savedQuery, savedQueryLoading } = useValues(nodeDetailSceneLogic(logicProps))
+    const { node, savedQuery, savedQueryLoading } = useValues(nodeDetailSceneLogic(logicProps))
 
-  const typeSettings = NODE_TYPE_SETTINGS[node.type];
-  const hasQuery = node.type !== "table" && savedQuery?.query?.query;
+    if (!node) {
+        return (
+            <SceneContent>
+                <div />
+            </SceneContent>
+        )
+    }
 
     const typeSettings = NODE_TYPE_SETTINGS[node.type]
     const isLoading = savedQueryLoading

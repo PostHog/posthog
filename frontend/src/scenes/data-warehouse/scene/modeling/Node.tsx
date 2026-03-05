@@ -16,14 +16,6 @@ import { NODE_TYPE_SETTINGS } from '../../../models/constants'
 import { dataModelingLogic } from '../dataModelingLogic'
 import type { ElkDirection, NodeData, NodeHandle } from './types'
 
-function parseEndpointVersion(name: string): { displayName: string; version: string | null } {
-    const match = name.match(/^(.+)_v(\d+)$/)
-    if (match) {
-        return { displayName: match[1], version: `v${match[2]}` }
-    }
-    return { displayName: name, version: null }
-}
-
 function NodeHandles({ handles }: { handles: NodeHandle[] }): JSX.Element {
     return (
         <>
