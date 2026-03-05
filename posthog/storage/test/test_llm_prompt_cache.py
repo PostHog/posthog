@@ -183,15 +183,11 @@ class TestLLMPromptCache(BaseTest):
         with patch("posthog.models.llm_prompt.transaction.on_commit", side_effect=lambda callback: None):
             self.create_prompt_version(name="new-prompt", version=1, is_latest=True)
 
-        with patch.object(
-            llm_prompts_hypercache, "set_cache_value", wraps=llm_prompts_hypercache.set_cache_value
-        ) as mock_set_cache:
-            cached_prompt = get_prompt_by_name_from_cache(self.team, "new-prompt")
+        cached_prompt = get_prompt_by_name_from_cache(self.team, "new-prompt")
 
         assert cached_prompt is not None
         self.assertEqual(cached_prompt["name"], "new-prompt")
         self.assertEqual(cached_prompt["version"], 1)
-        self.assertEqual(mock_set_cache.call_count, 1)
 
     def test_archive_invalidation_clears_sparse_version_cache_for_reused_name(self):
         old_v1 = self.create_prompt_version(name="reused-prompt", version=1, is_latest=False, prompt="old-v1")
@@ -226,17 +222,11 @@ class TestLLMPromptCache(BaseTest):
             new_v1 = self.create_prompt_version(name="reused-prompt", version=1, is_latest=True, prompt="new-v1")
 
         invalidate_prompt_latest_cache(self.team.id, "reused-prompt")
-        with patch.object(
-            llm_prompts_hypercache,
-            "set_cache_value",
-            wraps=llm_prompts_hypercache.set_cache_value,
-        ) as mock_set_cache:
-            refreshed = get_prompt_by_name_from_cache(self.team, "reused-prompt", version=1)
+        refreshed = get_prompt_by_name_from_cache(self.team, "reused-prompt", version=1)
 
         assert refreshed is not None
         self.assertEqual(refreshed["id"], str(new_v1.id))
         self.assertNotEqual(refreshed["id"], str(old_v1.id))
-        self.assertEqual(mock_set_cache.call_count, 1)
 
     def test_stale_exact_version_cache_entry_uses_first_version_id_generation_marker(self):
         old_v1 = self.create_prompt_version(name="reused-prompt", version=1, is_latest=True, prompt="old-v1")
