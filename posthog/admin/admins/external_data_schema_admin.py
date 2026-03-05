@@ -33,9 +33,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         extra_context = extra_context or {}
         obj = self.get_object(request, object_id)
         if obj:
-            extra_context["jobs"] = (
-                ExternalDataJob.objects.filter(schema=obj).order_by("-created_at")[:50]
-            )
+            extra_context["jobs"] = ExternalDataJob.objects.filter(schema=obj).order_by("-created_at")[:50]
             extra_context["temporal_ui_host"] = settings.TEMPORAL_UI_HOST
             extra_context["temporal_namespace"] = settings.TEMPORAL_NAMESPACE
             extra_context["site_url"] = settings.SITE_URL
