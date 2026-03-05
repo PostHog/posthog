@@ -279,6 +279,13 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     )
                 raise
 
+        return MaterializeViewWorkflowResult(
+            job_id=job_id,
+            node_id=inputs.node_id,
+            rows_materialized=-1,
+            duration_seconds=-1,
+        )
+
     async def _collect_shadow_comparison(
         self,
         shadow_handle: temporalio.workflow.ActivityHandle[DuckgresShadowResult],
