@@ -50,3 +50,19 @@ export const COHORT_RESOURCE_URI = 'ui://posthog/cohort.html'
  * Used by: cohorts-list
  */
 export const COHORT_LIST_RESOURCE_URI = 'ui://posthog/cohort-list.html'
+
+/**
+ * Error details visualization with stack traces.
+ * Used by: error-details
+ */
+export const ERROR_DETAILS_RESOURCE_URI = 'ui://posthog/error-details.html'
+/**
+ * Error tracking issue detail visualization.
+ * Used by: error-tracking-issues-retrieve, error-tracking-issues-partial-update
+ */
+export const ERROR_ISSUE_RESOURCE_URI = 'ui://posthog/error-issue.html'
+/**
+ * Error tracking issue list visualization.
+ * Used by: error-tracking-issues-list
+ */
+export const ERROR_ISSUE_LIST_RESOURCE_URI = 'ui://posthog/error-issue-list.html'
