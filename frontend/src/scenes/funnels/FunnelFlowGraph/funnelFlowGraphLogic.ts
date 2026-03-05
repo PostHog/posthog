@@ -299,7 +299,9 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
 
     subscriptions(({ actions, values }) => ({
         nodes: async () => {
-            const elkOverrides = values.isProfileMode ? { 'elk.layered.spacing.nodeNodeBetweenLayers': '40' } : undefined
+            const elkOverrides = values.isProfileMode
+                ? { 'elk.layered.spacing.nodeNodeBetweenLayers': '40' }
+                : undefined
             const elkNodeSize = {
                 width: values.nodeWidth,
                 height: values.nodeHeight,

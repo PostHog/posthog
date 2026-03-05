@@ -6,11 +6,12 @@ import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
 import { FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { InsightLogicProps } from '~/types'
 
 import { JOURNEY_BUILDER_INSIGHT_PROPS, journeyBuilderLogic } from './journeyBuilderLogic'
 
-const JOURNEY_BUILDER_CONTEXT: QueryContext = {
-    insightProps: JOURNEY_BUILDER_INSIGHT_PROPS,
+const JOURNEY_BUILDER_CONTEXT: QueryContext<InsightVizNode> = {
+    insightProps: JOURNEY_BUILDER_INSIGHT_PROPS as InsightLogicProps<InsightVizNode>,
 }
 
 export function JourneyBuilder(): JSX.Element {

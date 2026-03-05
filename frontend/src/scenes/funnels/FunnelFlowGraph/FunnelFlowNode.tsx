@@ -124,12 +124,3 @@ export const JourneyFlowNode = React.memo(function JourneyFlowNode({
         />
     )
 })
-
-export const FunnelFlowNode = React.memo(function FunnelFlowNode({ data }: { data: FunnelFlowNodeData }): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-
-    if (insightProps.isProfileMode) {
-        return <ProfileFlowNode data={data} />
-    }
-    return <JourneyFlowNode data={data} />
-})

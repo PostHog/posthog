@@ -9,6 +9,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { journeyBuilderLogic } from 'products/customer_analytics/frontend/components/CustomerJourneys/journeyBuilderLogic'
 
 import { funnelFlowGraphLogic } from './funnelFlowGraphLogic'
+import { funnelPathsExpansionLogic } from './funnelPathsExpansionLogic'
 import { PathFlowNodeShell, PathFlowNodeProps } from './PathFlowNode'
 
 export const BuilderPathFlowNode = React.memo(function BuilderPathFlowNode({
@@ -17,7 +18,7 @@ export const BuilderPathFlowNode = React.memo(function BuilderPathFlowNode({
 }: PathFlowNodeProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { expandedPath, funnelNodes } = useValues(funnelFlowGraphLogic(insightProps))
-    const { collapsePath } = useActions(funnelFlowGraphLogic(insightProps))
+    const { collapsePath } = useActions(funnelPathsExpansionLogic(insightProps))
     const { addStepFromPath } = useActions(journeyBuilderLogic)
 
     const addable = expandedPath !== null && !expandedPath.dropOff

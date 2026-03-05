@@ -21,11 +21,10 @@ import { isInsightVizNode } from '~/queries/utils'
 
 import { journeyBuilderLogic } from 'products/customer_analytics/frontend/components/CustomerJourneys/journeyBuilderLogic'
 
-import { funnelDataLogic } from '../funnelDataLogic'
 import { BuilderPathFlowNode } from './BuilderPathFlowNode'
 import { BuilderStepNode } from './BuilderStepNode'
 import { JourneyFlowEdge, ProfileFlowEdge } from './FunnelFlowEdge'
-import { AnyFlowNode, funnelFlowGraphLogic } from './funnelFlowGraphLogic'
+import { funnelFlowGraphLogic } from './funnelFlowGraphLogic'
 import { JourneyFlowNode, ProfileFlowNode } from './FunnelFlowNode'
 import { PathFlowEdge } from './PathFlowEdge'
 import { PathFlowNode } from './PathFlowNode'
@@ -59,15 +58,8 @@ function FunnelFlowGraphContent(): JSX.Element {
     const { isBuilderOpen } = useValues(journeyBuilderLogic())
     const mode = isProfileMode ? 'profile' : isBuilderOpen ? 'builder' : undefined
     const { laidOutNodes, edges, fitViewOptions } = useValues(funnelFlowGraphLogic({ ...insightProps, mode }))
-
-    const onInit = useCallback(
-        (instance: ReactFlowInstance<AnyFlowNode>) => {
-            instance.fitView(fitViewOptions)
-        },
-        [fitViewOptions]
-    )
-
     const layoutCountRef = useRef(0)
+
     useEffect(() => {
         if (laidOutNodes.length === 0) {
             return

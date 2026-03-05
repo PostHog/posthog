@@ -17,7 +17,8 @@ import { FunnelPathType } from '~/types'
 
 import { journeyBuilderLogic } from 'products/customer_analytics/frontend/components/CustomerJourneys/journeyBuilderLogic'
 
-import { funnelFlowGraphLogic, FunnelFlowNodeData } from './funnelFlowGraphLogic'
+import { FunnelFlowNodeData } from './funnelFlowGraphLogic'
+import { funnelPathsExpansionLogic } from './funnelPathsExpansionLogic'
 import { StepNodeShell } from './StepNodeShell'
 
 function StepHandle({
@@ -30,8 +31,8 @@ function StepHandle({
     stepCount: number
 }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { expandedPath, pathsLoading } = useValues(funnelFlowGraphLogic(insightProps))
-    const { expandPath, collapsePath } = useActions(funnelFlowGraphLogic(insightProps))
+    const { expandedPath, pathsLoading } = useValues(funnelPathsExpansionLogic(insightProps))
+    const { expandPath, collapsePath } = useActions(funnelPathsExpansionLogic(insightProps))
     const { addStep } = useActions(journeyBuilderLogic)
 
     const isFirst = stepIndex === 0
