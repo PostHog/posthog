@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultEventName, getProjectEventExistence } from 'lib/utils/getAppContext'
 import { PathExpansion } from 'scenes/funnels/FunnelFlowGraph/pathFlowUtils'
@@ -9,8 +10,10 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import { eventNameToEventsNode } from '~/queries/nodes/InsightQuery/utils/eventNameToEventsNode'
 import { EventsNode, FunnelsQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { insightsApi } from '~/scenes/insights/utils/api'
 import { FunnelPathType, FunnelVizType, InsightLogicProps } from '~/types'
 
+import { customerJourneysLogic } from './customerJourneysLogic'
 import type { journeyBuilderLogicType } from './journeyBuilderLogicType'
 
 export const JOURNEY_BUILDER_INSIGHT_PROPS: InsightLogicProps = {
@@ -44,7 +47,12 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
     path(['products', 'customer_analytics', 'frontend', 'components', 'CustomerJourneys', 'journeyBuilderLogic']),
 
     connect(() => ({
-        actions: [insightDataLogic(JOURNEY_BUILDER_INSIGHT_PROPS), ['setQuery as setInsightQuery']],
+        actions: [
+            insightDataLogic(JOURNEY_BUILDER_INSIGHT_PROPS),
+            ['setQuery as setInsightQuery'],
+            customerJourneysLogic,
+            ['addJourney'],
+        ],
         values: [featureFlagLogic, ['featureFlags']],
     })),
 
@@ -64,8 +72,8 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             expansion,
             funnelStepCount,
         }),
-        saveJourney: (name: string) => ({ name }),
-        saveJourneySuccess: true,
+        setJourneyName: (name: string) => ({ name }),
+        saveJourney: true,
         saveJourneyFailure: (error: string) => ({ error }),
     }),
 
@@ -84,11 +92,18 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                 closeBuilder: () => createDefaultQuery(),
             },
         ],
+        journeyName: [
+            '',
+            {
+                setJourneyName: (_, { name }) => name,
+                closeBuilder: () => '',
+            },
+        ],
         isSaving: [
             false,
             {
                 saveJourney: () => true,
-                saveJourneySuccess: () => false,
+                closeBuilder: () => false,
                 saveJourneyFailure: () => false,
             },
         ],
@@ -183,8 +198,37 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             })
         },
 
-        saveJourney: async ({ name }) => {
-            // Will be implemented in Step 10
+        saveJourney: async () => {
+            const { series, journeyName, query } = values
+            const name = journeyName.trim() || 'Untitled journey'
+
+            const hasEmptySteps = series.some((s: EventsNode) => s.event === null)
+            if (hasEmptySteps) {
+                lemonToast.warning('Select an event for all steps before saving')
+                actions.saveJourneyFailure('Empty steps')
+                return
+            }
+
+            try {
+                const insight = await insightsApi.create({
+                    query,
+                    name: `Journey: ${name}`,
+                    saved: true,
+                })
+
+                // Delegate journey creation + list reload to customerJourneysLogic
+                // addJourney creates the record, reloads the list, and addJourneySuccess selects it
+                actions.addJourney({
+                    insightId: insight.id,
+                    name,
+                })
+
+                actions.closeBuilder()
+            } catch (e) {
+                const message = e instanceof Error ? e.message : 'Failed to save journey'
+                actions.saveJourneyFailure(message)
+                lemonToast.error(message)
+            }
         },
     })),
 ])

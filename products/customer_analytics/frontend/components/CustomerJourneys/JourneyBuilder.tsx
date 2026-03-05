@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
 import { FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
@@ -13,26 +13,28 @@ const JOURNEY_BUILDER_CONTEXT: QueryContext = {
 }
 
 export function JourneyBuilder(): JSX.Element {
-    const { query, isSaving } = useValues(journeyBuilderLogic)
-    const { setQuery, closeBuilder } = useActions(journeyBuilderLogic)
+    const { query, journeyName, isSaving } = useValues(journeyBuilderLogic)
+    const { setQuery, setJourneyName, saveJourney, closeBuilder } = useActions(journeyBuilderLogic)
 
     return (
         <div className="space-y-4">
             <LemonDivider />
             <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-lg m-0">Build journey</h3>
+                <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-lg m-0">Build journey</h3>
+                    <LemonInput
+                        value={journeyName}
+                        onChange={setJourneyName}
+                        placeholder="Journey name"
+                        size="small"
+                        className="w-64"
+                    />
+                </div>
                 <div className="flex items-center gap-2">
                     <LemonButton type="secondary" size="small" onClick={closeBuilder}>
                         Cancel
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        loading={isSaving}
-                        onClick={() => {
-                            /* save modal — implemented in Step 10 */
-                        }}
-                    >
+                    <LemonButton type="primary" size="small" loading={isSaving} onClick={() => saveJourney()}>
                         Save journey
                     </LemonButton>
                 </div>
