@@ -25,7 +25,8 @@ function TriggerPanelHeader({
     return (
         <div className="flex items-center justify-between w-full">
             <span className="font-semibold flex items-center gap-1">
-                {showMatchTag && <IngestionControls.MatchTypeTag />} {title}
+                {showMatchTag && <IngestionControls.MatchTypeTag />}
+                {title}
             </span>
             <span className="text-muted text-xs font-normal">{status}</span>
         </div>
