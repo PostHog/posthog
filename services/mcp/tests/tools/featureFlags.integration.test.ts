@@ -69,7 +69,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
             expect(flagData.active).toBe(params.active)
-            expect(flagData.url).toContain('/feature_flags/')
+            expect(flagData._posthogUrl).toContain('/feature_flags/')
             expect(flagData.updated_at).toBeTruthy()
         })
 

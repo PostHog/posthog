@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { FEATURE_FLAG_LIST_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { FeatureFlagGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -21,13 +22,27 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
         throw new Error(`Failed to get feature flags: ${flagsResult.error.message}`)
     }
 
-    return flagsResult.data
+    // The API client returns a plain array, but the UI app expects
+    // the paginated envelope shape { count, results, next, previous }
+    const flags = flagsResult.data
+    return {
+        count: flags.length,
+        results: flags,
+        next: null,
+        previous: null,
+        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/feature_flags`,
+    }
 }
 
 const tool = (): ToolBase<typeof schema> => ({
     name: 'feature-flag-get-all',
     schema,
     handler: getAllHandler,
+    _meta: {
+        ui: {
+            resourceUri: FEATURE_FLAG_LIST_RESOURCE_URI,
+        },
+    },
 })
 
 export default tool

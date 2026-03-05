@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { FEATURE_FLAG_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { FeatureFlagGetDefinitionSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -17,12 +18,14 @@ export const getDefinitionHandler: ToolBase<typeof schema>['handler'] = async (
 
     const projectId = await context.stateManager.getProjectId()
 
+    const baseUrl = context.api.getProjectBaseUrl(projectId)
+
     if (flagId) {
         const flagResult = await context.api.featureFlags({ projectId }).get({ flagId: String(flagId) })
         if (!flagResult.success) {
             throw new Error(`Failed to get feature flag: ${flagResult.error.message}`)
         }
-        return flagResult.data
+        return { ...flagResult.data, _posthogUrl: `${baseUrl}/feature_flags/${flagResult.data.id}` }
     }
 
     if (flagKey) {
@@ -32,7 +35,7 @@ export const getDefinitionHandler: ToolBase<typeof schema>['handler'] = async (
             throw new Error(`Failed to find feature flag: ${flagResult.error.message}`)
         }
         if (flagResult.data) {
-            return flagResult.data
+            return { ...flagResult.data, _posthogUrl: `${baseUrl}/feature_flags/${flagResult.data.id}` }
         }
         return { error: `Flag with key "${flagKey}" not found.` }
     }
@@ -44,6 +47,11 @@ const tool = (): ToolBase<typeof schema> => ({
     name: 'feature-flag-get-definition',
     schema,
     handler: getDefinitionHandler,
+    _meta: {
+        ui: {
+            resourceUri: FEATURE_FLAG_RESOURCE_URI,
+        },
+    },
 })
 
 export default tool
