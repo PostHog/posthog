@@ -69,7 +69,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
 
         # When aggregating by non person property (e.g. session_id)
         # add the person_id so we can later fetch the person data
-        if self._is_non_person_hogql_aggregation() and "person_id" not in self._extra_event_fields:
+        if self._is_session_aggregation() and "person_id" not in self._extra_event_fields:
             self._extra_event_fields.append("person_id")
 
     def get_step_counts_query(self):
@@ -89,7 +89,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         )
 
     def _person_id_select(self) -> str:
-        if self._is_non_person_hogql_aggregation():
+        if self._is_session_aggregation():
             return "any(person_id) as person_id,"
         return ""
 
@@ -299,7 +299,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             *self._matching_events(),
             *([ast.Field(chain=[field]) for field in extra_fields or []]),
         ]
-        if self._is_non_person_hogql_aggregation():
+        if self._is_session_aggregation():
             select.append(ast.Alias(alias="person_id", expr=ast.Field(chain=["person_id"])))
         select_from = ast.JoinExpr(table=self._inner_aggregation_query())
 

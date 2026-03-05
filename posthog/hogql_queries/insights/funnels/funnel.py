@@ -68,7 +68,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         # When aggregating by non person property (e.g. session_id)
         # add the person_id so we can later fetch the person data
-        if self._is_non_person_hogql_aggregation() and "person_id" not in self._extra_event_fields:
+        if self._is_session_aggregation() and "person_id" not in self._extra_event_fields:
             self._extra_event_fields.append("person_id")
 
     def conversion_window_limit(self) -> int:
@@ -162,7 +162,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             prop_arg = f"""[empty(prop) ? [{",".join(["''"] * len(self.context.breakdown))}] : prop]"""
 
         person_id_select = ""
-        if self._is_non_person_hogql_aggregation():
+        if self._is_session_aggregation():
             # person is already merged with the overrides in the inner query
             # so we should be safe to pick any of the person_ids
             person_id_select = "any(person_id) as person_id,"
@@ -407,7 +407,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             *self._get_timestamp_outer_select(),
             *([ast.Field(chain=[field]) for field in extra_fields or []]),
         ]
-        if self._is_non_person_hogql_aggregation():
+        if self._is_session_aggregation():
             select.append(ast.Alias(alias="person_id", expr=ast.Field(chain=["person_id"])))
         select_from = ast.JoinExpr(table=self._inner_aggregation_query())
         where = self._get_funnel_person_step_condition()

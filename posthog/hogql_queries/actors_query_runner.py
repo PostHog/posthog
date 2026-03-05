@@ -85,17 +85,17 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         return self.source_query_runner.group_type_index
 
     @property
-    def is_non_person_hogql_aggregation(self) -> bool:
+    def is_session_aggregation(self) -> bool:
         if not self.source_query_runner or not isinstance(self.source_query_runner, InsightActorsQueryRunner):
             return False
 
-        return self.source_query_runner.is_non_person_hogql_aggregation
+        return self.source_query_runner.is_session_aggregation
 
     def determine_strategy(self) -> ActorStrategy:
         if self.group_type_index is not None:
             return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
 
-        if self.is_non_person_hogql_aggregation:
+        if self.is_session_aggregation:
             return SessionStrategy(team=self.team, query=self.query, paginator=self.paginator)
 
         return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
@@ -217,7 +217,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 person_uuid_to_event_distinct_ids,
             )
 
-        if self.is_non_person_hogql_aggregation and "person_id" in input_columns:
+        if self.is_session_aggregation and "person_id" in input_columns:
             results = self._enrich_session_actors_with_person_identity(results, input_columns)
 
         for column_index, col in enumerate(input_columns):
@@ -261,7 +261,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             ):
                 selected_columns.append("event_distinct_ids")
 
-            if self.calculating and self.is_non_person_hogql_aggregation and "person_id" not in selected_columns:
+            if self.calculating and self.is_session_aggregation and "person_id" not in selected_columns:
                 selected_columns.append("person_id")
 
             return selected_columns

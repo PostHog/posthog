@@ -281,9 +281,8 @@ class FunnelBase(ABC):
     def extra_event_fields_and_properties(self):
         return self._extra_event_fields + self._extra_event_properties
 
-    def _is_non_person_hogql_aggregation(self) -> bool:
-        hogql_agg = self.context.funnelsFilter.funnelAggregateByHogQL
-        return hogql_agg is not None and hogql_agg != "person_id"
+    def _is_session_aggregation(self) -> bool:
+        return self.context.funnelsFilter.funnelAggregateByHogQL == "properties.$session_id"
 
     @property
     def _absolute_actors_step(self) -> Optional[int]:
