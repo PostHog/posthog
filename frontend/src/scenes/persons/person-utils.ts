@@ -120,9 +120,11 @@ export function coercePropertyValue(value: string | number | boolean | null): st
         result = attemptedParsedNumber
     }
 
-    const lowercaseValue = typeof result === 'string' && result.toLowerCase()
-    if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
-        result = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
+    if (typeof result === 'string') {
+        const lowercaseValue = result.toLowerCase()
+        if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
+            result = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
+        }
     }
 
     return result
