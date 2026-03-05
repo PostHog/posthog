@@ -8,7 +8,6 @@ Endpoints:
 
 import json
 import uuid
-import logging
 from collections.abc import Callable, Generator
 from time import perf_counter
 from typing import Any, cast
@@ -16,6 +15,7 @@ from typing import Any, cast
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
+import structlog
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -50,7 +50,7 @@ from products.llm_analytics.backend.models.provider_keys import LLMProvider, LLM
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class LLMProxyCompletionSerializer(serializers.Serializer):
@@ -162,13 +162,17 @@ class LLMProxyViewSet(viewsets.ViewSet):
                         on_error(Exception("Client disconnected"), perf_counter() - started)
                     return
                 yield chunk.to_sse().encode()
-            if on_complete:
-                on_complete(perf_counter() - started)
         except Exception as e:
             if on_error:
                 on_error(e, perf_counter() - started)
-            logger.exception(f"Error in LLM proxy stream: {e}")
+            logger.exception("llm_proxy_stream_error", error=str(e))
             yield f"data: {json.dumps({'error': 'An internal error occurred', 'status_code': 500})}\n\n".encode()
+        else:
+            if on_complete:
+                try:
+                    on_complete(perf_counter() - started)
+                except Exception:
+                    logger.exception("llm_proxy_on_complete_callback_error")
 
     def _create_streaming_response(self, stream: Generator[bytes, None, None]) -> StreamingHttpResponse:
         """Creates a properly configured SSE streaming response"""
@@ -296,7 +300,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             return Response({"error": "Unsupported provider"}, status=400)
 
         except Exception as e:
-            logger.exception(f"Error in LLM proxy: {e}")
+            logger.exception("llm_proxy_error", error=str(e))
 
             # Track playground completion failed
             if request.user and request.user.is_authenticated:

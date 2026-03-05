@@ -129,7 +129,7 @@ function PlaygroundHeaderActions(): JSX.Element {
                 icon={<IconPlus />}
                 onClick={() => addPromptConfig(firstPromptId)}
                 disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
-                data-attr="playground-add-prompt"
+                data-attr="llma-playground-add-prompt"
             >
                 Add prompt
             </LemonButton>
@@ -146,7 +146,7 @@ function PlaygroundHeaderActions(): JSX.Element {
                           ? 'Add messages to at least one prompt'
                           : undefined
                 }
-                data-attr="ai-playground-run-button"
+                data-attr="llma-playground-run-button"
             >
                 {playgroundSubmitting ? 'Stop' : 'Run'}
             </LemonButton>
@@ -300,7 +300,7 @@ function PromptCard({
                                 noPadding
                                 disabledReason={submitting ? 'Generating...' : undefined}
                                 onClick={onRemove}
-                                data-attr="playground-remove-prompt"
+                                data-attr="llma-playground-remove-prompt"
                             />
                         </div>
                     )}
@@ -429,7 +429,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                 loading={loading}
                 footerLink={getModelPickerFooterLink(hasByokKeys)}
                 selectedModelName={selectedModel?.name}
-                data-attr={`playground-model-selector-${promptId}`}
+                data-attr={`llma-playground-model-selector-${promptId}`}
             />
             {showError && (
                 <div className="mt-1">
@@ -777,7 +777,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                         tooltip="Copy system prompt"
                         noPadding
                         onClick={() => void copyToClipboard(prompt.systemPrompt, 'system prompt')}
-                        data-attr="playground-copy-system-prompt"
+                        data-attr="llma-playground-copy-system-prompt"
                     />
                     {hasOtherPrompts && (
                         <LemonButton
@@ -786,7 +786,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                             tooltip="Apply this system prompt to other prompts"
                             noPadding
                             onClick={copySystemPromptToOtherPrompts}
-                            data-attr="playground-sync-system-prompt"
+                            data-attr="llma-playground-sync-system-prompt"
                         />
                     )}
                     <LemonButton
@@ -795,7 +795,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                         tooltip="Edit system prompt in modal"
                         noPadding
                         onClick={() => setEditModal({ type: 'system', promptId })}
-                        data-attr="playground-edit-system-prompt"
+                        data-attr="llma-playground-edit-system-prompt"
                     />
                 </div>
 

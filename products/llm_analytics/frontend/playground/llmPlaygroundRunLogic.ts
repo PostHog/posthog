@@ -133,6 +133,9 @@ export interface ComparisonItem {
     latencyMs?: number | null
 }
 
+// Module-level ref, intentionally shared: only one playground run can be active at a time
+// (enforced by the `submitting` reducer). This lets `abortRun` signal the in-flight fetch
+// without storing a non-serializable controller in Kea state.
 let activeAbortController: AbortController | null = null
 
 export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
@@ -226,7 +229,6 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                     let responseText = ''
                     let responseReasoning = ''
                     let responseHasError = false
-                    let responseAborted = false
                     let toolCalls: AggregatedToolCall[] = []
                     let providerKeyId: string | null = null
                     let selectedModelProvider = ''
@@ -359,7 +361,6 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             },
                             onError: (err) => {
                                 if (abortController.signal.aborted) {
-                                    responseAborted = true
                                     return
                                 }
                                 if (err instanceof RateLimitError) {
@@ -383,9 +384,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunAiPlayground)
                     } catch (error) {
                         if (abortController.signal.aborted) {
-                            responseAborted = true
                             responseText += `${responseText ? '\n\n' : ''}*Generation stopped.*`
-                            responseHasError = true
                         } else if (error instanceof RateLimitError) {
                             actions.setRateLimited(error.retryAfterSeconds)
                             responseHasError = true
@@ -402,10 +401,6 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         if (startTime !== null) {
                             latencyMs = performance.now() - startTime
                         }
-                    }
-
-                    if (responseAborted && latencyMs === null) {
-                        latencyMs = 0
                     }
 
                     const toolCallsText = formatToolCalls(toolCalls)
