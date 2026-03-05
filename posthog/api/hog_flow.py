@@ -204,15 +204,21 @@ _HOG_FLOW_ACTION_CONFIG_SCHEMA: dict = {
             "title": "CDP function",
             "type": "object",
             "properties": {
-                "type": {"type": "string", "enum": ["function", "function_email", "function_sms", "function_push"]},
-                "template_id": {"type": "string", "description": "HogFunction template ID."},
+                "type": {
+                    "type": "string",
+                    "enum": ["function", "function_email", "function_sms", "function_push"],
+                },
+                "template_id": {
+                    "type": "string",
+                    "description": "HogFunction template ID. Use the hog_function_templates endpoints to discover available templates.",
+                },
                 "inputs": {
                     "type": "object",
                     "additionalProperties": True,
                     "description": "Input values keyed by schema item name.",
                 },
             },
-            "required": ["template_id"],
+            "required": ["type", "template_id"],
         },
         {
             "title": "Exit",
