@@ -356,7 +356,6 @@ class InsightFavorite(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["user", "insight"], name="posthog_unique_insightfavorited")]
-        indexes = [models.Index(fields=["user_id", "insight_id"])]
 
 
 @timed("generate_insight_cache_key")

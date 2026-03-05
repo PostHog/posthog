@@ -49,13 +49,6 @@ class Migration(migrations.Migration):
             model_name="insightfavorite",
             constraint=models.UniqueConstraint(fields=("user", "insight"), name="posthog_unique_insightfavorited"),
         ),
-        migrations.AddIndex(
-            model_name="insightfavorite",
-            index=models.Index(
-                fields=["user_id", "insight_id"],
-                name="posthog_ins_user_id_insight_id_idx",
-            ),
-        ),
         migrations.AddField(
             model_name="user",
             name="favorites_migrated_at",

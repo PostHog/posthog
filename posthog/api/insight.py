@@ -329,6 +329,10 @@ class InsightBasicSerializer(
         # otherwise fall back to the legacy model field.
         if hasattr(instance, "is_favorited"):
             representation["favorited"] = instance.is_favorited
+        elif "request" in self.context and not self.context["request"].user.is_anonymous:
+            representation["favorited"] = InsightFavorite.objects.filter(
+                user=self.context["request"].user, insight=instance
+            ).exists()
 
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
@@ -1098,7 +1102,10 @@ class InsightViewSet(
         if not self.request.user.is_anonymous:
             # One-time lazy migration: copy org-level Insight.favorited=True into per-user InsightFavorite rows
             if not self.request.user.favorites_migrated_at:
-                migrate_user_favorites(self.request.user)
+                with transaction.atomic():
+                    user = User.objects.select_for_update().get(pk=self.request.user.pk)
+                    if not user.favorites_migrated_at:
+                        migrate_user_favorites(user)
 
             # Annotate each insight with whether the current user has favorited it
             from django.db.models import Exists, OuterRef

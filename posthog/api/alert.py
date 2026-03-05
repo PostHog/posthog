@@ -157,7 +157,7 @@ class AlertSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
-        data["insight"] = InsightBasicSerializer(instance.insight).data
+        data["insight"] = InsightBasicSerializer(instance.insight, context=self.context).data
         return data
 
     def add_threshold(self, threshold_data, validated_data):
