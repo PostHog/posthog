@@ -339,32 +339,8 @@ const featureFlagActionsMapping: Record<
 
         return { description: changes }
     },
-    evaluation_tags: function onEvaluationTags(change) {
-        const tagsBefore = change?.before as string[]
-        const tagsAfter = change?.after as string[]
-        const addedTags = tagsAfter.filter((t) => tagsBefore.indexOf(t) === -1)
-        const removedTags = tagsBefore.filter((t) => tagsAfter.indexOf(t) === -1)
-
-        const changes: Description[] = []
-        if (addedTags.length) {
-            changes.push(
-                <>
-                    added {pluralize(addedTags.length, 'evaluation context', 'evaluation contexts', false)}{' '}
-                    <ObjectTags tags={addedTags} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-        if (removedTags.length) {
-            changes.push(
-                <>
-                    removed {pluralize(removedTags.length, 'evaluation context', 'evaluation contexts', false)}{' '}
-                    <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-
-        return { description: changes }
-    },
+    // Suppressed in favor of evaluation_contexts to avoid duplicate activity entries
+    evaluation_tags: () => null,
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,
@@ -387,8 +363,8 @@ const featureFlagActionsMapping: Record<
     _create_in_folder: () => null,
     _should_create_usage_dashboard: () => null,
     evaluation_contexts: function onEvaluationContexts(change) {
-        const contextsBefore = change?.before as string[]
-        const contextsAfter = change?.after as string[]
+        const contextsBefore = (change?.before as string[]) || []
+        const contextsAfter = (change?.after as string[]) || []
         const added = contextsAfter.filter((c) => contextsBefore.indexOf(c) === -1)
         const removed = contextsBefore.filter((c) => contextsAfter.indexOf(c) === -1)
 

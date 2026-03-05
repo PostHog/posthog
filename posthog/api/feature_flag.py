@@ -392,8 +392,14 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
 
         # Accept both field names; prefer evaluation_contexts if provided
         if hasattr(self, "initial_data"):
-            if "evaluation_contexts" in self.initial_data and "evaluation_tags" not in self.initial_data:
-                attrs["evaluation_tags"] = self.initial_data["evaluation_contexts"]
+            raw = self.initial_data.get("evaluation_contexts") or self.initial_data.get("evaluation_tags")
+            if raw is not None:
+                if not isinstance(raw, list) or len(raw) > 50:
+                    raise serializers.ValidationError("evaluation_contexts must be a list of at most 50 items.")
+                for item in raw:
+                    if not isinstance(item, str) or len(item) > 255:
+                        raise serializers.ValidationError("Invalid evaluation context name.")
+                attrs["evaluation_tags"] = raw
 
         return attrs
 
