@@ -1001,7 +1001,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
 export const getErrorsForFields = (
     fields: SourceFieldConfig[],
-    values: { prefix: string; payload: Record<string, any>; access_method?: 'warehouse' | 'direct' } | undefined
+    values: { prefix: string; payload: Record<string, any>; access_method?: 'warehouse' | 'direct' } | undefined,
+    options?: { allowBlankSensitiveFields?: boolean }
 ): Record<string, any> => {
     const errors: Record<string, any> = {
         payload: {},
@@ -1052,6 +1053,19 @@ export const getErrorsForFields = (
         }
 
         // All other types - check if required property exists on this field type
+        if (
+            options?.allowBlankSensitiveFields &&
+            'type' in field &&
+            field.type === 'password' &&
+            !valueObj[field.name]
+        ) {
+            return
+        }
+
+        if (options?.allowBlankSensitiveFields && field.name === 'private_key' && !valueObj[field.name]) {
+            return
+        }
+
         if ('required' in field && field.required && !valueObj[field.name]) {
             errorsObj[field.name] = `Please enter a ${field.label.toLowerCase()}`
         }

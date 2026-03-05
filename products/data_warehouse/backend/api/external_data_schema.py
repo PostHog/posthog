@@ -166,6 +166,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         sync_time_of_day = data.get("sync_time_of_day", None)
         was_sync_frequency_updated = False
         was_sync_time_of_day_updated = False
+        is_direct_query_source = instance.source.access_method == ExternalDataSource.AccessMethod.DIRECT
 
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
@@ -191,22 +192,23 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 validated_data["sync_time_of_day"] = None
                 instance.sync_time_of_day = None
 
-        if should_sync is True and sync_type is None and instance.sync_type is None:
+        if should_sync is True and sync_type is None and instance.sync_type is None and not is_direct_query_source:
             raise ValidationError("Sync type must be set up first before enabling schema")
 
-        schedule_exists = external_data_workflow_exists(str(instance.id))
+        if not is_direct_query_source:
+            schedule_exists = external_data_workflow_exists(str(instance.id))
 
-        if schedule_exists:
-            if should_sync is False:
-                pause_external_data_schedule(str(instance.id))
-            elif should_sync is True:
-                unpause_external_data_schedule(str(instance.id))
-        else:
-            if should_sync is True:
-                sync_external_data_job_workflow(instance, create=True, should_sync=should_sync)
+            if schedule_exists:
+                if should_sync is False:
+                    pause_external_data_schedule(str(instance.id))
+                elif should_sync is True:
+                    unpause_external_data_schedule(str(instance.id))
+            else:
+                if should_sync is True:
+                    sync_external_data_job_workflow(instance, create=True, should_sync=should_sync)
 
-        if was_sync_frequency_updated or was_sync_time_of_day_updated:
-            sync_external_data_job_workflow(instance, create=False, should_sync=should_sync)
+            if was_sync_frequency_updated or was_sync_time_of_day_updated:
+                sync_external_data_job_workflow(instance, create=False, should_sync=should_sync)
 
         if trigger_refresh:
             instance.sync_type_config.update({"reset_pipeline": True})

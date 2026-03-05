@@ -180,6 +180,26 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert field.type == "string"
         assert field.schema_valid is True
 
+    def test_warehouse_table_names_do_not_leak_between_database_instances(self):
+        credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="team_1_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        team_1_database = Database.create_for(team=self.team)
+        assert "team_1_table" in team_1_database.get_warehouse_table_names()
+
+        other_organization = Organization.objects.create(name="other_org")
+        other_team = Team.objects.create(organization=other_organization)
+        team_2_database = Database.create_for(team=other_team)
+
+        assert "team_1_table" not in team_2_database.get_warehouse_table_names()
+
     def test_serialize_database_warehouse_with_deleted_joins(self):
         DataWarehouseJoin.objects.create(
             team=self.team,
@@ -1237,6 +1257,35 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "postgres.ph3.analytics_platform_preaggregationjob" not in serialized
         assert "ph3_postgres_analytics_platform_preaggregationjob" not in serialized
 
+    def test_serialize_direct_postgres_table_uses_raw_name_in_direct_mode_with_source_scoped_prefix(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        DataWarehouseTable.objects.create(
+            name=f"postgres_{source.pk.hex}_analytics_platform_preaggregationjob",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        assert "analytics_platform_preaggregationjob" in serialized
+        assert f"postgres_{source.pk.hex}_analytics_platform_preaggregationjob" not in serialized
+
     def test_get_all_table_names_uses_prefixed_direct_postgres_names_in_default_mode(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
@@ -1696,6 +1745,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 "postgres_analytics_platform_preaggregationjob",
                 "analytics_platform_preaggregationjob",
             ),
+            (
+                "direct_source_with_source_scoped_prefix",
+                "Postgres",
+                "ph3",
+                "postgres_{source_hex}_analytics_platform_preaggregationjob",
+                "analytics_platform_preaggregationjob",
+            ),
         ]
     )
     def test_get_data_warehouse_table_name_in_direct_mode(
@@ -1716,4 +1772,5 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
 
-        assert get_data_warehouse_table_name(source, table_name, use_direct_database_names=True) == expected
+        resolved_table_name = table_name.format(source_hex=source.pk.hex)
+        assert get_data_warehouse_table_name(source, resolved_table_name, use_direct_database_names=True) == expected

@@ -843,6 +843,7 @@ class TestExternalDataSource(APIBaseTest):
             1,
         )
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="table_a")
+        self.assertTrue(schema.should_sync)
         self.assertEqual(
             schema.sync_type_config.get("schema_metadata", {}).get("foreign_keys"),
             [{"column": "user_id", "target_table": "posthog_user", "target_column": "id"}],

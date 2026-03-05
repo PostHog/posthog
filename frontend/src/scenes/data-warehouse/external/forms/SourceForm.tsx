@@ -30,6 +30,7 @@ export interface SourceFormProps {
     showPrefix?: boolean
     showDescription?: boolean
     jobInputs?: Record<string, any>
+    initialAccessMethod?: 'warehouse' | 'direct'
     setSourceConfigValue?: (key: FieldName, value: any) => void
 }
 
@@ -246,18 +247,27 @@ export function SourceFormComponent({
     showPrefix = true,
     showDescription,
     jobInputs,
+    initialAccessMethod,
     setSourceConfigValue,
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { sourceConnectionDetails } = useValues(sourceWizardLogic)
 
     // Default showDescription to same as showPrefix for backward compatibility
     const shouldShowDescription = showDescription ?? showPrefix
+    const [selectedAccessMethod, setSelectedAccessMethod] = React.useState<'warehouse' | 'direct'>(
+        initialAccessMethod ?? 'warehouse'
+    )
     const isPostgresDirectQuery =
         sourceConfig.name === 'Postgres' &&
         featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-        sourceConnectionDetails.access_method === 'direct'
+        selectedAccessMethod === 'direct'
+
+    useEffect(() => {
+        if (initialAccessMethod) {
+            setSelectedAccessMethod(initialAccessMethod)
+        }
+    }, [initialAccessMethod])
 
     useEffect(() => {
         if (jobInputs && setSourceConfigValue) {
@@ -280,8 +290,12 @@ export function SourceFormComponent({
                     {({ value, onChange }) => (
                         <LemonRadio
                             data-attr="postgres-access-method"
-                            value={value || 'warehouse'}
-                            onChange={onChange}
+                            value={(value as 'warehouse' | 'direct' | undefined) || selectedAccessMethod}
+                            onChange={(newValue) => {
+                                const nextValue = newValue as 'warehouse' | 'direct'
+                                setSelectedAccessMethod(nextValue)
+                                onChange(nextValue)
+                            }}
                             options={[
                                 {
                                     value: 'warehouse',
@@ -301,7 +315,8 @@ export function SourceFormComponent({
                                             <div>Query directly</div>
                                             <div className="text-xs text-secondary">
                                                 Run queries live against this Postgres connection. No warehouse sync
-                                                jobs are created.
+                                                jobs are created. Data from this source can&apos;t be joined with
+                                                PostHog data. Synced warehouse sources can.
                                             </div>
                                         </div>
                                     ),
@@ -311,7 +326,7 @@ export function SourceFormComponent({
                     )}
                 </LemonField>
             )}
-            {showPrefix && isPostgresDirectQuery && (
+            {isPostgresDirectQuery && (
                 <LemonField
                     name="prefix"
                     label="Name"

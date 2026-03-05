@@ -370,7 +370,7 @@ def get_all_schemas_for_source_id(source_id: str, team_id: int):
 
 
 def sync_old_schemas_with_new_schemas(
-    new_schemas: list[str], source_id: str, team_id: int
+    new_schemas: list[str], source_id: str, team_id: int, default_should_sync: bool = False
 ) -> tuple[list[str], list[str]]:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
@@ -383,14 +383,18 @@ def sync_old_schemas_with_new_schemas(
 
     for schema in schemas_to_create:
         obj, created = ExternalDataSchema.objects.get_or_create(
-            team_id=team_id, source_id=source_id, name=schema, deleted=False, defaults={"should_sync": False}
+            team_id=team_id,
+            source_id=source_id,
+            name=schema,
+            deleted=False,
+            defaults={"should_sync": default_should_sync},
         )
         if created:
             actually_created.append(schema)
         elif obj.deleted:
             obj.deleted = False
             obj.deleted_at = None
-            obj.should_sync = False
+            obj.should_sync = default_should_sync
             obj.save(update_fields=["deleted", "deleted_at", "should_sync"])
 
     for schema in schemas_to_possibly_delete:

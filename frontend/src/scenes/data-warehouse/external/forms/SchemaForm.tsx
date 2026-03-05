@@ -158,6 +158,7 @@ export default function SchemaForm(): JSX.Element {
                                 key: 'sync_type',
                                 title: 'Sync method',
                                 align: 'right',
+                                isHidden: !shouldShowSyncColumns,
                                 tooltip:
                                     'Full refresh will refresh the full table on every sync, whereas incremental will only sync new and updated rows since the last sync',
                                 render: function RenderSyncType(_, schema) {

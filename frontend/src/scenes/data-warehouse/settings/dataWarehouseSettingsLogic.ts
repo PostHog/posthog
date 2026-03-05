@@ -116,9 +116,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         selfManagedTables: [
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables): DatabaseSchemaDataWarehouseTable[] => {
-                return dataWarehouseTables.filter(
-                    (table) => !table.source || table.source.access_method?.toLowerCase() === 'direct'
-                )
+                return dataWarehouseTables.filter((table) => !table.source)
             },
         ],
         filteredSelfManagedTables: [

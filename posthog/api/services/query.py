@@ -24,6 +24,7 @@ from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import FunctionCallTable, TableNode
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
@@ -68,8 +69,8 @@ def _source_id_for_connection(team: Team, connection_id: str | None) -> str | No
     return source.source_id if source else None
 
 
-def _filter_schema_tables_for_connection(tables: dict, source_id: str | None) -> dict:
-    if not source_id:
+def _filter_schema_tables_for_connection(tables: dict, source_ids: set[str] | None) -> dict:
+    if not source_ids:
         return {
             name: table
             for name, table in tables.items()
@@ -80,11 +81,20 @@ def _filter_schema_tables_for_connection(tables: dict, source_id: str | None) ->
             )
         }
 
+    def _is_queriable(table: object) -> bool:
+        schema = getattr(table, "schema_", None) or getattr(table, "schema", None)
+        if schema is None:
+            return True
+        if isinstance(schema, dict):
+            return bool(schema.get("should_sync", False))
+        return bool(getattr(schema, "should_sync", False))
+
     return {
         name: table
         for name, table in tables.items()
         if getattr(table, "type", None) == "data_warehouse"
-        and getattr(getattr(table, "source", None), "id", None) == source_id
+        and str(getattr(getattr(table, "source", None), "id", "")) in source_ids
+        and _is_queriable(table)
     }
 
 
@@ -95,6 +105,25 @@ def _filter_schema_joins_for_connection(
         return joins
 
     return [join for join in joins if join.source_table_name in table_names and join.joining_table_name in table_names]
+
+
+def _prune_database_for_direct_connection(database: Database, allowed_table_names: set[str]) -> None:
+    def prune_node(node: TableNode, chain: list[str]) -> bool:
+        full_name = ".".join(chain)
+
+        keep_table = node.table is not None and (
+            full_name in allowed_table_names or (len(chain) > 0 and isinstance(node.table, FunctionCallTable))
+        )
+
+        pruned_children: dict[str, TableNode] = {}
+        for child_name, child in node.children.items():
+            if prune_node(child, [*chain, child_name]):
+                pruned_children[child_name] = child
+        node.children = pruned_children
+
+        return node.name == "root" or keep_table or len(node.children) > 0
+
+    prune_node(database.tables, [])
 
 
 def process_query_dict(
@@ -190,6 +219,8 @@ def process_query_model(
                 if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT
                 else None,
             )
+            if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+                _prune_database_for_direct_connection(database, set(database.get_warehouse_table_names()))
         return get_hogql_autocomplete(query=query, team=team, database_arg=database)
 
     if isinstance(query, HogQLMetadata):
@@ -199,7 +230,7 @@ def process_query_model(
     if isinstance(query, DatabaseSchemaQuery):
         joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
         source = _source_for_connection(team, query.connectionId)
-        source_id = source.source_id if source else None
+        source_ids = {str(source.source_id), str(source.id)} if source else None
         database = Database.create_for(
             team=team,
             modifiers=create_default_modifiers_for_team(team),
@@ -211,9 +242,9 @@ def process_query_model(
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
         filtered_tables = _filter_schema_tables_for_connection(
             database.serialize(context, include_hidden_posthog_tables=True),
-            source_id,
+            source_ids,
         )
-        table_names = set(filtered_tables.keys()) if source_id else None
+        table_names = set(filtered_tables.keys()) if source_ids else None
 
         return DatabaseSchemaQueryResponse(
             tables=filtered_tables,

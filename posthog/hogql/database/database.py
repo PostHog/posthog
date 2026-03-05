@@ -267,6 +267,11 @@ class Database(BaseModel):
             raise ValueError(f"Unknown timezone: '{str(timezone)}'")
 
         self._week_start_day = week_start_day
+        self._warehouse_table_names = []
+        self._warehouse_self_managed_table_names = []
+        self._view_table_names = []
+        self._denied_tables = set()
+        self._direct_query_source_id = None
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
 
@@ -890,6 +895,7 @@ class Database(BaseModel):
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .exclude(deleted=True)
                     .select_related("credential", "external_data_source")
+                    .prefetch_related("externaldataschema_set")
                 )
                 if direct_query_source_id is not None:
                     tables = [
@@ -898,6 +904,10 @@ class Database(BaseModel):
                         if table.external_data_source is not None
                         and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
                         and str(table.external_data_source_id) == direct_query_source_id
+                        and (
+                            not (schemas := list(table.externaldataschema_set.all()))
+                            or any(schema.should_sync for schema in schemas)
+                        )
                     ]
 
             view_names = views.resolve_all_table_names()
@@ -1178,6 +1188,7 @@ def get_data_warehouse_table_name(
 
     table_name_stripped = table_name
     known_prefixes = [
+        f"{source_type}_{source.pk.hex}_",
         f"{prefix}_{source_type}_" if prefix else None,
         f"{prefix}{source_type}_" if prefix else None,
         f"{source_type}_",

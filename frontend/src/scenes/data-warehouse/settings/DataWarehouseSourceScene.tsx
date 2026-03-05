@@ -1,5 +1,6 @@
 import { actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
+import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -15,6 +16,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import type { dataWarehouseSourceSceneLogicType } from './DataWarehouseSourceSceneType'
+import { dataWarehouseSourceSettingsLogic } from './source/dataWarehouseSourceSettingsLogic'
 import { Schemas } from './source/Schemas'
 import { SourceConfiguration } from './source/SourceConfiguration'
 import { Syncs } from './source/Syncs'
@@ -132,32 +134,6 @@ export function DataWarehouseSourceScene(): JSX.Element {
 
     const sourceId = cleanSourceId(id)
 
-    const tabs: LemonTab<DataWarehouseSourceSceneTab>[] = isManagedSourceId(id)
-        ? [
-              {
-                  label: 'Schemas',
-                  key: 'schemas',
-                  content: <Schemas id={sourceId} />,
-              },
-              {
-                  label: 'Syncs',
-                  key: 'syncs',
-                  content: <Syncs id={sourceId} />,
-              },
-              {
-                  label: 'Configuration',
-                  key: 'configuration',
-                  content: <SourceConfiguration id={sourceId} />,
-              },
-          ]
-        : [
-              {
-                  label: 'Configuration',
-                  key: 'configuration',
-                  content: <DataPipelinesSelfManagedSource id={sourceId} />,
-              },
-          ]
-
     return (
         <SceneContent>
             <SceneTitleSection
@@ -165,7 +141,66 @@ export function DataWarehouseSourceScene(): JSX.Element {
                 resourceType={{ type: 'data_pipeline' }}
                 isLoading={breadcrumbName === 'Source'}
             />
-            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+            {isManagedSourceId(id) ? (
+                <ManagedSourceTabs sourceId={sourceId} currentTab={currentTab} setCurrentTab={setCurrentTab} />
+            ) : (
+                <LemonTabs
+                    activeKey={currentTab}
+                    tabs={[
+                        {
+                            label: 'Configuration',
+                            key: 'configuration',
+                            content: <DataPipelinesSelfManagedSource id={sourceId} />,
+                        },
+                    ]}
+                    onChange={setCurrentTab}
+                    sceneInset
+                />
+            )}
         </SceneContent>
     )
+}
+
+function ManagedSourceTabs({
+    sourceId,
+    currentTab,
+    setCurrentTab,
+}: {
+    sourceId: string
+    currentTab: DataWarehouseSourceSceneTab
+    setCurrentTab: (tab: DataWarehouseSourceSceneTab) => void
+}): JSX.Element {
+    const sourceSettingsLogic = dataWarehouseSourceSettingsLogic({ id: sourceId, availableSources: {} })
+    const { source } = useValues(sourceSettingsLogic)
+
+    const isDirectQuerySource = source?.access_method === 'direct'
+
+    useEffect(() => {
+        if (isDirectQuerySource && currentTab === 'syncs') {
+            setCurrentTab('schemas')
+        }
+    }, [isDirectQuerySource, currentTab, setCurrentTab])
+
+    const tabs: LemonTab<DataWarehouseSourceSceneTab>[] = [
+        {
+            label: 'Schemas',
+            key: 'schemas',
+            content: <Schemas id={sourceId} />,
+        },
+        {
+            label: 'Configuration',
+            key: 'configuration',
+            content: <SourceConfiguration id={sourceId} />,
+        },
+    ]
+
+    if (!isDirectQuerySource) {
+        tabs.splice(1, 0, {
+            label: 'Syncs',
+            key: 'syncs',
+            content: <Syncs id={sourceId} />,
+        })
+    }
+
+    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
 }

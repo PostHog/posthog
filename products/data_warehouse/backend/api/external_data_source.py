@@ -619,7 +619,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
             sync_time_of_day = schema.get("sync_time_of_day")
-            should_sync = schema.get("should_sync", False)
+            should_sync = schema.get("should_sync", access_method == ExternalDataSource.AccessMethod.DIRECT)
 
             if should_sync and requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
@@ -833,7 +833,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
-                schema_names, source_id=str(instance.id), team_id=self.team_id
+                schema_names,
+                source_id=str(instance.id),
+                team_id=self.team_id,
+                default_should_sync=instance.access_method == ExternalDataSource.AccessMethod.DIRECT,
             )
 
             if (

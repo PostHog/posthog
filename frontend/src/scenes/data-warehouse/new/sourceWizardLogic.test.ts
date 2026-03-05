@@ -428,5 +428,22 @@ describe('sourceWizardLogic', () => {
             )
             expect(res.payload.test_field.option_field).toBeTruthy()
         })
+
+        it('allows empty password in edit mode validation', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'password',
+                        label: 'Password',
+                        type: 'password',
+                        required: true,
+                        placeholder: '',
+                    },
+                ],
+                { prefix: 'prod-db', payload: { password: '' }, access_method: 'direct' },
+                { allowBlankSensitiveFields: true }
+            )
+            expect(res.payload.password).toBeUndefined()
+        })
     })
 })
