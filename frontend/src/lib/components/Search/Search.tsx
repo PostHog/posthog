@@ -388,7 +388,7 @@ function SearchRoot({
                 router.actions.push(item.href)
             }
         },
-        [onItemSelect, onAskAiClick, updateUser, toggleTheme]
+        [onItemSelect, updateUser, toggleTheme]
     )
 
     const groupedItems = useMemo(() => {

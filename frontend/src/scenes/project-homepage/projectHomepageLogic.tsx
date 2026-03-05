@@ -37,7 +37,8 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             ['currentProjectId'],
             dashboardsModel,
             ['rawDashboards', 'dashboardsLoading'],
-            featureFlagLogic, ['featureFlags']
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
 
