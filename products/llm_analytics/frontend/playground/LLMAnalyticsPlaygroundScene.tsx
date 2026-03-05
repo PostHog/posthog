@@ -51,7 +51,12 @@ import {
     type MessageRole,
     type PromptConfig,
 } from './llmPlaygroundPromptsLogic'
-import { llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
+import {
+    llmPlaygroundRunLogic,
+    type AggregatedToolCall,
+    type ComparisonItem,
+    type UsageSummary,
+} from './llmPlaygroundRunLogic'
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460
@@ -366,34 +371,18 @@ function PromptResultCard({ prompt, item }: { prompt: PromptConfig; item?: Compa
                             <span className="text-muted italic">No response</span>
                         )}
                     </div>
-                    {!!item.reasoning && (
-                        <div className="mt-2 rounded border bg-surface-primary p-2 text-xs">
-                            <div className="mb-1 font-medium">Reasoning</div>
-                            <div className="whitespace-pre-wrap break-words">{item.reasoning}</div>
-                        </div>
-                    )}
                     {!!item.toolCalls?.length && (
-                        <div className="mt-2 space-y-2 overflow-y-auto max-h-40">
+                        <div className="mt-2 space-y-1">
                             {item.toolCalls?.map((toolCall) => (
-                                <div key={toolCall.id} className="rounded border bg-surface-primary p-2">
-                                    <div className="text-[11px] font-medium">
-                                        {toolCall.name || 'tool_call'}{' '}
-                                        <span className="text-muted">({toolCall.id})</span>
-                                    </div>
-                                    <pre className="mt-1 text-[11px] whitespace-pre-wrap break-all text-muted">
-                                        {toolCall.arguments || '{}'}
-                                    </pre>
-                                    <LemonTextArea
-                                        className="mt-2 text-xs"
-                                        value={toolResultsByCallId[toolCall.id] ?? ''}
-                                        onChange={(value) => setToolResultDraft(toolCall.id, value, prompt.id)}
-                                        placeholder="Paste tool result output here"
-                                        minRows={2}
-                                        maxRows={4}
-                                    />
-                                </div>
+                                <ToolCallCard
+                                    key={toolCall.id}
+                                    toolCall={toolCall}
+                                    resultDraft={toolResultsByCallId[toolCall.id] ?? ''}
+                                    onResultChange={(value) => setToolResultDraft(toolCall.id, value, prompt.id)}
+                                    isStreaming={isStreaming}
+                                />
                             ))}
-                            <div className="flex justify-end">
+                            <div className="flex justify-end pt-1">
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
@@ -438,6 +427,67 @@ function PromptResultCard({ prompt, item }: { prompt: PromptConfig; item?: Compa
                     )}
                 </>
             )}
+        </div>
+    )
+}
+
+function formatToolArguments(args: string): string {
+    try {
+        return JSON.stringify(JSON.parse(args), null, 2)
+    } catch {
+        return args || '{}'
+    }
+}
+
+function ToolCallCard({
+    toolCall,
+    resultDraft,
+    onResultChange,
+    isStreaming,
+}: {
+    toolCall: AggregatedToolCall
+    resultDraft: string
+    onResultChange: (value: string) => void
+    isStreaming: boolean
+}): JSX.Element {
+    const [expanded, setExpanded] = React.useState(true)
+    const name = toolCall.name || 'tool_call'
+
+    return (
+        <div className="rounded border bg-surface-primary text-xs">
+            <button
+                className="flex items-center gap-1.5 w-full px-2.5 py-1.5 cursor-pointer hover:bg-surface-secondary transition-colors"
+                onClick={() => setExpanded(!expanded)}
+            >
+                <IconWrench className="size-3.5 text-muted shrink-0" />
+                <span className="font-medium truncate">{name}</span>
+                {isStreaming && !toolCall.arguments && (
+                    <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent shrink-0" />
+                )}
+                <span className={`ml-auto transform transition-transform shrink-0 ${expanded ? 'rotate-90' : ''}`}>
+                    <IconChevronRight className="size-3" />
+                </span>
+            </button>
+            <AnimatedCollapsible collapsed={!expanded}>
+                <div className="border-t px-2.5 py-2 space-y-2">
+                    <div>
+                        <div className="text-[11px] text-muted mb-1">Arguments</div>
+                        <pre className="text-[11px] whitespace-pre-wrap break-all bg-surface-secondary rounded p-2 max-h-32 overflow-y-auto">
+                            {formatToolArguments(toolCall.arguments)}
+                        </pre>
+                    </div>
+                    <div>
+                        <div className="text-[11px] text-muted mb-1">Result</div>
+                        <LemonTextArea
+                            value={resultDraft}
+                            onChange={onResultChange}
+                            placeholder="Paste tool result here"
+                            minRows={2}
+                            maxRows={4}
+                        />
+                    </div>
+                </div>
+            </AnimatedCollapsible>
         </div>
     )
 }
