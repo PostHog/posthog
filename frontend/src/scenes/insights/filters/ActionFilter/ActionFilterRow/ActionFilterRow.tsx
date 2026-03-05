@@ -1083,8 +1083,6 @@ function useMathSelectorOptions({
         definitions = staticActorsOnlyMathDefinitions
     } else if (mathAvailability === MathAvailability.CalendarHeatmapOnly) {
         definitions = calendarHeatmapMathDefinitions
-    } else if (mathAvailability === MathAvailability.BoxPlotOnly) {
-        definitions = boxPlotMathDefinitions
     }
     const isGroupsEnabled = !needsUpgradeForGroups && !canStartUsingGroups
 
