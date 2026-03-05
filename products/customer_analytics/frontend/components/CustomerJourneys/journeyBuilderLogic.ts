@@ -67,7 +67,6 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
         saveJourney: (name: string) => ({ name }),
         saveJourneySuccess: true,
         saveJourneyFailure: (error: string) => ({ error }),
-        resetBuilder: true,
     }),
 
     reducers({
@@ -82,7 +81,6 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             createDefaultQuery(),
             {
                 setQuery: (_, { query }) => query,
-                resetBuilder: () => createDefaultQuery(),
                 closeBuilder: () => createDefaultQuery(),
             },
         ],
@@ -123,10 +121,6 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
 
         openBuilder: () => {
             actions.setInsightQuery(values.query)
-        },
-
-        resetBuilder: () => {
-            actions.setInsightQuery(createDefaultQuery())
         },
 
         addStep: ({ insertAtIndex }) => {

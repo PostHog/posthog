@@ -14,12 +14,7 @@ const JOURNEY_BUILDER_CONTEXT: QueryContext = {
 
 export function JourneyBuilder(): JSX.Element {
     const { query, isSaving } = useValues(journeyBuilderLogic)
-    const { setQuery, resetBuilder, closeBuilder } = useActions(journeyBuilderLogic)
-
-    const handleCancel = (): void => {
-        resetBuilder()
-        closeBuilder()
-    }
+    const { setQuery, closeBuilder } = useActions(journeyBuilderLogic)
 
     return (
         <div className="space-y-4">
@@ -27,7 +22,7 @@ export function JourneyBuilder(): JSX.Element {
             <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-lg m-0">Build journey</h3>
                 <div className="flex items-center gap-2">
-                    <LemonButton type="secondary" size="small" onClick={handleCancel}>
+                    <LemonButton type="secondary" size="small" onClick={closeBuilder}>
                         Cancel
                     </LemonButton>
                     <LemonButton
