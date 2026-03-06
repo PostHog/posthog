@@ -1611,7 +1611,7 @@ export const areDatesValidForInterval = (
 }
 
 const defaultDatesForInterval = {
-    second: { dateFrom: '-1m', dateTo: null },
+    second: { dateFrom: '-1M', dateTo: null },
     minute: { dateFrom: '-1h', dateTo: null },
     hour: { dateFrom: '-24h', dateTo: null },
     day: { dateFrom: '-7d', dateTo: null },

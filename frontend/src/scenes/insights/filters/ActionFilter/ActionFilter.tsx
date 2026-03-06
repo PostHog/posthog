@@ -20,7 +20,6 @@ import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Optional } from 'lib/utils/types'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 import { isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
@@ -41,7 +40,7 @@ import { LocalFilter, entityFilterLogic, toFilters } from './entityFilterLogic'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
-    filters: Optional<FilterType, 'type'>
+    filters: FilterType
     typeKey: string
     addFilterDefaultOptions?: Record<string, any>
     mathAvailability?: MathAvailability

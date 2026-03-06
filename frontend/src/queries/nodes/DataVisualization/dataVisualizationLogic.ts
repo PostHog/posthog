@@ -794,7 +794,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return [EmptyYAxisSeries]
                 }
 
-                const data: any[] =
+                const data =
                     'results' in response && Array.isArray(response.results)
                         ? response.results
                         : 'result' in response && Array.isArray(response.result)
@@ -898,10 +898,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (s) => [s.tabularColumns, s.response],
             (tabularColumns, response): TableDataCell<any>[][] => {
                 if (!response || tabularColumns === null) {
-                    return []
+                    return [[]]
                 }
 
-                const data: (string | number | null)[][] =
+                const data =
                     'results' in response && Array.isArray(response.results)
                         ? response.results
                         : 'result' in response && Array.isArray(response.result)

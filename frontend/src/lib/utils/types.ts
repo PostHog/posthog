@@ -1,5 +1,5 @@
 /** Make selected keys optional on a type while keeping all other keys unchanged. */
-export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
+export type Optional<T, K extends keyof T> = Omit<T, K> & { [P in K]?: T[P] }
 
 /** Make all keys of T required except those in K */
 export type RequiredExcept<T, K extends keyof T> = {

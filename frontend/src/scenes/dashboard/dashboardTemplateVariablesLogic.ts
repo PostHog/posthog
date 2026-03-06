@@ -3,7 +3,6 @@ import { actions, afterMount, connect, kea, listeners, path, props, propsChanged
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 import { isEmptyObject } from 'lib/utils'
-import { Optional } from 'lib/utils/types'
 
 import {
     ActionType,
@@ -35,7 +34,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
     })),
     actions({
         setVariables: (variables: DashboardTemplateVariableType[]) => ({ variables }),
-        setVariable: (variableName: string, filterGroup: Optional<FilterType, 'type'>) => ({
+        setVariable: (variableName: string, filterGroup: FilterType) => ({
             variable_name: variableName,
             filterGroup,
         }),

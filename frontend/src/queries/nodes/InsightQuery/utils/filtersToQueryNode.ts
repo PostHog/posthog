@@ -334,7 +334,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         throw new Error('filtersToQueryNode expects "insight"')
     }
     if (!isKeyOf(filters.insight, insightTypeToNodeKind)) {
-        throw new Error(`insightTypeToNodeKind as no key ${filters.insight}`)
+        throw new Error(`insightTypeToNodeKind has no key ${filters.insight}`)
     }
 
     const query: InsightsQueryBase<AnalyticsQueryResponseBase> = {
