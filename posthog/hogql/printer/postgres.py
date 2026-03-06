@@ -1,10 +1,10 @@
+import hashlib
 from typing import Literal
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.printer.base import HogQLPrinter
@@ -20,6 +20,8 @@ class PostgresPrinter(HogQLPrinter):
         pretty: bool = False,
     ):
         super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
+        self._truncated_identifiers: dict[str, str] = {}
+        self._used_truncated_identifiers: set[str] = set()
 
     def visit_field(self, node: ast.Field):
         if node.type is None:
@@ -32,14 +34,48 @@ class PostgresPrinter(HogQLPrinter):
         return self.visit(node.type)
 
     def visit_call(self, node: ast.Call):
+        if node.name in {
+            "toStartOfSecond",
+            "toStartOfMinute",
+            "toStartOfHour",
+            "toStartOfDay",
+            "toStartOfWeek",
+            "toStartOfMonth",
+            "toStartOfQuarter",
+            "toStartOfYear",
+            "toStartOfISOYear",
+        }:
+            start_of_units: dict[str, str] = {
+                "toStartOfSecond": "second",
+                "toStartOfMinute": "minute",
+                "toStartOfHour": "hour",
+                "toStartOfDay": "day",
+                "toStartOfWeek": "week",
+                "toStartOfMonth": "month",
+                "toStartOfQuarter": "quarter",
+                "toStartOfYear": "year",
+                # PostgreSQL date_trunc does not support isoyear, so use calendar year truncation.
+                "toStartOfISOYear": "year",
+            }
+            truncated_arg = self.visit(node.args[0])
+            return f"date_trunc('{start_of_units[node.name]}', {truncated_arg})"
+
+        if node.name in {"toStartOfFiveMinutes", "toStartOfTenMinutes", "toStartOfFifteenMinutes"}:
+            minute_bucket_sizes: dict[str, int] = {
+                "toStartOfFiveMinutes": 5,
+                "toStartOfTenMinutes": 10,
+                "toStartOfFifteenMinutes": 15,
+            }
+            bucket_arg = self.visit(node.args[0])
+            bucket_size = minute_bucket_sizes[node.name]
+            return (
+                f"date_trunc('hour', {bucket_arg}) + "
+                f"(floor(extract(minute from {bucket_arg}) / {bucket_size})::int * interval '1 minute')"
+            )
+
         # No function call validation for postgres
         args = [self.visit(arg) for arg in node.args]
         return f"{node.name}({', '.join(args)})"
-
-    def _print_table_sql(self, table) -> str:
-        if isinstance(table, DirectPostgresTable):
-            return table.to_printed_postgres(self.context)
-        return table.to_printed_clickhouse(self.context)
 
     def visit_and(self, node):
         return f"({' AND '.join([f'({self.visit(expr)})' for expr in node.exprs])})"
@@ -51,7 +87,7 @@ class PostgresPrinter(HogQLPrinter):
         return f"(NOT {self.visit(node.expr)})"
 
     def visit_table_type(self, type: ast.TableType):
-        return self._print_table_sql(type.table)
+        return type.table.to_printed_clickhouse(self.context)
 
     def _visit_in_values(self, node: ast.Expr) -> str:
         if isinstance(node, ast.Tuple):
@@ -108,7 +144,7 @@ class PostgresPrinter(HogQLPrinter):
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
-        return self._print_table_sql(table_type.table)
+        return table_type.table.to_printed_clickhouse(self.context)
 
     def _ensure_team_id_where_clause(
         self,
@@ -119,7 +155,29 @@ class PostgresPrinter(HogQLPrinter):
         pass
 
     def _print_identifier(self, name: str) -> str:
+        if len(name) > 63 and "__" in name:
+            name = self._truncate_identifier(name)
         return escape_postgres_identifier(name)
+
+    def _truncate_identifier(self, name: str) -> str:
+        existing = self._truncated_identifiers.get(name)
+        if existing:
+            return existing
+
+        digest = hashlib.sha256(name.encode("utf-8")).hexdigest()[:12]
+        suffix = f"_{digest}"
+        prefix = name[: 63 - len(suffix)]
+        candidate = f"{prefix}{suffix}"
+
+        counter = 1
+        while candidate in self._used_truncated_identifiers:
+            counter_suffix = f"_{digest}_{counter}"
+            candidate = f"{name[: 63 - len(counter_suffix)]}{counter_suffix}"
+            counter += 1
+
+        self._truncated_identifiers[name] = candidate
+        self._used_truncated_identifiers.add(candidate)
+        return candidate
 
     def _json_property_args(self, chain):
         return [self._print_escaped_string(name) for name in chain]

@@ -59,8 +59,6 @@ from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 from ee.clickhouse.materialized_columns.columns import (
@@ -4321,31 +4319,6 @@ class TestPostgresPrinter(BaseTest):
         self.assertNotIn("team_id", postgres)
         self.assertNotEqual(postgres, clickhouse)
 
-    def test_prints_direct_postgres_tables(self):
-        source = ExternalDataSource.objects.create(
-            source_id="source-id",
-            connection_id="connection-id",
-            destination_id="destination-id",
-            team=self.team,
-            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.POSTGRES,
-            prefix="Readable Name",
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-        )
-        DataWarehouseTable.objects.create(
-            name="accounts",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            external_data_source=source,
-            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
-        )
-
-        self.assertEqual(
-            self._select("SELECT id FROM accounts"),
-            "SELECT accounts.id FROM public.accounts AS accounts LIMIT 50000",
-        )
-
     def test_boolean_and_null_literals(self):
         self.assertEqual(self._expr("true"), "true")
         self.assertEqual(self._expr("false"), "false")
@@ -4371,10 +4344,55 @@ class TestPostgresPrinter(BaseTest):
     def test_simple_identifiers_render_without_quotes(self):
         self.assertEqual(self._expr("count(id)"), "count(id)")
 
+    @parameterized.expand(
+        [
+            ("toStartOfSecond(timestamp)", "date_trunc('second', events.timestamp)"),
+            ("toStartOfMinute(timestamp)", "date_trunc('minute', events.timestamp)"),
+            ("toStartOfHour(timestamp)", "date_trunc('hour', events.timestamp)"),
+            ("toStartOfDay(timestamp)", "date_trunc('day', events.timestamp)"),
+            ("toStartOfWeek(timestamp)", "date_trunc('week', events.timestamp)"),
+            ("toStartOfMonth(timestamp)", "date_trunc('month', events.timestamp)"),
+            ("toStartOfQuarter(timestamp)", "date_trunc('quarter', events.timestamp)"),
+            ("toStartOfYear(timestamp)", "date_trunc('year', events.timestamp)"),
+            ("toStartOfISOYear(timestamp)", "date_trunc('year', events.timestamp)"),
+        ]
+    )
+    def test_to_start_of_functions_render_as_date_trunc(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            (
+                "toStartOfFiveMinutes(timestamp)",
+                "date_trunc('hour', events.timestamp) + "
+                "(floor(extract(minute from events.timestamp) / 5)::int * interval '1 minute')",
+            ),
+            (
+                "toStartOfTenMinutes(timestamp)",
+                "date_trunc('hour', events.timestamp) + "
+                "(floor(extract(minute from events.timestamp) / 10)::int * interval '1 minute')",
+            ),
+            (
+                "toStartOfFifteenMinutes(timestamp)",
+                "date_trunc('hour', events.timestamp) + "
+                "(floor(extract(minute from events.timestamp) / 15)::int * interval '1 minute')",
+            ),
+        ]
+    )
+    def test_to_start_of_minute_bucket_functions_render_in_postgres(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
     def test_reserved_identifiers_are_quoted(self):
         printed = self._select("SELECT events.event AS select FROM events")
 
         self.assertIn('AS "select"', printed)
+
+    def test_long_generated_identifier_is_truncated_for_postgres(self):
+        long_alias = "posthog_user__posthog_organizationmemberships__organization___id"
+        printed = self._select(f"SELECT event AS {long_alias} FROM events")
+
+        self.assertIn("AS ", printed)
+        self.assertNotIn(long_alias, printed)
 
     def test_window_functions_keep_postgres_shape(self):
         printed = self._select("SELECT lag(timestamp) OVER (ORDER BY timestamp) FROM events")

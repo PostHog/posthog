@@ -105,39 +105,22 @@
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.10
   '''
-  SELECT "posthog_datamodelingnode"."created_by_id",
-         "posthog_datamodelingnode"."created_at",
-         "posthog_datamodelingnode"."updated_at",
-         "posthog_datamodelingnode"."id",
-         "posthog_datamodelingnode"."team_id",
-         "posthog_datamodelingnode"."saved_query_id",
-         "posthog_datamodelingnode"."dag_id",
-         "posthog_datamodelingnode"."dag_id_text",
-         "posthog_datamodelingnode"."name",
-         "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."properties",
-         "posthog_datawarehousesavedquery"."created_by_id",
-         "posthog_datawarehousesavedquery"."created_at",
-         "posthog_datawarehousesavedquery"."deleted",
-         "posthog_datawarehousesavedquery"."deleted_at",
-         "posthog_datawarehousesavedquery"."id",
-         "posthog_datawarehousesavedquery"."name",
-         "posthog_datawarehousesavedquery"."team_id",
-         "posthog_datawarehousesavedquery"."latest_error",
-         "posthog_datawarehousesavedquery"."columns",
-         "posthog_datawarehousesavedquery"."external_tables",
-         "posthog_datawarehousesavedquery"."query",
-         "posthog_datawarehousesavedquery"."status",
-         "posthog_datawarehousesavedquery"."last_run_at",
-         "posthog_datawarehousesavedquery"."sync_frequency_interval",
-         "posthog_datawarehousesavedquery"."table_id",
-         "posthog_datawarehousesavedquery"."is_materialized",
-         "posthog_datawarehousesavedquery"."deleted_name",
-         "posthog_datawarehousesavedquery"."managed_viewset_id",
-         "posthog_datawarehousesavedquery"."origin"
-  FROM "posthog_datamodelingnode"
-  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
-  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  SELECT "posthog_datawarehousejoin"."created_by_id",
+         "posthog_datawarehousejoin"."created_at",
+         "posthog_datawarehousejoin"."deleted",
+         "posthog_datawarehousejoin"."deleted_at",
+         "posthog_datawarehousejoin"."id",
+         "posthog_datawarehousejoin"."team_id",
+         "posthog_datawarehousejoin"."source_table_name",
+         "posthog_datawarehousejoin"."source_table_key",
+         "posthog_datawarehousejoin"."joining_table_name",
+         "posthog_datawarehousejoin"."joining_table_key",
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
+  FROM "posthog_datawarehousejoin"
+  WHERE ("posthog_datawarehousejoin"."team_id" = 99999
+         AND NOT ("posthog_datawarehousejoin"."deleted"
+                  AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.11
@@ -290,6 +273,43 @@
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.15
   '''
+  SELECT "posthog_datamodelingnode"."created_by_id",
+         "posthog_datamodelingnode"."created_at",
+         "posthog_datamodelingnode"."updated_at",
+         "posthog_datamodelingnode"."id",
+         "posthog_datamodelingnode"."team_id",
+         "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_id",
+         "posthog_datamodelingnode"."dag_id_text",
+         "posthog_datamodelingnode"."name",
+         "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."properties",
+         "posthog_datawarehousesavedquery"."created_by_id",
+         "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."deleted",
+         "posthog_datawarehousesavedquery"."deleted_at",
+         "posthog_datawarehousesavedquery"."id",
+         "posthog_datawarehousesavedquery"."name",
+         "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
+         "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."external_tables",
+         "posthog_datawarehousesavedquery"."query",
+         "posthog_datawarehousesavedquery"."status",
+         "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."table_id",
+         "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin"
+  FROM "posthog_datamodelingnode"
+  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
+  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.16
+  '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
          "posthog_datawarehousesavedquery"."deleted",
@@ -349,7 +369,7 @@
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.16
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.17
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
@@ -402,7 +422,7 @@
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.17
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.18
   '''
   SELECT "posthog_externaldatasource"."created_by_id",
          "posthog_externaldatasource"."created_at",
@@ -434,7 +454,7 @@
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.18
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.19
   '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
@@ -486,26 +506,6 @@
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.19
-  '''
-  SELECT "posthog_datawarehousejoin"."created_by_id",
-         "posthog_datawarehousejoin"."created_at",
-         "posthog_datawarehousejoin"."deleted",
-         "posthog_datawarehousejoin"."deleted_at",
-         "posthog_datawarehousejoin"."id",
-         "posthog_datawarehousejoin"."team_id",
-         "posthog_datawarehousejoin"."source_table_name",
-         "posthog_datawarehousejoin"."source_table_key",
-         "posthog_datawarehousejoin"."joining_table_name",
-         "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name",
-         "posthog_datawarehousejoin"."configuration"
-  FROM "posthog_datawarehousejoin"
-  WHERE ("posthog_datawarehousejoin"."team_id" = 99999
-         AND NOT ("posthog_datawarehousejoin"."deleted"
-                  AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
-  '''
-# ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.2
   '''
   SELECT "posthog_datamodelingnode"."created_by_id",
@@ -544,6 +544,40 @@
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.20
+  '''
+  SELECT "posthog_externaldataschema"."created_by_id",
+         "posthog_externaldataschema"."created_at",
+         "posthog_externaldataschema"."updated_at",
+         "posthog_externaldataschema"."deleted",
+         "posthog_externaldataschema"."deleted_at",
+         "posthog_externaldataschema"."id",
+         "posthog_externaldataschema"."name",
+         "posthog_externaldataschema"."team_id",
+         "posthog_externaldataschema"."source_id",
+         "posthog_externaldataschema"."table_id",
+         "posthog_externaldataschema"."should_sync",
+         "posthog_externaldataschema"."latest_error",
+         "posthog_externaldataschema"."status",
+         "posthog_externaldataschema"."last_synced_at",
+         "posthog_externaldataschema"."sync_type",
+         "posthog_externaldataschema"."sync_type_config",
+         "posthog_externaldataschema"."sync_frequency_interval",
+         "posthog_externaldataschema"."sync_time_of_day"
+  FROM "posthog_externaldataschema"
+  WHERE "posthog_externaldataschema"."table_id" IN ('00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid)
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.21
   '''
   SELECT "posthog_datawarehousejoin"."created_by_id",
          "posthog_datawarehousejoin"."created_at",
@@ -837,22 +871,31 @@
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.9
   '''
-  SELECT "posthog_datawarehousejoin"."created_by_id",
-         "posthog_datawarehousejoin"."created_at",
-         "posthog_datawarehousejoin"."deleted",
-         "posthog_datawarehousejoin"."deleted_at",
-         "posthog_datawarehousejoin"."id",
-         "posthog_datawarehousejoin"."team_id",
-         "posthog_datawarehousejoin"."source_table_name",
-         "posthog_datawarehousejoin"."source_table_key",
-         "posthog_datawarehousejoin"."joining_table_name",
-         "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name",
-         "posthog_datawarehousejoin"."configuration"
-  FROM "posthog_datawarehousejoin"
-  WHERE ("posthog_datawarehousejoin"."team_id" = 99999
-         AND NOT ("posthog_datawarehousejoin"."deleted"
-                  AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
+  SELECT "posthog_externaldataschema"."created_by_id",
+         "posthog_externaldataschema"."created_at",
+         "posthog_externaldataschema"."updated_at",
+         "posthog_externaldataschema"."deleted",
+         "posthog_externaldataschema"."deleted_at",
+         "posthog_externaldataschema"."id",
+         "posthog_externaldataschema"."name",
+         "posthog_externaldataschema"."team_id",
+         "posthog_externaldataschema"."source_id",
+         "posthog_externaldataschema"."table_id",
+         "posthog_externaldataschema"."should_sync",
+         "posthog_externaldataschema"."latest_error",
+         "posthog_externaldataschema"."status",
+         "posthog_externaldataschema"."last_synced_at",
+         "posthog_externaldataschema"."sync_type",
+         "posthog_externaldataschema"."sync_type_config",
+         "posthog_externaldataschema"."sync_frequency_interval",
+         "posthog_externaldataschema"."sync_time_of_day"
+  FROM "posthog_externaldataschema"
+  WHERE "posthog_externaldataschema"."table_id" IN ('00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid,
+                                                    '00000000000000000000000000000000'::uuid)
   '''
 # ---
 # name: TestDatabase.test_serialize_database_no_person_on_events
