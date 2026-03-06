@@ -150,7 +150,10 @@ function isNameFieldValidationError(error: unknown): error is { attr: 'name'; de
 export const llmPromptLogic = kea<llmPromptLogicType>([
     path(['scenes', 'llm-analytics', 'llmPromptLogic']),
     props({ promptName: 'new' } as PromptLogicProps),
-    key(({ promptName, selectedVersion, tabId }) => `prompt-${promptName}:${selectedVersion ?? 'latest'}::${tabId ?? 'default'}`),
+    key(
+        ({ promptName, selectedVersion, tabId }) =>
+            `prompt-${promptName}:${selectedVersion ?? 'latest'}::${tabId ?? 'default'}`
+    ),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
     })),
@@ -276,12 +279,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                         })
                         actions.setPromptFormValues(getPromptFormDefaults(savedPrompt))
                         actions.setMode(PromptMode.View)
-                        router.actions.replace(
-                            combineUrl(urls.llmAnalyticsPrompt(props.promptName), {
-                                ...router.values.searchParams,
-                                edit: 'true',
-                            }).url
-                        )
+                        router.actions.replace(urls.llmAnalyticsPrompt(props.promptName))
 
                         // PATCH already succeeded, so keep optimistic state even if follow-up read fails.
                         try {
@@ -654,10 +652,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
         loadPromptSuccess: ({ prompt }) => {
             if (prompt && isPrompt(prompt)) {
-                const resolvedPrompt = prompt as LLMPrompt
-                const nextValues = getPromptFormDefaults(resolvedPrompt)
                 actions.resetPromptForm()
-                actions.setPromptFormValues(nextValues)
+                actions.setPromptFormValues(getPromptFormDefaults(prompt))
             }
         },
     })),
@@ -698,9 +694,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
     afterMount(({ actions, values }) => {
         if (values.isNewPrompt) {
-            actions.resetPromptForm(DEFAULT_PROMPT_FORM_VALUES)
             actions.setPrompt(DEFAULT_PROMPT_FORM_VALUES)
-            actions.setPromptFormValues(DEFAULT_PROMPT_FORM_VALUES)
+            actions.resetPromptForm(DEFAULT_PROMPT_FORM_VALUES)
         } else {
             actions.loadPrompt()
         }
