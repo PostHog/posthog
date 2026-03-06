@@ -13144,6 +13144,10 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "useChPostgresJoin": {
+                    "description": "Use ClickHouse postgres connector to join issues table instead of separate Postgres queries",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"

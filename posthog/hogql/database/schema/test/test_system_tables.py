@@ -114,6 +114,13 @@ def _create_error_tracking_issue(team: Team, label: str) -> ErrorTrackingIssue:
     return ErrorTrackingIssue.objects.create(team=team, name=f"issue_{label}", status="active")
 
 
+def _create_error_tracking_issue_fingerprint(team: Team, label: str):
+    from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+
+    issue = ErrorTrackingIssue.objects.create(team=team, name=f"fp_issue_{label}", status="active")
+    return ErrorTrackingIssueFingerprintV2.objects.create(team=team, issue=issue, fingerprint=f"fp_{label}")
+
+
 def _create_hog_flow(team: Team, label: str) -> HogFlow:
     return HogFlow.objects.create(team=team, name=f"flow_{label}")
 
@@ -168,6 +175,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("dashboards", _create_dashboard),
     ("data_warehouse_sources", _create_data_warehouse_source),
     ("data_warehouse_tables", _create_data_warehouse_table),
+    ("error_tracking_issue_fingerprints", _create_error_tracking_issue_fingerprint),
     ("error_tracking_issues", _create_error_tracking_issue),
     ("experiments", _create_experiment),
     ("exports", _create_export),

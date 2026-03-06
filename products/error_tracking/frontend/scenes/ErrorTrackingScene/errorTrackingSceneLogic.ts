@@ -40,7 +40,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'mergedFilterGroup', 'searchQuery'],
             issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
-            ['assignee', 'orderBy', 'orderDirection', 'status'],
+            ['assignee', 'orderBy', 'orderDirection', 'status', 'useChPostgresJoin'],
         ],
         actions: [
             issueActionsLogic,
@@ -72,6 +72,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.mergedFilterGroup,
                 s.searchQuery,
                 s.orderDirection,
+                s.useChPostgresJoin,
             ],
             (
                 orderBy,
@@ -81,7 +82,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 filterTestAccounts,
                 mergedFilterGroup,
                 searchQuery,
-                orderDirection
+                orderDirection,
+                useChPostgresJoin
             ): DataTableNode => {
                 return errorTrackingQuery({
                     orderBy,
@@ -94,6 +96,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,
+                    useChPostgresJoin,
                 })
             },
         ],

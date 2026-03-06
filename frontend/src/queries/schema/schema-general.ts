@@ -2475,6 +2475,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     personId?: string
     groupKey?: string
     groupTypeIndex?: integer
+    /** Use ClickHouse postgres connector to join issues table instead of separate Postgres queries */
+    useChPostgresJoin?: boolean
 }
 
 export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {

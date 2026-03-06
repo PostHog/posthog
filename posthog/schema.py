@@ -16980,6 +16980,10 @@ class ErrorTrackingQuery(BaseModel):
     searchQuery: str | None = None
     status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
     tags: QueryLogTags | None = None
+    useChPostgresJoin: bool | None = Field(
+        default=None,
+        description=("Use ClickHouse postgres connector to join issues table instead of separate Postgres queries"),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     volumeResolution: int
     withAggregations: bool | None = None

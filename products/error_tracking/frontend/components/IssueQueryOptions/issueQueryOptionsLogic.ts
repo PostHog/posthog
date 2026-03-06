@@ -41,6 +41,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         setOrderDirection: (orderDirection: ErrorTrackingQueryOrderDirection) => ({ orderDirection }),
         setAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
         setStatus: (status: ErrorTrackingQueryStatus) => ({ status }),
+        setUseChPostgresJoin: (useChPostgresJoin: boolean) => ({ useChPostgresJoin }),
     }),
 
     reducers({
@@ -70,6 +71,13 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             { persist: true },
             {
                 setStatus: (_, { status }) => status,
+            },
+        ],
+        useChPostgresJoin: [
+            false as boolean,
+            { persist: true },
+            {
+                setUseChPostgresJoin: (_, { useChPostgresJoin }) => useChPostgresJoin,
             },
         ],
     }),

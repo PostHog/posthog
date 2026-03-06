@@ -1,19 +1,26 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSelect, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import { issuesDataNodeLogic } from '../../logics/issuesDataNodeLogic'
 import { ORDER_BY_OPTIONS, issueQueryOptionsLogic } from './issueQueryOptionsLogic'
 
 export const IssueQueryOptions = (): JSX.Element => {
-    const { orderBy, orderDirection } = useValues(issueQueryOptionsLogic)
-    const { setOrderBy, setOrderDirection } = useActions(issueQueryOptionsLogic)
+    const { orderBy, orderDirection, useChPostgresJoin } = useValues(issueQueryOptionsLogic)
+    const { setOrderBy, setOrderDirection, setUseChPostgresJoin } = useActions(issueQueryOptionsLogic)
 
     return (
         <span className="flex items-center justify-between gap-2 self-end">
             <Reload />
             <div className="flex items-center gap-2 self-end">
+                <LemonSwitch
+                    checked={useChPostgresJoin}
+                    onChange={setUseChPostgresJoin}
+                    label="v2 query"
+                    size="small"
+                    tooltip="Use ClickHouse postgres connector join instead of separate Postgres queries"
+                />
                 <div className="flex items-center gap-1">
                     <span>Sort by:</span>
 

@@ -102,6 +102,73 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             order_by=[ast.OrderExpr(expr=ast.Field(chain=[self.query.orderBy]), order=self.order_direction)],
         )
 
+    def to_query_v2(self) -> ast.SelectQuery:
+        """Single ClickHouse query joining events with system.error_tracking_issues via postgres connector.
+
+        The postgres side receives simple predicates (team_id, status), while the JOIN condition
+        (e.issue_id = issues.id) is evaluated in ClickHouse.
+
+        first_seen comes from a grouped subquery over system.error_tracking_issue_fingerprints,
+        which records the true historical first occurrence regardless of the queried date range.
+        """
+        # Subquery: min(first_seen) per issue from fingerprint history
+        fingerprints_subquery = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["issue_id"]),
+                ast.Alias(
+                    alias="first_seen",
+                    expr=ast.Call(name="min", args=[ast.Field(chain=["first_seen"])]),
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["system", "error_tracking_issue_fingerprints"]),
+            ),
+            group_by=[ast.Field(chain=["issue_id"])],
+        )
+
+        return ast.SelectQuery(
+            select=self.select_expressions_v2(),
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                alias="e",
+                next_join=ast.JoinExpr(
+                    join_type="INNER JOIN",
+                    table=ast.Field(chain=["system", "error_tracking_issues"]),
+                    alias="issues",
+                    constraint=ast.JoinConstraint(
+                        constraint_type="ON",
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["e", "issue_id"]),
+                            right=ast.Field(chain=["issues", "id"]),
+                        ),
+                    ),
+                    next_join=ast.JoinExpr(
+                        join_type="LEFT JOIN",
+                        table=fingerprints_subquery,
+                        alias="fp",
+                        constraint=ast.JoinConstraint(
+                            constraint_type="ON",
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["fp", "issue_id"]),
+                                right=ast.Field(chain=["issues", "id"]),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            where=self.where_v2,
+            group_by=[
+                ast.Field(chain=["issues", "id"]),
+                ast.Field(chain=["issues", "status"]),
+                ast.Field(chain=["issues", "name"]),
+                ast.Field(chain=["issues", "description"]),
+                ast.Field(chain=["fp", "first_seen"]),
+            ],
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=[self.query.orderBy]), order=self.order_direction)],
+        )
+
     def innermost_frame_attribute(self, materialized_col):
         return ast.Call(
             name="argMax",
@@ -119,6 +186,122 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
+            ast.Alias(alias="function", expr=self.innermost_frame_attribute("$exception_functions")),
+            ast.Alias(alias="source", expr=self.innermost_frame_attribute("$exception_sources")),
+        ]
+
+        if self.query.withAggregations:
+            exprs.extend(
+                [
+                    ast.Alias(
+                        alias="occurrences",
+                        expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])]),
+                    ),
+                    ast.Alias(
+                        alias="sessions",
+                        expr=ast.Call(
+                            name="count",
+                            distinct=True,
+                            args=[
+                                ast.Call(name="nullIf", args=[ast.Field(chain=["$session_id"]), ast.Constant(value="")])
+                            ],
+                        ),
+                    ),
+                    ast.Alias(
+                        alias="users",
+                        expr=ast.Call(
+                            name="count",
+                            distinct=True,
+                            args=[
+                                ast.Call(
+                                    name="coalesce",
+                                    args=[
+                                        ast.Call(
+                                            name="nullIf",
+                                            args=[
+                                                ast.Call(
+                                                    name="toString",
+                                                    args=[ast.Field(chain=["person_id"])],
+                                                ),
+                                                ast.Constant(value="00000000-0000-0000-0000-000000000000"),
+                                            ],
+                                        ),
+                                        ast.Field(chain=["distinct_id"]),
+                                    ],
+                                )
+                            ],
+                        ),
+                    ),
+                    ast.Alias(
+                        alias="volumeRange",
+                        expr=self.select_sparkline_array(self.date_from, self.date_to, self.query.volumeResolution),
+                    ),
+                ]
+            )
+
+        if self.query.withFirstEvent:
+            exprs.append(
+                ast.Alias(
+                    alias="first_event",
+                    expr=ast.Call(
+                        name="argMin",
+                        args=[
+                            ast.Tuple(
+                                exprs=[
+                                    ast.Field(chain=["uuid"]),
+                                    ast.Field(chain=["distinct_id"]),
+                                    ast.Field(chain=["timestamp"]),
+                                    ast.Field(chain=["properties"]),
+                                ]
+                            ),
+                            ast.Field(chain=["timestamp"]),
+                        ],
+                    ),
+                )
+            )
+
+        if self.query.withLastEvent:
+            exprs.append(
+                ast.Alias(
+                    alias="last_event",
+                    expr=ast.Call(
+                        name="argMax",
+                        args=[
+                            ast.Tuple(
+                                exprs=[
+                                    ast.Field(chain=["uuid"]),
+                                    ast.Field(chain=["distinct_id"]),
+                                    ast.Field(chain=["timestamp"]),
+                                    ast.Field(chain=["properties"]),
+                                ]
+                            ),
+                            ast.Field(chain=["timestamp"]),
+                        ],
+                    ),
+                )
+            )
+
+        exprs.append(
+            ast.Alias(
+                alias="library",
+                expr=ast.Call(
+                    name="argMax", args=[ast.Field(chain=["properties", "$lib"]), ast.Field(chain=["timestamp"])]
+                ),
+            )
+        )
+
+        return exprs
+
+    def select_expressions_v2(self) -> list[ast.Expr]:
+        """Like select_expressions but sources id/status/name/description from the joined issues table,
+        and first_seen from fingerprint history (fp.first_seen) rather than the queried event window."""
+        exprs: list[ast.Expr] = [
+            ast.Alias(alias="id", expr=ast.Field(chain=["issues", "id"])),
+            ast.Alias(alias="status", expr=ast.Field(chain=["issues", "status"])),
+            ast.Alias(alias="name", expr=ast.Field(chain=["issues", "name"])),
+            ast.Alias(alias="description", expr=ast.Field(chain=["issues", "description"])),
+            ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
+            ast.Alias(alias="first_seen", expr=ast.Field(chain=["fp", "first_seen"])),
             ast.Alias(alias="function", expr=self.innermost_frame_attribute("$exception_functions")),
             ast.Alias(alias="source", expr=self.innermost_frame_attribute("$exception_sources")),
         ]
@@ -352,8 +535,8 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         )
         return summed
 
-    @property
-    def where(self):
+    def _base_where_exprs(self) -> list[ast.Expr]:
+        """Common WHERE expressions shared between v1 and v2 queries."""
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
@@ -469,6 +652,12 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
             exprs.append(ast.And(exprs=and_exprs))
 
+        return exprs
+
+    @property
+    def where(self):
+        exprs = self._base_where_exprs()
+
         # We do this prefetching of a list of "valid" issue id's based on issue properties that aren't in
         # CH, so that when we run the aggregation and LIMIT, we can filter out the invalid issue id's
         # This is a hack - it'll break down if the list of valid issue id's is too long, but we do it for now
@@ -484,10 +673,29 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
         return ast.And(exprs=exprs)
 
+    @property
+    def where_v2(self):
+        """WHERE clause for v2: filters applied directly, no Postgres prefetch needed."""
+        exprs = self._base_where_exprs()
+
+        # Status filter pushed to the postgres side via the JOIN condition on issues.status
+        if self.query.status and self.query.status != "all":
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["issues", "status"]),
+                    right=ast.Constant(value=self.query.status),
+                )
+            )
+
+        return ast.And(exprs=exprs)
+
     def _calculate(self):
+        query = self.to_query_v2() if self.query.useChPostgresJoin else self.to_query()
+
         with self.timings.measure("error_tracking_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
-                query=self.to_query(),
+                query=query,
                 team=self.team,
                 query_type="ErrorTrackingQuery",
                 timings=self.timings,
@@ -500,7 +708,11 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             )
 
         columns: list[str] = query_result.columns or []
-        results = self.results(columns, query_result.results)
+        results = (
+            self.results_v2(columns, query_result.results)
+            if self.query.useChPostgresJoin
+            else self.results(columns, query_result.results)
+        )
 
         return ErrorTrackingQueryResponse(
             columns=columns,
@@ -545,6 +757,35 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                         }
                     )
 
+        return results
+
+    def results_v2(self, columns: list[str], query_results: list):
+        """Process results from the v2 query (single CH+postgres join, no separate Postgres round-trip)."""
+        results = []
+        for row in query_results:
+            result_dict = dict(zip(columns, row))
+            results.append(
+                {
+                    "id": str(result_dict["id"]),
+                    "status": result_dict.get("status"),
+                    "name": result_dict.get("name"),
+                    "description": result_dict.get("description"),
+                    "first_seen": result_dict.get("first_seen"),
+                    # assignee data not available in v2 (no assignment table join)
+                    "assignee": None,
+                    "last_seen": result_dict.get("last_seen"),
+                    "library": result_dict.get("library"),
+                    "function": result_dict.get("function"),
+                    "source": result_dict.get("source"),
+                    "first_event": (
+                        self.extract_event(result_dict.get("first_event")) if self.query.withFirstEvent else None
+                    ),
+                    "last_event": (
+                        self.extract_event(result_dict.get("last_event")) if self.query.withLastEvent else None
+                    ),
+                    "aggregations": self.extract_aggregations(result_dict) if self.query.withAggregations else None,
+                }
+            )
         return results
 
     def extract_event(self, event_tuple):

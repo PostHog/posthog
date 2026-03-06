@@ -44,6 +44,7 @@ export const errorTrackingQuery = ({
     groupKey,
     groupTypeIndex,
     limit = 50,
+    useChPostgresJoin,
 }: Pick<
     ErrorTrackingQuery,
     | 'orderBy'
@@ -57,6 +58,7 @@ export const errorTrackingQuery = ({
     | 'personId'
     | 'groupKey'
     | 'groupTypeIndex'
+    | 'useChPostgresJoin'
 > & {
     filterGroup: UniversalFiltersGroup
     columns: string[]
@@ -81,6 +83,7 @@ export const errorTrackingQuery = ({
             personId,
             groupKey,
             groupTypeIndex,
+            useChPostgresJoin,
             tags: {
                 productKey: ProductKey.ERROR_TRACKING,
             },
