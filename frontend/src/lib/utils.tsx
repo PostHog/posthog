@@ -485,8 +485,12 @@ export function isString(candidate: unknown): candidate is string {
     return typeof candidate === 'string'
 }
 
+export function isNumber(candidate: unknown): candidate is number {
+    return typeof candidate === 'number'
+}
+
 export function isObject(candidate: unknown): candidate is Record<string, unknown> {
-    return typeof candidate === 'object' && candidate !== null
+    return typeof candidate === 'object' && candidate !== null && !Array.isArray(candidate)
 }
 
 export function isEmptyObject(candidate: unknown): boolean {
@@ -495,6 +499,11 @@ export function isEmptyObject(candidate: unknown): boolean {
 
 export function isNonEmptyObject(candidate: unknown): candidate is Record<string, unknown> {
     return isObject(candidate) && !isEmptyObject(candidate)
+}
+
+/** Check whether a runtime key exists on an object and narrow it to `keyof T`. */
+export function isKeyOf<T extends object>(key: any, obj: T): key is keyof T {
+    return key in obj
 }
 
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
@@ -1349,7 +1358,7 @@ export function dateFilterToText(
     }
 
     if (dateFrom) {
-        const dateOption: (typeof dateOptionsMap)[keyof typeof dateOptionsMap] = dateOptionsMap[dateFrom.slice(-1)]
+        const dateOption = dateOptionsMap[dateFrom.slice(-1) as keyof typeof dateOptionsMap]
         const counter = parseInt(dateFrom.slice(1, -1))
         if (dateOption && counter) {
             let date = null
@@ -1393,7 +1402,8 @@ export function dateFilterToText(
 
 // Converts a dateFrom string ("-2w") into english: "2 weeks"
 export function dateFromToText(dateFrom: string): string | undefined {
-    const dateOption: (typeof dateOptionsMap)[keyof typeof dateOptionsMap] = dateOptionsMap[dateFrom.slice(-1)]
+    const dateOption: (typeof dateOptionsMap)[keyof typeof dateOptionsMap] =
+        dateOptionsMap[dateFrom.slice(-1) as keyof typeof dateOptionsMap]
     const counter = parseInt(dateFrom.slice(1, -1))
     if (dateOption && counter) {
         return `${counter} ${dateOption}${counter > 1 ? 's' : ''}`
@@ -1418,7 +1428,7 @@ export function dateStringToComponents(date: string | null): DateComponents | nu
     }
     const [, sign, rawAmount, rawUnit, clip] = matches
     const amount = rawAmount ? parseInt(sign + rawAmount) : 0
-    const unit = dateOptionsMap[rawUnit] || 'day'
+    const unit = dateOptionsMap[rawUnit as keyof typeof dateOptionsMap] || 'day'
     return { amount, unit, clip: clip as 'Start' | 'End' }
 }
 
@@ -1601,6 +1611,7 @@ export const areDatesValidForInterval = (
 }
 
 const defaultDatesForInterval = {
+    second: { dateFrom: '-1M', dateTo: null },
     minute: { dateFrom: '-1h', dateTo: null },
     hour: { dateFrom: '-24h', dateTo: null },
     day: { dateFrom: '-7d', dateTo: null },
@@ -2349,34 +2360,21 @@ export function isTimedOutRequest(error: any): boolean {
     return error.status === 504
 }
 
-export function flattenObject(ob: Record<string, any>): Record<string, any> {
-    const toReturn = {}
+export function flattenObject<T extends Record<string, any>>(obj: T): Record<string, any> {
+    return Object.entries(obj).reduce<Record<string, any>>((acc, [key, value]) => {
+        if (value !== null && typeof value === 'object') {
+            const flatChild = flattenObject(value)
+            const normalizedKey = /^\d+$/.test(key) ? key.padStart(3, '0') : key
 
-    for (const i in ob) {
-        if (!ob.hasOwnProperty(i)) {
-            continue
+            Object.entries(flatChild).forEach(([subKey, subVal]) => {
+                acc[`${normalizedKey}.${subKey}`] = subVal
+            })
+            return acc
         }
 
-        if (typeof ob[i] == 'object') {
-            const flatObject = flattenObject(ob[i])
-            for (const x in flatObject) {
-                if (!flatObject.hasOwnProperty(x)) {
-                    continue
-                }
-
-                let j = i
-                if (i.match(/\d+/)) {
-                    // Pad integer values for better sorting
-                    j = i.padStart(3, '0')
-                }
-
-                toReturn[j + '.' + x] = flatObject[x]
-            }
-        } else {
-            toReturn[i] = ob[i]
-        }
-    }
-    return toReturn
+        acc[key] = value
+        return acc
+    }, {})
 }
 
 export const shouldIgnoreInput = (e: KeyboardEvent): boolean => {
@@ -2399,7 +2397,7 @@ export const base64Decode = (encodedString: string): string => {
     return new TextDecoder().decode(data)
 }
 
-export const base64ArrayBuffer = (encodedString: string): ArrayBuffer => {
+export const base64ArrayBuffer = (encodedString: string): ArrayBufferLike => {
     const data = base64ToUint8Array(encodedString)
     return data.buffer
 }
@@ -2522,4 +2520,18 @@ export const formatPercentage = (x: number, options?: { precise?: boolean; compa
  */
 export function isUUIDLike(candidate: string): boolean {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate)
+}
+
+/**
+ * Assigns a value to an object field while preserving key-based type inference.
+ * Use this when the key is known but the incoming value is `unknown` and has
+ * already been validated by surrounding logic.
+ *
+ * @param obj - Object to mutate.
+ * @param key - Field name to assign on `obj`.
+ * @param value - Value to assign; cast to `T[K]`.
+ * @returns {void}
+ */
+export function assignField<T, K extends keyof T>(obj: T, key: K, value: unknown): void {
+    obj[key] = value as T[K]
 }
