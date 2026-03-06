@@ -364,7 +364,7 @@ class UserAccessControl:
 
     def _get_access_controls(self, filters: dict) -> list[_AccessControl]:
         if AccessControl is None:
-            return []
+            return []  # type: ignore[unreachable]
         key = json.dumps(filters, sort_keys=True)
         if key not in self._cache:
             self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
@@ -440,7 +440,7 @@ class UserAccessControl:
         Preload access controls for a list of objects
         """
         if AccessControl is None:
-            return
+            return  # type: ignore[unreachable]
 
         filter_groups: list[dict] = []
 
@@ -464,7 +464,7 @@ class UserAccessControl:
         As we can know this upfront, we can optimize this by loading all the controls we will need upfront.
         """
         if AccessControl is None:
-            return
+            return  # type: ignore[unreachable]
 
         # Question - are we fundamentally loading every access control for the given resource? If so should we accept that fact and just load them all?
         # doing all additional filtering in memory?
@@ -895,7 +895,7 @@ class UserAccessControl:
             return queryset
 
         if AccessControl is None:
-            return queryset
+            return queryset  # type: ignore[unreachable]
 
         # Subquery to check if user has "admin" on the FileSystem's team/project
         is_admin_for_project_subquery = (
