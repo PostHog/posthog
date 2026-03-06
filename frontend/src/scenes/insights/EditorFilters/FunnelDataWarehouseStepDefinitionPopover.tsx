@@ -61,16 +61,17 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
         activeFieldIsHogQL,
         isAggregatingByGroup,
         isAggregatingByHogQL,
+        previewTable,
         previewExpressionColumns,
-        selectedPreviewKey,
+        previewSelectedKey,
     } = useValues(logic)
     const { setActiveFieldKey, selectTable, setLocalDefinition } = useActions(logic)
 
     return (
         <div className="flex flex-col">
             <DatabaseTablePreview
-                table={table}
-                selectedKey={selectedPreviewKey}
+                table={previewTable}
+                selectedKey={previewSelectedKey}
                 emptyMessage="No table selected"
                 limit={25}
                 className="mt-2"

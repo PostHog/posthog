@@ -24,6 +24,7 @@ const ALLOWED_COLUMN_TYPES_BY_FIELD_KEY: Record<FunnelFieldKey, DatabaseSerializ
     timestamp_field: ['datetime', 'date', 'string'],
     id_field: ['string', 'integer', 'decimal', 'float'],
 }
+const HIDDEN_FIELD_TYPES: DatabaseSerializedFieldType[] = ['virtual_table', 'view', 'materialized_view', 'lazy_table']
 
 export interface FunnelDataWarehouseStepDefinitionPopoverLogicProps {
     table: DataWarehouseTableForInsight
@@ -87,6 +88,15 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
             (_, props) => [props.table],
             (table) => new Set(Object.values(table.fields).map((field) => field.name)),
         ],
+        previewTable: [
+            (_, p) => [p.table],
+            (table) => ({
+                ...table,
+                fields: Object.fromEntries(
+                    Object.entries(table.fields).filter(([_, field]) => !HIDDEN_FIELD_TYPES.includes(field.type))
+                ),
+            }),
+        ],
         previewExpressionColumns: [
             (s) => [s.dataWarehousePopoverFields, s.localDefinition, s.tableFieldNames],
             (dataWarehousePopoverFields, localDefinition, tableFieldNames): TablePreviewExpressionColumn[] => {
@@ -126,7 +136,7 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
                 })
             },
         ],
-        selectedPreviewKey: [
+        previewSelectedKey: [
             (s) => [s.previewExpressionColumns, s.activeFieldKey, s.activeFieldValue],
             (previewExpressionColumns, activeFieldKey, activeFieldValue) =>
                 previewExpressionColumns.find((column) => column.key.startsWith(`__${activeFieldKey}_hogql_expression`))
