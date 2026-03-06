@@ -20,6 +20,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
+from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
@@ -69,6 +70,7 @@ class ExternalTicketUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=[s.value for s in Status], required=False)
     priority = serializers.ChoiceField(choices=[p.value for p in Priority], required=False)
     sla_due_at = serializers.DateTimeField(required=False, allow_null=True)
+    assignee = serializers.JSONField(required=False, allow_null=True)
 
 
 class ExternalTicketView(APIView):
@@ -206,5 +208,19 @@ class ExternalTicketView(APIView):
                 )
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
+
+        if "assignee" in serializer.validated_data:
+            try:
+                assign_ticket(
+                    ticket=ticket,
+                    assignee=serializer.validated_data.get("assignee"),
+                    organization=team.organization,
+                    user=None,
+                    team_id=team.id,
+                    was_impersonated=False,
+                )
+            except Exception as e:
+                capture_exception(e, {"ticket_id": str(ticket.id)})
+                return Response({"error": "Failed to assign ticket"}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({"ok": True})

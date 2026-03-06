@@ -51,21 +51,21 @@ describe('Cohorts', { concurrent: false }, () => {
             createdResources.cohorts.push(created.id)
 
             const result = await listTool.handler(context, {})
-            const cohorts = parseToolResponse(result)
+            const response = parseToolResponse(result)
 
-            expect(Array.isArray(cohorts)).toBe(true)
-            const found = cohorts.find((c: { id: number }) => c.id === created.id)
+            expect(Array.isArray(response.results)).toBe(true)
+            const found = response.results.find((c: { id: number }) => c.id === created.id)
             expect(found).toBeTruthy()
             expect(found.name).toBe(name)
-            expect(found.url).toContain('/cohorts/')
+            expect(found._posthogUrl).toContain('/cohorts/')
         })
 
         it('should support pagination', async () => {
             const result = await listTool.handler(context, { limit: 5, offset: 0 })
-            const cohorts = parseToolResponse(result)
+            const response = parseToolResponse(result)
 
-            expect(Array.isArray(cohorts)).toBe(true)
-            expect(cohorts.length).toBeLessThanOrEqual(5)
+            expect(Array.isArray(response.results)).toBe(true)
+            expect(response.results.length).toBeLessThanOrEqual(5)
         })
     })
 
@@ -96,7 +96,7 @@ describe('Cohorts', { concurrent: false }, () => {
             expect(cohort.id).toBeTruthy()
             expect(cohort.name).toBe(name)
             expect(cohort.description).toBe('Integration test dynamic cohort')
-            expect(cohort.url).toContain('/cohorts/')
+            expect(cohort._posthogUrl).toContain('/cohorts/')
 
             createdResources.cohorts.push(cohort.id)
         })
@@ -112,7 +112,7 @@ describe('Cohorts', { concurrent: false }, () => {
             expect(cohort.id).toBeTruthy()
             expect(cohort.name).toBe(name)
             expect(cohort.is_static).toBe(true)
-            expect(cohort.url).toContain('/cohorts/')
+            expect(cohort._posthogUrl).toContain('/cohorts/')
 
             createdResources.cohorts.push(cohort.id)
         })
@@ -138,7 +138,7 @@ describe('Cohorts', { concurrent: false }, () => {
             expect(cohort.id).toBe(created.id)
             expect(cohort.name).toBe(name)
             expect(cohort.description).toBe('For retrieve test')
-            expect(cohort.url).toContain('/cohorts/')
+            expect(cohort._posthogUrl).toContain('/cohorts/')
         })
     })
 
@@ -184,8 +184,8 @@ describe('Cohorts', { concurrent: false }, () => {
 
             const listTool = GENERATED_TOOLS['cohorts-list']!()
             const listResult = await listTool.handler(context, {})
-            const cohorts = parseToolResponse(listResult)
-            expect(cohorts.some((c: { id: number }) => c.id === created.id)).toBe(false)
+            const listResponse = parseToolResponse(listResult)
+            expect(listResponse.results.some((c: { id: number }) => c.id === created.id)).toBe(false)
         })
     })
 
@@ -267,8 +267,8 @@ describe('Cohorts', { concurrent: false }, () => {
             createdResources.cohorts.push(created.id)
 
             const listResult = await listTool.handler(context, {})
-            const cohorts = parseToolResponse(listResult)
-            expect(cohorts.some((c: { id: number }) => c.id === created.id)).toBe(true)
+            const listResponse = parseToolResponse(listResult)
+            expect(listResponse.results.some((c: { id: number }) => c.id === created.id)).toBe(true)
 
             const retrieveResult = await retrieveTool.handler(context, { id: created.id })
             const retrieved = parseToolResponse(retrieveResult)

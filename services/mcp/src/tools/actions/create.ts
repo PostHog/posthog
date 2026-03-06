@@ -7,7 +7,7 @@ const schema = ActionCreateSchema
 
 type Params = z.infer<typeof schema>
 
-export const createHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const createHandler: ToolBase<typeof schema, unknown>['handler'] = async (context: Context, params: Params) => {
     const projectId = await context.stateManager.getProjectId()
 
     const result = await context.api.actions({ projectId }).create({
