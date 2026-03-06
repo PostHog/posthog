@@ -283,7 +283,8 @@ export function InsightDisplayConfig(): JSX.Element {
         (hasLegend && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
-        (trendsFilter?.yAxisStartAtMin ? 1 : 0)(trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
+        (trendsFilter?.yAxisStartAtMin ? 1 : 0) +
+        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
 
     return (
         <div
