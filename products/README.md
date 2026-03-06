@@ -105,7 +105,14 @@ Keep shared code minimal to avoid tight coupling.
   - Please keep the top level folders `under_score` cased, as dashes make it hard to import files in some languages (e.g. Python).
 - Each product has a few required files / folders:
   - `manifest.tsx` - describes the product's features. All manifest files are combined into `frontend/src/products.tsx` and `frontend/src/products.json` on build.
-  - `package.json` - required for all products. Defines the product package in Turborepo. If the product has a `backend/` directory, it must include a `backend:test` script so turbo can discover the product for testing. Example: `"scripts": { "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short" }`
+  - `package.json` - required for all products. Defines the product package in Turborepo. If the product has a `backend/` directory, it must include a `backend:test` script so turbo can discover the product for testing:
+    ```json
+    {
+      "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+      }
+    }
+    ```
   - `__init__.py` - allows imports like `products.<product>.backend.*` (only if backend exists)
     - `backend/__init__.py` - marks the backend directory as a Python package/Django app (only if backend exists).
     - `frontend/` - React frontend code. We run oxfmt/eslint only on files in the `frontend` folder on commit.
