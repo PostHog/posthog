@@ -71,19 +71,26 @@ class EventIngestionRestrictionConfigForm(forms.ModelForm):
             self.fields["topic"].initial = self.instance.args.get("topic", "")
 
     def clean(self):
-        cleaned_data = super().clean()
+        cleaned_data = super().clean() or {}
         restriction_type = cleaned_data.get("restriction_type")
         topic = cleaned_data.get("topic", "").strip()
 
-        if restriction_type == RestrictionType.REDIRECT_TO_TOPIC:
-            if not topic:
-                self.add_error("topic", "Topic is required for 'Redirect To Topic' restriction type.")
-            else:
-                self.instance.args = {"topic": topic}
-        else:
-            self.instance.args = None
+        if restriction_type == RestrictionType.REDIRECT_TO_TOPIC and not topic:
+            self.add_error("topic", "Topic is required for 'Redirect To Topic' restriction type.")
 
         return cleaned_data
+
+    def _post_clean(self):
+        # Marshal topic → args before model validation runs in super()._post_clean()
+        restriction_type = self.cleaned_data.get("restriction_type")
+        topic = self.cleaned_data.get("topic", "").strip()
+
+        if restriction_type == RestrictionType.REDIRECT_TO_TOPIC and topic:
+            self.instance.args = {"topic": topic}
+        elif restriction_type != RestrictionType.REDIRECT_TO_TOPIC:
+            self.instance.args = None
+
+        super()._post_clean()
 
 
 class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
