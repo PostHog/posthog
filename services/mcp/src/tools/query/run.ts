@@ -10,7 +10,9 @@ const schema = QueryRunInputSchema
 
 type Params = z.infer<typeof schema>
 
-export const queryRunHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = { query: unknown; results: unknown; _posthogUrl: string }
+
+export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const { query } = params
 
     const projectId = await context.stateManager.getProjectId()
@@ -52,7 +54,7 @@ export const queryRunHandler: ToolBase<typeof schema>['handler'] = async (contex
     }
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'query-run',
     schema,
     handler: queryRunHandler,

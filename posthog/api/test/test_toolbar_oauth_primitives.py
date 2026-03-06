@@ -700,6 +700,17 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
         redirect_url = response["Location"]
         assert "#section1&__posthog_toolbar=code:auth_code_123" in redirect_url
 
+    def test_callback_strips_posthog_hash_from_redirect(self):
+        """__posthog hash params must not survive the OAuth round-trip or they cause a re-init loop."""
+        posthog_hash = "%7B%22action%22%3A%22ph_authorize%22%2C%22token%22%3A%22phc_test%22%7D"
+        state = self._authorize_and_get_state(redirect_url=f"https://example.com/page#__posthog={posthog_hash}")
+        response = self.client.get(f"/toolbar_oauth/callback?code=auth_code_123&state={state}")
+
+        assert response.status_code == 302
+        redirect_url = response["Location"]
+        assert "__posthog=" not in redirect_url.split("__posthog_toolbar")[0]
+        assert "__posthog_toolbar=code:auth_code_123" in redirect_url
+
     def test_callback_without_redirect_flow_relays_code_and_state(self):
         response = self.client.get("/toolbar_oauth/callback?code=test_code&state=test_state")
 
