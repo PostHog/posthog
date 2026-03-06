@@ -332,7 +332,7 @@ class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
                 AND timestamp <= %(date_to)s
                 AND notEmpty(`$session_id`)
             GROUP BY `$session_id`
-            HAVING frustration_score > 5
+            HAVING frustration_score > 0
             ORDER BY frustration_score DESC
             LIMIT 1000
         """
