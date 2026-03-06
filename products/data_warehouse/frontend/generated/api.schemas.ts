@@ -433,11 +433,6 @@ export const SourceTypeE09EnumApi = {
     BuildBetter: 'BuildBetter',
 } as const
 
-export interface ExternalDataSourceRevenueAnalyticsConfigApi {
-    enabled?: boolean
-    include_invoiceless_charges?: boolean
-}
-
 /**
  * * `warehouse` - warehouse
  * `direct` - direct
@@ -448,6 +443,11 @@ export const AccessMethodEnumApi = {
     Warehouse: 'warehouse',
     Direct: 'direct',
 } as const
+
+export interface ExternalDataSourceRevenueAnalyticsConfigApi {
+    enabled?: boolean
+    include_invoiceless_charges?: boolean
+}
 
 /**
  * Mixin for serializers to add user access control fields
@@ -462,8 +462,11 @@ export interface ExternalDataSourceSerializersApi {
     account_id: string
     readonly source_type: SourceTypeE09EnumApi
     readonly latest_error: string
-    /** @nullable */
-    readonly prefix: string | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    prefix?: string | null
     /**
      * @maxLength 400
      * @nullable
@@ -503,8 +506,11 @@ export interface PatchedExternalDataSourceSerializersApi {
     account_id?: string
     readonly source_type?: SourceTypeE09EnumApi
     readonly latest_error?: string
-    /** @nullable */
-    readonly prefix?: string | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    prefix?: string | null
     /**
      * @maxLength 400
      * @nullable
