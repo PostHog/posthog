@@ -8,7 +8,8 @@ from django.conf import settings
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-API_VERSION = "0.1d"
+SUPPORTED_VERSIONS = ["0.1d"]
+API_VERSION = SUPPORTED_VERSIONS[0]
 SIGNATURE_HEADER = "Stripe-Signature"
 API_VERSION_HEADER = "API-Version"
 MAX_TIMESTAMP_DRIFT_SECONDS = 300
@@ -21,9 +22,15 @@ def verify_stripe_signature(request: Request) -> Response | None:
     Called at the top of every view (Vercel-style, not middleware).
     """
     api_version = request.META.get("HTTP_API_VERSION", "")
-    if api_version != API_VERSION:
+    if api_version not in SUPPORTED_VERSIONS:
         return Response(
-            {"error": {"code": "invalid_api_version", "message": f"Expected API-Version: {API_VERSION}"}}, status=400
+            {
+                "error": {
+                    "code": "invalid_api_version",
+                    "message": f"Supported API-Versions: {', '.join(SUPPORTED_VERSIONS)}",
+                }
+            },
+            status=400,
         )
 
     secret = settings.STRIPE_APP_SECRET_KEY
