@@ -209,17 +209,18 @@ class ExternalTicketView(APIView):
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
 
-        if "assignee" in request.data:
+        if "assignee" in serializer.validated_data:
             try:
                 assign_ticket(
                     ticket=ticket,
-                    assignee=request.data.get("assignee"),
+                    assignee=serializer.validated_data.get("assignee"),
                     organization=team.organization,
                     user=None,
                     team_id=team.id,
                     was_impersonated=False,
                 )
             except Exception as e:
-                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                capture_exception(e, {"ticket_id": str(ticket.id)})
+                return Response({"error": "Failed to assign ticket"}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({"ok": True})
