@@ -47,12 +47,8 @@ class TestCombineIssues:
         )
 
         # Save chunk summaries
-        (pass1_dir / "chunk-1-issues-review.json").write_text(
-            chunk1_issues.model_dump_json()
-        )
-        (pass1_dir / "chunk-2-issues-review.json").write_text(
-            chunk2_issues.model_dump_json()
-        )
+        (pass1_dir / "chunk-1-issues-review.json").write_text(chunk1_issues.model_dump_json())
+        (pass1_dir / "chunk-2-issues-review.json").write_text(chunk2_issues.model_dump_json())
 
         # Run combine_issues
         combine_issues(temp_review_dir)
@@ -89,9 +85,7 @@ class TestCombineIssues:
                             lines=[LineRange(start=10, end=20)],
                             issue=f"Problem in pass {pass_num}",
                             suggestion=f"Fix for pass {pass_num}",
-                            priority=IssuePriority.MUST_FIX
-                            if pass_num == 1
-                            else IssuePriority.SHOULD_FIX,
+                            priority=IssuePriority.MUST_FIX if pass_num == 1 else IssuePriority.SHOULD_FIX,
                         )
                     ],
                 )
@@ -113,9 +107,7 @@ class TestCombineIssues:
         assert len(combined_data["issues"]) == 6
 
         # Verify we have issues from all passes (by checking IDs contain pass numbers)
-        pass_numbers = {
-            int(issue["id"].split("-")[0]) for issue in combined_data["issues"]
-        }
+        pass_numbers = {int(issue["id"].split("-")[0]) for issue in combined_data["issues"]}
         assert pass_numbers == {1, 2, 3}
 
         # Verify issue IDs are correct
@@ -192,12 +184,8 @@ class TestCombineIssues:
             issues=[],
         )
 
-        (pass1_dir / "chunk-1-issues-review.json").write_text(
-            empty_issues.model_dump_json()
-        )
-        (pass1_dir / "chunk-2-issues-review.json").write_text(
-            empty_issues.model_dump_json()
-        )
+        (pass1_dir / "chunk-1-issues-review.json").write_text(empty_issues.model_dump_json())
+        (pass1_dir / "chunk-2-issues-review.json").write_text(empty_issues.model_dump_json())
 
         # Run combine_issues
         combine_issues(temp_review_dir)
@@ -269,14 +257,10 @@ class TestCombineIssues:
             ],
         )
 
-        (pass1_dir / "chunk-1-issues-review.json").write_text(
-            valid_issues.model_dump_json()
-        )
+        (pass1_dir / "chunk-1-issues-review.json").write_text(valid_issues.model_dump_json())
 
         # Create an invalid JSON file
-        (pass1_dir / "chunk-2-issues-review.json").write_text(
-            '{"invalid": "json", "missing": "closing_brace"'
-        )
+        (pass1_dir / "chunk-2-issues-review.json").write_text('{"invalid": "json", "missing": "closing_brace"')
 
         # Should raise an exception
         with pytest.raises(Exception) as exc_info:
@@ -284,9 +268,7 @@ class TestCombineIssues:
 
         assert "Failed to load issues review" in str(exc_info.value)
 
-    def test_combine_issues_validates_as_issue_combination(
-        self, temp_review_dir: Path
-    ) -> None:
+    def test_combine_issues_validates_as_issue_combination(self, temp_review_dir: Path) -> None:
         """Test that the combined issues can be validated as IssueCombination model."""
         # Create test data
         pass1_dir = temp_review_dir / "pass1_results"

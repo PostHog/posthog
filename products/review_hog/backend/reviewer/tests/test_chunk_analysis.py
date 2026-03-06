@@ -4,20 +4,20 @@ from typing import Any
 
 import pytest
 from pytest import MonkeyPatch
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis, ChunkMeta
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
-from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_code
+from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
 from products.review_hog.backend.reviewer.tools.chunk_analysis import analyze_chunks, generate_prompts, process_chunk
 
 
 @pytest.fixture
 def mock_run_claude_code_chunk_analysis_failure() -> Callable[[Any], Coroutine[Any, Any, bool]]:
-    """Create a mock for CodeExecutor.run_code that fails."""
+    """Create a mock for run_sandbox_review that fails."""
 
-    async def mock_func(_self: Any) -> bool:
+    async def mock_func(**kwargs: Any) -> bool:
         """Mock implementation that returns failure."""
         return False
 
@@ -125,7 +125,6 @@ class TestProcessChunk:
     async def test_process_chunk_success(
         self,
         temp_review_dir: Path,
-        temp_project_dir: Path,
         sample_chunk_analysis_simple: ChunkAnalysis,
     ) -> None:
         """Test successful chunk processing."""
@@ -136,14 +135,14 @@ class TestProcessChunk:
         output_path = temp_review_dir / "chunk-1-analysis.json"
 
         with patch(
-            "app.llm.code.CodeExecutor.run_code",
-            create_mock_run_code(sample_chunk_analysis_simple),
+            "products.review_hog.backend.reviewer.tools.chunk_analysis.run_sandbox_review",
+            create_mock_run_sandbox_review(sample_chunk_analysis_simple),
         ):
             result = await process_chunk(
                 chunk_id=1,
                 prompt_path=prompt_path,
                 output_path=output_path,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
         assert result is True
@@ -155,7 +154,7 @@ class TestProcessChunk:
         assert analysis.chunk_meta is not None
 
     @pytest.mark.asyncio
-    async def test_process_chunk_missing_prompt(self, temp_review_dir: Path, temp_project_dir: Path) -> None:
+    async def test_process_chunk_missing_prompt(self, temp_review_dir: Path) -> None:
         """Test error when prompt file is missing."""
         prompt_path = temp_review_dir / "nonexistent-prompt.md"
         output_path = temp_review_dir / "output.json"
@@ -165,15 +164,14 @@ class TestProcessChunk:
                 chunk_id=1,
                 prompt_path=prompt_path,
                 output_path=output_path,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
     @pytest.mark.asyncio
     async def test_process_chunk_llm_failure(
         self,
         temp_review_dir: Path,
-        temp_project_dir: Path,
-        mock_run_claude_code_chunk_analysis_failure: AsyncMock,
+        mock_run_claude_code_chunk_analysis_failure: Callable[[Any], Coroutine[Any, Any, bool]],
     ) -> None:
         """Test handling of LLM failure."""
         prompt_path = temp_review_dir / "chunk-1-prompt.md"
@@ -182,14 +180,14 @@ class TestProcessChunk:
         output_path = temp_review_dir / "output.json"
 
         with patch(
-            "app.llm.code.CodeExecutor.run_code",
+            "products.review_hog.backend.reviewer.tools.chunk_analysis.run_sandbox_review",
             mock_run_claude_code_chunk_analysis_failure,
         ):
             result = await process_chunk(
                 chunk_id=1,
                 prompt_path=prompt_path,
                 output_path=output_path,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
         assert result is False
@@ -206,7 +204,6 @@ class TestAnalyzeChunks:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
         sample_chunk_analysis_simple: ChunkAnalysis,
     ) -> None:
         """Test analyzing a single chunk."""
@@ -214,8 +211,8 @@ class TestAnalyzeChunks:
         single_chunk = ChunksList(chunks=[expected_chunks.chunks[0]])
 
         with patch(
-            "app.llm.code.CodeExecutor.run_code",
-            create_mock_run_code(sample_chunk_analysis_simple),
+            "products.review_hog.backend.reviewer.tools.chunk_analysis.run_sandbox_review",
+            create_mock_run_sandbox_review(sample_chunk_analysis_simple),
         ):
             await analyze_chunks(
                 chunks_data=single_chunk,
@@ -223,7 +220,7 @@ class TestAnalyzeChunks:
                 pr_comments=pr_comments,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
         # Verify directories created
@@ -246,7 +243,6 @@ class TestAnalyzeChunks:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
         sample_chunk_analysis_simple: ChunkAnalysis,
     ) -> None:
         """Test that existing results are skipped."""
@@ -254,20 +250,20 @@ class TestAnalyzeChunks:
         existing_result = temp_review_dir / "chunk-1-analysis.json"
         existing_result.write_text(sample_chunk_analysis_simple.model_dump_json())
 
-        mock_run_claude = MagicMock(wraps=create_mock_run_code(sample_chunk_analysis_simple))
-        with patch("app.llm.code.CodeExecutor.run_code", mock_run_claude):
+        mock_run_sandbox = MagicMock(wraps=create_mock_run_sandbox_review(sample_chunk_analysis_simple))
+        with patch("products.review_hog.backend.reviewer.tools.chunk_analysis.run_sandbox_review", mock_run_sandbox):
             await analyze_chunks(
                 chunks_data=expected_chunks,
                 pr_metadata=pr_metadata,
                 pr_comments=pr_comments,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
-        # Should not call run_code for chunk 1
+        # Should not call run_sandbox_review for chunk 1
         # But should process other chunks
-        mock_run_claude.assert_called()
+        mock_run_sandbox.assert_called()
 
         # Original file should be unchanged
         analysis = ChunkAnalysis.model_validate_json(existing_result.read_text())
@@ -281,13 +277,12 @@ class TestAnalyzeChunks:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
         sample_chunk_analysis_simple: ChunkAnalysis,
     ) -> None:
         """Test analyzing all chunks."""
         with patch(
-            "app.llm.code.CodeExecutor.run_code",
-            create_mock_run_code(sample_chunk_analysis_simple),
+            "products.review_hog.backend.reviewer.tools.chunk_analysis.run_sandbox_review",
+            create_mock_run_sandbox_review(sample_chunk_analysis_simple),
         ):
             await analyze_chunks(
                 chunks_data=expected_chunks,
@@ -295,7 +290,7 @@ class TestAnalyzeChunks:
                 pr_comments=pr_comments,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
         # Verify all chunks have results
@@ -324,7 +319,6 @@ class TestEndToEnd:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
     ) -> None:
         """Test complete chunk analysis flow end-to-end."""
         # Create mock analyses for each chunk
@@ -338,13 +332,11 @@ class TestEndToEnd:
                 ),
             )
 
-        async def mock_run_claude(
-            self: Any,
+        async def mock_run_sandbox(
+            **kwargs: Any,
         ) -> bool:
             """Mock that returns different analyses based on chunk."""
-            # Access output_path from the CodeExecutor instance
-            output_path = self.output_path
-            # Convert output_path to string if it's a Path object
+            output_path = kwargs["output_path"]
             output_path_str = str(output_path)
 
             # Determine chunk number from output path
@@ -360,8 +352,8 @@ class TestEndToEnd:
             return False
 
         with patch(
-            "app.tools.chunk_analysis.CodeExecutor.run_code",
-            mock_run_claude,
+            "products.review_hog.backend.reviewer.tools.chunk_analysis.run_sandbox_review",
+            mock_run_sandbox,
         ):
             await analyze_chunks(
                 chunks_data=expected_chunks,
@@ -369,7 +361,7 @@ class TestEndToEnd:
                 pr_comments=pr_comments,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
         # Verify all chunks have analysis results

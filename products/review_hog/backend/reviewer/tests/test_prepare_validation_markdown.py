@@ -141,14 +141,10 @@ async def test_prepare_validation_markdown_success(
 
         # Create validation files with proper naming based on issue IDs
         # Issue 1-1-1 -> issue number 1, Issue 1-1-2 -> issue number 2
-        for issue, validation in zip(
-            sample_issues.issues, sample_validations, strict=False
-        ):
+        for issue, validation in zip(sample_issues.issues, sample_validations, strict=False):
             # Extract issue number from the issue ID (third part)
             issue_number = int(issue.id.split("-")[2])
-            val_path = (
-                pass1_val_dir / f"chunk-1-issue-{issue_number}-validation-summary.json"
-            )
+            val_path = pass1_val_dir / f"chunk-1-issue-{issue_number}-validation-summary.json"
             with val_path.open("w") as f:
                 f.write(validation.model_dump_json())
 
@@ -185,9 +181,7 @@ async def test_prepare_validation_markdown_success(
 
         # Check validation content - only valid issue validation should be present
         assert "**Validation Result:** Valid" in content
-        assert (
-            "**Validation Result:** Invalid" not in content
-        )  # Invalid validation should not be shown
+        assert "**Validation Result:** Invalid" not in content  # Invalid validation should not be shown
         assert "CommonMark compliance problem" in content
 
         # Check priority is included
