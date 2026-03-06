@@ -202,7 +202,5 @@ func (ss *SessionStats) flushSessionsToRedis(pending map[string]map[string]float
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := ss.RedisStore.FlushSessions(ctx, pending); err != nil {
-		log.Printf("Redis flush error: %v", err)
-	}
+	ss.RedisStore.FlushSessions(ctx, pending)
 }

@@ -13,6 +13,7 @@ package events
 import (
 	"context"
 	"fmt"
+	"log"
 	"maps"
 	"strconv"
 	"sync"
@@ -164,6 +165,7 @@ func (s *StatsInRedis) flushKeys(ctx context.Context, pending map[string]map[str
 			results := s.client.DoMulti(ctx, cmds...)
 			for _, r := range results {
 				if err := r.Error(); err != nil {
+					log.Printf("Redis flush error for key %s: %v", key, err)
 					metrics.RedisErrors.WithLabelValues(metricsLabel).Inc()
 				}
 			}

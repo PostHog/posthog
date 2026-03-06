@@ -104,7 +104,5 @@ func (ts *Stats) flushUsersToRedis(pending map[string]map[string]float64) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := ts.RedisStore.FlushUsers(ctx, pending); err != nil {
-		log.Printf("Redis flush error: %v", err)
-	}
+	ts.RedisStore.FlushUsers(ctx, pending)
 }
