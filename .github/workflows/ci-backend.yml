@@ -62,6 +62,7 @@ jobs:
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
+            products: ${{ steps.filter.outputs.products || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
@@ -91,13 +92,7 @@ jobs:
                         # including the negated rule appears to work
                         # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
-                        - 'common/hogli/**/*'
-                        - 'common/hogvm/python/**/*'
-                        - 'common/hogvm/stl/**/*'
-                        - 'common/hogql_parser/**/*'
-                        - 'common/migration_utils/**/*'
-                        - 'common/ingestion/**/*'
-                        - 'common/__init__.py'
+                        - 'common/**/*'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
                         - 'bin/*.py'
@@ -148,26 +143,6 @@ jobs:
                         - 'products/*/mcp/**/*.yaml'
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
-                      legacy:
-                        # Non-product backend code — when only products/ change,
-                        # turbo-discover decides whether Django tests are needed
-                        - 'ee/**/*'
-                        - 'common/**/*'
-                        - 'posthog/**/*'
-                        - 'bin/*.py'
-                        - pyproject.toml
-                        - uv.lock
-                        - requirements.txt
-                        - requirements-dev.txt
-                        - mypy.ini
-                        - pytest.ini
-                        - .test_durations
-                        - frontend/src/queries/schema.json
-                        - .github/workflows/ci-backend.yml
-                        - .github/clickhouse-versions.json
-                        - docker-compose.dev.yml
-                        - docker-compose.profiles.yml
-                        - docker-compose.base.yml
 
     detect-snapshot-mode:
         name: Detect snapshot mode
