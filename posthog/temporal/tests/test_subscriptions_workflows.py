@@ -126,7 +126,7 @@ async def test_subscription_delivery_scheduling(
 
 
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("ee.tasks.subscriptions.get_slack_integration_for_team", return_value=None)
+@patch("ee.tasks.subscriptions.get_slack_integration_for_subscription", return_value=None)
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
 @patch("ee.tasks.subscriptions.generate_assets_async")
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -252,7 +252,7 @@ async def test_handle_subscription_value_change_email(
 
 
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("ee.tasks.subscriptions.get_slack_integration_for_team", return_value=None)
+@patch("ee.tasks.subscriptions.get_slack_integration_for_subscription", return_value=None)
 @patch("ee.tasks.subscriptions.generate_assets_async")
 @pytest.mark.asyncio
 async def test_deliver_subscription_report_slack(
