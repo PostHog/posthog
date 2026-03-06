@@ -135,14 +135,14 @@ describe('GroupKeySelect', () => {
         expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     })
 
-    it('supports multi-select with isOneOf operator', async () => {
+    it('supports multi-select with exact operator', async () => {
         const onChange = jest.fn()
         render(
             <Provider>
                 <GroupKeySelect
                     value={['uuid-001']}
                     groupTypeIndex={0}
-                    operator={PropertyOperator.IsOneOf}
+                    operator={PropertyOperator.Exact}
                     onChange={onChange}
                 />
             </Provider>
