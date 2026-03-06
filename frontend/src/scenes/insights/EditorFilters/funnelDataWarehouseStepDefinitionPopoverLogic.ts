@@ -37,7 +37,7 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
     props({} as FunnelDataWarehouseStepDefinitionPopoverLogicProps),
     key((props) => props.table.name),
     path((key) => ['scenes', 'insights', 'EditorFilters', 'funnelDataWarehouseStepDefinitionPopoverLogic', key]),
-    connect((props) => ({
+    connect((props: FunnelDataWarehouseStepDefinitionPopoverLogicProps) => ({
         values: [definitionPopoverLogic, ['localDefinition'], funnelDataLogic(props.insightProps), ['querySource']],
         actions: [definitionPopoverLogic, ['setLocalDefinition']],
     })),
