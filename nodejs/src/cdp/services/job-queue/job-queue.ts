@@ -55,7 +55,6 @@ export class CyclotronJobQueue {
     private producerForceScheduledToPostgres: boolean
     private jobQueuePostgres: CyclotronJobQueuePostgres
     private jobQueueKafka: CyclotronJobQueueKafka
-    private jobQueueDelay: CyclotronJobQueueDelay
     private stripPersonMatcher: ValueMatcher<number>
     private shadowPostgres: CyclotronJobQueuePostgresShadow | null = null
     private shadowFailures = 0
