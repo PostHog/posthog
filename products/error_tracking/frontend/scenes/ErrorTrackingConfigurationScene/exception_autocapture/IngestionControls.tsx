@@ -69,7 +69,7 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
                 )}
                 <div className="flex flex-col gap-y-2">
                     <IngestionControlsSummary triggers={triggers} controlDescription="exceptions captured" />
-                    <div className="flex flex-col gap-y-2 border rounded py-2 px-4 mb-2">
+                    <div className="flex flex-col gap-y-2 border rounded py-4 px-4 mb-2">
                         <UrlConfig
                             logicProps={{
                                 logicKey: 'error-tracking-url-triggers',

@@ -6,7 +6,6 @@ import {
     Controls,
     EdgeTypes,
     MiniMap,
-    Node,
     NodeTypes,
     ReactFlow,
     ReactFlowInstance,
@@ -21,17 +20,21 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { isInsightVizNode } from '~/queries/utils'
 
 import { JourneyFlowEdge, ProfileFlowEdge } from './FunnelFlowEdge'
-import { funnelFlowGraphLogic, FunnelFlowNodeData } from './funnelFlowGraphLogic'
+import { AnyFlowNode, funnelFlowGraphLogic } from './funnelFlowGraphLogic'
 import { JourneyFlowNode, ProfileFlowNode } from './FunnelFlowNode'
+import { PathFlowEdge } from './PathFlowEdge'
+import { PathFlowNode } from './PathFlowNode'
 
 const NODE_TYPES = {
     journey: JourneyFlowNode,
     profile: ProfileFlowNode,
+    pathNode: PathFlowNode,
 } as NodeTypes
 
 const EDGE_TYPES = {
     journey: JourneyFlowEdge,
     profile: ProfileFlowEdge,
+    pathFlow: PathFlowEdge,
 } as EdgeTypes
 
 const PROFILE_GRAPH_HEIGHT = 140
@@ -47,7 +50,7 @@ function FunnelFlowGraphContent(): JSX.Element {
     const { laidOutNodes, edges, fitViewOptions } = useValues(funnelFlowGraphLogic({ ...insightProps, isProfileMode }))
 
     const onInit = useCallback(
-        (instance: ReactFlowInstance<Node<FunnelFlowNodeData>>) => {
+        (instance: ReactFlowInstance<AnyFlowNode>) => {
             instance.fitView(fitViewOptions)
         },
         [fitViewOptions]
@@ -62,6 +65,7 @@ function FunnelFlowGraphContent(): JSX.Element {
             className="relative w-full"
             style={{ height: isProfileMode ? PROFILE_GRAPH_HEIGHT : 'var(--insight-viz-min-height)' }}
         >
+            {!isProfileMode && <style>{'.react-flow__edgelabel-renderer { z-index: 5; }'}</style>}
             <ReactFlow
                 nodes={laidOutNodes}
                 edges={edges}
