@@ -62,7 +62,9 @@ Different pools can have different statement timeouts to match their workload:
 | `persons_writer`     | `WRITER_STATEMENT_TIMEOUT_MS`             | Hash key override writes          |
 | `non_persons_writer` | `WRITER_STATEMENT_TIMEOUT_MS`             | Same as persons_writer            |
 
-Statement timeouts are set via `SET statement_timeout = {ms}` on each new connection using SQLx's `after_connect` hook. The same hook also increments the `db_connection_created_total` counter when `pool_name` is set, providing visibility into connection churn per pool.
+Statement timeouts are set via `SET statement_timeout = {ms}` on each new connection using SQLx's `after_connect` hook.
+
+The same hook also increments the `db_connection_created_total` counter when `pool_name` is set, providing visibility into connection churn per pool.
 
 ### Total connection count
 
@@ -211,17 +213,20 @@ let retry_strategy = ExponentialBackoff::from_millis(100)
 
 ### Prometheus metrics
 
-| Metric                              | Labels                 | Purpose                                                       |
-| ----------------------------------- | ---------------------- | ------------------------------------------------------------- |
-| `flags_db_connection_time`          | `pool`, `operation`    | Connection acquisition latency                                |
-| `flags_person_query_time`           | -                      | Person lookup query duration                                  |
-| `flags_definition_query_time`       | -                      | Flag definition query duration                                |
-| `flags_pool_utilization_ratio`      | `pool`                 | Pool utilization (0.0-1.0)                                    |
-| `flags_connection_hold_time_ms`     | `pool`, `operation`    | How long connections are held                                 |
-| `flags_hash_key_retries_total`      | `team_id`, `operation` | Retry counter                                                 |
-| `flags_flag_evaluation_error_total` | `error_type`           | Error counter                                                 |
-| `db_connection_created_total`       | `pool`                 | Connection creation events (physical TCP/TLS, not pool reuse) |
-| `flags_db_connection_pool_size`     | `pool`                 | Total pool size (should equal active + idle)                  |
+| Metric                                  | Labels                 | Purpose                                                       |
+| --------------------------------------- | ---------------------- | ------------------------------------------------------------- |
+| `flags_db_connection_time`              | `pool`, `operation`    | Connection acquisition latency                                |
+| `flags_person_query_time`               | -                      | Person lookup query duration                                  |
+| `flags_definition_query_time`           | -                      | Flag definition query duration                                |
+| `flags_pool_utilization_ratio`          | `pool`                 | Pool utilization (0.0-1.0)                                    |
+| `flags_connection_hold_time_ms`         | `pool`, `operation`    | How long connections are held                                 |
+| `flags_hash_key_retries_total`          | `team_id`, `operation` | Retry counter                                                 |
+| `flags_flag_evaluation_error_total`     | `error_type`           | Error counter                                                 |
+| `db_connection_created_total`           | `pool`                 | Connection creation events (physical TCP/TLS, not pool reuse) |
+| `flags_db_connection_pool_size`         | `pool`                 | Total pool size (should equal active + idle)                  |
+| `flags_db_connection_pool_active_total` | `pool`                 | Active (in-use) connections                                   |
+| `flags_db_connection_pool_idle_total`   | `pool`                 | Idle (available) connections                                  |
+| `flags_db_connection_pool_max_total`    | `pool`                 | Configured maximum connections                                |
 
 ### Example PromQL queries
 
@@ -230,7 +235,11 @@ let retry_strategy = ExponentialBackoff::from_millis(100)
 rate(db_connection_created_total{pool="non_persons_reader"}[5m])
 
 # Pool reuse rate (fraction of acquires that reused an existing connection)
-1 - (rate(db_connection_created_total[5m]) / rate(flags_db_connection_time_count[5m]))
+1 - (
+  rate(db_connection_created_total[5m])
+  /
+  sum without(operation) (rate(flags_db_connection_time_count[5m]))
+)
 ```
 
 ### Pool stats
