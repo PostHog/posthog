@@ -67,6 +67,11 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         if "uuid" not in self._extra_event_fields:
             self._extra_event_fields.append("uuid")
 
+        # When aggregating by non person property (e.g. session_id)
+        # add the person_id so we can later fetch the person data
+        if self._is_session_aggregation() and "person_id" not in self._extra_event_fields:
+            self._extra_event_fields.append("person_id")
+
     def get_step_counts_query(self):
         max_steps = self.context.max_steps
         return self._get_step_counts_query(
@@ -82,6 +87,11 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         return int(
             self.context.funnelWindowInterval * DATERANGE_MAP[self.context.funnelWindowIntervalUnit].total_seconds()
         )
+
+    def _person_id_select(self) -> str:
+        if self._is_session_aggregation():
+            return "any(person_id) as person_id,"
+        return ""
 
     def matched_event_select(self):
         if self._include_matched_events():
@@ -171,6 +181,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                 af_tuple.2 as success_bool,
                 af_tuple.3 as breakdown,
                 {self.matched_event_select()}
+                {self._person_id_select()}
                 aggregation_target as aggregation_target
             FROM {{inner_event_query}}
             GROUP BY aggregation_target
@@ -288,6 +299,8 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             *self._matching_events(),
             *([ast.Field(chain=[field]) for field in extra_fields or []]),
         ]
+        if self._is_session_aggregation():
+            select.append(ast.Alias(alias="person_id", expr=ast.Field(chain=["person_id"])))
         select_from = ast.JoinExpr(table=self._inner_aggregation_query())
 
         where = ast.And(

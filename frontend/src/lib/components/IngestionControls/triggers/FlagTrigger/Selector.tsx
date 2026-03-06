@@ -2,46 +2,43 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 
-import { AccessControlLevel } from '~/types'
-
-import { ingestionControlsLogic } from '../../ingestionControlsLogic'
 import { flagTriggerLogic } from './flagTriggerLogic'
 
 export const FlagTriggerSelector = (): JSX.Element => {
-    const { resourceType } = useValues(ingestionControlsLogic)
     const { flag, featureFlagLoading } = useValues(flagTriggerLogic)
     const { onChange } = useActions(flagTriggerLogic)
 
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
     return (
         <div className="flex flex-row justify-start">
-            <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
-                {({ disabledReason }) => (
-                    <FlagSelector
-                        value={flag?.id ?? undefined}
-                        onChange={(id, key) => {
-                            onChange({ id, key, variant: null })
-                        }}
-                        disabledReason={(disabledReason ?? featureFlagLoading) ? 'Loading...' : undefined}
-                        readOnly={!!disabledReason || featureFlagLoading}
-                    />
-                )}
-            </AccessControlAction>
+            <FlagSelector
+                value={flag?.id ?? undefined}
+                onChange={(id, key) => {
+                    onChange({ id, key, variant: null })
+                }}
+                disabledReason={(restrictedReason ?? featureFlagLoading) ? 'Loading...' : undefined}
+                readOnly={!!restrictedReason || featureFlagLoading}
+            />
             {flag && (
-                <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
-                    <LemonButton
-                        className="ml-2"
-                        icon={<IconCancel />}
-                        size="small"
-                        type="secondary"
-                        onClick={() => onChange(null)}
-                        title="Clear selected flag"
-                        loading={featureFlagLoading}
-                    />
-                </AccessControlAction>
+                <LemonButton
+                    className="ml-2"
+                    icon={<IconCancel />}
+                    size="small"
+                    type="secondary"
+                    onClick={() => onChange(null)}
+                    title="Clear selected flag"
+                    loading={featureFlagLoading}
+                    disabledReason={restrictedReason}
+                />
             )}
         </div>
     )

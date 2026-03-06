@@ -279,6 +279,17 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     )
                 raise
 
+        # await the duckgres shadow activity so the parent workflow's concurrency
+        # semaphore isn't released until the query finishes on duckgres
+        try:
+            await duckgres_shadow_handle
+        except Exception as shadow_err:
+            temporalio.workflow.logger.warning(
+                f"Duckgres shadow activity failed (v2_only): {str(shadow_err)}",
+                extra=inputs.properties_to_log,
+            )
+            capture_exception(shadow_err)
+        # TODO: populate with real values
         return MaterializeViewWorkflowResult(
             job_id=job_id,
             node_id=inputs.node_id,

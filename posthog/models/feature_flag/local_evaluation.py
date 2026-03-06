@@ -40,7 +40,7 @@ from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import get_nested_cohort_ids
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
-from posthog.models.feature_flag.flags_cache import _compare_flag_fields
+from posthog.models.feature_flag.flags_cache import _compare_flag_fields, get_teams_with_flags_queryset
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.surveys.survey import Survey
@@ -689,16 +689,23 @@ def _update_flag_definitions_without_cohorts(team: Team | int, ttl: int | None =
 
 # HyperCache management configs for warming/verification.
 # Two separate configs, one for each cache variant.
+# Both share the same team-scoping queryset from flags_cache, giving flag
+# definitions the same ~89% team reduction that the flags cache already has.
+# Each config uses a per-variant update_fn so that callers iterating both
+# configs (e.g., warm_caches, refresh) don't double-write a variant.
+# Verification runs both configs independently to keep each variant correct.
 FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=flag_definitions_hypercache,
     update_fn=_update_flag_definitions_with_cohorts,
     cache_name="flag_definitions",
+    get_teams_queryset_fn=get_teams_with_flags_queryset,
 )
 
 FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=flag_definitions_without_cohorts_hypercache,
     update_fn=_update_flag_definitions_without_cohorts,
     cache_name="flag_definitions_no_cohorts",
+    get_teams_queryset_fn=get_teams_with_flags_queryset,
 )
 
 

@@ -37,7 +37,7 @@ jobs:
                         - 'frontend/**'
                         - 'products/**/*.{ts,tsx}'
                         - 'products/**/frontend/**'
-                        - 'common/{esbuilder,storybook,tailwind}/**'
+                        - 'common/{esbuilder,mosaic,storybook,tailwind}/**'
                         - 'ee/frontend/**'
                         - '.storybook/**'
                         - 'package.json'
