@@ -5,7 +5,19 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
+from django.db.models import (
+    CharField,
+    Count,
+    DateTimeField,
+    Exists,
+    F,
+    FilteredRelation,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Value,
+)
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
@@ -49,6 +61,7 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.group_type_mapping import GroupTypeMapping, invalidate_group_types_cache
+from posthog.models.insight import InsightFavorite
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
@@ -197,6 +210,11 @@ class DashboardTileSerializer(serializers.ModelSerializer):
 
     @tracer.start_as_current_span("DashboardTileSerializer.to_representation")
     def to_representation(self, instance: DashboardTile):
+        # Propagate the tile-level annotation to the insight instance so InsightBasicSerializer
+        # doesn't fall back to a per-insight DB query for the favorited status.
+        if instance.insight is not None and hasattr(instance, "insight_is_favorited"):
+            instance.insight.is_favorited = instance.insight_is_favorited
+
         representation = super().to_representation(instance)
 
         representation["order"] = self.context.get("order", None)
@@ -758,6 +776,15 @@ class DashboardsViewSet(
                     "insight__dashboard_tiles__dashboard",
                 )
             )
+            if self.request.user.is_authenticated:
+                tiles_prefetch_queryset = tiles_prefetch_queryset.annotate(
+                    insight_is_favorited=Exists(
+                        InsightFavorite.objects.filter(
+                            user=self.request.user,
+                            insight_id=OuterRef("insight_id"),
+                        )
+                    )
+                )
             try:
                 dashboard_id = self.kwargs["pk"]
                 tiles_prefetch_queryset = tiles_prefetch_queryset.filter(dashboard_id=dashboard_id)
