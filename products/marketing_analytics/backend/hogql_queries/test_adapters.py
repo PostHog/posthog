@@ -1701,9 +1701,9 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         total_clicks = sum(int(row[5] or 0) for row in results)
 
         assert len(results) == 10, "Expected 10 campaigns from Pinterest Ads JOIN"
-        assert total_impressions > 0, f"Expected positive impressions, got {total_impressions}"
-        assert total_clicks > 0, f"Expected positive clicks, got {total_clicks}"
-        assert total_cost > 0, f"Expected positive cost, got {total_cost}"
+        assert abs(total_cost - 468.0) < 0.01, f"Expected cost $468.0, got ${total_cost}"
+        assert total_impressions == 94950, f"Expected 94950 impressions, got {total_impressions}"
+        assert total_clicks == 1614, f"Expected 1614 clicks, got {total_clicks}"
 
         sources = [row[3] for row in results]
         assert all(source == "pinterest" for source in sources), "All sources should be 'pinterest'"

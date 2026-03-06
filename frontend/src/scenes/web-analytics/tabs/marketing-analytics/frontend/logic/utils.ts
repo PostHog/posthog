@@ -468,7 +468,9 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 return buildConversionExpr('total_conversions', table)
             }
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
-                return buildConversionExpr(['total_checkout_value_in_micro_dollar'], table)
+                return buildConversionExpr(['total_checkout_value_in_micro_dollar'], table, ([field]) => {
+                    return `SUM(ifNull(toFloat(${field}), 0) / 1000000)`
+                })
             }
             return null
         },
