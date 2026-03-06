@@ -207,7 +207,8 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         scimLogs: [
             null as PaginatedSCIMRequestLogs | null,
             {
-                loadScimLogs: async ({ domainId, page }: { domainId: string; page?: number }) => {
+                loadScimLogs: async ({ domainId, page }: { domainId: string; page?: number }, breakpoint) => {
+                    await breakpoint(300)
                     const params: Record<string, string> = {}
                     if (values.scimLogsStatusFilter === 'success') {
                         params.status_min = '200'
