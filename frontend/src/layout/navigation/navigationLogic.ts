@@ -31,6 +31,8 @@ export const navigationLogic = kea<navigationLogicType>([
     })),
     actions({
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
+        showConfigurePinnedTabsModal: true,
+        hideConfigurePinnedTabsModal: true,
     }),
     loaders({
         navigationStatus: [
@@ -55,6 +57,13 @@ export const navigationLogic = kea<navigationLogicType>([
             { persist: true },
             {
                 closeProjectNotice: (state, { projectNoticeVariant }) => ({ ...state, [projectNoticeVariant]: true }),
+            },
+        ],
+        isConfigurePinnedTabsModalOpen: [
+            false,
+            {
+                showConfigurePinnedTabsModal: () => true,
+                hideConfigurePinnedTabsModal: () => false,
             },
         ],
     }),
