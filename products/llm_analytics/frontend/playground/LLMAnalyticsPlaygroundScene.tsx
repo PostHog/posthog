@@ -54,6 +54,8 @@ import {
 } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
 import { PlaygroundSaveMenu } from './PlaygroundSaveMenu'
+
+// Cap inline JSON previews at 20 lines so they don't dominate the layout
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460

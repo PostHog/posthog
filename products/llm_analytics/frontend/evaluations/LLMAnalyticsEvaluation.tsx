@@ -83,7 +83,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
     const isHog = evaluation.evaluation_type === 'hog'
     const configValid = isHog
         ? evaluation.evaluation_config.source.trim().length > 0
-        : evaluation.evaluation_config.prompt.length > 0
+        : evaluation.evaluation_config.prompt.trim().length > 0
     const basicFieldsValid = evaluation.name.length > 0 && configValid
     const percentageUnset = evaluation.conditions.some((c) => c.rollout_percentage === 0)
     const saveButtonDisabled = !basicFieldsValid
