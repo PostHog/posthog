@@ -5,17 +5,11 @@ from typing import Any, Optional
 from urllib.parse import quote, urljoin
 
 import requests
+import structlog
 from dateutil import parser as dateutil_parser
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
-from tenacity import (
-    RetryCallState,
-    retry,
-    retry_if_exception_type,
-    retry_if_result,
-    stop_after_attempt,
-    wait_exponential,
-)
+from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_result, stop_after_attempt
 
 from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -28,10 +22,11 @@ from posthog.temporal.data_imports.sources.common.rest_source.typing import (
 )
 from posthog.temporal.data_imports.sources.sentry.settings import SENTRY_ENDPOINTS, SentryEndpointConfig
 
-_MAX_PAGES_PER_PARENT = 10
+_MAX_PAGES_PER_PARENT = 100
 _REQUEST_TIMEOUT = 30
 _MAX_RETRIES = 3
 _RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
+logger = structlog.get_logger(__name__)
 
 
 def _normalize_api_base_url(api_base_url: str | None) -> str:
@@ -128,6 +123,31 @@ def _is_retryable_response(response: requests.Response) -> bool:
     return response.status_code in _RETRYABLE_STATUS_CODES
 
 
+def _retry_wait_seconds(state: RetryCallState) -> float:
+    fallback_wait = min(2 ** (state.attempt_number - 1), 30)
+    if state.outcome is None or state.outcome.failed:
+        return float(fallback_wait)
+
+    response = state.outcome.result()
+    if response.status_code != 429:
+        return float(fallback_wait)
+
+    reset_header = response.headers.get("X-Sentry-Rate-Limit-Reset")
+    if not reset_header:
+        return float(fallback_wait)
+
+    try:
+        reset_epoch = int(reset_header)
+    except ValueError:
+        return float(fallback_wait)
+
+    wait_until_reset = reset_epoch - int(datetime.now(UTC).timestamp())
+    if wait_until_reset <= 0:
+        return float(fallback_wait)
+
+    return float(wait_until_reset)
+
+
 def _raise_on_failed_retry(state: RetryCallState) -> requests.Response:
     if state.outcome is None:
         raise RuntimeError("Unexpected request retry state")
@@ -141,7 +161,7 @@ def _raise_on_failed_retry(state: RetryCallState) -> requests.Response:
 
 @retry(
     stop=stop_after_attempt(_MAX_RETRIES + 1),
-    wait=wait_exponential(multiplier=1, max=30),
+    wait=_retry_wait_seconds,
     retry=retry_if_exception_type(requests.exceptions.RequestException) | retry_if_result(_is_retryable_response),
     retry_error_callback=_raise_on_failed_retry,
 )
@@ -168,6 +188,12 @@ def _iter_endpoint_rows(
 
     while url:
         if max_pages_to_read is not None and pages_read >= max_pages_to_read:
+            if max_pages_to_read == _MAX_PAGES_PER_PARENT:
+                logger.info(
+                    "sentry_source.max_pages_per_parent_reached",
+                    resource_path=path,
+                    max_pages_per_parent=_MAX_PAGES_PER_PARENT,
+                )
             break
 
         response = _request_with_retry(url=url, headers=headers, params=current_params)
@@ -242,6 +268,14 @@ def _iter_issue_tag_values_rows(
 
             while values_url:
                 if pages_read >= _MAX_PAGES_PER_PARENT:
+                    logger.info(
+                        "sentry_source.max_pages_per_parent_reached",
+                        resource_path=values_path,
+                        organization_slug=organization_slug,
+                        issue_id=issue_id,
+                        tag_key=tag_key,
+                        max_pages_per_parent=_MAX_PAGES_PER_PARENT,
+                    )
                     break
 
                 response = _request_with_retry(url=values_url, headers=headers, params=values_params)
