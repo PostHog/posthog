@@ -15,7 +15,7 @@ export type PanelLayoutNavIdentifier =
     | 'Shortcuts'
     | 'DataManagement'
     | 'DataAndPeople'
-export type NavExperimentTab = 'home' | 'chat' | 'inbox'
+export type NavExperimentTab = 'home' | 'chat'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
