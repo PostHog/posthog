@@ -167,7 +167,7 @@ export class CyclotronJobQueue {
             )
         } else if (this.consumerMode === 'postgres-v2') {
             if (!this.jobQueuePostgresV2) {
-                throw new Error('Cyclotron V2 consumer mode requires CDP_CYCLOTRON_NODE_ENABLED=true')
+                throw new Error('Cyclotron V2 consumer mode requires CYCLOTRON_NODE_DATABASE_URL to be set')
             }
             await this.jobQueuePostgresV2.startAsConsumer(queue, (invocations) =>
                 this.consumeBatch(invocations, 'postgres-v2')
