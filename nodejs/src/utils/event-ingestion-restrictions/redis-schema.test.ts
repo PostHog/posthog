@@ -20,6 +20,21 @@ describe('RedisRestrictionItemSchema', () => {
             expect(result.data).toEqual(input)
         })
 
+        it('parses v2 format with index and args fields', () => {
+            const input = {
+                version: 2,
+                token: 'test-token',
+                pipelines: ['analytics'],
+                index: 5,
+                args: { topic: 'custom-topic' },
+            }
+
+            const result = RedisRestrictionItemSchema.safeParse(input)
+
+            expect(result.success).toBe(true)
+            expect(result.data).toEqual(input)
+        })
+
         it('allows missing filter fields (undefined)', () => {
             const input = {
                 version: 2,
@@ -199,6 +214,71 @@ describe('toRestrictionRule', () => {
 
             expect(rule.restrictionType).toBe(RestrictionType.SKIP_PERSON_PROCESSING)
             expect(rule.scope.type).toBe('all')
+        })
+    })
+
+    describe('args passthrough', () => {
+        it('passes args from v2 entry to rule', () => {
+            const item = {
+                version: 2 as const,
+                token: 'test-token',
+                pipelines: ['analytics' as const],
+                args: { topic: 'custom-topic' },
+            }
+
+            const rule = toRestrictionRule(item, RestrictionType.REDIRECT_TO_DLQ)
+
+            expect(rule.args).toEqual({ topic: 'custom-topic' })
+        })
+
+        it('returns undefined args when not present in v2', () => {
+            const item = {
+                version: 2 as const,
+                token: 'test-token',
+                pipelines: ['analytics' as const],
+            }
+
+            const rule = toRestrictionRule(item, RestrictionType.DROP_EVENT)
+
+            expect(rule.args).toBeUndefined()
+        })
+
+        it('returns undefined args when null in v2', () => {
+            const item = {
+                version: 2 as const,
+                token: 'test-token',
+                pipelines: ['analytics' as const],
+                args: null,
+            }
+
+            const rule = toRestrictionRule(item, RestrictionType.DROP_EVENT)
+
+            expect(rule.args).toBeUndefined()
+        })
+
+        it('returns undefined args for v0 entries without args', () => {
+            const item = {
+                version: 0 as const,
+                token: 'test-token',
+                pipelines: ['analytics' as const],
+            }
+
+            const rule = toRestrictionRule(item, RestrictionType.DROP_EVENT)
+
+            expect(rule.args).toBeUndefined()
+        })
+
+        it('passes args from v0 entry to rule', () => {
+            const item = {
+                version: 0 as const,
+                token: 'test-token',
+                pipelines: ['analytics' as const],
+                args: { topic: 'custom-topic' },
+            }
+
+            const rule = toRestrictionRule(item, RestrictionType.DROP_EVENT)
+
+            expect(rule.args).toEqual({ topic: 'custom-topic' })
         })
     })
 

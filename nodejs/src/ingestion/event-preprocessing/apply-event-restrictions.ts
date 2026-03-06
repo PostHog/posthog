@@ -1,7 +1,7 @@
 import { Counter } from 'prom-client'
 
 import { EventHeaders } from '../../types'
-import { EventIngestionRestrictionManager, RestrictionType } from '../../utils/event-ingestion-restrictions'
+import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { dlq, drop, ok, redirect } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
@@ -25,24 +25,26 @@ export function createApplyEventRestrictionsStep<T extends { headers: EventHeade
 
         const restrictions = manager.getAppliedRestrictions(headers.token, headers)
 
-        if (restrictions.size === 0) {
+        if (restrictions.isEmpty) {
             return Promise.resolve(ok(input))
         }
 
-        // Priority 1: Drop
-        if (restrictions.has(RestrictionType.DROP_EVENT)) {
+        if (restrictions.drop) {
             return drop('blocked_token')
         }
 
-        // Priority 2: DLQ
-        if (restrictions.has(RestrictionType.REDIRECT_TO_DLQ)) {
+        if (restrictions.redirectToDlq) {
             return dlq('restricted_to_dlq')
         }
 
-        // Priority 3: Overflow
-        if (routingConfig.overflowEnabled && restrictions.has(RestrictionType.FORCE_OVERFLOW)) {
+        const redirectTopic = restrictions.redirectToTopic
+        if (redirectTopic) {
+            return redirect('restricted_to_topic', redirectTopic, true, false)
+        }
+
+        if (routingConfig.overflowEnabled && restrictions.forceOverflow) {
             ingestionOverflowingMessagesTotal.inc()
-            const shouldProcessPerson = !restrictions.has(RestrictionType.SKIP_PERSON_PROCESSING)
+            const shouldProcessPerson = !restrictions.skipPersonProcessing
             const preservePartitionLocality = shouldProcessPerson ? true : routingConfig.preservePartitionLocality
             return redirect(
                 'Event redirected to overflow due to force overflow restrictions',
