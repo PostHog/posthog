@@ -280,8 +280,8 @@ pub async fn serve(config: Config, listener: TcpListener, mut manager: Manager) 
         ComponentOptions::new()
     } else {
         ComponentOptions::new()
-            .with_liveness_deadline(Duration::from_secs(30))
-            .with_stall_threshold(2)
+            .with_liveness_deadline(Duration::from_secs(45))
+            .with_stall_threshold(4)
     };
     let sink_handle = manager.register("sink", sink_options);
 

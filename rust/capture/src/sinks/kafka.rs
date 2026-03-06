@@ -535,7 +535,7 @@ mod tests {
             .build();
         let handle = manager.register(
             "kafka",
-            ComponentOptions::new().with_liveness_deadline(Duration::from_secs(30)),
+            ComponentOptions::new().with_liveness_deadline(Duration::from_secs(45)),
         );
         // Keep monitor alive for the test
         let _guard = manager.monitor_background();
