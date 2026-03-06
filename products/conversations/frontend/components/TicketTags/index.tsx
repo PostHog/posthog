@@ -21,6 +21,7 @@ export function TicketTags({ tags, onChange, saving = false }: TicketTagsProps):
             tagsAvailable={tagsAvailable}
             className="justify-end p-2"
             data-attr="ticket-tags"
+            actionButtonSize="medium"
         />
     )
 }
