@@ -235,6 +235,8 @@ No. Views only call facades, and facades only return frozen dataclasses. The pre
 
 # 8. Isolation Rules
 
+> **Note:** Isolation rules and misplaced file checks are enforced only for **isolated products** (those with `backend/facade/contracts.py`). Legacy products without contracts run in lenient mode, where structure checks are relaxed to allow their existing flat `backend/` layout.
+
 ### Forbidden
 
 - Importing another product's `models.py` directly
