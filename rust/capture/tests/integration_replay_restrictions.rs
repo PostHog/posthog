@@ -17,7 +17,6 @@ use capture::time::TimeSource;
 use capture::v0_request::{DataType, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
-use health::HealthRegistry;
 use integration_utils::{DEFAULT_CONFIG, DEFAULT_TEST_TIME};
 use limiters::token_dropper::TokenDropper;
 use serde_json::{json, Value};
@@ -69,7 +68,6 @@ async fn setup_recordings_router_with_restriction(
     restriction_type: RestrictionType,
     token: &str,
 ) -> (Router, CapturingSink) {
-    let liveness = HealthRegistry::new("recordings_restriction_tests");
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
     let timesource = FixedTime {
@@ -99,7 +97,6 @@ async fn setup_recordings_router_with_restriction(
 
     let router = router(
         timesource,
-        liveness,
         sink,
         redis,
         None, // global_rate_limiter_token_distinctid
@@ -107,9 +104,7 @@ async fn setup_recordings_router_with_restriction(
         quota_limiter,
         TokenDropper::default(),
         Some(service),
-        false,
         CaptureMode::Recordings,
-        String::from("capture-recordings"),
         None,
         25 * 1024 * 1024,
         false,

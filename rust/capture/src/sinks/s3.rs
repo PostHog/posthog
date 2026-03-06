@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use aws_sdk_s3::config::Builder;
 use aws_sdk_s3::Client as S3Client;
 use chrono::{DateTime, Datelike, Utc};
-use health::HealthHandle;
+use lifecycle::Handle as LifecycleHandle;
 use metrics::{counter, histogram};
 use std::env;
 use std::sync::Arc;
@@ -21,7 +21,6 @@ use crate::api::CaptureError;
 use crate::sinks::Event;
 
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
-const HEALTH_INTERVAL: Duration = Duration::from_secs(10);
 const MAX_BUFFER_SIZE: usize = 4 * 1024 * 1024; // 4MB
 
 struct Inner {
@@ -29,7 +28,6 @@ struct Inner {
     bucket: String,
     prefix: String,
     buffer: Arc<Mutex<EventBuffer>>,
-    liveness: HealthHandle,
 }
 
 pub struct S3Sink {
@@ -75,11 +73,10 @@ impl S3Sink {
         bucket: String,
         prefix: String,
         s3_endpoint: Option<String>,
-        liveness: HealthHandle,
+        handle: LifecycleHandle,
     ) -> anyhow::Result<S3Sink> {
         info!("Initializing S3 sink with bucket: {bucket}");
 
-        // Load base config
         let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest());
 
         if let Some(s3_endpoint) = s3_endpoint.clone() {
@@ -88,7 +85,6 @@ impl S3Sink {
 
         let mut config = Builder::from(&config_loader.load().await);
         if s3_endpoint.is_some() {
-            // custom s3 endpoints need force_path_style set
             config = config.force_path_style(true);
         }
 
@@ -100,49 +96,33 @@ impl S3Sink {
             bucket,
             prefix,
             buffer,
-            liveness,
         });
 
-        // Do initial healthcheck
         inner.healthcheck().await;
 
-        // Create weak reference for background task
         let inner_weak = Arc::downgrade(&inner);
 
-        // Spawn background task with shutdown handling
         task::spawn(async move {
-            let mut last_healthcheck = Instant::now();
+            let _guard = handle.process_scope();
             loop {
                 tokio::select! {
                     _ = sleep(Duration::from_millis(10)) => {
-                        // Try to upgrade weak reference - if it fails, the S3Sink has been dropped
                         let inner = match inner_weak.upgrade() {
                             Some(inner) => inner,
-                            None => break, // Exit loop if S3Sink was dropped
+                            None => break,
                         };
 
                         let mut buffer = inner.buffer.lock().await;
                         if buffer.should_flush() {
                             let mut old_buffer = {
-                                // Replace the current buffer with a brand-new one.
                                 std::mem::replace(&mut *buffer, EventBuffer::new())
                             };
-                            // drop the old buffer so the lock is freed and we can keep writing
                             drop(buffer);
                             let result = inner.flush_buffer(&mut old_buffer).await;
-                            if result.is_ok() {
-                                last_healthcheck = Instant::now();
-                            }
                             drop(old_buffer.tx.send(result));
                         }
-
-                        // if we haven't written any events the healthcheck will stall
-                        // force healthcheck at least every HEALTH_INTERVAL
-                        if last_healthcheck.elapsed() >= HEALTH_INTERVAL {
-                            inner.healthcheck().await;
-                            last_healthcheck = Instant::now();
-                        }
                     }
+                    _ = handle.shutdown_recv() => break,
                 }
             }
         });
@@ -153,17 +133,9 @@ impl S3Sink {
 
 impl Inner {
     async fn healthcheck(&self) {
-        // Verify bucket exists and is accessible
-        if self
-            .client
-            .head_bucket()
-            .bucket(&self.bucket)
-            .send()
-            .await
-            .is_ok()
-        {
-            self.liveness.report_healthy().await;
-        };
+        if let Err(e) = self.client.head_bucket().bucket(&self.bucket).send().await {
+            error!("S3 healthcheck failed: {e:#}");
+        }
     }
 
     async fn flush_buffer(&self, buffer: &mut EventBuffer) -> Result<(), CaptureError> {
@@ -247,7 +219,6 @@ impl Inner {
                 counter!("capture_s3_events_written_total").increment(event_count as u64);
                 counter!("capture_s3_bytes_written_total").increment(written_bytes as u64);
                 histogram!("capture_s3_batch_size").record(event_count as f64);
-                self.liveness.report_healthy().await;
                 Ok(())
             }
             Err(err) => {
@@ -292,16 +263,16 @@ mod tests {
     use crate::utils::uuid_v7;
     use crate::v0_request::{DataType, ProcessedEventMetadata};
     use common_types::CapturedEvent;
-    use health::HealthRegistry;
-    use time::Duration as TimeDuration;
+    use lifecycle::{ComponentOptions, Manager};
 
     async fn setup_test_sink() -> S3Sink {
-        let registry = HealthRegistry::new("test");
-        let handle = registry
-            .register("s3".to_string(), TimeDuration::seconds(30))
-            .await;
+        let mut manager = Manager::builder("s3-test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .build();
+        let handle = manager.register("s3", ComponentOptions::new());
+        let _guard = manager.monitor_background();
 
-        // Use environment variables for test configuration
         env::set_var("AWS_ACCESS_KEY_ID", "object_storage_root_user");
         env::set_var("AWS_SECRET_ACCESS_KEY", "object_storage_root_password");
 

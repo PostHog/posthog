@@ -16,7 +16,8 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 envconfig = { workspace = true }
 flate2 = { workspace = true }
-health = { path = "../common/health" }
+lifecycle = { path = "../common/lifecycle" }
+common-liveness = { path = "../common/liveness" }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 common-alloc = { path = "../common/alloc" }

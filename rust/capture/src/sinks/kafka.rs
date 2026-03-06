@@ -4,7 +4,7 @@ use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
-use health::HealthHandle;
+use lifecycle::Handle as LifecycleHandle;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use limiters::redis::RedisLimiter;
 use metrics::{counter, gauge, histogram};
@@ -21,7 +21,7 @@ use tracing::{info_span, instrument, Instrument};
 use super::producer::RdKafkaProducer;
 
 pub struct KafkaContext {
-    liveness: HealthHandle,
+    liveness: LifecycleHandle,
 }
 
 impl rdkafka::ClientContext for KafkaContext {
@@ -29,7 +29,7 @@ impl rdkafka::ClientContext for KafkaContext {
         // Signal liveness, as the main rdkafka loop is running and calling us
         let brokers_up = stats.brokers.values().any(|broker| broker.state == "UP");
         if brokers_up {
-            self.liveness.report_healthy_blocking();
+            self.liveness.report_healthy();
         }
 
         let total_brokers = stats.brokers.len();
@@ -179,7 +179,7 @@ pub type KafkaSink = KafkaSinkBase<RdKafkaProducer<KafkaContext>>;
 impl KafkaSink {
     pub async fn new(
         config: KafkaConfig,
-        liveness: HealthHandle,
+        liveness: LifecycleHandle,
         partition: Option<OverflowLimiter>,
         replay_overflow_limiter: Option<RedisLimiter>,
     ) -> anyhow::Result<KafkaSink> {
@@ -267,7 +267,7 @@ impl KafkaSink {
             )
             .is_ok()
         {
-            liveness.report_healthy().await;
+            liveness.report_healthy();
             info!("connected to Kafka brokers");
         };
 
@@ -516,7 +516,7 @@ mod tests {
     use crate::utils::uuid_v7;
     use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
-    use health::HealthRegistry;
+    use lifecycle::{ComponentOptions, Manager};
     use limiters::overflow::OverflowLimiter;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
@@ -524,15 +524,22 @@ mod tests {
     use rdkafka::producer::DefaultProducerContext;
     use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
     use std::num::NonZeroU32;
-    use time::Duration;
+    use std::time::Duration;
 
     async fn start_on_mocked_sink(
         message_max_bytes: Option<u32>,
     ) -> (MockCluster<'static, DefaultProducerContext>, KafkaSink) {
-        let registry = HealthRegistry::new("liveness");
-        let handle = registry
-            .register("one".to_string(), Duration::seconds(30))
-            .await;
+        let mut manager = Manager::builder("kafka-test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .build();
+        let handle = manager.register(
+            "kafka",
+            ComponentOptions::new().with_liveness_deadline(Duration::from_secs(45)),
+        );
+        // Keep monitor alive for the test
+        let _guard = manager.monitor_background();
+
         let limiter = Some(OverflowLimiter::new(
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),

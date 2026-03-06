@@ -7,30 +7,33 @@ mod test_utils;
 use test_utils::{setup_tracing, DEFAULT_CONFIG};
 
 use capture::server::serve;
+use lifecycle::Manager;
 use tokio::net::TcpListener;
-use tokio::sync::Notify;
-
-use std::sync::Arc;
 
 async fn start_server_with_header_timeout(
     timeout_ms: Option<u64>,
-) -> (std::net::SocketAddr, Arc<Notify>) {
+) -> (std::net::SocketAddr, tokio_util::sync::CancellationToken) {
     let mut config = DEFAULT_CONFIG.clone();
     config.http1_header_read_timeout_ms = timeout_ms;
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let notify = Arc::new(Notify::new());
-    let shutdown = notify.clone();
 
-    tokio::spawn(
-        async move { serve(config, listener, async move { notify.notified().await }).await },
-    );
+    let token = tokio_util::sync::CancellationToken::new();
+    let shutdown_token = token.clone();
+
+    let manager = Manager::builder("capture-test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_shutdown_token(token)
+        .build();
+
+    tokio::spawn(async move { serve(config, listener, manager).await });
 
     // Give server time to start
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    (addr, shutdown)
+    (addr, shutdown_token)
 }
 
 #[tokio::test]

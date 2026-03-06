@@ -1,4 +1,3 @@
-use std::future::ready;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,7 +8,6 @@ use axum::{
     Router,
 };
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use health::{readiness_handler, HealthRegistry};
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -25,7 +23,6 @@ use limiters::token_dropper::TokenDropper;
 
 use crate::config::CaptureMode;
 use crate::metrics_middleware::{apply_request_timeout, track_metrics};
-use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::CaptureQuotaLimiter;
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
@@ -95,7 +92,6 @@ pub fn router<
     R: Client + Send + Sync + 'static,
 >(
     timesource: TZ,
-    liveness: HealthRegistry,
     sink: S,
     redis: Arc<R>,
     global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
@@ -103,9 +99,7 @@ pub fn router<
     quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
     event_restriction_service: Option<EventRestrictionService>,
-    metrics: bool,
     capture_mode: CaptureMode,
-    deploy_role: String,
     concurrency_limit: Option<usize>,
     event_payload_size_limit: usize,
     enable_historical_rerouting: bool,
@@ -241,10 +235,7 @@ pub fn router<
         )
         .layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
 
-    let status_router = Router::new()
-        .route("/", get(index))
-        .route("/_readiness", get(readiness_handler))
-        .route("/_liveness", get(move || ready(liveness.get_status())));
+    let status_router = Router::new().route("/", get(index));
 
     let recordings_router = Router::new()
         .route(
@@ -294,21 +285,11 @@ pub fn router<
     // apply request timeout middleware if request_timeout_seconds is set
     router = apply_request_timeout(router, request_timeout_seconds);
 
-    let router = router
+    router
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))
-        .with_state(state);
-
-    // Don't install metrics unless asked to
-    // Installing a global recorder when capture is used as a library (during tests etc)
-    // does not work well.
-    if metrics {
-        let recorder_handle = setup_metrics_recorder(deploy_role, capture_mode.as_tag());
-        router.route("/metrics", get(move || ready(recorder_handle.render())))
-    } else {
-        router
-    }
+        .with_state(state)
 }
 
 #[cfg(test)]
