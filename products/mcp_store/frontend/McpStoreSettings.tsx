@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { IconCheck, IconPlus, IconServer, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -79,10 +79,37 @@ function ConnectOAuthButton({
 export function McpStoreSettings(): JSX.Element {
     const { installations, installationsLoading, installedServerUrls, recommendedServers, serversLoading } =
         useValues(mcpStoreLogic)
-    const { uninstallServer, openAddCustomServerModal, openAddCustomServerModalWithDefaults } =
-        useActions(mcpStoreLogic)
+    const {
+        uninstallServer,
+        toggleServerEnabled,
+        openAddCustomServerModal,
+        openAddCustomServerModalWithDefaults,
+        loadInstallations,
+        loadServers,
+    } = useActions(mcpStoreLogic)
     const { currentTeamId } = useValues(teamLogic)
     const [searchTerm, setSearchTerm] = useState('')
+
+    const refreshMcpStoreState = useCallback(() => {
+        loadInstallations()
+        loadServers()
+    }, [loadInstallations, loadServers])
+
+    useEffect(() => {
+        const handleVisibilityChange = (): void => {
+            if (document.visibilityState === 'visible') {
+                refreshMcpStoreState()
+            }
+        }
+
+        window.addEventListener('focus', refreshMcpStoreState)
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+
+        return () => {
+            window.removeEventListener('focus', refreshMcpStoreState)
+            document.removeEventListener('visibilitychange', handleVisibilityChange)
+        }
+    }, [refreshMcpStoreState])
 
     return (
         <>
@@ -144,9 +171,13 @@ export function McpStoreSettings(): JSX.Element {
                                         Reconnect
                                     </LemonButton>
                                 ) : (
-                                    <LemonTag type="success" icon={<IconCheck />}>
-                                        Active
-                                    </LemonTag>
+                                    <LemonSwitch
+                                        checked={installation.is_enabled !== false}
+                                        onChange={(checked) =>
+                                            toggleServerEnabled({ id: installation.id, enabled: checked })
+                                        }
+                                        size="small"
+                                    />
                                 )}
                             </div>
                         ),
@@ -196,7 +227,7 @@ export function McpStoreSettings(): JSX.Element {
                             {
                                 width: 0,
                                 render: (_: any, server: RecommendedServerApi) => {
-                                    const iconSrc = SERVER_ICONS[server.name] || server.icon_url
+                                    const iconSrc = SERVER_ICONS[server.name]
                                     return iconSrc ? (
                                         <div className="w-6 h-6 flex items-center justify-center">
                                             <img src={iconSrc} alt="" className="w-6 h-6" />

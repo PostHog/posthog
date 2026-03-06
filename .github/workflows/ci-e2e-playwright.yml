@@ -545,10 +545,12 @@ jobs:
 
             - name: Write report URL to job summary
               if: always() && steps.cf-deploy.outputs.deployment-url != ''
+              env:
+                  DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
               run: |
                   echo "## 🎭 Playwright report" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Report URL:** ${{ steps.cf-deploy.outputs.deployment-url }}" >> $GITHUB_STEP_SUMMARY
+                  echo "**Report URL:** $DEPLOYMENT_URL" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
@@ -556,12 +558,14 @@ jobs:
             - name: Upsert report URL comment on PR
               if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
               with:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   script: |
                       const fs = require('fs');
                       const marker = '<!-- playwright-report-comment -->';
-                      const reportUrl = '${{ steps.cf-deploy.outputs.deployment-url }}';
+                      const reportUrl = process.env.DEPLOYMENT_URL;
                       const jobPassed = '${{ job.status }}' === 'success';
 
                       // Collect failed and flaky tests from JSON report — only populated when

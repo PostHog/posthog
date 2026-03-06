@@ -21,7 +21,7 @@ export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Ele
     const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
     const { pathname } = useValues(panelLayoutLogic)
 
-    const isHomePage = to === urls.projectHomepage()
+    const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
     const isActive = currentPath === to
 
@@ -59,7 +59,7 @@ export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Ele
                     tooltip="Configure tabs & home"
                     tooltipPlacement="right"
                 >
-                    <IconGear className="text-tertiary" />
+                    <IconGear className="size-3 text-tertiary" />
                 </ButtonPrimitive>
             )}
         </ButtonGroupPrimitive>
