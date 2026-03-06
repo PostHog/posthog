@@ -84,6 +84,11 @@ metadata:
             name: mprocs
             about: Process orchestrator that runs all dev services in parallel with live
                 output and easy process management.
+        phdev:
+            name: phdev
+            about: PostHog's custom Bubble Tea process runner. Replaces mprocs with a
+                PostHog-branded TUI — per-process sidebar, scrollable output, PTY support,
+                and hogli-aware keybindings. Built from common/phdev/ on first run.
 devenv:
     dev:setup: null
     dev:generate: null
@@ -159,8 +164,10 @@ health_checks:
 start:
     start:
         bin_script: start
-        description: Main entry point that launches all dev services via mprocs orchestrator
+        description: Main entry point that launches all dev services via phdev (Bubble
+            Tea TUI). Falls back to mprocs if phdev can't be built.
         services:
+            - phdev
             - mprocs
             - docker
             - django
@@ -625,6 +632,14 @@ tools:
     generate_personhog_proto:
         bin_script: generate_personhog_proto.sh
         description: 'TODO: add description for generate_personhog_proto.sh'
+        hidden: true
+    phdev:build:
+        cmd: cd common/phdev && go build -o ../../bin/phdev .
+        description: Build the phdev binary from source (Go required; run once or after
+            changing common/phdev/)
+    phdev:
+        bin_script: phdev
+        description: Run phdev directly with a custom mprocs-format YAML config
         hidden: true
 utilities:
     nuke:
