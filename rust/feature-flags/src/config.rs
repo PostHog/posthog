@@ -490,7 +490,7 @@ pub struct Config {
     // When the wait exceeds this threshold, the request returns 504 so that
     // ingress can retry it on a less-loaded pod.
     // 0 = no timeout (await indefinitely, backwards-compatible).
-    #[envconfig(from = "RAYON_SEMAPHORE_TIMEOUT_MS", default = "0")]
+    #[envconfig(from = "RAYON_SEMAPHORE_TIMEOUT_MS", default = "150")]
     pub rayon_semaphore_timeout_ms: u64,
 
     // When true, skip all writes to PostgreSQL and Redis.
