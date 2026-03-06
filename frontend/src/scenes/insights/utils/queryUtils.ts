@@ -4,15 +4,18 @@ import { isValidRE2 } from 'lib/utils/regexp'
 import { DataNode, InsightQueryNode, Node } from '~/queries/schema/schema-general'
 import {
     filterForQuery,
-    filterKeyForQuery,
     getMathTypeWarning,
     isEventsNode,
     isFunnelsQuery,
     isHogQLQuery,
+    isLifecycleQuery,
     isInsightQueryNode,
     isInsightQueryWithDisplay,
     isInsightQueryWithSeries,
     isInsightVizNode,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
@@ -171,8 +174,7 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
     if (opts?.ignoreVisualizationOnlyChanges && !isWebAnalyticsInsightQuery(cleanedQuery)) {
         // Keep this in sync with posthog/schema_helpers.py `serialize_query` method
         const insightFilter = filterForQuery(cleanedQuery)
-        const insightFilterKey = filterKeyForQuery(cleanedQuery)
-        cleanedQuery[insightFilterKey] = {
+        const sanitizedInsightFilter = {
             ...insightFilter,
             showLegend: undefined,
             showPercentStackView: undefined,
@@ -204,13 +206,35 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             selectedInterval: undefined,
             funnelStepReference: undefined,
             breakdownSorting: undefined,
+            dataColorTheme: undefined,
         }
 
-        cleanedQuery.dataColorTheme = undefined
-
-        if (isInsightQueryWithDisplay(cleanedQuery)) {
-            cleanedQuery[insightFilterKey].display =
-                groupedChartDisplayTypes[cleanedQuery[insightFilterKey].display || ChartDisplayType.ActionsLineGraph]
+        if (isTrendsQuery(cleanedQuery)) {
+            cleanedQuery.trendsFilter = sanitizedInsightFilter
+            if (isInsightQueryWithDisplay(cleanedQuery)) {
+                cleanedQuery.trendsFilter.display =
+                    groupedChartDisplayTypes[cleanedQuery.trendsFilter?.display || ChartDisplayType.ActionsLineGraph]
+            }
+        } else if (isFunnelsQuery(cleanedQuery)) {
+            cleanedQuery.funnelsFilter = sanitizedInsightFilter
+        } else if (isRetentionQuery(cleanedQuery)) {
+            cleanedQuery.retentionFilter = sanitizedInsightFilter
+            if (isInsightQueryWithDisplay(cleanedQuery)) {
+                cleanedQuery.retentionFilter.display =
+                    groupedChartDisplayTypes[cleanedQuery.retentionFilter?.display || ChartDisplayType.ActionsLineGraph]
+            }
+        } else if (isPathsQuery(cleanedQuery)) {
+            cleanedQuery.pathsFilter = sanitizedInsightFilter
+        } else if (isStickinessQuery(cleanedQuery)) {
+            cleanedQuery.stickinessFilter = sanitizedInsightFilter
+            if (isInsightQueryWithDisplay(cleanedQuery)) {
+                cleanedQuery.stickinessFilter.display =
+                    groupedChartDisplayTypes[
+                        cleanedQuery.stickinessFilter?.display || ChartDisplayType.ActionsLineGraph
+                    ]
+            }
+        } else if (isLifecycleQuery(cleanedQuery)) {
+            cleanedQuery.lifecycleFilter = sanitizedInsightFilter
         }
     }
 

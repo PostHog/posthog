@@ -305,7 +305,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         content: <FeedbackTab featureFlag={featureFlag} />,
     })
 
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_FF_CROSS_SELL]) {
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_FF_CROSS_SELL] === 'test') {
         tabs.push({
             label: (
                 <div className="flex flex-row">
