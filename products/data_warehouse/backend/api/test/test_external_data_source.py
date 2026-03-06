@@ -845,7 +845,6 @@ class TestExternalDataSource(APIBaseTest):
                 name="accounts",
                 supports_incremental=False,
                 supports_append=False,
-                columns=[("id", "integer", False)],
             ),
         ]
 
