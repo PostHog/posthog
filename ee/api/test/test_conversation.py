@@ -666,7 +666,7 @@ class TestConversation(APIBaseTest):
                 self.assertIn("beta", response_data["detail"])
 
     @override_settings(DEBUG=False)
-    def test_research_rate_limit_applies_to_existing_research_conversations(self):
+    def test_research_rate_limit_applies_to_new_research_conversations(self):
         """Test that research rate limits apply to new DEEP_RESEARCH conversations (before conversion)."""
         with patch(
             "ee.hogai.core.executor.AgentExecutor.astream",
