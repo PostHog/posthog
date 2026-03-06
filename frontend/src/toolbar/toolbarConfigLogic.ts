@@ -64,9 +64,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         productTourId: [props.productTourId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
-        // Start as 'ok' when uiHost is explicit (passed from the PostHog app) — no check needed.
         uiHostCheckStatus: [
-            (props.uiHost ? 'ok' : 'idle') as 'idle' | 'checking' | 'ok' | 'error',
+            'idle' as 'idle' | 'checking' | 'ok' | 'error',
             { setUiHostCheckStatus: (_, { status }) => status },
         ],
         uiHostConfigModalVisible: [false, { openUiHostConfigModal: () => true, closeUiHostConfigModal: () => false }],
@@ -286,7 +285,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         // /toolbar_oauth/check is CORS-enabled — a successful CORS HEAD confirms we can reach
         // the PostHog app. Skip during a code exchange since the OAuth round-trip already
         // proved connectivity.
-        if (!pendingCodeExchange) {
+        // Skip the check when uiHost was passed explicitly from the PostHog app — it's always correct.
+        // Also skip during a code exchange since the OAuth round-trip already proved connectivity.
+        if (!props.uiHost && !pendingCodeExchange) {
             actions.setUiHostCheckStatus('checking')
 
             // Determine how uiHost was resolved so we can attribute errors to the right config path.
@@ -313,7 +314,10 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 mode: 'cors',
                 signal: AbortSignal.timeout(5000),
             })
-                .then(() => {
+                .then((response) => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`)
+                    }
                     actions.setUiHostCheckStatus('ok')
                     toolbarPosthogJS.capture('toolbar ui host check', {
                         ...checkBaseProps,
@@ -328,7 +332,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                             ? 'timeout'
                             : error instanceof TypeError
                               ? 'network_or_cors'
-                              : 'unknown'
+                              : error instanceof Error && error.message.startsWith('HTTP ')
+                                ? 'http_error'
+                                : 'unknown'
                     toolbarPosthogJS.capture('toolbar ui host check', {
                         ...checkBaseProps,
                         status: 'error',
