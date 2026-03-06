@@ -82,6 +82,8 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
+    const isDirectQuerySource =
+        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && source?.access_method === 'direct'
 
     return (
         <BindLogic logic={dataWarehouseSourceSettingsLogic} props={logicProps}>
@@ -90,46 +92,48 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
                     <LemonSwitch
                         checked={showEnabledSchemasOnly}
                         onChange={setShowEnabledSchemasOnly}
-                        label="Show enabled only"
+                        label={isDirectQuerySource ? 'Show queryable only' : 'Show enabled only'}
                     />
                     <span className="text-muted text-sm">{pluralize(filteredSchemas.length, 'schema', 'schemas')}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                    <SourceEditorAction source={source}>
-                        <LemonButton
-                            type="secondary"
-                            loading={syncingNow}
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: 'Sync all enabled schemas?',
-                                    content: (
-                                        <div className="text-sm text-secondary">
-                                            This will trigger a sync for all schemas you have enabled. New sync jobs
-                                            will appear in the Syncs tab.
-                                        </div>
-                                    ),
-                                    primaryButton: {
-                                        children: 'Sync now',
-                                        type: 'primary',
-                                        onClick: () => syncNow(),
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                        type: 'tertiary',
-                                    },
-                                })
-                            }}
-                            disabledReason={
-                                sourceLoading
-                                    ? 'Source is loading'
-                                    : refreshingSchemas
-                                      ? 'Schema refresh in progress'
-                                      : undefined
-                            }
-                        >
-                            Sync now
-                        </LemonButton>
-                    </SourceEditorAction>
+                    {!isDirectQuerySource && (
+                        <SourceEditorAction source={source}>
+                            <LemonButton
+                                type="secondary"
+                                loading={syncingNow}
+                                onClick={() => {
+                                    LemonDialog.open({
+                                        title: 'Sync all enabled schemas?',
+                                        content: (
+                                            <div className="text-sm text-secondary">
+                                                This will trigger a sync for all schemas you have enabled. New sync jobs
+                                                will appear in the Syncs tab.
+                                            </div>
+                                        ),
+                                        primaryButton: {
+                                            children: 'Sync now',
+                                            type: 'primary',
+                                            onClick: () => syncNow(),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                            type: 'tertiary',
+                                        },
+                                    })
+                                }}
+                                disabledReason={
+                                    sourceLoading
+                                        ? 'Source is loading'
+                                        : refreshingSchemas
+                                          ? 'Schema refresh in progress'
+                                          : undefined
+                                }
+                            >
+                                Sync now
+                            </LemonButton>
+                        </SourceEditorAction>
+                    )}
                     <SourceEditorAction source={source}>
                         <LemonButton
                             type="secondary"
@@ -144,7 +148,11 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
                     </SourceEditorAction>
                 </div>
             </div>
-            <SchemaTable schemas={filteredSchemas} isLoading={sourceLoading} />
+            <SchemaTable
+                schemas={filteredSchemas}
+                isLoading={sourceLoading}
+                isDirectQuerySource={isDirectQuerySource}
+            />
             {source?.source_type &&
                 REVENUE_ENABLED_SOURCES.includes(source.source_type) &&
                 featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
@@ -176,6 +184,7 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
 interface SchemaTableProps {
     schemas: ExternalDataSourceSchema[]
     isLoading: boolean
+    isDirectQuerySource: boolean
 }
 
 const StatusTagSetting: Record<ExternalDataSchemaStatus | ExternalDataJobStatus, LemonTagType> = {
@@ -188,7 +197,7 @@ const StatusTagSetting: Record<ExternalDataSchemaStatus | ExternalDataJobStatus,
     Paused: 'warning',
 }
 
-export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Element => {
+export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaTableProps): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
     const { updateSchema, reloadSchema, resyncSchema, deleteTable, setIsProjectTime } = useActions(
         dataWarehouseSourceSettingsLogic
@@ -238,6 +247,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         ),
                         tooltip: `The sync frequency will be offset from the anchor time. This will not apply to sync intervals one hour or less.`,
                         key: 'sync_time_of_day',
+                        isHidden: isDirectQuerySource,
                         render: function RenderSyncTimeOfDayLocal(_, schema) {
                             return (
                                 <SourceEditorAction source={source}>
@@ -252,6 +262,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         title: 'Sync Frequency',
                         key: 'frequency',
                         className: 'px-1',
+                        isHidden: isDirectQuerySource,
                         render: function RenderFrequency(_, schema) {
                             return (
                                 <SourceEditorAction source={source}>
@@ -285,6 +296,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         title: 'Sync method',
                         key: 'incremental',
                         className: 'px-1',
+                        isHidden: isDirectQuerySource,
                         render: function RenderIncremental(_, schema) {
                             const { openSyncMethodModal } = useActions(
                                 dataWarehouseSourcesTableSyncMethodModalLogic({ schema })
@@ -326,7 +338,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         },
                     },
                     {
-                        title: 'Enabled',
+                        title: isDirectQuerySource ? 'Queryable' : 'Enabled',
                         key: 'should_sync',
                         sorter: (a, b) => Number(a.should_sync) - Number(b.should_sync),
                         render: function RenderShouldSync(_, schema) {
@@ -334,7 +346,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                 <SourceEditorAction source={source}>
                                     <LemonSwitch
                                         disabledReason={
-                                            schema.sync_type === null
+                                            !isDirectQuerySource && schema.sync_type === null
                                                 ? 'You must set up the sync method first'
                                                 : undefined
                                         }
@@ -350,6 +362,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                     {
                         title: 'Synced Table',
                         key: 'table',
+                        isHidden: isDirectQuerySource,
                         render: function RenderTable(_, schema) {
                             if (schema.table) {
                                 const query = defaultQuery(schema.table.name, schema.table.columns)
@@ -375,6 +388,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                     {
                         title: 'Last Synced At',
                         key: 'last_synced_at',
+                        isHidden: isDirectQuerySource,
                         render: function Render(_, schema) {
                             return schema.last_synced_at ? (
                                 <>
@@ -390,9 +404,10 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                     {
                         title: 'Rows Synced',
                         key: 'rows_synced',
+                        isHidden: isDirectQuerySource,
                         render: function Render(_, schema) {
                             if (schema.table) {
-                                return schema.table.row_count.toLocaleString()
+                                return schema.table.row_count?.toLocaleString() ?? 0
                             }
 
                             // Synced but no rows
@@ -406,6 +421,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                     {
                         title: 'Status',
                         key: 'status',
+                        isHidden: isDirectQuerySource,
                         render: (_, schema) => {
                             if (!schema.status) {
                                 return null
