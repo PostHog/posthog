@@ -114,43 +114,40 @@ describe('toolbar toolbarConfigLogic', () => {
         expect(logic.values.uiHost).toBe('https://selfhosted.example.com')
     })
 
-    describe('uiHost cloud region detection', () => {
-        it.each([
-            ['us', 'https://us.posthog.com'],
-            ['eu', 'https://eu.posthog.com'],
-        ])('uses canonical %s cloud URL from requestRouter.region', (region, expected) => {
+    describe('uiHost resolution', () => {
+        it('prefers explicit uiHost prop over everything else', () => {
             const logic = toolbarConfigLogic.build({
-                apiURL: 'http://should-not-be-used',
-                posthog: { requestRouter: { region }, config: {} } as any,
-            } as any)
-            logic.mount()
-            expect(logic.values.uiHost).toBe(expected)
-        })
-
-        it('uses cloud URL even when ui_host is misconfigured to ingestion domain', () => {
-            const logic = toolbarConfigLogic.build({
-                posthog: {
-                    requestRouter: { region: 'eu' },
-                    config: { ui_host: 'https://eu.i.posthog.com' },
-                } as any,
-            } as any)
-            logic.mount()
-            expect(logic.values.uiHost).toBe('https://eu.posthog.com')
-        })
-
-        it('uses cloud URL even when apiURL is a reverse proxy', () => {
-            const logic = toolbarConfigLogic.build({
-                apiURL: 'https://myproxy.example.com/ingest',
-                posthog: { requestRouter: { region: 'us' }, config: {} } as any,
+                uiHost: 'https://us.posthog.com',
+                posthog: { requestRouter: { uiHost: 'https://should-not-be-used.com' }, config: {} } as any,
             } as any)
             logic.mount()
             expect(logic.values.uiHost).toBe('https://us.posthog.com')
         })
 
-        it('falls back to ui_host for custom region (self-hosted)', () => {
+        it.each([
+            ['https://us.posthog.com', 'https://us.posthog.com'],
+            ['https://eu.posthog.com', 'https://eu.posthog.com'],
+        ])('uses requestRouter.uiHost when no explicit uiHost prop', (requestRouterUiHost, expected) => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://should-not-be-used',
+                posthog: { requestRouter: { uiHost: requestRouterUiHost }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe(expected)
+        })
+
+        it('uses requestRouter.uiHost even when apiURL is a reverse proxy', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://myproxy.example.com/ingest',
+                posthog: { requestRouter: { uiHost: 'https://us.posthog.com' }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://us.posthog.com')
+        })
+
+        it('falls back to ui_host config when no requestRouter', () => {
             const logic = toolbarConfigLogic.build({
                 posthog: {
-                    requestRouter: { region: 'custom' },
                     config: { ui_host: 'https://my-posthog.example.com' },
                 } as any,
             } as any)
@@ -158,10 +155,10 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(logic.values.uiHost).toBe('https://my-posthog.example.com')
         })
 
-        it('falls back to apiURL when region is custom and no ui_host', () => {
+        it('falls back to apiURL when no requestRouter and no ui_host', () => {
             const logic = toolbarConfigLogic.build({
                 apiURL: 'https://selfhosted.example.com',
-                posthog: { requestRouter: { region: 'custom' }, config: {} } as any,
+                posthog: { config: {} } as any,
             } as any)
             logic.mount()
             expect(logic.values.uiHost).toBe('https://selfhosted.example.com')

@@ -19,7 +19,6 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { isDomain, isURL } from 'lib/utils'
-import { apiHostOrigin } from 'lib/utils/apiHost'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -134,9 +133,7 @@ const _buildToolbarUserIntent = (options?: BuildToolbarParamsOptions): ToolbarUs
 function buildToolbarParams(options?: BuildToolbarParamsOptions): ToolbarParams {
     return {
         userIntent: _buildToolbarUserIntent(options),
-        // Keeping this as backward compatibility, but we don't use it anymore in the toolbar
-        // and instead depend on the `posthog`'s instance configuration
-        apiURL: apiHostOrigin(),
+        uiHost: window.location.origin,
         ...(options?.actionId ? { actionId: options.actionId } : {}),
         ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
         ...(options?.productTourId && options.productTourId !== 'new' ? { productTourId: options.productTourId } : {}),
@@ -169,7 +166,7 @@ export function appEditorUrl(
  * Unlike appEditorUrl which goes through redirect_to_site,
  * this constructs the URL client-side so the toolbar uses OAuth for authentication.
  */
-function directToolbarUrl(
+export function directToolbarUrl(
     appUrl: string,
     options?: BuildToolbarParamsOptions & {
         token?: string

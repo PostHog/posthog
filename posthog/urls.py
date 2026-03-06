@@ -204,8 +204,6 @@ urlpatterns = [
     path("", include(tf_urls)),
     opt_slash_path("api/user/prepare_toolbar_preloaded_flags", user.prepare_toolbar_preloaded_flags),
     opt_slash_path("api/user/get_toolbar_preloaded_flags", user.get_toolbar_preloaded_flags),
-    opt_slash_path("api/user/toolbar_oauth_start", user.toolbar_oauth_start),
-    opt_slash_path("api/user/toolbar_oauth_exchange", user.toolbar_oauth_exchange),
     opt_slash_path("api/user/toolbar_oauth_refresh", user.toolbar_oauth_refresh),
     path("toolbar_oauth/authorize/", login_required(user.toolbar_oauth_authorize)),
     path("toolbar_oauth/callback", user.toolbar_oauth_callback),

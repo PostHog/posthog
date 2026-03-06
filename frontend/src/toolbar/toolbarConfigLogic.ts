@@ -65,29 +65,30 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     selectors({
         posthog: [(s) => [s.props], (props) => props.posthog ?? null],
-        // PostHog server URL for API requests, OAuth, and navigation links.
-        // For PostHog Cloud, always use the canonical cloud URL directly —
-        // this bypasses any reverse proxy or misconfigured ui_host.
+        // PostHog app URL used for OAuth and navigation links.
         uiHost: [
             (s) => [s.props],
             (props: ToolbarProps): string => {
-                const region = (props.posthog as any)?.requestRouter?.region
-                if (region === 'us') {
-                    return 'https://us.posthog.com'
-                }
-                if (region === 'eu') {
-                    return 'https://eu.posthog.com'
+                // Explicit uiHost passed from the PostHog app (authorizedUrlListLogic) wins —
+                // it's window.location.origin of the app itself, so it's always correct even
+                // for reverse-proxy customers who haven't set ui_host in posthog.init().
+                if (props.uiHost) {
+                    return props.uiHost.replace(/\/+$/, '')
                 }
 
-                // Self-hosted / reverse proxy: prefer explicit ui_host, then derive from apiURL.
-                // apiURL is set by the PostHog app via apiHostOrigin() — for Cloud it's the
-                // ingestion host (us.i.posthog.com), so we strip the .i. infix to get the UI host.
-                // Self-hosted URLs pass through unchanged (no .i.posthog.com to strip).
+                // requestRouter.uiHost honours explicit ui_host config and derives from
+                // api_host for Cloud (strips the .i. ingestion infix).
+                const uiHost = (props.posthog as any)?.requestRouter?.uiHost as string | undefined
+                if (uiHost) {
+                    return uiHost.replace(/\/+$/, '')
+                }
+
+                // Fallback for old posthog-js without requestRouter.
                 if (props.posthog?.config?.ui_host) {
                     return props.posthog.config.ui_host.replace(/\/+$/, '')
                 }
                 if (props.apiURL) {
-                    return props.apiURL.replace(/\/+$/, '').replace('.i.posthog.com', '.posthog.com')
+                    return props.apiURL.replace(/\/+$/, '')
                 }
                 return window.location.origin
             },
