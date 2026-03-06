@@ -87,7 +87,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightFavorite, InsightViewed
 from posthog.models.insight_variable import InsightVariable
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
@@ -131,11 +131,6 @@ def migrate_user_favorites(user: User) -> None:
     the migration is deployed. This avoids a bulk data migration that would be too expensive
     to run on prod at deploy time.
     """
-    from django.utils import timezone
-
-    from posthog.models.organization import OrganizationMembership
-    from posthog.models.team.team import Team
-
     org_ids = OrganizationMembership.objects.filter(user=user).values_list("organization_id", flat=True)
     team_ids = Team.objects.filter(organization_id__in=org_ids).values_list("id", flat=True)
 
@@ -150,7 +145,7 @@ def migrate_user_favorites(user: User) -> None:
     ]
     InsightFavorite.objects.bulk_create(new_favorites, ignore_conflicts=True)
 
-    user.favorites_migrated_at = timezone.now()
+    user.favorites_migrated_at = now()
     user.save(update_fields=["favorites_migrated_at"])
 
 
