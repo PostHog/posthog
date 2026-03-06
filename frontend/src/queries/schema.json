@@ -12825,9 +12825,6 @@
                 "name": {
                     "type": ["string", "null"]
                 },
-                "revenue": {
-                    "type": "number"
-                },
                 "source": {
                     "type": "string"
                 },
@@ -13038,7 +13035,7 @@
                     "type": "array"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "revenue"],
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
                     "type": "string"
                 },
                 "orderDirection": {
@@ -13125,7 +13122,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "revenue"],
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
                     "type": "string"
                 },
                 "orderDirection": {
@@ -13137,14 +13134,6 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
-                },
-                "revenueEntity": {
-                    "enum": ["person", "group_0", "group_1", "group_2", "group_3", "group_4"],
-                    "type": "string"
-                },
-                "revenuePeriod": {
-                    "enum": ["all_time", "mrr"],
-                    "type": "string"
                 },
                 "searchQuery": {
                     "type": "string"
