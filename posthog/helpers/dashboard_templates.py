@@ -454,12 +454,15 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
 
 def _create_default_app_items(dashboard: Dashboard) -> None:
     from posthog.models.action.action import Action
+    from posthog.models.signals import mute_selected_signals
 
-    action = Action.objects.create(
-        team=dashboard.team,
-        name="Pageview or screen",
-        steps_json=[{"event": "$pageview"}, {"event": "$screen"}],
-    )
+    # Suppress activity logging for this system-generated Action
+    with mute_selected_signals():
+        action = Action.objects.create(
+            team=dashboard.team,
+            name="Pageview or screen",
+            steps_json=[{"event": "$pageview"}, {"event": "$screen"}],
+        )
 
     template = DashboardTemplate.original_template()
 
